@@ -109,12 +109,20 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid, int inclu
 
 int close_process_group(struct process_group *pgroup)
 {
-    clear_list(pgroup->proclist);
-    free(pgroup->proclist);
-    pgroup->proclist = NULL;
-    process_table_destroy(pgroup->proctable);
-    free(pgroup->proctable);
-    pgroup->proctable = NULL;
+    if (pgroup->proclist != NULL)
+    {
+        clear_list(pgroup->proclist);
+        free(pgroup->proclist);
+        pgroup->proclist = NULL;
+    }
+
+    if (pgroup->proctable != NULL)
+    {
+        process_table_destroy(pgroup->proctable);
+        free(pgroup->proctable);
+        pgroup->proctable = NULL;
+    }
+
     return 0;
 }
 
