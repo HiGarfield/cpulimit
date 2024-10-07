@@ -70,35 +70,16 @@ pid_t find_process_by_name(char *process_name)
         /* process found */
         if (strncmp(basename(proc.command), process_basename, sizeof(proc.command)) == 0)
         {
-            if (pid < 0)
+            if (pid < 0 || is_child_of(pid, proc.pid))
             {
                 pid = proc.pid;
-            }
-            else if (is_child_of(pid, proc.pid))
-            {
-                pid = proc.pid;
-            }
-            else if (is_child_of(proc.pid, pid))
-            {
-            }
-            else
-            {
-                pid = MIN(proc.pid, pid);
             }
         }
     }
     if (close_process_iterator(&it) != 0)
         exit(1);
-    if (pid > 0)
-    {
-        /* the process was found */
-        return find_process_by_pid(pid);
-    }
-    else
-    {
-        /* process not found */
-        return 0;
-    }
+
+    return (pid > 0) ? find_process_by_pid(pid) : 0;
 }
 
 int init_process_group(struct process_group *pgroup, pid_t target_pid, int include_children)
