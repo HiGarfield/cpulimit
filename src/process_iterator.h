@@ -130,7 +130,7 @@ int get_next_process(struct process_iterator *it, struct process *p);
  * Closes the process iterator.
  *
  * @param it Pointer to the process_iterator structure.
- * @return 0 on success, 1 on failure.
+ * @return 0 on success, -1 on failure.
  */
 int close_process_iterator(struct process_iterator *it);
 
