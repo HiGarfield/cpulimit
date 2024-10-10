@@ -28,13 +28,18 @@
 #define _GNU_SOURCE
 #endif
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <sys/vfs.h>
 #include <linux/magic.h>
-#include "process_iterator.h"
-#include <sys/stat.h>
-#include <errno.h>
-#include <ctype.h>
 #include <time.h>
+#include <unistd.h>
+
+#include "process_iterator.h"
 
 static int check_proc(void)
 {

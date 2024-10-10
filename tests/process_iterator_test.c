@@ -23,16 +23,17 @@
 #define _GNU_SOURCE
 #endif
 
+#include <assert.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <assert.h>
-#include <time.h>
-#include <signal.h>
 #include <string.h>
-#include <sys/time.h>
-#include <sys/resource.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <limits.h>
+#ifdef __linux__
+#include <linux/limits.h>
+#endif
 
 #include "../src/process_iterator.h"
 #include "../src/process_group.h"

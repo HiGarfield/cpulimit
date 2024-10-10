@@ -1,9 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <unistd.h>
-#include <sys/time.h>
-#include <sys/resource.h>
 #include "../src/util.h"
 
 #ifndef __GNUC__

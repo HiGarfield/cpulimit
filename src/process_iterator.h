@@ -23,17 +23,11 @@
 #define __PROCESS_ITERATOR_H
 
 #include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
 #include <limits.h>
-#if defined(__linux__)
+#ifdef __linux__
+#include <dirent.h>
 #include <linux/limits.h>
 #endif
-#include <dirent.h>
-
 #ifdef __FreeBSD__
 #include <kvm.h>
 #endif

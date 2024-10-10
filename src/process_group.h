@@ -27,10 +27,8 @@
 #endif
 
 #include <time.h>
-#include <string.h>
 
 #include "process_iterator.h"
-
 #include "list.h"
 
 /**

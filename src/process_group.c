@@ -25,11 +25,10 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <sys/time.h>
 #include <signal.h>
-#include <errno.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "process_iterator.h"
 #include "process_group.h"

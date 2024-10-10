@@ -1,6 +1,7 @@
 #ifndef __PROCESS_TABLE_H
 #define __PROCESS_TABLE_H
 
+#include <sys/types.h>
 #include "process_iterator.h"
 #include "list.h"
 

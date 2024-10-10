@@ -29,6 +29,9 @@
 
 #include <errno.h>
 #include <libproc.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "process_iterator.h"
 
 static int unique_nonzero_pids(pid_t *arr_in, int len_in, pid_t *arr_out)

@@ -37,8 +37,10 @@
 #include <time.h>
 #include <string.h>
 #include <signal.h>
-#include <sys/time.h>
+#include <sys/types.h>
 #include <sys/wait.h>
+#include <unistd.h>
+#include <limits.h>
 
 #include "process_group.h"
 #include "list.h"

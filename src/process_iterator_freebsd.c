@@ -28,13 +28,17 @@
 #define inline
 #endif
 
-#include "process_iterator.h"
-#include <sys/sysctl.h>
-#include <sys/user.h>
 #include <fcntl.h>
 #include <kvm.h>
 #include <sys/param.h>
+#include <sys/user.h>
+#include <sys/sysctl.h>
 #include <paths.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "process_iterator.h"
 
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {
