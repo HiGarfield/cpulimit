@@ -96,7 +96,6 @@ static void test_multiple_process(void)
         /* child is supposed to be killed by the parent :/ */
         while (1)
             sleep(5);
-        exit(EXIT_SUCCESS);
     }
     process = (struct process *)malloc(sizeof(struct process));
     assert(process != NULL);
@@ -174,7 +173,6 @@ static void test_process_group_single(int include_children)
         increase_priority();
         while (1)
             (void)unused_value;
-        exit(EXIT_SUCCESS);
     }
     assert(init_process_group(&pgroup, child, include_children) == 0);
     for (i = 0; i < 100; i++)
