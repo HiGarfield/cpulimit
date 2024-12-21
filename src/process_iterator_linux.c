@@ -69,7 +69,7 @@ static int read_process_info(pid_t pid, struct process *p)
     double usertime, systime;
     long ppid;
     FILE *fd;
-    static double sc_clk_tck = -1.0;
+    static long sc_clk_tck = -1;
 
     p->pid = pid;
 
@@ -103,7 +103,7 @@ static int read_process_info(pid_t pid, struct process *p)
     p->ppid = (pid_t)ppid;
     if (sc_clk_tck < 0)
     {
-        sc_clk_tck = (double)sysconf(_SC_CLK_TCK);
+        sc_clk_tck = sysconf(_SC_CLK_TCK);
     }
     p->cputime = (usertime + systime) * 1000.0 / sc_clk_tck;
 
