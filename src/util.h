@@ -175,4 +175,19 @@ int get_ncpu(void);
  */
 pid_t get_pid_max(void);
 
+#if defined(__linux__) && defined(__UCLIBC__)
+/**
+ * Retrieves up to nelem load averages for system processes over the
+ * last 1, 5, and 15 minutes.
+ *
+ * @param loadavg Pointer to an array for storing the load averages.
+ *                It must have enough space for nelem samples.
+ * @param nelem   Number of samples to retrieve (1 to 3).
+ *
+ * @return The number of samples retrieved, or -1 if the load
+ *         average could not be obtained.
+ */
+int getloadavg(double *loadavg, int nelem);
+#endif
+
 #endif

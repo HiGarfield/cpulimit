@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <errno.h>
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/sysctl.h>
 #endif
@@ -96,3 +98,53 @@ pid_t get_pid_max(void)
 #error "Platform not supported"
 #endif
 }
+
+#if defined(__linux__) && defined(__UCLIBC__)
+int getloadavg(double *loadavg, int nelem)
+{
+    FILE *fp;
+    char buffer[65], *ptr;
+    int i;
+
+    if (nelem < 0)
+    {
+        return -1;
+    }
+    else if (nelem == 0)
+    {
+        return 0;
+    }
+    else if (nelem > 3)
+    {
+        nelem = 3;
+    }
+
+    if ((fp = fopen("/proc/loadavg", "r")) == NULL)
+    {
+        return -1;
+    }
+
+    if (fgets(buffer, sizeof(buffer), fp) == NULL)
+    {
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+
+    ptr = buffer;
+
+    for (i = 0; i < nelem; i++)
+    {
+        char *endptr;
+        errno = 0;
+        loadavg[i] = strtod(ptr, &endptr);
+        if (errno != 0 || ptr == endptr)
+        {
+            return -1;
+        }
+        ptr = endptr;
+    }
+
+    return nelem;
+}
+#endif
