@@ -9,6 +9,9 @@
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/sysctl.h>
 #endif
+#ifdef __UCLIBC__
+#include <sys/sysinfo.h>
+#endif
 #include "util.h"
 
 #ifdef __IMPL_BASENAME
@@ -96,3 +99,19 @@ pid_t get_pid_max(void)
 #error "Platform not supported"
 #endif
 }
+
+#ifdef __UCLIBC__
+int getloadavg(double *a, int n)
+{
+    struct sysinfo si;
+    int i;
+    if (n <= 0)
+        return n ? -1 : 0;
+    sysinfo(&si);
+    if (n > 3)
+        n = 3;
+    for (i = 0; i < n; i++)
+        a[i] = 1.0 / (1 << SI_LOAD_SHIFT) * si.loads[i];
+    return n;
+}
+#endif

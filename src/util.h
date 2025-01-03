@@ -175,4 +175,8 @@ int get_ncpu(void);
  */
 pid_t get_pid_max(void);
 
+#ifdef __UCLIBC__
+int getloadavg(double *a, int n);
+#endif
+
 #endif
