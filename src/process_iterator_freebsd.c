@@ -29,7 +29,7 @@
 #endif
 
 #if defined(__STRICT_ANSI__) || !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 199901L)
-#define inline
+#define inline __inline
 #endif
 
 #include <fcntl.h>
