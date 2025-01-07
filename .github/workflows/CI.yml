@@ -32,10 +32,10 @@ jobs:
         run: |
           git clone https://github.com/jvoisin/fortify-headers
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
-            export CFLAGS="$CFLAGS -I./fortify-headers -DFORTIFY_PEDANTIC_CHECKS -O3"
+            export CFLAGS="$CFLAGS -I../fortify-headers -DFORTIFY_PEDANTIC_CHECKS -O3"
             export LDFLAGS="$LDFLAGS -static"
           else
-            export CFLAGS="$CFLAGS -I./fortify-headers -D_FORTIFY_SOURCE=3 -DFORTIFY_PEDANTIC_CHECKS -O3"
+            export CFLAGS="$CFLAGS -I../fortify-headers -D_FORTIFY_SOURCE=3 -DFORTIFY_PEDANTIC_CHECKS -O3"
           fi
           make CHECK=1
           sudo ./tests/process_iterator_test
@@ -72,7 +72,7 @@ jobs:
             pkg install -y lang/gcc gmake sudo git
           run: |
             git clone https://github.com/jvoisin/fortify-headers
-            export CFLAGS="$CFLAGS -I./fortify-headers -D_FORTIFY_SOURCE=3 -DFORTIFY_PEDANTIC_CHECKS -O3"
+            export CFLAGS="$CFLAGS -I../fortify-headers -D_FORTIFY_SOURCE=3 -DFORTIFY_PEDANTIC_CHECKS -O3"
             gmake CHECK=1
             sudo ./tests/process_iterator_test
             random_file="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
