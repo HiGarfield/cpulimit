@@ -4,30 +4,49 @@ CC ?= gcc
 # Compiler flags
 override CFLAGS := $(filter-out -std=% -ansi -W%, $(CFLAGS)) \
                    -std=c89 \
+                   -Wpedantic \
                    -Wall \
                    -Wextra \
-                   -pedantic \
                    -Wold-style-definition \
                    -Wmissing-prototypes \
                    -Wstrict-prototypes \
+                   -Wdeclaration-after-statement \
                    -Werror
 
 # If CHECK is set to 1, add stricter flags
 ifeq ($(CHECK), 1)
 override CFLAGS += -Wshadow \
-                   -Wfloat-equal \
-                   -Wformat=2 \
-                   -Wcast-align \
-                   -Wpointer-arith \
-                   -Wnull-dereference \
                    -Wcast-qual \
-                   -Wmissing-declarations \
-                   -Wredundant-decls \
-                   -Wstrict-aliasing=2 \
-                   -Wswitch-enum \
-                   -Wswitch-default \
                    -Wconversion \
-                   -Wsign-conversion
+                   -Wformat=2 \
+                   -Wstrict-overflow=5 \
+                   -Wundef \
+                   -Wswitch-default \
+                   -Wswitch-enum \
+                   -Wunreachable-code \
+                   -Wfloat-equal \
+                   -Wpointer-arith \
+                   -Wwrite-strings \
+                   -Wredundant-decls \
+                   -Wmissing-declarations \
+                   -Winline \
+                   -Wcast-align \
+                   -Wstrict-aliasing=2 \
+                   -Wsign-conversion \
+                   -Wmissing-include-dirs \
+                   -Wunused \
+                   -Wbad-function-cast \
+                   -Waggregate-return \
+                   -Wmissing-format-attribute \
+                   -Wlarger-than=256 \
+                   -Wdisabled-optimization
+ifeq ($(CC),gcc)
+    override CFLAGS += -Wunsafe-loop-optimizations
+endif # $(CC) = gcc
+endif # CHECK = 1
+
+ifeq ($(CC),gcc)
+    override CFLAGS += -Wunsafe-loop-optimizations
 endif
 
 # Target binaries and source directory
