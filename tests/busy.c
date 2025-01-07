@@ -13,30 +13,43 @@
 
 static void *loop(void *param __attribute__((unused)))
 {
-    volatile int unused_value = 0;
     while (1)
-        (void)unused_value;
+        ;
     return NULL;
 }
 
 int main(int argc, char *argv[])
 {
+    int i, num_threads;
+    pthread_t *threads;
+    num_threads = argc == 2 ? atoi(argv[1]) : get_ncpu();
+    num_threads = MAX(num_threads, 1);
 
-    int i = 0;
-    int num_threads = get_ncpu();
-    increase_priority();
-    if (argc == 2)
-        num_threads = atoi(argv[1]);
-    for (i = 0; i < num_threads - 1; i++)
+    threads = (pthread_t *)malloc((size_t)num_threads * sizeof(pthread_t));
+    if (threads == NULL)
     {
-        pthread_t thread;
+        fprintf(stderr, "malloc() failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    increase_priority();
+
+    for (i = 0; i < num_threads; i++)
+    {
         int ret;
-        if ((ret = pthread_create(&thread, NULL, &loop, NULL)) != 0)
+        if ((ret = pthread_create(&threads[i], NULL, loop, NULL)) != 0)
         {
-            printf("pthread_create() failed. Error code %d\n", ret);
+            fprintf(stderr, "pthread_create() failed. Error code %d\n", ret);
+            free(threads);
             exit(EXIT_FAILURE);
         }
     }
-    loop(NULL);
+
+    for (i = 0; i < num_threads; i++)
+    {
+        pthread_join(threads[i], NULL);
+    }
+
+    free(threads);
     return 0;
 }
