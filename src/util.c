@@ -9,7 +9,11 @@
 #include <stdlib.h>
 #include <errno.h>
 #if defined(__APPLE__) || defined(__FreeBSD__)
+#include <sys/types.h>
 #include <sys/sysctl.h>
+#endif
+#ifdef HAVE_SYS_SYSINFO_H
+#include <sys/sysinfo.h>
 #endif
 #include "util.h"
 
@@ -51,23 +55,28 @@ void increase_priority(void)
 /* Get the number of CPUs */
 int get_ncpu(void)
 {
-    int ncpu = -1;
 #if defined(_SC_NPROCESSORS_ONLN)
-    ncpu = (int)sysconf(_SC_NPROCESSORS_ONLN);
-#elif defined(__APPLE__)
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+    return ncpu > 0 ? (int)ncpu : 1;
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+    int ncpu = 0;
     int mib[2] = {CTL_HW, HW_AVAILCPU};
     size_t len = sizeof(ncpu);
-    sysctl(mib, 2, &ncpu, &len, NULL, 0);
-#elif defined(__FreeBSD__)
-    int mib[2]{CTL_HW, HW_NCPU};
-    size_t len = sizeof(ncpu);
-    sysctl(mib, 2, &ncpu, &len, NULL, 0);
-#elif defined(_GNU_SOURCE)
-    ncpu = get_nprocs();
-#else
-#error "Platform not supported"
-#endif
+    if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
+    {
+        mib[1] = HW_NCPU;
+        if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
+        {
+            return 1;
+        }
+    }
     return ncpu;
+#elif defined(__linux__)
+    int ncpu = get_nprocs();
+    return ncpu > 0 ? ncpu : 1;
+#else
+#error "Unsupported platform"
+#endif
 }
 
 pid_t get_pid_max(void)
