@@ -155,7 +155,7 @@ static struct process *process_dup(const struct process *proc)
 void update_process_group(struct process_group *pgroup)
 {
     struct process_iterator it;
-    struct process *tmp_process, *p;
+    struct process *tmp_process;
     struct process_filter filter;
     struct timespec now;
     double dt;
@@ -179,7 +179,7 @@ void update_process_group(struct process_group *pgroup)
 
     while (get_next_process(&it, tmp_process) != -1)
     {
-        p = process_table_find(pgroup->proctable, tmp_process);
+        struct process *p = process_table_find(pgroup->proctable, tmp_process);
         if (p == NULL)
         {
             /* process is new. add it */
