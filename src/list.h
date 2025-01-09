@@ -26,6 +26,7 @@
 #define _GNU_SOURCE
 #endif
 
+struct list_node;
 /**
  * Structure representing a node in a doubly linked list.
  */
