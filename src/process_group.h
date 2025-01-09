@@ -27,9 +27,10 @@
 #endif
 
 #include <time.h>
-
-#include "process_iterator.h"
+#include <sys/types.h>
 #include "list.h"
+#include "process_iterator.h"
+#include "process_table.h"
 
 /**
  * Structure representing a group of processes for tracking.
