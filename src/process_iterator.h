@@ -49,7 +49,7 @@ struct process
     /* CPU time used by the process (in milliseconds) */
     double cputime;
 
-    /* Actual CPU usage estimation (value in range 0-1) */
+    /* Actual CPU usage estimation (value in range 0-NCPU) */
     double cpu_usage;
 
     /* Absolute path of the executable file */

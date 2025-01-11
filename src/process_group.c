@@ -196,7 +196,7 @@ void update_process_group(struct process_group *pgroup)
                 continue;
             /* process exists. update CPU usage */
             sample = (tmp_process->cputime - p->cputime) / dt;
-            sample = MIN(sample, 1.0);
+            sample = MIN(sample, 1.0 * get_ncpu());
             if (p->cpu_usage < 0)
             {
                 /* initialization */

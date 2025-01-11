@@ -186,9 +186,9 @@ static void test_process_group_single(int include_children)
             const struct process *p = (const struct process *)(node->data);
             assert(p->pid == child);
             assert(p->ppid == getpid());
-            /* p->cpu_usage should be -1 or [0, 1] */
+            /* p->cpu_usage should be -1 or [0, NCPU] */
             assert((p->cpu_usage >= (-1.00001) && p->cpu_usage <= (-0.99999)) ||
-                   (p->cpu_usage >= 0 && p->cpu_usage <= 1.0));
+                   (p->cpu_usage >= 0 && p->cpu_usage <= 1.0 * get_ncpu()));
             count++;
         }
         assert(count == 1);
