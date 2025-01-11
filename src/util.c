@@ -55,28 +55,43 @@ void increase_priority(void)
 /* Get the number of CPUs */
 int get_ncpu(void)
 {
-#if defined(_SC_NPROCESSORS_ONLN)
-    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-    return ncpu > 0 ? (int)ncpu : 1;
-#elif defined(__APPLE__) || defined(__FreeBSD__)
-    int ncpu = 0;
-    int mib[2] = {CTL_HW, HW_AVAILCPU};
-    size_t len = sizeof(ncpu);
-    if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
+    static int cached_ncpu = -1;
+
+    if (cached_ncpu > 0)
     {
-        mib[1] = HW_NCPU;
+        return cached_ncpu;
+    }
+
+#if defined(_SC_NPROCESSORS_ONLN)
+    {
+        long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+        cached_ncpu = ncpu > 0 ? (int)ncpu : 1;
+    }
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+    {
+        int ncpu = 0, mib[2] = {CTL_HW, HW_AVAILCPU};
+        size_t len = sizeof(ncpu);
         if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
         {
-            return 1;
+            mib[1] = HW_NCPU;
+            if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
+            {
+                cached_ncpu = 1;
+                return 1;
+            }
         }
+        cached_ncpu = ncpu;
     }
-    return ncpu;
 #elif defined(__linux__)
-    int ncpu = get_nprocs();
-    return ncpu > 0 ? ncpu : 1;
+    {
+        int ncpu = get_nprocs();
+        cached_ncpu = ncpu > 0 ? ncpu : 1;
+    }
 #else
 #error "Unsupported platform"
 #endif
+
+    return cached_ncpu;
 }
 
 pid_t get_pid_max(void)
