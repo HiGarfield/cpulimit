@@ -4,13 +4,12 @@ CC ?= gcc
 # Compiler flags
 override CFLAGS := $(filter-out -std=% -ansi -W%, $(CFLAGS)) \
                    -std=c89 \
-                   -Wpedantic \
+                   -pedantic \
                    -Wall \
                    -Wextra \
                    -Wold-style-definition \
                    -Wmissing-prototypes \
                    -Wstrict-prototypes \
-                   -Wdeclaration-after-statement \
                    -Werror
 
 # If CHECK is set to 1, add stricter flags
@@ -41,13 +40,15 @@ override CFLAGS += -Wshadow \
                    -Wlarger-than=256 \
                    -Wdisabled-optimization
 ifeq ($(CC),gcc)
-    override CFLAGS += -Wunsafe-loop-optimizations
+override CFLAGS += -Wunsafe-loop-optimizations
 endif # $(CC) = gcc
 endif # CHECK = 1
 
-ifeq ($(CC),gcc)
-    override CFLAGS += -Wunsafe-loop-optimizations
-endif
+# If NOFLAGS is set to 1, set CFLAGS and LDFLAGS to empty
+ifeq ($(NOFLAGS), 1)
+override CFLAGS :=
+override LDFLAGS :=
+endif # NOFLAGS = 1
 
 # Target binaries and source directory
 TARGETS := $(patsubst %.c, %, $(wildcard *.c))
