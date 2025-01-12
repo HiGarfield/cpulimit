@@ -97,19 +97,27 @@ int get_ncpu(void)
 pid_t get_pid_max(void)
 {
 #if defined(__linux__)
-    long pid_max = -1;
-    FILE *fd;
-    if ((fd = fopen("/proc/sys/kernel/pid_max", "r")) == NULL)
+
+#ifndef PID_T_MAX
+#define MAX_SIGNED_INT(type) \
+    ((type)((((type)1 << (sizeof(type) * 8 - 2)) - 1) * 2 + 1))
+#define PID_T_MAX (MAX_SIGNED_INT(pid_t))
+#endif /* #ifndef PID_T_MAX */
+
+    long pid_max;
+    FILE *fp;
+    if ((fp = fopen("/proc/sys/kernel/pid_max", "r")) == NULL)
     {
         fprintf(stderr, "Fail to open /proc/sys/kernel/pid_max\n");
-        return (pid_t)-1;
+        return PID_T_MAX;
     }
-    if (fscanf(fd, "%ld", &pid_max) != 1)
+    if (fscanf(fp, "%ld", &pid_max) != 1)
     {
         fprintf(stderr, "Fail to read /proc/sys/kernel/pid_max\n");
-        pid_max = -1;
+        fclose(fp);
+        return PID_T_MAX;
     }
-    fclose(fd);
+    fclose(fp);
     return (pid_t)pid_max;
 #elif defined(__FreeBSD__)
     return (pid_t)99998;
