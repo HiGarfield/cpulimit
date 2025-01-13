@@ -123,7 +123,8 @@ const char *__basename(const char *path);
  * Sleep for a specified timespec duration
  */
 #ifndef sleep_timespec
-#if defined(__linux__) && _POSIX_C_SOURCE >= 200112L && defined(CLOCK_TAI)
+#if defined(__linux__) && defined(_POSIX_C_SOURCE) && \
+    _POSIX_C_SOURCE >= 200112L && defined(CLOCK_TAI)
 #define sleep_timespec(t) clock_nanosleep(CLOCK_TAI, 0, (t), NULL)
 #else
 #define sleep_timespec(t) nanosleep((t), NULL)
@@ -134,7 +135,7 @@ const char *__basename(const char *path);
  * Retrieves the current time into a timespec structure
  */
 #ifndef get_time
-#if _POSIX_TIMERS > 0
+#if defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0
 #if defined(CLOCK_TAI)
 #define get_time(ts) clock_gettime(CLOCK_TAI, (ts))
 #elif defined(CLOCK_MONOTONIC)
