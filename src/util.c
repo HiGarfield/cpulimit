@@ -69,7 +69,15 @@ int get_ncpu(void)
     }
 #elif defined(__APPLE__) || defined(__FreeBSD__)
     {
-        int ncpu = 0, mib[2] = {CTL_HW, HW_AVAILCPU};
+        int ncpu = 0, mib[2];
+        mib[0] = CTL_HW;
+#if defined(HW_AVAILCPU)
+        mib[1] = HW_AVAILCPU;
+#elif defined(HW_NCPU)
+        mib[1] = HW_NCPU;
+#else
+#error "Unsupported platform"
+#endif
         size_t len = sizeof(ncpu);
         if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
         {
