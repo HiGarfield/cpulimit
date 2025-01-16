@@ -51,12 +51,13 @@ jobs:
           path: src/cpulimit
 
   build-FreeBSD:
-    name: Build on FreeBSD-${{ matrix.osver }}
+    name: Build on FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
     permissions:
       contents: read
     strategy:
       matrix:
-        osver: ['13.4', '14.1', '15.0']
+        osver: ['13.4', '14.2', '15.0']
+        arch: ['x86_64', 'aarch64']
     runs-on: ubuntu-latest
 
     steps:
@@ -67,6 +68,7 @@ jobs:
         uses: vmactions/freebsd-vm@v1
         with:
           release: ${{ matrix.osver }}
+          arch: ${{ matrix.arch }}
           usesh: true
           prepare: |
             pkg install -y lang/gcc gmake sudo git
@@ -83,5 +85,5 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@main
         with:
-          name: cpulimit-FreeBSD-${{ matrix.osver }}
+          name: cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
           path: src/cpulimit
