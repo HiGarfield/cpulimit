@@ -2,7 +2,7 @@
 CC ?= gcc
 
 # Compiler flags
-override CFLAGS := $(filter-out -std=% -ansi -W%, $(CFLAGS)) \
+override CFLAGS := $(filter-out -std=% -ansi -W%,$(CFLAGS)) \
                    -std=c89 \
                    -pedantic \
                    -Wall \
@@ -13,7 +13,7 @@ override CFLAGS := $(filter-out -std=% -ansi -W%, $(CFLAGS)) \
                    -Werror
 
 # If CHECK is set to 1, add stricter flags
-ifeq ($(CHECK), 1)
+ifeq ($(CHECK),1)
 override CFLAGS += -Wshadow \
                    -Wcast-qual \
                    -Wconversion \
@@ -45,7 +45,7 @@ endif # $(CC) = gcc
 endif # CHECK = 1
 
 # If NOFLAGS is set to 1, set CFLAGS and LDFLAGS to empty
-ifeq ($(NOFLAGS), 1)
+ifeq ($(NOFLAGS),1)
 override CFLAGS :=
 override LDFLAGS :=
 endif # NOFLAGS = 1
@@ -57,8 +57,8 @@ TARGET := cpulimit
 UNAME ?= $(shell uname)
 
 # Platform-specific linker flags
-override LDFLAGS += $(if $(findstring FreeBSD, $(UNAME)), -lkvm,) \
-                    $(if $(findstring Darwin, $(UNAME)), -lproc,)
+override LDFLAGS += $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
+                    $(if $(findstring Darwin,$(UNAME)),-lproc)
 
 # Check for librt availability
 override LDFLAGS += $(shell \
@@ -75,7 +75,7 @@ all: $(TARGET)
 
 # Build target
 $(TARGET): $(wildcard *.c *.h)
-	$(CC) $(CFLAGS) $(filter-out process_iterator_%.c %.h, $^) $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(filter-out process_iterator_%.c %.h,$^) $(LDFLAGS) -o $@
 
 # Clean target
 clean:

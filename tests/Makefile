@@ -2,7 +2,7 @@
 CC ?= gcc
 
 # Compiler flags
-override CFLAGS := $(filter-out -std=% -ansi -W%, $(CFLAGS)) \
+override CFLAGS := $(filter-out -std=% -ansi -W%,$(CFLAGS)) \
                    -std=c89 \
                    -pedantic \
                    -Wall \
@@ -13,7 +13,7 @@ override CFLAGS := $(filter-out -std=% -ansi -W%, $(CFLAGS)) \
                    -Werror
 
 # If CHECK is set to 1, add stricter flags
-ifeq ($(CHECK), 1)
+ifeq ($(CHECK),1)
 override CFLAGS += -Wshadow \
                    -Wcast-qual \
                    -Wconversion \
@@ -45,21 +45,21 @@ endif # $(CC) = gcc
 endif # CHECK = 1
 
 # If NOFLAGS is set to 1, set CFLAGS and LDFLAGS to empty
-ifeq ($(NOFLAGS), 1)
+ifeq ($(NOFLAGS),1)
 override CFLAGS :=
 override LDFLAGS :=
 endif # NOFLAGS = 1
 
 # Target binaries and source directory
-TARGETS := $(patsubst %.c, %, $(wildcard *.c))
+TARGETS := $(patsubst %.c,%,$(wildcard *.c))
 SRC := ../src
 
 # Detect operating system
 UNAME ?= $(shell uname)
 
 # Platform-specific linker flags
-override LDFLAGS += $(if $(findstring FreeBSD, $(UNAME)), -lkvm,) \
-                    $(if $(findstring Darwin, $(UNAME)), -lproc,)
+override LDFLAGS += $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
+                    $(if $(findstring Darwin,$(UNAME)),-lproc)
 
 # Check for librt availability
 override LDFLAGS += $(shell \
@@ -76,14 +76,14 @@ all: $(TARGETS)
 
 # Target rules
 busy: busy.c $(wildcard $(SRC)/util.*)
-	$(CC) $(CFLAGS) $(filter-out %.h, $^) -lpthread $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(filter-out %.h,$^) -lpthread $(LDFLAGS) -o $@
 
 multi_process_busy: multi_process_busy.c
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 process_iterator_test: process_iterator_test.c \
-                       $(filter-out $(SRC)/cpulimit.c, $(wildcard $(SRC)/*.c $(SRC)/*.h))
-	$(CC) $(CFLAGS) $(filter-out $(SRC)/process_iterator_%.c %.h, $^) $(LDFLAGS) -o $@
+                       $(filter-out $(SRC)/cpulimit.c,$(wildcard $(SRC)/*.c $(SRC)/*.h))
+	$(CC) $(CFLAGS) $(filter-out $(SRC)/process_iterator_%.c %.h,$^) $(LDFLAGS) -o $@
 
 # Clean target
 clean:
