@@ -44,6 +44,9 @@ override CFLAGS += -Wunsafe-loop-optimizations
 endif # $(CC) = gcc
 endif # CHECK = 1
 
+# Set NOFLAGS to 1 for C++ compilers
+NOFLAGS := $(if $(findstring ++,$(CC)),1)
+
 # If NOFLAGS is set to 1, set CFLAGS and LDFLAGS to empty
 ifeq ($(NOFLAGS),1)
 override CFLAGS :=
