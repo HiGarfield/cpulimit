@@ -39,9 +39,6 @@ override CFLAGS += -Wshadow \
                    -Wmissing-format-attribute \
                    -Wlarger-than=256 \
                    -Wdisabled-optimization
-ifeq ($(CC),gcc)
-override CFLAGS += -Wunsafe-loop-optimizations
-endif # $(CC) = gcc
 endif # CHECK = 1
 
 # Set NOFLAGS to 1 for C++ compilers
