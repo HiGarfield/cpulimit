@@ -14,11 +14,11 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #endif
-#ifdef HAVE_SYS_SYSINFO_H
-#include <sys/sysinfo.h>
-#endif
 #ifdef __IMPL_GET_TIME
 #include <sys/time.h>
+#endif
+#if defined(__linux__) && !defined(_SC_NPROCESSORS_ONLN)
+#include <sys/sysinfo.h>
 #endif
 
 #include "util.h"
