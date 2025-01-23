@@ -37,21 +37,11 @@
 #include "process_table.h"
 #include "util.h"
 
-/* look for a process by pid
-search_pid   : pid of the wanted process
-return:  pid of the found process, if successful
-         negative pid, if the process does not exist or if the signal fails */
 pid_t find_process_by_pid(pid_t pid)
 {
     return (kill(pid, 0) == 0) ? pid : -pid;
 }
 
-/* look for a process with a given name
-process: the name of the wanted process. it can be an absolute path name to the executable file
-        or just the file name
-return:  pid of the found process, if it is found
-        0, if it's not found
-        negative pid, if it is found but it's not possible to control it */
 pid_t find_process_by_name(char *process_name)
 {
     /* pid of the target process */
