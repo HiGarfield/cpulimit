@@ -3,7 +3,6 @@
 #endif
 
 #include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 #include <stdio.h>
 #include "process_table.h"

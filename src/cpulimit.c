@@ -40,10 +40,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <limits.h>
 
-#include "process_group.h"
 #include "list.h"
+#include "process_group.h"
+#include "process_iterator.h"
 #include "util.h"
 
 #ifndef EPSILON

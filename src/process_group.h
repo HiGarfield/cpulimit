@@ -26,10 +26,9 @@
 #define _GNU_SOURCE
 #endif
 
-#include <time.h>
 #include <sys/types.h>
+#include <time.h>
 #include "list.h"
-#include "process_iterator.h"
 #include "process_table.h"
 
 /**

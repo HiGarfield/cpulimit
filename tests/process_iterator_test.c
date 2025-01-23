@@ -36,6 +36,7 @@
 #include "../src/process_iterator.h"
 #include "../src/process_group.h"
 #include "../src/util.h"
+#include "../src/list.h"
 
 #ifndef __GNUC__
 #define __attribute__(attr)

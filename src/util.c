@@ -2,12 +2,14 @@
 #define _GNU_SOURCE
 #endif
 
-#include <sys/resource.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/resource.h>
+#include <unistd.h>
+#if defined(__linux__) && defined(__UCLIBC__)
 #include <stdlib.h>
 #include <errno.h>
+#endif
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -15,6 +17,10 @@
 #ifdef HAVE_SYS_SYSINFO_H
 #include <sys/sysinfo.h>
 #endif
+#ifdef __IMPL_GET_TIME
+#include <sys/time.h>
+#endif
+
 #include "util.h"
 
 #ifdef __IMPL_BASENAME

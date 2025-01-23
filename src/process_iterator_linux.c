@@ -28,13 +28,13 @@
 #define _GNU_SOURCE
 #endif
 
+#include <ctype.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <dirent.h>
 #include <sys/stat.h>
-#include <sys/vfs.h>
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
