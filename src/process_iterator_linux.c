@@ -139,11 +139,10 @@ static int get_start_time(pid_t pid, struct timespec *start_time)
     return ret;
 }
 
-static int earlier_than(const struct timespec *t1, const struct timespec *t2)
-{
-    return t1->tv_sec < t2->tv_sec ||
-           (t1->tv_sec == t2->tv_sec && t1->tv_nsec < t2->tv_nsec);
-}
+/* int earlier_than(const struct timespec *t1, const struct timespec *t2) */
+#define earlier_than(t1, t2)        \
+    ((t1)->tv_sec < (t2)->tv_sec || \
+     ((t1)->tv_sec == (t2)->tv_sec && (t1)->tv_nsec < (t2)->tv_nsec))
 
 int is_child_of(pid_t child_pid, pid_t parent_pid)
 {
