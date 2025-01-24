@@ -549,7 +549,7 @@ int main(int argc, char *argv[])
                 {
                     if (verbose)
                         printf("Process %ld terminated with exit status %d\n",
-                               (long)child, (int)WEXITSTATUS(status_process));
+                               (long)child, WEXITSTATUS(status_process));
                     exit(WEXITSTATUS(status_process));
                 }
                 printf("Process %ld terminated abnormally\n", (long)child);
