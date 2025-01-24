@@ -9,6 +9,7 @@
 #if defined(__linux__) && defined(__UCLIBC__)
 #include <stdlib.h>
 #include <errno.h>
+#include <fcntl.h>
 #endif
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/types.h>
@@ -145,9 +146,9 @@ pid_t get_pid_max(void)
 #if defined(__linux__) && defined(__UCLIBC__)
 int getloadavg(double *loadavg, int nelem)
 {
-    FILE *fp;
+    int fd, i;
     char buffer[65], *ptr;
-    int i;
+    ssize_t bytesread;
 
     if (nelem < 0)
     {
@@ -162,17 +163,18 @@ int getloadavg(double *loadavg, int nelem)
         nelem = 3;
     }
 
-    if ((fp = fopen("/proc/loadavg", "r")) == NULL)
+    if ((fd = open("/proc/loadavg", O_RDONLY)) < 0)
     {
         return -1;
     }
 
-    if (fgets(buffer, sizeof(buffer), fp) == NULL)
+    bytesread = read(fd, buffer, sizeof(buffer) - 1);
+    close(fd);
+    if (bytesread <= 0)
     {
-        fclose(fp);
         return -1;
     }
-    fclose(fp);
+    buffer[bytesread - 1] = '\0';
 
     ptr = buffer;
 

@@ -36,6 +36,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #include "process_iterator.h"
@@ -65,28 +66,45 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
 
 static int read_process_info(pid_t pid, struct process *p)
 {
-    char statfile[32], exefile[32], state;
+    char statfile[64], exefile[64], state;
+    const size_t buff_size = 2048;
+    ssize_t nread;
+    char *buffer;
     double usertime, systime;
     long ppid;
-    FILE *fd;
+    int fd;
     static long sc_clk_tck = -1;
 
     p->pid = pid;
 
     /* read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)p->pid);
-    if ((fd = fopen(statfile, "r")) == NULL)
+    if ((fd = open(statfile, O_RDONLY)) < 0)
     {
         return -1;
     }
-    if (fscanf(fd, "%*d (%*[^)]) %c %ld %*d %*d %*d %*d %*d %*d %*d %*d %*d %lf %lf",
+    buffer = (char *)malloc(buff_size);
+    if (buffer == NULL)
+    {
+        close(fd);
+        return -1;
+    }
+    nread = read(fd, buffer, buff_size - 1);
+    close(fd);
+    if (nread <= 0)
+    {
+        free(buffer);
+        return -1;
+    }
+    buffer[nread] = '\0';
+    if (sscanf(buffer, "%*s (%*[^)]) %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
                &state, &ppid, &usertime, &systime) != 4 ||
         strchr("ZXx", state) != NULL)
     {
-        fclose(fd);
+        free(buffer);
         return -1;
     }
-    fclose(fd);
+    free(buffer);
     p->ppid = (pid_t)ppid;
     if (sc_clk_tck < 0)
     {
@@ -96,33 +114,57 @@ static int read_process_info(pid_t pid, struct process *p)
 
     /* read command line */
     sprintf(exefile, "/proc/%ld/cmdline", (long)p->pid);
-    if ((fd = fopen(exefile, "r")) == NULL)
+    if ((fd = open(exefile, O_RDONLY)) < 0)
     {
         return -1;
     }
-    if (fgets(p->command, sizeof(p->command), fd) == NULL)
+    nread = read(fd, p->command, sizeof(p->command) - 1);
+    close(fd);
+    if (nread <= 0)
     {
-        fclose(fd);
         return -1;
     }
-    fclose(fd);
+    p->command[nread] = '\0';
 
     return 0;
 }
 
 pid_t getppid_of(pid_t pid)
 {
-    char statfile[32];
-    FILE *fd;
+    char statfile[64], state;
+    const size_t buff_size = 2048;
+    ssize_t nread;
+    char *buffer;
     long ppid;
-    if (pid <= 0)
-        return (pid_t)(-1);
+    int fd;
+
+    /* read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)pid);
-    if ((fd = fopen(statfile, "r")) == NULL)
-        return (pid_t)(-1);
-    if (fscanf(fd, "%*d (%*[^)]) %*c %ld", &ppid) != 1)
-        ppid = -1;
-    fclose(fd);
+    if ((fd = open(statfile, O_RDONLY)) < 0)
+    {
+        return (pid_t)-1;
+    }
+    buffer = (char *)malloc(buff_size);
+    if (buffer == NULL)
+    {
+        close(fd);
+        return (pid_t)-1;
+    }
+    nread = read(fd, buffer, buff_size - 1);
+    close(fd);
+    if (nread <= 0)
+    {
+        free(buffer);
+        return (pid_t)-1;
+    }
+    buffer[nread] = '\0';
+    if (sscanf(buffer, "%*s (%*[^)]) %c %ld", &state, &ppid) != 2 ||
+        strchr("ZXx", state) != NULL)
+    {
+        free(buffer);
+        return (pid_t)-1;
+    }
+    free(buffer);
     return (pid_t)ppid;
 }
 
