@@ -73,19 +73,6 @@ static int read_process_info(pid_t pid, struct process *p)
 
     p->pid = pid;
 
-    /* read command line */
-    sprintf(exefile, "/proc/%ld/cmdline", (long)p->pid);
-    if ((fd = fopen(exefile, "r")) == NULL)
-    {
-        return -1;
-    }
-    if (fgets(p->command, sizeof(p->command), fd) == NULL)
-    {
-        fclose(fd);
-        return -1;
-    }
-    fclose(fd);
-
     /* read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)p->pid);
     if ((fd = fopen(statfile, "r")) == NULL)
@@ -106,6 +93,19 @@ static int read_process_info(pid_t pid, struct process *p)
         sc_clk_tck = sysconf(_SC_CLK_TCK);
     }
     p->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
+
+    /* read command line */
+    sprintf(exefile, "/proc/%ld/cmdline", (long)p->pid);
+    if ((fd = fopen(exefile, "r")) == NULL)
+    {
+        return -1;
+    }
+    if (fgets(p->command, sizeof(p->command), fd) == NULL)
+    {
+        fclose(fd);
+        return -1;
+    }
+    fclose(fd);
 
     return 0;
 }
