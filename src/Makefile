@@ -67,8 +67,34 @@ override LDFLAGS += $(shell \
     echo -lrt \
 )
 
+# cppcheck options
+CPPCHECK_OPTS := $(shell \
+    echo | $(CC) -E -x c -v - 2>&1 | \
+    grep "^[[:space:]]*/usr.*/include" | \
+    sed 's/^/-I /' \
+)
+CPPCHECK_OPTS += $(if $(findstring Linux,$(UNAME)),-D__linux__) \
+                 $(if $(findstring FreeBSD,$(UNAME)),-D__FreeBSD__) \
+                 $(if $(findstring Darwin,$(UNAME)),-D__APPLE__)
+CPPCHECK_OPTS += -D_GNU_SOURCE
+CPPCHECK_OPTS += --enable=all \
+                 --inconclusive \
+                 --check-level=exhaustive \
+                 --max-ctu-depth=10 \
+                 --library=gnu \
+                 --force \
+                 --std=c89 \
+                 --suppress=missingIncludeSystem \
+                 --suppress=*:/usr/* \
+                 --suppress=unusedFunction \
+                 --suppress=checkersReport \
+                 -j 12
+
+# Check report file
+CHECK_REPORT := check-report.txt
+
 # Phony targets
-.PHONY: all clean
+.PHONY: all clean format check
 
 # Default target
 all: $(TARGET)
@@ -79,4 +105,12 @@ $(TARGET): $(wildcard *.c *.h)
 
 # Clean target
 clean:
-	rm -f *~ $(TARGET)
+	rm -f *~ $(TARGET) $(CHECK_REPORT)
+
+# Format source files with clang-format
+format: $(wildcard *.c *.h)
+	clang-format -i $^
+
+# Check source files with clang-tidy
+check: $(wildcard *.c *.h)
+	cppcheck $(CPPCHECK_OPTS) . 2>$(CHECK_REPORT)
