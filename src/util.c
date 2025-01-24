@@ -2,27 +2,30 @@
 #define _GNU_SOURCE
 #endif
 
+#include "util.h" /* Must be included at first!!! */
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <unistd.h>
-#if defined(__linux__) && defined(__UCLIBC__)
-#include <stdlib.h>
-#include <errno.h>
-#include <fcntl.h>
-#endif
+
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #endif
+
 #ifdef __IMPL_GET_TIME
 #include <sys/time.h>
 #endif
+
+#ifdef __IMPL_GETLOADAVG
+#include <stdlib.h>
+#include <errno.h>
+#include <fcntl.h>
+#endif
+
 #if defined(__linux__) && !defined(_SC_NPROCESSORS_ONLN)
 #include <sys/sysinfo.h>
 #endif
-
-#include "util.h"
 
 #ifdef __IMPL_BASENAME
 const char *__basename(const char *path)
@@ -143,8 +146,8 @@ pid_t get_pid_max(void)
 #endif
 }
 
-#if defined(__linux__) && defined(__UCLIBC__)
-int getloadavg(double *loadavg, int nelem)
+#ifdef __IMPL_GETLOADAVG
+int __getloadavg(double *loadavg, int nelem)
 {
     int fd, i;
     char buffer[65], *ptr;

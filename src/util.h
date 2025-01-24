@@ -175,7 +175,19 @@ int get_ncpu(void);
  */
 pid_t get_pid_max(void);
 
-#if defined(__linux__) && defined(__UCLIBC__)
+/**
+ * If uClibc/uClibc-ng is below 1.0.42,
+ * implement a custom getloadavg function
+ */
+#if defined(__linux__) &&           \
+    defined(__UCLIBC__) &&          \
+    defined(__UCLIBC_MAJOR__) &&    \
+    defined(__UCLIBC_MINOR__) &&    \
+    defined(__UCLIBC_SUBLEVEL__) && \
+    ((__UCLIBC_MAJOR__ < 1) ||      \
+     (__UCLIBC_MAJOR__ == 1 &&      \
+      __UCLIBC_MINOR__ == 0 &&      \
+      __UCLIBC_SUBLEVEL__ < 42))
 /**
  * Retrieves up to nelem load averages for system processes over the
  * last 1, 5, and 15 minutes.
@@ -187,7 +199,10 @@ pid_t get_pid_max(void);
  * @return The number of samples retrieved, or -1 if the load
  *         average could not be obtained.
  */
-int getloadavg(double *loadavg, int nelem);
+int __getloadavg(double *loadavg, int nelem);
+#define getloadavg(loadavg, nelem) \
+    (__getloadavg((loadavg), (nelem)))
+#define __IMPL_GETLOADAVG
 #endif
 
 #endif
