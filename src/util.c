@@ -19,8 +19,7 @@
 
 #ifdef __IMPL_GETLOADAVG
 #include <stdlib.h>
-#include <errno.h>
-#include <fcntl.h>
+#include <sys/sysinfo.h>
 #endif
 
 #if defined(__linux__) && !defined(_SC_NPROCESSORS_ONLN)
@@ -149,48 +148,18 @@ pid_t get_pid_max(void)
 #ifdef __IMPL_GETLOADAVG
 int __getloadavg(double *loadavg, int nelem)
 {
-    int fd, i;
-    char buffer[65], *ptr;
-    ssize_t bytesread;
+    struct sysinfo si;
+    int i;
 
-    if (nelem < 0)
-    {
-        return -1;
-    }
-    else if (nelem == 0)
-    {
-        return 0;
-    }
-    else if (nelem > 3)
-    {
+    if (nelem <= 0)
+        return nelem ? -1 : 0;
+    sysinfo(&si);
+    if (nelem > 3)
         nelem = 3;
-    }
-
-    if ((fd = open("/proc/loadavg", O_RDONLY)) < 0)
-    {
-        return -1;
-    }
-
-    bytesread = read(fd, buffer, sizeof(buffer) - 1);
-    close(fd);
-    if (bytesread <= 0)
-    {
-        return -1;
-    }
-    buffer[bytesread - 1] = '\0';
-
-    ptr = buffer;
 
     for (i = 0; i < nelem; i++)
     {
-        char *endptr;
-        errno = 0;
-        loadavg[i] = strtod(ptr, &endptr);
-        if (errno != 0 || ptr == endptr)
-        {
-            return -1;
-        }
-        ptr = endptr;
+        loadavg[i] = 1.0 / (1 << SI_LOAD_SHIFT) * si.loads[i];
     }
 
     return nelem;
