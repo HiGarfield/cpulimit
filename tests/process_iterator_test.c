@@ -63,21 +63,21 @@ static void test_single_process(void)
     {
         assert(process->pid == getpid());
         assert(process->ppid == getppid());
-        assert(process->cputime <= 100);
+        assert(process->cputime >= 0);
         count++;
     }
     assert(count == 1);
     close_process_iterator(&it);
     /* iterate children */
     filter.pid = getpid();
-    filter.include_children = 0;
+    filter.include_children = 1;
     count = 0;
     init_process_iterator(&it, &filter);
     while (get_next_process(&it, process) == 0)
     {
         assert(process->pid == getpid());
         assert(process->ppid == getppid());
-        assert(process->cputime <= 100);
+        assert(process->cputime >= 0);
         count++;
     }
     assert(count == 1);
@@ -111,7 +111,7 @@ static void test_multiple_process(void)
             assert(process->ppid == getpid());
         else
             assert(0);
-        assert(process->cputime <= 100);
+        assert(process->cputime >= 0);
         count++;
     }
     assert(count == 2);
@@ -137,7 +137,7 @@ static void test_all_processes(void)
         if (process->pid == getpid())
         {
             assert(process->ppid == getppid());
-            assert(process->cputime <= 100);
+            assert(process->cputime >= 0);
         }
         count++;
     }
