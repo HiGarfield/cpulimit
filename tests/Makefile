@@ -71,7 +71,7 @@ override LDFLAGS += $(shell \
 # cppcheck options
 CPPCHECK_OPTS := $(shell \
     echo | $(CC) -E -x c -v - 2>&1 | \
-    grep "^[[:space:]]*/usr.*/include" | \
+    grep "^[[:space:]]*/[[:graph:]]*/include[[:graph:]]*$$" | \
     sed 's/^/-I /' \
 )
 CPPCHECK_OPTS += $(if $(findstring Linux,$(UNAME)),-D__linux__) \
@@ -86,7 +86,9 @@ CPPCHECK_OPTS += --enable=all \
                  --force \
                  --std=c89 \
                  --suppress=missingIncludeSystem \
-                 --suppress=*:/usr/* \
+                 --suppress=ConfigurationNotChecked \
+                 --suppress=unmatchedSuppression \
+                 --suppress=*:/*/include/* \
                  --suppress=unusedFunction \
                  --suppress=checkersReport \
                  -j 12
