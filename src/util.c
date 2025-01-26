@@ -7,6 +7,10 @@
 #include <string.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <fcntl.h>
+#include <stdlib.h>
+#endif
 
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/types.h>
@@ -121,20 +125,33 @@ pid_t get_pid_max(void)
 #define PID_T_MAX (MAX_SIGNED_INT(pid_t))
 #endif /* #ifndef PID_T_MAX */
 
+    int fd;
+    char buffer[64];
+    ssize_t bytes_read;
     long pid_max;
-    FILE *fp;
-    if ((fp = fopen("/proc/sys/kernel/pid_max", "r")) == NULL)
+
+    if ((fd = open("/proc/sys/kernel/pid_max", O_RDONLY)) < 0)
     {
-        fprintf(stderr, "Fail to open /proc/sys/kernel/pid_max\n");
+        fprintf(stderr, "Failed to open /proc/sys/kernel/pid_max\n");
         return PID_T_MAX;
     }
-    if (fscanf(fp, "%ld", &pid_max) != 1)
+
+    bytes_read = read(fd, buffer, sizeof(buffer) - 1);
+    close(fd);
+    if (bytes_read <= 0)
     {
-        fprintf(stderr, "Fail to read /proc/sys/kernel/pid_max\n");
-        fclose(fp);
+        fprintf(stderr, "Failed to read /proc/sys/kernel/pid_max\n");
         return PID_T_MAX;
     }
-    fclose(fp);
+    buffer[bytes_read] = '\0';
+
+    pid_max = strtol(buffer, NULL, 10);
+    if (pid_max <= 0)
+    {
+        fprintf(stderr, "Failed to read /proc/sys/kernel/pid_max\n");
+        return PID_T_MAX;
+    }
+
     return (pid_t)pid_max;
 #elif defined(__FreeBSD__)
     return (pid_t)99998;
