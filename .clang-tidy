@@ -1,0 +1,41 @@
+Checks: >
+  -*,
+  clang-diagnostic-*,
+  llvm-*,
+  misc-*,
+  bugprone-*,
+  google-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -google-runtime-int,
+  -google-runtime-references,
+  -misc-non-private-member-variables-in-classes,
+  -readability-named-parameter,
+  -readability-braces-around-statements,
+  -readability-magic-numbers,
+  -misc-no-recursion,
+  -readability-identifier-naming,
+  -misc-include-cleaner,
+  -google-readability-braces-around-statements,
+  -readability-isolate-declaration,
+  -readability-identifier-length,
+  -bugprone-reserved-identifier,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-easily-swappable-parameters,
+  -readability-function-cognitive-complexity,
+  -modernize-macro-to-enum,
+  -clang-diagnostic-empty-translation-unit,
+  -llvm-header-guard,
+  -bugprone-macro-parentheses
+
+# Turn all the warnings from the checks above into errors.
+WarningsAsErrors: "*"
+
+HeaderFileExtensions:
+  - h
+ImplementationFileExtensions:
+  - c
+FormatStyle:     file
