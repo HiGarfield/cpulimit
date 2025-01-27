@@ -31,14 +31,14 @@
 #define _GNU_SOURCE
 #endif
 
+#include "process_iterator.h"
 #include <errno.h>
 #include <libproc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 #include <sys/sysctl.h>
-#include "process_iterator.h"
+#include <sys/types.h>
 
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {

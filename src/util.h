@@ -5,9 +5,9 @@
 #define _GNU_SOURCE
 #endif
 
-#include <time.h>
-#include <sys/types.h>
 #include <string.h>
+#include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 /* Useful macros */

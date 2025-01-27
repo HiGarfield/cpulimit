@@ -5,9 +5,9 @@
 #define _GNU_SOURCE
 #endif
 
-#include <sys/types.h>
-#include "process_iterator.h"
 #include "list.h"
+#include "process_iterator.h"
+#include <sys/types.h>
 
 /**
  * Structure representing a process table.

@@ -26,8 +26,8 @@
 #define _GNU_SOURCE
 #endif
 
-#include <sys/types.h>
 #include <limits.h>
+#include <sys/types.h>
 #ifdef __linux__
 #include <dirent.h>
 #endif

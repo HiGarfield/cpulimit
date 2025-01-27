@@ -2,10 +2,10 @@
 #define _GNU_SOURCE
 #endif
 
+#include "process_table.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
-#include <stdio.h>
-#include "process_table.h"
 
 void process_table_init(struct process_table *pt, int hashsize)
 {

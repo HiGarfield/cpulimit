@@ -30,8 +30,8 @@
 #include <sys/types.h>
 #include <time.h>
 
-#include "process_group.h"
 #include "list.h"
+#include "process_group.h"
 #include "process_iterator.h"
 #include "process_table.h"
 #include "util.h"
@@ -41,7 +41,7 @@ pid_t find_process_by_pid(pid_t pid)
     return (kill(pid, 0) == 0) ? pid : -pid;
 }
 
-pid_t find_process_by_name(char *process_name)
+pid_t find_process_by_name(char *process_name) /* NOLINT(readability-non-const-parameter) */
 {
     /* pid of the target process */
     pid_t pid = -1;

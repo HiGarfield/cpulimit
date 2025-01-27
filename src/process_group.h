@@ -26,10 +26,10 @@
 #define _GNU_SOURCE
 #endif
 
-#include <sys/types.h>
-#include <time.h>
 #include "list.h"
 #include "process_table.h"
+#include <sys/types.h>
+#include <time.h>
 
 /**
  * Structure representing a group of processes for tracking.

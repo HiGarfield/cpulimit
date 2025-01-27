@@ -2,10 +2,10 @@
 #define _GNU_SOURCE
 #endif
 
+#include "../src/util.h"
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
-#include "../src/util.h"
 
 #ifndef __GNUC__
 #define __attribute__(attr)

@@ -23,10 +23,10 @@
 #define _GNU_SOURCE
 #endif
 
+#include "list.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include "list.h"
 
 #define safe_free(p)     \
     do                   \

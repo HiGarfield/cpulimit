@@ -34,13 +34,13 @@
 
 #include <fcntl.h>
 #include <kvm.h>
-#include <sys/param.h>
-#include <sys/user.h>
-#include <sys/sysctl.h>
 #include <paths.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/param.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
 
 #include "process_iterator.h"
 

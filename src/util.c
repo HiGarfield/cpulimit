@@ -13,8 +13,8 @@
 #endif
 
 #if defined(__APPLE__) || defined(__FreeBSD__)
-#include <sys/types.h>
 #include <sys/sysctl.h>
+#include <sys/types.h>
 #endif
 
 #ifdef __IMPL_GET_TIME
