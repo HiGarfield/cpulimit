@@ -47,14 +47,16 @@
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {
     const struct kinfo_proc *procs;
-    char *errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX);
-    if (errbuf == NULL)
+    char *errbuf;
+
+    it->filter = filter;
+
+    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);
     }
-    it->i = 0;
-    it->procs = NULL;
+
     /* Open the kvm interface, get a descriptor */
     if ((it->kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf)) == NULL)
     {
@@ -63,6 +65,16 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
         return -1;
     }
     free(errbuf);
+
+    if (it->filter->pid != 0 && !it->filter->include_children)
+    {
+        /* In this case, it->procs is never used */
+        it->procs = NULL;
+        it->i = -1;
+        it->count = 0;
+        return 0;
+    }
+
     /* Get the list of processes. */
     if ((procs = kvm_getprocs(it->kd, KERN_PROC_PROC, 0, &it->count)) == NULL)
     {
@@ -75,9 +87,8 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
         fprintf(stderr, "Memory allocation failed for the process list\n");
         exit(EXIT_FAILURE);
     }
-
     memcpy(it->procs, procs, sizeof(struct kinfo_proc) * (size_t)it->count);
-    it->filter = filter;
+    it->i = 0;
     return 0;
 }
 
@@ -217,8 +228,11 @@ int get_next_process(struct process_iterator *it, struct process *p)
 
 int close_process_iterator(struct process_iterator *it)
 {
-    free(it->procs);
-    it->procs = NULL;
+    if (it->procs != NULL)
+    {
+        free(it->procs);
+        it->procs = NULL;
+    }
     if (kvm_close(it->kd) == -1)
     {
         perror("kvm_close");
