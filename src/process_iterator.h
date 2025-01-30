@@ -78,6 +78,9 @@ struct process_iterator
 #if defined(__linux__)
     /* Directory stream for accessing the /proc filesystem on Linux */
     DIR *dip;
+
+    /* Indicator for the end of processes */
+    int end_of_processes;
 #elif defined(__FreeBSD__)
     /* Kernel virtual memory descriptor for accessing process information on FreeBSD */
     kvm_t *kd;

@@ -41,18 +41,15 @@
 
 #include "process_iterator.h"
 
-static int check_proc(void)
-{
-    struct stat statbuf;
-    return stat("/proc", &statbuf) == 0 && S_ISDIR(statbuf.st_mode);
-}
-
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {
-    if (!check_proc())
+    it->filter = filter;
+    it->end_of_processes = 0;
+    if (it->filter->pid != 0 && !it->filter->include_children)
     {
-        fprintf(stderr, "procfs is not mounted!\nAborting\n");
-        exit(EXIT_FAILURE);
+        /* In this case, it->dip is never used */
+        it->dip = NULL;
+        return 0;
     }
     /* open a directory stream to /proc directory */
     if ((it->dip = opendir("/proc")) == NULL)
@@ -60,7 +57,6 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
         perror("opendir");
         return -1;
     }
-    it->filter = filter;
     return 0;
 }
 
@@ -173,7 +169,7 @@ pid_t getppid_of(pid_t pid)
 static int get_start_time(pid_t pid, struct timespec *start_time)
 {
     struct stat procfs_stat;
-    char procfs_path[32];
+    char procfs_path[64];
     int ret;
     if (start_time == NULL)
         return -1;
@@ -228,16 +224,15 @@ int get_next_process(struct process_iterator *it, struct process *p)
 {
     const struct dirent *dit = NULL;
 
-    if (it->dip == NULL)
+    if (it->end_of_processes)
     {
-        /* end of processes */
         return -1;
     }
+
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
         int ret = read_process_info(it->filter->pid, p);
-        closedir(it->dip);
-        it->dip = NULL;
+        it->end_of_processes = 1;
         return ret == 0 ? 0 : -1;
     }
 
@@ -260,8 +255,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
         return 0;
     }
     /* end of processes */
-    closedir(it->dip);
-    it->dip = NULL;
+    it->end_of_processes = 1;
     return -1;
 }
 
@@ -279,6 +273,9 @@ int close_process_iterator(struct process_iterator *it)
         }
         it->dip = NULL;
     }
+
+    it->end_of_processes = 0;
+    it->filter = NULL;
 
     return ret == 0 ? 0 : -1;
 }
