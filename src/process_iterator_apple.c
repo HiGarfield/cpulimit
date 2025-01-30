@@ -48,8 +48,16 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
 
     it->i = 0;
-    it->pidlist = NULL;
     it->filter = filter;
+
+    if (it->filter->pid != 0 && !it->filter->include_children)
+    {
+        /* In this case, it->pidlist is never used */
+        it->pidlist = NULL;
+        it->i = -1;
+        it->count = 0;
+        return 0;
+    }
 
     /* Get the size of all process information */
     if (sysctl(mib, 4, NULL, &len, NULL, 0) < 0)
@@ -154,14 +162,31 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
     return child_pid == parent_pid;
 }
 
+static int read_process_info(pid_t pid, struct process *p)
+{
+    struct proc_taskallinfo ti;
+    if (get_process_pti(pid, &ti) != 0)
+    {
+        return -1;
+    }
+    if (ti.pbsd.pbi_flags & PROC_FLAG_SYSTEM)
+    {
+        return -1;
+    }
+    if (pti2proc(&ti, p) != 0)
+    {
+        return -1;
+    }
+    return 0;
+}
+
 int get_next_process(struct process_iterator *it, struct process *p)
 {
     if (it->i >= it->count)
         return -1;
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
-        struct proc_taskallinfo ti;
-        if (get_process_pti(it->filter->pid, &ti) == 0 && pti2proc(&ti, p) == 0)
+        if (read_process_info(it->filter->pid, p) == 0)
         {
             it->i = it->count = 1;
             return 0;
@@ -171,13 +196,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
     }
     while (it->i < it->count)
     {
-        struct proc_taskallinfo ti;
-        if (get_process_pti(it->pidlist[it->i], &ti) != 0)
-        {
-            it->i++;
-            continue;
-        }
-        if (ti.pbsd.pbi_flags & PROC_FLAG_SYSTEM)
+        if (read_process_info(it->pidlist[it->i], p) != 0)
         {
             it->i++;
             continue;
@@ -185,8 +204,6 @@ int get_next_process(struct process_iterator *it, struct process *p)
         if (it->filter->pid != 0 && it->filter->include_children)
         {
             it->i++;
-            if (pti2proc(&ti, p) != 0)
-                continue;
             if (p->pid != it->filter->pid && !is_child_of(p->pid, it->filter->pid))
                 continue;
             return 0;
@@ -194,8 +211,6 @@ int get_next_process(struct process_iterator *it, struct process *p)
         else if (it->filter->pid == 0)
         {
             it->i++;
-            if (pti2proc(&ti, p) != 0)
-                continue;
             return 0;
         }
     }
@@ -204,8 +219,11 @@ int get_next_process(struct process_iterator *it, struct process *p)
 
 int close_process_iterator(struct process_iterator *it)
 {
-    free(it->pidlist);
-    it->pidlist = NULL;
+    if (it->pidlist != NULL)
+    {
+        free(it->pidlist);
+        it->pidlist = NULL;
+    }
     it->filter = NULL;
     it->count = 0;
     it->i = 0;
