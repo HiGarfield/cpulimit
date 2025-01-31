@@ -135,7 +135,15 @@ static double get_dynamic_time_slot(void)
     static double time_slot = TIME_SLOT;
     static const double MIN_TIME_SLOT = TIME_SLOT, /* Minimum allowed time slot */
         MAX_TIME_SLOT = TIME_SLOT * 5;             /* Maximum allowed time slot */
+    static struct timespec last_update = {0, 0};
+    struct timespec now;
     double load, new_time_slot;
+
+    /* Skip updates if the last check was less than 1000 ms ago */
+    if (get_time(&now) == 0 && timediff_in_ms(&now, &last_update) < 1000.0)
+    {
+        return time_slot;
+    }
 
     /* Get the system load average */
     if (getloadavg(&load, 1) != 1)
@@ -143,13 +151,15 @@ static double get_dynamic_time_slot(void)
         return time_slot;
     }
 
+    last_update = now;
+
     /* Adjust the time slot based on system load and number of CPUs */
     new_time_slot = time_slot * load / NCPU / 0.3;
     new_time_slot = MAX(new_time_slot, MIN_TIME_SLOT);
     new_time_slot = MIN(new_time_slot, MAX_TIME_SLOT);
 
     /* Smoothly adjust the time slot using a moving average */
-    time_slot = time_slot * 0.95 + new_time_slot * 0.05;
+    time_slot = time_slot * 0.6 + new_time_slot * 0.4;
 
     return time_slot;
 }
