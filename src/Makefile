@@ -38,11 +38,12 @@ override CFLAGS += -Wshadow \
                    -Waggregate-return \
                    -Wmissing-format-attribute \
                    -Wlarger-than=256 \
-                   -Wdisabled-optimization
+                   -Wdisabled-optimization \
+                   -Wc++-compat
 endif # CHECK = 1
 
 # Set NOFLAGS to 1 for C++ compilers
-NOFLAGS := $(if $(findstring ++,$(CC)),1)
+NOFLAGS ?= $(if $(findstring ++,$(CC)),1)
 
 # If NOFLAGS is set to 1, set CFLAGS and LDFLAGS to empty
 ifeq ($(NOFLAGS),1)
