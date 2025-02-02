@@ -52,10 +52,13 @@ jobs:
           make clean
           make CHECK=1
           sudo ./tests/process_iterator_test
+          random_folder="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
+          mkdir -p "./tests/${random_folder}"
           random_file="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
-          cp -f ./tests/process_iterator_test ./tests/${random_file}
-          echo "./tests/${random_file}"
-          sudo ./tests/${random_file}
+          random_path="./tests/${random_folder}/${random_file}"
+          cp -f ./tests/process_iterator_test "${random_path}"
+          echo "${random_path}"
+          sudo "${random_path}"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@main
@@ -98,10 +101,13 @@ jobs:
             gmake clean
             gmake CHECK=1
             sudo ./tests/process_iterator_test
+            random_folder="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
+            mkdir -p "./tests/${random_folder}"
             random_file="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
-            cp -f ./tests/process_iterator_test ./tests/${random_file}
-            echo "./tests/${random_file}"
-            sudo ./tests/${random_file}
+            random_path="./tests/${random_folder}/${random_file}"
+            cp -f ./tests/process_iterator_test "${random_path}"
+            echo "${random_path}"
+            sudo "${random_path}"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@main
