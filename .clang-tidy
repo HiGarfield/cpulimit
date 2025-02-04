@@ -1,5 +1,5 @@
 Checks: >
-  -*,
+  *,
   clang-diagnostic-*,
   llvm-*,
   misc-*,
@@ -29,7 +29,24 @@ Checks: >
   -modernize-macro-to-enum,
   -clang-diagnostic-empty-translation-unit,
   -llvm-header-guard,
-  -bugprone-macro-parentheses
+  -bugprone-macro-parentheses,
+  -cppcoreguidelines-init-variables,
+  -cert-err33-c,
+  -altera-unroll-loops,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -altera-struct-pack-align,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -hicpp-signed-bitwise,
+  -hicpp-braces-around-statements,
+  -llvmlibc-restrict-system-libc-headers,
+  -altera-id-dependent-backward-branch,
+  -concurrency-mt-unsafe,
+  -cppcoreguidelines-macro-to-enum,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cert-err34-c,
+  -bugprone-suspicious-include,
+  -clang-analyzer-security.insecureAPI.*
 
 # Turn all the warnings from the checks above into errors.
 WarningsAsErrors: "*"
