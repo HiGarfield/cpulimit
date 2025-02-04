@@ -41,7 +41,7 @@ pid_t find_process_by_pid(pid_t pid)
     return (kill(pid, 0) == 0) ? pid : -pid;
 }
 
-pid_t find_process_by_name(char *process_name) /* NOLINT(readability-non-const-parameter) */
+pid_t find_process_by_name(const char *process_name)
 {
     /* pid of the target process */
     pid_t pid = -1;
@@ -50,7 +50,7 @@ pid_t find_process_by_name(char *process_name) /* NOLINT(readability-non-const-p
     struct process_iterator it;
     struct process *proc;
     struct process_filter filter;
-    const char *process_basename = basename(process_name);
+    const char *process_basename = file_basename(process_name);
     proc = (struct process *)malloc(sizeof(struct process));
     if (proc == NULL)
     {
@@ -64,7 +64,7 @@ pid_t find_process_by_name(char *process_name) /* NOLINT(readability-non-const-p
     while (get_next_process(&it, proc) != -1)
     {
         /* process found */
-        const char *cmd_basename = basename(proc->command);
+        const char *cmd_basename = file_basename(proc->command);
         if (strncmp(cmd_basename, process_basename, sizeof(proc->command)) == 0)
         {
             if (pid < 0 || is_child_of(pid, proc->pid))
@@ -99,7 +99,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid, int inclu
         exit(EXIT_FAILURE);
     }
     init_list(pgroup->proclist, sizeof(pid_t));
-    if (get_time(&pgroup->last_update))
+    if (get_current_time(&pgroup->last_update) != 0)
     {
         exit(EXIT_FAILURE);
     }
@@ -148,7 +148,7 @@ void update_process_group(struct process_group *pgroup)
     struct process_filter filter;
     struct timespec now;
     double dt;
-    if (get_time(&now))
+    if (get_current_time(&now) != 0)
     {
         exit(EXIT_FAILURE);
     }

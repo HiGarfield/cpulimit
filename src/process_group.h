@@ -95,7 +95,7 @@ pid_t find_process_by_pid(pid_t pid);
  *         0 if the process is not found,
  *         Negative PID if the process is found but cannot be controlled.
  */
-pid_t find_process_by_name(char *process_name);
+pid_t find_process_by_name(const char *process_name);
 
 /**
  * Remove a process from the process group by its PID.

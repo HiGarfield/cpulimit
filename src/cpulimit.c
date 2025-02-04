@@ -140,7 +140,8 @@ static double get_dynamic_time_slot(void)
     double load, new_time_slot;
 
     /* Skip updates if the last check was less than 1000 ms ago */
-    if (get_time(&now) == 0 && timediff_in_ms(&now, &last_update) < 1000.0)
+    if (get_current_time(&now) == 0 &&
+        timediff_in_ms(&now, &last_update) < 1000.0)
     {
         return time_slot;
     }
@@ -353,7 +354,7 @@ static void quit_handler(void)
 int main(int argc, char *argv[])
 {
     /* Variables to store user-provided arguments */
-    char *exe = NULL;
+    const char *exe = NULL;
     double perclimit = 0.0;
     int exe_ok = 0;
     int pid_ok = 0;
@@ -396,7 +397,7 @@ int main(int argc, char *argv[])
     }
 
     /* Extract the program name and store it in program_base_name */
-    program_name = basename(argv[0]);
+    program_name = file_basename(argv[0]);
 
     /* Get the current process ID */
     cpulimit_pid = getpid();

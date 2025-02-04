@@ -6,19 +6,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 #if defined(__linux__)
 #include <fcntl.h>
 #include <stdlib.h>
 #endif
-
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/sysctl.h>
 #include <sys/types.h>
-#endif
-
-#ifdef __IMPL_GET_TIME
-#include <sys/time.h>
 #endif
 
 #ifdef __IMPL_GETLOADAVG
@@ -30,17 +27,19 @@
 #include <sys/sysinfo.h>
 #endif
 
-#ifdef __IMPL_BASENAME
-const char *__basename(const char *path)
+void nsec2timespec(double nsec, struct timespec *t)
 {
-    const char *p = strrchr(path, '/');
-    return p != NULL ? p + 1 : path;
+    t->tv_sec = (time_t)(nsec / 1e9);
+    t->tv_nsec = (long)(nsec - (double)t->tv_sec * 1e9);
 }
-#endif
 
-#ifdef __IMPL_GET_TIME
-int __get_time(struct timespec *ts)
+int get_current_time(struct timespec *ts)
 {
+#if defined(CLOCK_MONOTONIC)
+    return clock_gettime(CLOCK_MONOTONIC, ts);
+#elif defined(CLOCK_REALTIME)
+    return clock_gettime(CLOCK_REALTIME, ts);
+#else
     struct timeval tv;
     if (gettimeofday(&tv, NULL))
     {
@@ -49,8 +48,32 @@ int __get_time(struct timespec *ts)
     ts->tv_sec = tv.tv_sec;
     ts->tv_nsec = tv.tv_usec * 1000L;
     return 0;
-}
 #endif
+}
+
+int sleep_timespec(const struct timespec *t)
+{
+#if (defined(__linux__) || defined(__FreeBSD__)) &&           \
+    defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L && \
+    defined(CLOCK_MONOTONIC)
+    return clock_nanosleep(CLOCK_MONOTONIC, 0, t, NULL);
+#else
+    return nanosleep(t, NULL);
+#endif
+}
+
+double timediff_in_ms(const struct timespec *later,
+                      const struct timespec *earlier)
+{
+    return (double)(later->tv_sec - earlier->tv_sec) * 1e3 +
+           (double)(later->tv_nsec - earlier->tv_nsec) / 1e6;
+}
+
+const char *file_basename(const char *path)
+{
+    const char *p = strrchr(path, '/');
+    return p != NULL ? p + 1 : path;
+}
 
 void increase_priority(void)
 {
@@ -65,7 +88,6 @@ void increase_priority(void)
     }
 }
 
-/* Get the number of CPUs */
 int get_ncpu(void)
 {
     static int cached_ncpu = -1;

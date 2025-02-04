@@ -217,8 +217,8 @@ static void test_process_name(void)
     assert(get_next_process(&it, process) == 0);
     assert(process->pid == getpid());
     assert(process->ppid == getppid());
-    proc_name1 = basename(command);
-    proc_name2 = basename(process->command);
+    proc_name1 = file_basename(command);
+    proc_name2 = file_basename(process->command);
     assert(strncmp(proc_name1, proc_name2, sizeof(process->command)) == 0);
     assert(get_next_process(&it, process) != 0);
     free(process);
