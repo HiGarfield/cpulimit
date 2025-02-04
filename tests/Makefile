@@ -98,7 +98,7 @@ CPPCHECK_OPTS += --enable=all \
 CHECK_REPORT := check-report.txt
 
 # Phony targets
-.PHONY: all clean format check
+.PHONY: all clean format check install uninstall
 
 # Default target
 all: $(TARGETS)
@@ -125,3 +125,10 @@ format: $(wildcard *.c *.h)
 # Check source files with clang-tidy
 check: $(wildcard *.c *.h)
 	cppcheck $(CPPCHECK_OPTS) . 2>$(CHECK_REPORT)
+
+# Empty install rule
+install:
+	@:
+# Empty uninstall rule
+uninstall:
+	@:

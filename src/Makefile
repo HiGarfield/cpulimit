@@ -54,6 +54,9 @@ endif # NOFLAGS = 1
 # Target binary
 TARGET := cpulimit
 
+# Destination directory
+DESTDIR := /usr/local/bin
+
 # Detect operating system
 UNAME ?= $(shell uname)
 
@@ -97,7 +100,7 @@ CPPCHECK_OPTS += --enable=all \
 CHECK_REPORT := check-report.txt
 
 # Phony targets
-.PHONY: all clean format check
+.PHONY: all clean format check install uninstall
 
 # Default target
 all: $(TARGET)
@@ -117,3 +120,11 @@ format: $(wildcard *.c *.h)
 # Check source files with clang-tidy
 check: $(wildcard *.c *.h)
 	cppcheck $(CPPCHECK_OPTS) . 2>$(CHECK_REPORT)
+
+# Install cpulimit to /usr/local/bin
+install: $(TARGET)
+	install -m 755 $(TARGET) $(DESTDIR)
+
+# Uninstall cpulimit from /usr/local/bin
+uninstall:
+	rm -f $(DESTDIR)/$(TARGET)
