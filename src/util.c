@@ -152,7 +152,11 @@ pid_t get_pid_max(void)
     ssize_t bytes_read;
     long pid_max;
 
+#ifdef O_CLOEXEC
+    if ((fd = open("/proc/sys/kernel/pid_max", O_RDONLY | O_CLOEXEC)) < 0)
+#else
     if ((fd = open("/proc/sys/kernel/pid_max", O_RDONLY)) < 0)
+#endif
     {
         fprintf(stderr, "Failed to open /proc/sys/kernel/pid_max\n");
         return PID_T_MAX;

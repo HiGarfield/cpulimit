@@ -108,6 +108,6 @@ void process_table_destroy(struct process_table *pt)
             free(pt->table[i]);
         }
     }
-    free(pt->table);
+    free((void *)pt->table);
     pt->table = NULL;
 }

@@ -75,7 +75,11 @@ static int read_process_info(pid_t pid, struct process *p)
 
     /* read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)p->pid);
+#ifdef O_CLOEXEC
+    if ((fd = open(statfile, O_RDONLY | O_CLOEXEC)) < 0)
+#else
     if ((fd = open(statfile, O_RDONLY)) < 0)
+#endif
     {
         return -1;
     }
@@ -111,7 +115,11 @@ static int read_process_info(pid_t pid, struct process *p)
 
     /* read command line */
     sprintf(exefile, "/proc/%ld/cmdline", (long)p->pid);
+#ifdef O_CLOEXEC
+    if ((fd = open(exefile, O_RDONLY | O_CLOEXEC)) < 0)
+#else
     if ((fd = open(exefile, O_RDONLY)) < 0)
+#endif
     {
         return -1;
     }
@@ -137,7 +145,11 @@ pid_t getppid_of(pid_t pid)
 
     /* read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)pid);
+#ifdef O_CLOEXEC
+    if ((fd = open(statfile, O_RDONLY | O_CLOEXEC)) < 0)
+#else
     if ((fd = open(statfile, O_RDONLY)) < 0)
+#endif
     {
         return (pid_t)-1;
     }
