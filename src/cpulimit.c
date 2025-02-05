@@ -103,17 +103,16 @@ static void print_usage_and_exit(FILE *stream, int exit_code)
 {
     /* Print the usage message along with available options */
     fprintf(stream, "Usage: %s [OPTIONS...] TARGET\n", program_name);
-    fprintf(stream, "   OPTIONS\n");
-    fprintf(stream, "      -l, --limit=N          percentage of cpu allowed from 0 to %d (required)\n", 100 * NCPU);
-    fprintf(stream, "      -v, --verbose          show control statistics\n");
-    fprintf(stream, "      -z, --lazy             exit if there is no target process, or if it dies\n");
-    fprintf(stream, "      -i, --include-children limit also the children processes\n");
-    fprintf(stream, "      -h, --help             display this help and exit\n");
+    fprintf(stream, "   OPTIONS:\n");
+    fprintf(stream, "      -l LIMIT, --limit=LIMIT   CPU percentage limit from 0 to %d (required)\n", 100 * NCPU);
+    fprintf(stream, "      -v, --verbose             show control statistics\n");
+    fprintf(stream, "      -z, --lazy                exit if the target process is missing or stopped\n");
+    fprintf(stream, "      -i, --include-children    also limit the child processes\n");
+    fprintf(stream, "      -h, --help                display the help message and exit\n");
     fprintf(stream, "   TARGET must be exactly one of these:\n");
-    fprintf(stream, "      -p, --pid=N            pid of the process (implies -z)\n");
-    fprintf(stream, "      -e, --exe=FILE         name of the executable program file or path name\n");
-    fprintf(stream, "      COMMAND [ARGS]         run this command and limit it (implies -z)\n");
-    fprintf(stream, "\nReport bugs to <marlonx80@hotmail.com>.\n");
+    fprintf(stream, "      -p PID, --pid=PID         PID of the target process (implies -z)\n");
+    fprintf(stream, "      -e FILE, --exe=FILE       name or path of the executable file\n");
+    fprintf(stream, "      COMMAND [ARGS]            run the command and limit CPU usage (implies -z)\n");
     exit(exit_code);
 }
 
@@ -469,7 +468,7 @@ int main(int argc, char *argv[])
     /* Ensure that a CPU limit was specified */
     if (!limit_ok)
     {
-        fprintf(stderr, "Error: You must specify a cpu limit percentage\n");
+        fprintf(stderr, "Error: You must specify a CPU percentage limit\n");
         print_usage_and_exit(stderr, EXIT_FAILURE);
     }
 
@@ -487,7 +486,7 @@ int main(int argc, char *argv[])
     /* Ensure exactly one target process (pid, executable, or command) is specified */
     if (exe_ok + pid_ok + command_mode != 1)
     {
-        fprintf(stderr, "Error: You must specify exactly one target process by name, pid, or command line\n");
+        fprintf(stderr, "Error: You must specify exactly one target process by name, PID, or command line\n");
         print_usage_and_exit(stderr, EXIT_FAILURE);
     }
 
@@ -500,7 +499,16 @@ int main(int argc, char *argv[])
 
     /* Print number of CPUs if in verbose mode */
     if (verbose)
-        printf("%d cpu detected\n", NCPU);
+    {
+        if (NCPU > 1)
+        {
+            printf("%d CPUs detected\n", NCPU);
+        }
+        else if (NCPU == 1)
+        {
+            printf("%d CPU detected\n", NCPU);
+        }
+    }
 
     /* Handle command mode (run a command and limit its CPU usage) */
     if (command_mode)
