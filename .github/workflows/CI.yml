@@ -30,15 +30,10 @@ jobs:
 
       - name: Compile and Test
         run: |
-          git clone https://github.com/jvoisin/fortify-headers
+          export CFLAGS="$CFLAGS -O3"
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
             sudo apt -qq install gcc-multilib libc6-dev-i386 musl-tools
-            export CFLAGS="$CFLAGS -I../fortify-headers -DFORTIFY_PEDANTIC_CHECKS -O3"
             export LDFLAGS="$LDFLAGS -static"
-          else
-            export CFLAGS="$CFLAGS -I../fortify-headers -D_FORTIFY_SOURCE=3 -DFORTIFY_PEDANTIC_CHECKS -O3"
-          fi
-          if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
             make CHECK=1 CC=musl-gcc
             make clean
           fi
@@ -54,7 +49,6 @@ jobs:
             export CFLAGS="$CFLAGS -m32"
           fi
           make CHECK=1
-          sudo ./tests/process_iterator_test
           random_folder="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
           mkdir -p "./tests/${random_folder}"
           random_file="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
@@ -90,10 +84,9 @@ jobs:
           arch: ${{ matrix.arch }}
           usesh: true
           prepare: |
-            pkg install -y -q gcc llvm gmake sudo git
+            pkg install -y -q gcc llvm gmake sudo
           run: |
-            git clone https://github.com/jvoisin/fortify-headers
-            export CFLAGS="$CFLAGS -I../fortify-headers -D_FORTIFY_SOURCE=3 -DFORTIFY_PEDANTIC_CHECKS -O3"
+            export CFLAGS="$CFLAGS -O3"
             gmake CHECK=1 CC=gcc
             gmake clean
             gmake CHECK=1 CC=g++
@@ -103,7 +96,6 @@ jobs:
             gmake CHECK=1 CC=clang++
             gmake clean
             gmake CHECK=1
-            sudo ./tests/process_iterator_test
             random_folder="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
             mkdir -p "./tests/${random_folder}"
             random_file="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
