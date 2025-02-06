@@ -51,7 +51,16 @@ pid_t find_process_by_name(const char *process_name)
     struct process_iterator it;
     struct process *proc;
     struct process_filter filter;
-    const char *process_basename = file_basename(process_name);
+    /**
+     * Flag for full path comparison:
+     * - True (1) if process_name is an absolute path (starts with '/').
+     * - False (0) if process_name is a relative path (does not start with '/').
+     *
+     * This determines whether to compare full paths or just basenames.
+     */
+    int full_path_cmp = process_name[0] == '/';
+    const char *process_cmp_name =
+        full_path_cmp ? process_name : file_basename(process_name);
     proc = (struct process *)malloc(sizeof(struct process));
     if (proc == NULL)
     {
@@ -64,9 +73,10 @@ pid_t find_process_by_name(const char *process_name)
     init_process_iterator(&it, &filter);
     while (get_next_process(&it, proc) != -1)
     {
+        const char *cmd_cmp_name =
+            full_path_cmp ? proc->command : file_basename(proc->command);
         /* process found */
-        const char *cmd_basename = file_basename(proc->command);
-        if (strncmp(cmd_basename, process_basename, sizeof(proc->command)) == 0)
+        if (strncmp(cmd_cmp_name, process_cmp_name, sizeof(proc->command)) == 0)
         {
             if (pid < 0 || is_child_of(pid, proc->pid))
             {
