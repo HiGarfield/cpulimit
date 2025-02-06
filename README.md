@@ -34,6 +34,8 @@ This forked repository is maintained by [HiGarfield](https://github.com/HiGarfie
  | -e FILE, --exe=FILE | name or path of the executable file              |
  | COMMAND [ARGS]      | run the command and limit CPU usage (implies -z) |
 
+> **Note:** When the `-e` option is used with an absolute path (starting with '/'), the process is searched using that path; only processes started with an absolute path in their command can be matched. If the `-e` option is given a filename without a path or a relative path, the match will be based on its basename.
+
 ## Get the Latest Source Code
 
 This repository is forked from:
