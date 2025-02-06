@@ -388,7 +388,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    /* Extract the program name and store it in program_base_name */
+    /* Extract the program name and store it in program_name */
     program_name = file_basename(argv[0]);
 
     /* Get the current process ID */
