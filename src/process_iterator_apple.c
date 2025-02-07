@@ -114,7 +114,7 @@ static int pti2proc(struct proc_taskallinfo *ti, struct process *process)
     process->pid = (pid_t)ti->pbsd.pbi_pid;
     process->ppid = (pid_t)ti->pbsd.pbi_ppid;
     process->cputime = ti->ptinfo.pti_total_user / 1e6 + ti->ptinfo.pti_total_system / 1e6;
-    if (proc_pidpath((int)ti->pbsd.pbi_pid, process->command, sizeof(process->command)) <= 0)
+    if (proc_pidpath(process->pid, process->command, sizeof(process->command)) <= 0)
         return -1;
     return 0;
 }
