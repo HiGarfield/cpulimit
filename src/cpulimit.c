@@ -24,6 +24,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <errno.h>
 #include <getopt.h>
 #include <signal.h>
 #include <stdio.h>
@@ -273,10 +274,8 @@ static void limit_process(pid_t pid, double limit, int include_children)
                 /* If the process is dead, remove it from the group */
                 if (verbose)
                 {
-                    char errbuf[100];
-                    sprintf(errbuf, "kill failed to send SIGCONT to process %ld",
-                            (long)proc->pid);
-                    perror(errbuf);
+                    fprintf(stderr, "kill failed to send SIGCONT to process %ld: %s\n",
+                            (long)proc->pid, strerror(errno));
                 }
                 delete_node(pgroup.proclist, node);
                 remove_process(&pgroup, proc->pid);
@@ -300,10 +299,8 @@ static void limit_process(pid_t pid, double limit, int include_children)
                     /* If the process is dead, remove it from the group */
                     if (verbose)
                     {
-                        char errbuf[100];
-                        sprintf(errbuf, "kill failed to send SIGSTOP to process %ld",
-                                (long)proc->pid);
-                        perror(errbuf);
+                        fprintf(stderr, "kill failed to send SIGSTOP to process %ld: %s\n",
+                                (long)proc->pid, strerror(errno));
                     }
                     delete_node(pgroup.proclist, node);
                     remove_process(&pgroup, proc->pid);
