@@ -84,7 +84,7 @@ int process_table_del(struct process_table *pt, pid_t pid)
     {
         return 1; /* nothing to delete */
     }
-    delete_node(pt->table[idx], node);
+    destroy_node(pt->table[idx], node);
     return 0;
 }
 
