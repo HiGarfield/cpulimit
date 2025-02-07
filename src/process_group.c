@@ -179,7 +179,7 @@ void update_process_group(struct process_group *pgroup)
 
     while (get_next_process(&it, tmp_process) != -1)
     {
-        struct process *p = process_table_find(pgroup->proctable, tmp_process);
+        struct process *p = process_table_find(pgroup->proctable, tmp_process->pid);
         if (p == NULL)
         {
             /* process is new. add it */
@@ -219,5 +219,5 @@ void update_process_group(struct process_group *pgroup)
 
 int remove_process(struct process_group *pgroup, pid_t pid)
 {
-    return process_table_del_pid(pgroup->proctable, pid);
+    return process_table_del(pgroup->proctable, pid);
 }

@@ -40,39 +40,24 @@ void process_table_init(struct process_table *pt, int hashsize)
     }
 }
 
-static int proc_hash(const struct process_table *pt, const struct process *p)
+static int pid_hash(const struct process_table *pt, pid_t pid)
 {
-    return p->pid % pt->hashsize;
+    return pid % pt->hashsize;
 }
 
-struct process *process_table_find(const struct process_table *pt, const struct process *p)
+struct process *process_table_find(const struct process_table *pt, pid_t pid)
 {
-    int idx = proc_hash(pt, p);
+    int idx = pid_hash(pt, pid);
     if (pt->table[idx] == NULL)
     {
         return NULL;
     }
-    return (struct process *)locate_elem(pt->table[idx], p);
-}
-
-struct process *process_table_find_pid(const struct process_table *pt, pid_t pid)
-{
-    struct process *p, *res;
-    p = (struct process *)malloc(sizeof(struct process));
-    if (p == NULL)
-    {
-        fprintf(stderr, "Memory allocation failed for the process\n");
-        exit(EXIT_FAILURE);
-    }
-    p->pid = pid;
-    res = process_table_find(pt, p);
-    free(p);
-    return res;
+    return (struct process *)locate_elem(pt->table[idx], &pid);
 }
 
 void process_table_add(struct process_table *pt, struct process *p)
 {
-    int idx = proc_hash(pt, p);
+    int idx = pid_hash(pt, p->pid);
     if (pt->table[idx] == NULL)
     {
         pt->table[idx] = (struct list *)malloc(sizeof(struct list));
@@ -86,37 +71,21 @@ void process_table_add(struct process_table *pt, struct process *p)
     add_elem(pt->table[idx], p);
 }
 
-int process_table_del(struct process_table *pt, const struct process *p)
+int process_table_del(struct process_table *pt, pid_t pid)
 {
     struct list_node *node;
-    int idx = proc_hash(pt, p);
+    int idx = pid_hash(pt, pid);
     if (pt->table[idx] == NULL)
     {
         return 1; /* nothing to delete */
     }
-    node = locate_node(pt->table[idx], p);
+    node = locate_node(pt->table[idx], &pid);
     if (node == NULL)
     {
         return 1; /* nothing to delete */
     }
     delete_node(pt->table[idx], node);
     return 0;
-}
-
-int process_table_del_pid(struct process_table *pt, pid_t pid)
-{
-    struct process *p;
-    int ret;
-    p = (struct process *)malloc(sizeof(struct process));
-    if (p == NULL)
-    {
-        fprintf(stderr, "Memory allocation failed for the process\n");
-        exit(EXIT_FAILURE);
-    }
-    p->pid = pid;
-    ret = process_table_del(pt, p);
-    free(p);
-    return ret;
 }
 
 void process_table_destroy(struct process_table *pt)
