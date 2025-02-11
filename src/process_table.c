@@ -40,24 +40,25 @@ void process_table_init(struct process_table *pt, int hashsize)
     }
 }
 
-static int pid_hash(const struct process_table *pt, pid_t pid)
+static int pid_hash(const struct process_table *pt, const void *procptr)
 {
-    return pid % pt->hashsize;
+    return *((const pid_t *)procptr) % pt->hashsize;
 }
 
-struct process *process_table_find(const struct process_table *pt, pid_t pid)
+struct process *process_table_find(const struct process_table *pt,
+                                   const void *procptr)
 {
-    int idx = pid_hash(pt, pid);
+    int idx = pid_hash(pt, procptr);
     if (pt->table[idx] == NULL)
     {
         return NULL;
     }
-    return (struct process *)locate_elem(pt->table[idx], &pid);
+    return (struct process *)locate_elem(pt->table[idx], procptr);
 }
 
 void process_table_add(struct process_table *pt, struct process *p)
 {
-    int idx = pid_hash(pt, p->pid);
+    int idx = pid_hash(pt, p);
     if (pt->table[idx] == NULL)
     {
         pt->table[idx] = (struct list *)malloc(sizeof(struct list));
@@ -71,15 +72,15 @@ void process_table_add(struct process_table *pt, struct process *p)
     add_elem(pt->table[idx], p);
 }
 
-int process_table_del(struct process_table *pt, pid_t pid)
+int process_table_del(struct process_table *pt, const void *procptr)
 {
     struct list_node *node;
-    int idx = pid_hash(pt, pid);
+    int idx = pid_hash(pt, procptr);
     if (pt->table[idx] == NULL)
     {
         return 1; /* nothing to delete */
     }
-    node = locate_node(pt->table[idx], &pid);
+    node = locate_node(pt->table[idx], procptr);
     if (node == NULL)
     {
         return 1; /* nothing to delete */
