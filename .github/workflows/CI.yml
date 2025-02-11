@@ -32,6 +32,7 @@ jobs:
         run: |
           export CFLAGS="$CFLAGS -O3"
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
+            sudo apt -qq update
             sudo apt -qq install gcc-multilib libc6-dev-i386 musl-tools
             export LDFLAGS="$LDFLAGS -static"
             make CHECK=1 CC=musl-gcc
