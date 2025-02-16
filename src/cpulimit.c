@@ -159,6 +159,37 @@ static double get_dynamic_time_slot(void)
 }
 
 /**
+ * Sends a specified signal to all processes in a given process group.
+ *
+ * @param procgroup Pointer to the process group containing the list of
+ *                  processes to which the signal will be sent.
+ * @param sig The signal to be sent to each process (e.g., SIGCONT/SIGSTOP).
+ * @param verboseflag A flag indicating whether to print verbose error
+ *                    messages (1 for verbose output, 0 for silent).
+ */
+static void send_signal_to_processes(struct process_group *procgroup,
+                                     int sig, int verboseflag)
+{
+    struct list_node *node = procgroup->proclist->first;
+    while (node != NULL)
+    {
+        struct list_node *next_node = node->next;
+        const struct process *proc = (const struct process *)node->data;
+        if (kill(proc->pid, sig) != 0)
+        {
+            if (verboseflag)
+            {
+                fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
+                        sig, (long)proc->pid, strerror(errno));
+            }
+            delete_node(procgroup->proclist, node);
+            remove_process(procgroup, proc->pid);
+        }
+        node = next_node;
+    }
+}
+
+/**
  * Controls the CPU usage of a process (and optionally its children).
  * Limits the amount of time the process can run based on a given percentage.
  *
@@ -264,49 +295,14 @@ static void limit_process(pid_t pid, double limit, int include_children)
         }
 
         /* Resume processes in the group */
-        node = pgroup.proclist->first;
-        while (node != NULL)
-        {
-            struct list_node *next_node = node->next;
-            const struct process *proc = (const struct process *)(node->data);
-            if (kill(proc->pid, SIGCONT) != 0)
-            {
-                /* If the process is dead, remove it from the group */
-                if (verbose)
-                {
-                    fprintf(stderr, "kill failed to send SIGCONT to process %ld: %s\n",
-                            (long)proc->pid, strerror(errno));
-                }
-                delete_node(pgroup.proclist, node);
-                remove_process(&pgroup, proc->pid);
-            }
-            node = next_node;
-        }
-
+        send_signal_to_processes(&pgroup, SIGCONT, verbose);
         /* Allow processes to run during the work slice */
         sleep_timespec(&twork);
 
         if (tsleep.tv_nsec > 0 || tsleep.tv_sec > 0)
         {
             /* Stop processes during the sleep slice if needed */
-            node = pgroup.proclist->first;
-            while (node != NULL)
-            {
-                struct list_node *next_node = node->next;
-                const struct process *proc = (const struct process *)(node->data);
-                if (kill(proc->pid, SIGSTOP) != 0)
-                {
-                    /* If the process is dead, remove it from the group */
-                    if (verbose)
-                    {
-                        fprintf(stderr, "kill failed to send SIGSTOP to process %ld: %s\n",
-                                (long)proc->pid, strerror(errno));
-                    }
-                    delete_node(pgroup.proclist, node);
-                    remove_process(&pgroup, proc->pid);
-                }
-                node = next_node;
-            }
+            send_signal_to_processes(&pgroup, SIGSTOP, verbose);
             /* Allow the processes to sleep during the sleep slice */
             sleep_timespec(&tsleep);
         }
@@ -316,11 +312,7 @@ static void limit_process(pid_t pid, double limit, int include_children)
     /* If the quit_flag is set, resume all processes before exiting */
     if (quit_flag)
     {
-        for (node = pgroup.proclist->first; node != NULL; node = node->next)
-        {
-            const struct process *p = (const struct process *)(node->data);
-            kill(p->pid, SIGCONT);
-        }
+        send_signal_to_processes(&pgroup, SIGCONT, 0);
     }
 
     /* Clean up the process group */
