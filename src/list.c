@@ -29,16 +29,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define safe_free(p)     \
-    do                   \
-    {                    \
-        if ((p) != NULL) \
-        {                \
-            free((p));   \
-            (p) = NULL;  \
-        }                \
-    } while (0)
-
 void init_list(struct list *l, int keysize)
 {
     l->first = l->last = NULL;
@@ -92,12 +82,12 @@ void delete_node(struct list *l, struct list_node *node)
         node->next->previous = node->previous;
     }
     l->count--;
-    safe_free(node);
+    free(node);
 }
 
 void destroy_node(struct list *l, struct list_node *node)
 {
-    safe_free(node->data);
+    free(node->data);
     delete_node(l, node);
 }
 
@@ -133,41 +123,37 @@ struct list_node *last_node(const struct list *l)
 
 struct list_node *xlocate_node(struct list *l, const void *elem, int offset, int length)
 {
+    const size_t cmp_len = (size_t)(length == 0 ? l->keysize : length);
     struct list_node *tmp;
-    tmp = l->first;
-    while (tmp != NULL)
-    {
-        if (!memcmp((char *)tmp->data + offset, elem, (size_t)(length == 0 ? l->keysize : length)))
-            return (tmp);
-        tmp = tmp->next;
-    }
+    for (tmp = l->first; tmp != NULL; tmp = tmp->next)
+        if (memcmp((char *)tmp->data + offset, elem, cmp_len) == 0)
+            return tmp;
     return NULL;
 }
 
 struct list_node *locate_node(struct list *l, const void *elem)
 {
-    return (xlocate_node(l, elem, 0, 0));
+    return xlocate_node(l, elem, 0, 0);
 }
 
 void *xlocate_elem(struct list *l, const void *elem, int offset, int length)
 {
     struct list_node *node = xlocate_node(l, elem, offset, length);
-    return (node == NULL ? NULL : node->data);
+    return node == NULL ? NULL : node->data;
 }
 
 void *locate_elem(struct list *l, const void *elem)
 {
-    return (xlocate_elem(l, elem, 0, 0));
+    return xlocate_elem(l, elem, 0, 0);
 }
 
 void clear_list(struct list *l)
 {
     while (l->first != NULL)
     {
-        struct list_node *tmp;
-        tmp = l->first;
+        struct list_node *tmp = l->first;
         l->first = l->first->next;
-        safe_free(tmp);
+        free(tmp);
     }
     l->last = NULL;
     l->count = 0;
@@ -177,11 +163,10 @@ void destroy_list(struct list *l)
 {
     while (l->first != NULL)
     {
-        struct list_node *tmp;
-        tmp = l->first;
+        struct list_node *tmp = l->first;
         l->first = l->first->next;
-        safe_free(tmp->data);
-        safe_free(tmp);
+        free(tmp->data);
+        free(tmp);
     }
     l->last = NULL;
     l->count = 0;
