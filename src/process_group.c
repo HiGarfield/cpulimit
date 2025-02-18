@@ -217,6 +217,26 @@ void update_process_group(struct process_group *pgroup)
     pgroup->last_update = now;
 }
 
+double get_process_group_cpu_usage(const struct process_group *pgroup)
+{
+    const struct list_node *node;
+    double cpu_usage = -1;
+    for (node = pgroup->proclist->first; node != NULL; node = node->next)
+    {
+        const struct process *p = (struct process *)node->data;
+        if (p->cpu_usage < 0)
+        {
+            continue;
+        }
+        if (cpu_usage < 0)
+        {
+            cpu_usage = 0;
+        }
+        cpu_usage += p->cpu_usage;
+    }
+    return cpu_usage;
+}
+
 int remove_process(struct process_group *pgroup, pid_t pid)
 {
     return process_table_del(pgroup->proctable, &pid);

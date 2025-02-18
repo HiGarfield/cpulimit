@@ -203,8 +203,6 @@ static void limit_process(pid_t pid, double limit, int include_children)
     struct timespec twork;
     /* Slice of time in which the process is stopped */
     struct timespec tsleep;
-    /* Generic list item for iterating over processes */
-    struct list_node *node;
     /* Counter to help with printing status */
     int c = 0;
 
@@ -219,14 +217,14 @@ static void limit_process(pid_t pid, double limit, int include_children)
 
     if (verbose)
         printf("Members in the process group owned by %ld: %d\n",
-               (long)pgroup.target_pid, pgroup.proclist->count);
+               (long)pgroup.target_pid, get_list_count(pgroup.proclist));
 
     /* Main loop to control the process until quit_flag is set */
     while (!quit_flag)
     {
         /* CPU usage of the controlled processes */
         /* 1 means that the processes are using 100% cpu */
-        double pcpu = -1;
+        double pcpu;
         double twork_total_nsec, tsleep_total_nsec;
         double time_slot;
 
@@ -234,7 +232,7 @@ static void limit_process(pid_t pid, double limit, int include_children)
         update_process_group(&pgroup);
 
         /* Exit if no more processes are running */
-        if (pgroup.proclist->count == 0)
+        if (is_empty_list(pgroup.proclist))
         {
             if (verbose)
                 printf("No more processes.\n");
@@ -242,17 +240,7 @@ static void limit_process(pid_t pid, double limit, int include_children)
         }
 
         /* Estimate CPU usage of all processes in the group */
-        for (node = pgroup.proclist->first; node != NULL; node = node->next)
-        {
-            const struct process *proc = (const struct process *)(node->data);
-            if (proc->cpu_usage < 0)
-            {
-                continue;
-            }
-            if (pcpu < 0)
-                pcpu = 0;
-            pcpu += proc->cpu_usage;
-        }
+        pcpu = get_process_group_cpu_usage(&pgroup);
 
         /* Adjust the work and sleep time slices based on CPU usage */
         if (pcpu < 0)

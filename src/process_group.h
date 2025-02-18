@@ -99,6 +99,14 @@ pid_t find_process_by_pid(pid_t pid);
 pid_t find_process_by_name(const char *process_name);
 
 /**
+ * Get the total CPU usage of a process group.
+ *
+ * @param pgroup Pointer to the process group.
+ * @return Total CPU usage of the process group.
+ */
+double get_process_group_cpu_usage(const struct process_group *pgroup);
+
+/**
  * Remove a process from the process group by its PID.
  *
  * @param pgroup Pointer to the process group from which to remove the process.
