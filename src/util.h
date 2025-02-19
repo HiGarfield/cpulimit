@@ -27,6 +27,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <limits.h>
 #include <sys/types.h>
 #include <time.h>
 
@@ -37,12 +38,13 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
-#ifndef MAX_SIGNED_INT
-#define MAX_SIGNED_INT(type) \
-    ((type)((((type)1 << (sizeof(type) * 8 - 2)) - 1) * 2 + 1))
-#endif /* MAX_SIGNED_INT */
+#ifndef MAX_SIGNED_INT_TYPE
+#define MAX_SIGNED_INT_TYPE(type) \
+    ((type)((((type)1 << (sizeof(type) * CHAR_BIT - 2)) - 1) * 2 + 1))
+#endif /* MAX_SIGNED_INT_TYPE */
+
 #ifndef PID_T_MAX
-#define PID_T_MAX (MAX_SIGNED_INT(pid_t))
+#define PID_T_MAX (MAX_SIGNED_INT_TYPE(pid_t))
 #endif /* PID_T_MAX */
 
 /**
