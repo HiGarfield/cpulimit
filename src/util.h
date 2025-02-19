@@ -37,6 +37,14 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
+#ifndef MAX_SIGNED_INT
+#define MAX_SIGNED_INT(type) \
+    ((type)((((type)1 << (sizeof(type) * 8 - 2)) - 1) * 2 + 1))
+#endif /* MAX_SIGNED_INT */
+#ifndef PID_T_MAX
+#define PID_T_MAX (MAX_SIGNED_INT(pid_t))
+#endif /* PID_T_MAX */
+
 /**
  * Converts nanoseconds to a timespec structure.
  *

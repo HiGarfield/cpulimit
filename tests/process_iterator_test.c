@@ -59,7 +59,7 @@ static void test_single_process(void)
     filter.pid = getpid();
     filter.include_children = 0;
     count = 0;
-    init_process_iterator(&it, &filter);
+    assert(init_process_iterator(&it, &filter) == 0);
     while (get_next_process(&it, process) == 0)
     {
         assert(process->pid == getpid());
@@ -68,12 +68,12 @@ static void test_single_process(void)
         count++;
     }
     assert(count == 1);
-    close_process_iterator(&it);
+    assert(close_process_iterator(&it) == 0);
     /* iterate children */
     filter.pid = getpid();
     filter.include_children = 1;
     count = 0;
-    init_process_iterator(&it, &filter);
+    assert(init_process_iterator(&it, &filter) == 0);
     while (get_next_process(&it, process) == 0)
     {
         assert(process->pid == getpid());
@@ -83,7 +83,7 @@ static void test_single_process(void)
     }
     assert(count == 1);
     free(process);
-    close_process_iterator(&it);
+    assert(close_process_iterator(&it) == 0);
 }
 
 static void test_multiple_process(void)
@@ -93,6 +93,7 @@ static void test_multiple_process(void)
     struct process_filter filter;
     int count = 0;
     pid_t child = fork();
+    assert(child >= 0);
     if (child == 0)
     {
         /* child is supposed to be killed by the parent :/ */
@@ -103,7 +104,7 @@ static void test_multiple_process(void)
     assert(process != NULL);
     filter.pid = getpid();
     filter.include_children = 1;
-    init_process_iterator(&it, &filter);
+    assert(init_process_iterator(&it, &filter) == 0);
     while (get_next_process(&it, process) == 0)
     {
         if (process->pid == getpid())
@@ -117,8 +118,8 @@ static void test_multiple_process(void)
     }
     assert(count == 2);
     free(process);
-    close_process_iterator(&it);
-    kill(child, SIGKILL);
+    assert(close_process_iterator(&it) == 0);
+    assert(kill(child, SIGKILL) == 0);
 }
 
 static void test_all_processes(void)
@@ -131,7 +132,7 @@ static void test_all_processes(void)
     filter.include_children = 0;
     process = (struct process *)malloc(sizeof(struct process));
     assert(process != NULL);
-    init_process_iterator(&it, &filter);
+    assert(init_process_iterator(&it, &filter) == 0);
 
     while (get_next_process(&it, process) == 0)
     {
@@ -144,7 +145,7 @@ static void test_all_processes(void)
     }
     assert(count >= 10);
     free(process);
-    close_process_iterator(&it);
+    assert(close_process_iterator(&it) == 0);
 }
 
 static void test_process_group_all(void)
@@ -159,6 +160,7 @@ static void test_process_group_all(void)
         count++;
     }
     assert(count > 10);
+    assert(count == get_list_count(pgroup.proclist));
     update_process_group(&pgroup);
     assert(close_process_group(&pgroup) == 0);
 }
@@ -168,38 +170,34 @@ static void test_process_group_single(int include_children)
     struct process_group pgroup;
     int i;
     pid_t child = fork();
+    assert(child >= 0);
     if (child == 0)
     {
         /* child is supposed to be killed by the parent :/ */
-        volatile int unused_value = 0;
-        increase_priority();
         while (1)
-            (void)unused_value;
+            ;
     }
     assert(init_process_group(&pgroup, child, include_children) == 0);
     for (i = 0; i < 100; i++)
     {
         struct list_node *node = NULL;
         int count = 0;
-        struct timespec interval;
         update_process_group(&pgroup);
+        assert(get_list_count(pgroup.proclist) == 1);
         for (node = pgroup.proclist->first; node != NULL; node = node->next)
         {
-            const struct process *p = (const struct process *)(node->data);
+            const struct process *p = (const struct process *)node->data;
             assert(p->pid == child);
             assert(p->ppid == getpid());
             /* p->cpu_usage should be -1 or [0, NCPU] */
-            assert((p->cpu_usage >= (-1.00001) && p->cpu_usage <= (-0.99999)) ||
+            assert((p->cpu_usage >= -1.00001 && p->cpu_usage <= -0.99999) ||
                    (p->cpu_usage >= 0 && p->cpu_usage <= 1.0 * get_ncpu()));
             count++;
         }
         assert(count == 1);
-        interval.tv_sec = 0;
-        interval.tv_nsec = 200000000;
-        sleep_timespec(&interval);
     }
     assert(close_process_group(&pgroup) == 0);
-    kill(child, SIGKILL);
+    assert(kill(child, SIGKILL) == 0);
 }
 
 char *command = NULL;
@@ -214,7 +212,7 @@ static void test_process_name(void)
     assert(process != NULL);
     filter.pid = getpid();
     filter.include_children = 0;
-    init_process_iterator(&it, &filter);
+    assert(init_process_iterator(&it, &filter) == 0);
     assert(get_next_process(&it, process) == 0);
     assert(process->pid == getpid());
     assert(process->ppid == getppid());
@@ -223,20 +221,23 @@ static void test_process_name(void)
     assert(strncmp(proc_name1, proc_name2, sizeof(process->command)) == 0);
     assert(get_next_process(&it, process) != 0);
     free(process);
-    close_process_iterator(&it);
+    assert(close_process_iterator(&it) == 0);
 }
 
 static void test_process_group_wrong_pid(void)
 {
     struct process_group pgroup;
+
     assert(init_process_group(&pgroup, -1, 0) == 0);
-    assert(pgroup.proclist->count == 0);
+    assert(get_list_count(pgroup.proclist) == 0);
     update_process_group(&pgroup);
-    assert(pgroup.proclist->count == 0);
-    assert(init_process_group(&pgroup, 9999999, 0) == 0);
-    assert(pgroup.proclist->count == 0);
+    assert(get_list_count(pgroup.proclist) == 0);
+    assert(close_process_group(&pgroup) == 0);
+
+    assert(init_process_group(&pgroup, PID_T_MAX, 0) == 0);
+    assert(get_list_count(pgroup.proclist) == 0);
     update_process_group(&pgroup);
-    assert(pgroup.proclist->count == 0);
+    assert(get_list_count(pgroup.proclist) == 0);
     assert(close_process_group(&pgroup) == 0);
 }
 
@@ -298,13 +299,13 @@ static void test_getppid_of(void)
     filter.include_children = 0;
     process = (struct process *)malloc(sizeof(struct process));
     assert(process != NULL);
-    init_process_iterator(&it, &filter);
+    assert(init_process_iterator(&it, &filter) == 0);
     while (get_next_process(&it, process) == 0)
     {
         assert(getppid_of(process->pid) == process->ppid);
     }
     free(process);
-    close_process_iterator(&it);
+    assert(close_process_iterator(&it) == 0);
     assert(getppid_of(getpid()) == getppid());
 }
 
@@ -319,17 +320,49 @@ int main(int argc __attribute__((unused)), char *argv[])
     sigaction(SIGTERM, &sa, NULL);
 
     command = argv[0];
-    increase_priority();
+
+    printf("Running test_single_process()...\n");
     test_single_process();
+    printf("test_single_process() passed.\n");
+
+    printf("Running test_multiple_process()...\n");
     test_multiple_process();
+    printf("test_multiple_process() passed.\n");
+
+    printf("Running test_all_processes()...\n");
     test_all_processes();
+    printf("test_all_processes() passed.\n");
+
+    printf("Running test_process_group_all()...\n");
     test_process_group_all();
+    printf("test_process_group_all() passed.\n");
+
+    printf("Running test_process_group_single()...\n");
     test_process_group_single(0);
     test_process_group_single(1);
+    printf("test_process_group_single() passed.\n");
+
+    printf("Running test_process_group_wrong_pid()...\n");
     test_process_group_wrong_pid();
+    printf("test_process_group_wrong_pid() passed.\n");
+
+    printf("Running test_process_name()...\n");
     test_process_name();
+    printf("test_process_name() passed.\n");
+
+    printf("Running test_find_process_by_pid()...\n");
     test_find_process_by_pid();
+    printf("test_find_process_by_pid() passed.\n");
+
+    printf("Running test_find_process_by_name()...\n");
     test_find_process_by_name();
+    printf("test_find_process_by_name() passed.\n");
+
+    printf("Running test_getppid_of()...\n");
     test_getppid_of();
+    printf("test_getppid_of() passed.\n");
+
+    printf("All tests passed.\n");
+
     return 0;
 }

@@ -162,13 +162,6 @@ int get_ncpu(void)
 pid_t get_pid_max(void)
 {
 #if defined(__linux__)
-
-#ifndef PID_T_MAX
-#define MAX_SIGNED_INT(type) \
-    ((type)((((type)1 << (sizeof(type) * 8 - 2)) - 1) * 2 + 1))
-#define PID_T_MAX (MAX_SIGNED_INT(pid_t))
-#endif /* #ifndef PID_T_MAX */
-
     int fd;
     char buffer[64];
     ssize_t bytes_read;
