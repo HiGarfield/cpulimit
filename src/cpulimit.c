@@ -194,7 +194,7 @@ static void send_signal_to_processes(struct process_group *procgroup,
  * Limits the amount of time the process can run based on a given percentage.
  *
  * @param pid Process ID of the target process.
- * @param limit The CPU usage limit as a percentage (0.0 to 1.0).
+ * @param limit The CPU usage limit (0 to N_CPU).
  * @param include_children Whether to include child processes.
  */
 static void limit_process(pid_t pid, double limit, int include_children)
