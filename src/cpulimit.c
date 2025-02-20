@@ -52,27 +52,27 @@
 /* GLOBAL VARIABLES */
 
 /* Define a global process group (family of processes) */
-struct process_group pgroup;
+static struct process_group pgroup;
 
 /* PID of cpulimit */
-pid_t cpulimit_pid;
+static pid_t cpulimit_pid;
 
 /* Name of this program */
-const char *program_name;
+static const char *program_name;
 
 /* Number of CPUs available in the system */
-int NCPU;
+static int NCPU;
 
 /* CONFIGURATION VARIABLES */
 
 /* Verbose mode flag */
-int verbose = 0;
+static int verbose = 0;
 
 /* Lazy mode flag (exit if no process is found) */
-int lazy = 0;
+static int lazy = 0;
 
 /* Quit flag for handling SIGINT and SIGTERM signals */
-volatile sig_atomic_t quit_flag = 0;
+static volatile sig_atomic_t quit_flag = 0;
 
 /**
  * Signal handler for SIGINT and SIGTERM signals.

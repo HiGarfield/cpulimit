@@ -200,7 +200,7 @@ static void test_process_group_single(int include_children)
     assert(kill(child, SIGKILL) == 0);
 }
 
-char *command = NULL;
+static char *command = NULL;
 
 static void test_process_name(void)
 {
