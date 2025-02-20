@@ -234,7 +234,7 @@ int close_process_iterator(struct process_iterator *it)
         free(it->procs);
         it->procs = NULL;
     }
-    if (kvm_close(it->kd) == -1)
+    if (kvm_close(it->kd) != 0)
     {
         perror("kvm_close");
         return -1;

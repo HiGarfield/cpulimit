@@ -60,7 +60,7 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     }
 
     /* Get the size of all process information */
-    if (sysctl(mib, 4, NULL, &len, NULL, 0) < 0)
+    if (sysctl(mib, 4, NULL, &len, NULL, 0) != 0)
     {
         perror("Failed to get process information buffer size");
         exit(EXIT_FAILURE); /* Exit on error */
@@ -82,7 +82,7 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     }
 
     /* Get process information */
-    if (sysctl(mib, 4, procs, &len, NULL, 0) < 0)
+    if (sysctl(mib, 4, procs, &len, NULL, 0) != 0)
     {
         free(procs);
         perror("Failed to get process information");
