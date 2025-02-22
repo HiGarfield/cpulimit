@@ -208,6 +208,7 @@ static void test_process_name(void)
     struct process *process;
     struct process_filter filter;
     const char *proc_name1, *proc_name2;
+    int cmp_result;
     process = (struct process *)malloc(sizeof(struct process));
     assert(process != NULL);
     filter.pid = getpid();
@@ -218,7 +219,8 @@ static void test_process_name(void)
     assert(process->ppid == getppid());
     proc_name1 = file_basename(command);
     proc_name2 = file_basename(process->command);
-    assert(strncmp(proc_name1, proc_name2, sizeof(process->command)) == 0);
+    cmp_result = strncmp(proc_name1, proc_name2, sizeof(process->command));
+    assert(cmp_result == 0);
     assert(get_next_process(&it, process) != 0);
     free(process);
     assert(close_process_iterator(&it) == 0);
