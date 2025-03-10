@@ -101,7 +101,7 @@ int get_list_count(const struct list *l)
     return l->count;
 }
 
-void *first_elem(struct list *l)
+void *first_elem(const struct list *l)
 {
     return l->first->data;
 }
@@ -111,7 +111,7 @@ struct list_node *first_node(const struct list *l)
     return l->first;
 }
 
-void *last_elem(struct list *l)
+void *last_elem(const struct list *l)
 {
     return l->last->data;
 }
@@ -121,28 +121,28 @@ struct list_node *last_node(const struct list *l)
     return l->last;
 }
 
-struct list_node *xlocate_node(struct list *l, const void *elem, int offset, int length)
+struct list_node *xlocate_node(const struct list *l, const void *elem, int offset, int length)
 {
     const size_t cmp_len = (size_t)(length == 0 ? l->keysize : length);
     struct list_node *tmp;
     for (tmp = l->first; tmp != NULL; tmp = tmp->next)
-        if (memcmp((char *)tmp->data + offset, elem, cmp_len) == 0)
+        if (memcmp((const char *)tmp->data + offset, elem, cmp_len) == 0)
             return tmp;
     return NULL;
 }
 
-struct list_node *locate_node(struct list *l, const void *elem)
+struct list_node *locate_node(const struct list *l, const void *elem)
 {
     return xlocate_node(l, elem, 0, 0);
 }
 
-void *xlocate_elem(struct list *l, const void *elem, int offset, int length)
+void *xlocate_elem(const struct list *l, const void *elem, int offset, int length)
 {
     struct list_node *node = xlocate_node(l, elem, offset, length);
     return node == NULL ? NULL : node->data;
 }
 
-void *locate_elem(struct list *l, const void *elem)
+void *locate_elem(const struct list *l, const void *elem)
 {
     return xlocate_elem(l, elem, 0, 0);
 }

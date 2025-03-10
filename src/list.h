@@ -118,7 +118,7 @@ int get_list_count(const struct list *l);
  * @param l Pointer to the list.
  * @return Pointer to the content of the first node, or NULL if the list is empty.
  */
-void *first_elem(struct list *l);
+void *first_elem(const struct list *l);
 
 /**
  * Returns the first node in the list.
@@ -134,7 +134,7 @@ struct list_node *first_node(const struct list *l);
  * @param l Pointer to the list.
  * @return Pointer to the content of the last node, or NULL if the list is empty.
  */
-void *last_elem(struct list *l);
+void *last_elem(const struct list *l);
 
 /**
  * Returns the last node in the list.
@@ -157,7 +157,7 @@ struct list_node *last_node(const struct list *l);
  * @param length Length of the comparison.
  * @return Pointer to the node if found; NULL if not found.
  */
-struct list_node *xlocate_node(struct list *l, const void *elem, int offset, int length);
+struct list_node *xlocate_node(const struct list *l, const void *elem, int offset, int length);
 
 /**
  * Similar to xlocate_node(), but returns the content of the node.
@@ -168,7 +168,7 @@ struct list_node *xlocate_node(struct list *l, const void *elem, int offset, int
  * @param length Length of the comparison.
  * @return Pointer to the content of the node if found; NULL if not found.
  */
-void *xlocate_elem(struct list *l, const void *elem, int offset, int length);
+void *xlocate_elem(const struct list *l, const void *elem, int offset, int length);
 
 /**
  * Locates a node in the list using default parameters (offset=0, length=0).
@@ -177,7 +177,7 @@ void *xlocate_elem(struct list *l, const void *elem, int offset, int length);
  * @param elem Pointer to the element to locate.
  * @return Pointer to the node if found; NULL if not found.
  */
-struct list_node *locate_node(struct list *l, const void *elem);
+struct list_node *locate_node(const struct list *l, const void *elem);
 
 /**
  * Similar to locate_node(), but returns the content of the node.
@@ -186,7 +186,7 @@ struct list_node *locate_node(struct list *l, const void *elem);
  * @param elem Pointer to the element to locate.
  * @return Pointer to the content of the node if found; NULL if not found.
  */
-void *locate_elem(struct list *l, const void *elem);
+void *locate_elem(const struct list *l, const void *elem);
 
 /**
  * Deletes all elements in the list.
