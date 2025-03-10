@@ -25,14 +25,19 @@
 #endif
 
 #include "process_table.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 
-void process_table_init(struct process_table *pt, int hashsize)
+void process_table_init(struct process_table *pt, size_t hashsize)
 {
+    if (pt == NULL)
+    {
+        return;
+    }
     pt->hashsize = hashsize;
-    pt->table = (struct list **)calloc((size_t)pt->hashsize, sizeof(struct list *));
+    pt->table = (struct list **)calloc(pt->hashsize, sizeof(struct list *));
     if (pt->table == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the process table\n");
@@ -40,15 +45,20 @@ void process_table_init(struct process_table *pt, int hashsize)
     }
 }
 
-static int pid_hash(const struct process_table *pt, const void *procptr)
+static size_t pid_hash(const struct process_table *pt, const void *procptr)
 {
-    return *((const pid_t *)procptr) % pt->hashsize;
+    return (size_t)(*((const pid_t *)procptr)) % pt->hashsize;
 }
 
 struct process *process_table_find(const struct process_table *pt,
                                    const void *procptr)
 {
-    int idx = pid_hash(pt, procptr);
+    size_t idx;
+    if (pt == NULL || procptr == NULL)
+    {
+        return NULL;
+    }
+    idx = pid_hash(pt, procptr);
     if (pt->table[idx] == NULL)
     {
         return NULL;
@@ -58,7 +68,12 @@ struct process *process_table_find(const struct process_table *pt,
 
 void process_table_add(struct process_table *pt, struct process *p)
 {
-    int idx = pid_hash(pt, p);
+    size_t idx;
+    if (pt == NULL || p == NULL)
+    {
+        return;
+    }
+    idx = pid_hash(pt, p);
     if (pt->table[idx] == NULL)
     {
         pt->table[idx] = (struct list *)malloc(sizeof(struct list));
@@ -75,7 +90,12 @@ void process_table_add(struct process_table *pt, struct process *p)
 int process_table_del(struct process_table *pt, const void *procptr)
 {
     struct list_node *node;
-    int idx = pid_hash(pt, procptr);
+    size_t idx;
+    if (pt == NULL || procptr == NULL)
+    {
+        return 1;
+    }
+    idx = pid_hash(pt, procptr);
     if (pt->table[idx] == NULL)
     {
         return 1; /* nothing to delete */
@@ -91,13 +111,17 @@ int process_table_del(struct process_table *pt, const void *procptr)
 
 void process_table_destroy(struct process_table *pt)
 {
-    int i;
-    for (i = 0; i < pt->hashsize; i++)
+    size_t idx;
+    if (pt == NULL)
     {
-        if (pt->table[i] != NULL)
+        return;
+    }
+    for (idx = 0; idx < pt->hashsize; idx++)
+    {
+        if (pt->table[idx] != NULL)
         {
-            destroy_list(pt->table[i]);
-            free(pt->table[i]);
+            destroy_list(pt->table[idx]);
+            free(pt->table[idx]);
         }
     }
     free((void *)pt->table);

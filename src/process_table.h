@@ -29,6 +29,7 @@
 
 #include "list.h"
 #include "process_iterator.h"
+#include <stddef.h>
 #include <sys/types.h>
 
 /**
@@ -40,7 +41,7 @@ struct process_table
     struct list **table;
 
     /* Size of the hash table for the process table */
-    int hashsize;
+    size_t hashsize;
 };
 
 /**
@@ -49,7 +50,7 @@ struct process_table
  * @param pt The process table to initialize
  * @param hashsize The size of the hash table
  */
-void process_table_init(struct process_table *pt, int hashsize);
+void process_table_init(struct process_table *pt, size_t hashsize);
 
 /**
  * Finds a process in the process table based on the PID of the given process.
