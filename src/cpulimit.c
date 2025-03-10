@@ -216,8 +216,9 @@ static void limit_process(pid_t pid, double limit, int include_children)
     init_process_group(&pgroup, pid, include_children);
 
     if (verbose)
-        printf("Members in the process group owned by %ld: %d\n",
-               (long)pgroup.target_pid, get_list_count(pgroup.proclist));
+        printf("Members in the process group owned by %ld: %lu\n",
+               (long)pgroup.target_pid,
+               (unsigned long)get_list_count(pgroup.proclist));
 
     /* Main loop to control the process until quit_flag is set */
     while (!quit_flag)

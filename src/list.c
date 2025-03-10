@@ -29,7 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void init_list(struct list *l, int keysize)
+void init_list(struct list *l, size_t keysize)
 {
     l->first = l->last = NULL;
     l->keysize = keysize;
@@ -96,7 +96,7 @@ int is_empty_list(const struct list *l)
     return l->count == 0;
 }
 
-int get_list_count(const struct list *l)
+size_t get_list_count(const struct list *l)
 {
     return l->count;
 }
@@ -121,9 +121,10 @@ struct list_node *last_node(const struct list *l)
     return l->last;
 }
 
-struct list_node *xlocate_node(const struct list *l, const void *elem, int offset, int length)
+struct list_node *xlocate_node(const struct list *l, const void *elem,
+                               size_t offset, size_t length)
 {
-    const size_t cmp_len = (size_t)(length == 0 ? l->keysize : length);
+    const size_t cmp_len = length == 0 ? l->keysize : length;
     struct list_node *tmp;
     for (tmp = l->first; tmp != NULL; tmp = tmp->next)
         if (memcmp((const char *)tmp->data + offset, elem, cmp_len) == 0)
@@ -136,7 +137,8 @@ struct list_node *locate_node(const struct list *l, const void *elem)
     return xlocate_node(l, elem, 0, 0);
 }
 
-void *xlocate_elem(const struct list *l, const void *elem, int offset, int length)
+void *xlocate_elem(const struct list *l, const void *elem, size_t offset,
+                   size_t length)
 {
     struct list_node *node = xlocate_node(l, elem, offset, length);
     return node == NULL ? NULL : node->data;

@@ -27,6 +27,8 @@
 #define _GNU_SOURCE
 #endif
 
+#include <stddef.h>
+
 struct list_node;
 /**
  * Structure representing a node in a doubly linked list.
@@ -55,10 +57,10 @@ struct list
     struct list_node *last;
 
     /* Size of the search key in bytes */
-    int keysize;
+    size_t keysize;
 
     /* Count of elements in the list */
-    int count;
+    size_t count;
 };
 
 /**
@@ -67,7 +69,7 @@ struct list
  * @param l Pointer to the list to initialize.
  * @param keysize Size of the key used for comparisons.
  */
-void init_list(struct list *l, int keysize);
+void init_list(struct list *l, size_t keysize);
 
 /**
  * Adds a new element to the end of the list.
@@ -110,7 +112,7 @@ int is_empty_list(const struct list *l);
  * @param l Pointer to the list.
  * @return Number of elements in the list.
  */
-int get_list_count(const struct list *l);
+size_t get_list_count(const struct list *l);
 
 /**
  * Returns the content of the first element in the list.
@@ -157,7 +159,8 @@ struct list_node *last_node(const struct list *l);
  * @param length Length of the comparison.
  * @return Pointer to the node if found; NULL if not found.
  */
-struct list_node *xlocate_node(const struct list *l, const void *elem, int offset, int length);
+struct list_node *xlocate_node(const struct list *l, const void *elem,
+                               size_t offset, size_t length);
 
 /**
  * Similar to xlocate_node(), but returns the content of the node.
@@ -168,7 +171,8 @@ struct list_node *xlocate_node(const struct list *l, const void *elem, int offse
  * @param length Length of the comparison.
  * @return Pointer to the content of the node if found; NULL if not found.
  */
-void *xlocate_elem(const struct list *l, const void *elem, int offset, int length);
+void *xlocate_elem(const struct list *l, const void *elem, size_t offset,
+                   size_t length);
 
 /**
  * Locates a node in the list using default parameters (offset=0, length=0).

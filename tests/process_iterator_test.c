@@ -160,7 +160,7 @@ static void test_process_group_all(void)
         count++;
     }
     assert(count > 10);
-    assert(count == get_list_count(pgroup.proclist));
+    assert((size_t)count == get_list_count(pgroup.proclist));
     update_process_group(&pgroup);
     assert(close_process_group(&pgroup) == 0);
 }
