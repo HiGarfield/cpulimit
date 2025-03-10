@@ -31,6 +31,10 @@
 
 void init_list(struct list *l, size_t keysize)
 {
+    if (l == NULL)
+    {
+        return;
+    }
     l->first = l->last = NULL;
     l->keysize = keysize;
     l->count = 0;
@@ -38,7 +42,12 @@ void init_list(struct list *l, size_t keysize)
 
 struct list_node *add_elem(struct list *l, void *elem)
 {
-    struct list_node *newnode = (struct list_node *)malloc(sizeof(struct list_node));
+    struct list_node *newnode;
+    if (l == NULL)
+    {
+        return NULL;
+    }
+    newnode = (struct list_node *)malloc(sizeof(struct list_node));
     if (newnode == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the new list node\n");
@@ -62,73 +71,97 @@ struct list_node *add_elem(struct list *l, void *elem)
 
 void delete_node(struct list *l, struct list_node *node)
 {
-    if (l->count == 1)
+    if (l == NULL || node == NULL || l->count == 0)
     {
-        l->first = l->last = NULL;
+        return;
     }
-    else if (node == l->first)
+
+    if (node->previous != NULL)
     {
-        node->next->previous = NULL;
-        l->first = node->next;
-    }
-    else if (node == l->last)
-    {
-        node->previous->next = NULL;
-        l->last = node->previous;
+        node->previous->next = node->next;
     }
     else
     {
-        node->previous->next = node->next;
+        l->first = node->next;
+    }
+
+    if (node->next != NULL)
+    {
         node->next->previous = node->previous;
     }
+    else
+    {
+        l->last = node->previous;
+    }
+
     l->count--;
     free(node);
 }
 
 void destroy_node(struct list *l, struct list_node *node)
 {
-    free(node->data);
+    if (node != NULL && node->data != NULL)
+    {
+        free(node->data);
+    }
     delete_node(l, node);
 }
 
 int is_empty_list(const struct list *l)
 {
-    return l->count == 0;
+    return l == NULL || l->count == 0;
 }
 
 size_t get_list_count(const struct list *l)
 {
-    return l->count;
+    return l != NULL ? l->count : 0;
 }
 
 void *first_elem(const struct list *l)
 {
-    return l->first->data;
+    return l != NULL && l->first != NULL ? l->first->data : NULL;
 }
 
 struct list_node *first_node(const struct list *l)
 {
-    return l->first;
+    return l != NULL ? l->first : NULL;
 }
 
 void *last_elem(const struct list *l)
 {
-    return l->last->data;
+    return l != NULL && l->last != NULL ? l->last->data : NULL;
 }
 
 struct list_node *last_node(const struct list *l)
 {
-    return l->last;
+    return l != NULL ? l->last : NULL;
 }
 
 struct list_node *xlocate_node(const struct list *l, const void *elem,
                                size_t offset, size_t length)
 {
-    const size_t cmp_len = length == 0 ? l->keysize : length;
-    struct list_node *tmp;
-    for (tmp = l->first; tmp != NULL; tmp = tmp->next)
-        if (memcmp((const char *)tmp->data + offset, elem, cmp_len) == 0)
-            return tmp;
+    struct list_node *cur;
+    size_t cmp_len;
+
+    if (l == NULL || elem == NULL)
+    {
+        return NULL;
+    }
+
+    cmp_len = (length != 0) ? length : l->keysize;
+    if (cmp_len == 0)
+    {
+        return NULL;
+    }
+
+    for (cur = l->first; cur != NULL; cur = cur->next)
+    {
+        if (memcmp((const char *)cur->data + offset, elem, cmp_len) == 0)
+        {
+            return cur;
+        }
+    }
+
     return NULL;
 }
 
@@ -137,11 +170,11 @@ struct list_node *locate_node(const struct list *l, const void *elem)
     return xlocate_node(l, elem, 0, 0);
 }
 
-void *xlocate_elem(const struct list *l, const void *elem, size_t offset,
-                   size_t length)
+void *xlocate_elem(const struct list *l, const void *elem,
+                   size_t offset, size_t length)
 {
     struct list_node *node = xlocate_node(l, elem, offset, length);
-    return node == NULL ? NULL : node->data;
+    return node != NULL ? node->data : NULL;
 }
 
 void *locate_elem(const struct list *l, const void *elem)
@@ -149,27 +182,32 @@ void *locate_elem(const struct list *l, const void *elem)
     return xlocate_elem(l, elem, 0, 0);
 }
 
-void clear_list(struct list *l)
+static void clear_all_list_nodes(struct list *l, int free_data)
 {
+    if (l == NULL)
+    {
+        return;
+    }
     while (l->first != NULL)
     {
         struct list_node *tmp = l->first;
         l->first = l->first->next;
+        if (free_data)
+        {
+            free(tmp->data);
+        }
         free(tmp);
     }
     l->last = NULL;
     l->count = 0;
 }
 
+void clear_list(struct list *l)
+{
+    clear_all_list_nodes(l, 0);
+}
+
 void destroy_list(struct list *l)
 {
-    while (l->first != NULL)
-    {
-        struct list_node *tmp = l->first;
-        l->first = l->first->next;
-        free(tmp->data);
-        free(tmp);
-    }
-    l->last = NULL;
-    l->count = 0;
+    clear_all_list_nodes(l, 1);
 }

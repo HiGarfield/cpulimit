@@ -29,7 +29,6 @@
 
 #include <stddef.h>
 
-struct list_node;
 /**
  * Structure representing a node in a doubly linked list.
  */
@@ -171,8 +170,8 @@ struct list_node *xlocate_node(const struct list *l, const void *elem,
  * @param length Length of the comparison.
  * @return Pointer to the content of the node if found; NULL if not found.
  */
-void *xlocate_elem(const struct list *l, const void *elem, size_t offset,
-                   size_t length);
+void *xlocate_elem(const struct list *l, const void *elem,
+                   size_t offset, size_t length);
 
 /**
  * Locates a node in the list using default parameters (offset=0, length=0).
