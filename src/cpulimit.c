@@ -469,11 +469,21 @@ int main(int argc, char *argv[])
     }
 
     /* Set up signal handlers for SIGINT and SIGTERM */
-    sa.sa_handler = &sig_handler;
-    sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
-    sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
+    sigaddset(&sa.sa_mask, SIGINT);
+    sigaddset(&sa.sa_mask, SIGTERM);
+    sa.sa_handler = &sig_handler;
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGINT, &sa, NULL) != 0)
+    {
+        perror("Failed to set SIGINT handler");
+        exit(EXIT_FAILURE);
+    }
+    if (sigaction(SIGTERM, &sa, NULL) != 0)
+    {
+        perror("Failed to set SIGTERM handler");
+        exit(EXIT_FAILURE);
+    }
 
     /* Print number of CPUs if in verbose mode */
     if (verbose)
