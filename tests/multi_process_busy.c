@@ -24,9 +24,10 @@
 
 int main(void)
 {
+    volatile int keep_loop = 1;
     fork();
     fork();
-    while (1)
+    while (keep_loop)
         ;
     return 0;
 }

@@ -39,12 +39,9 @@
 #include "../src/process_iterator.h"
 #include "../src/util.h"
 
-#ifndef __GNUC__
-#define __attribute__(attr)
-#endif
-
-static void ignore_signal(int sig __attribute__((unused)))
+static void ignore_signal(int sig)
 {
+    (void)sig;
 }
 
 static void test_single_process(void)
@@ -174,7 +171,8 @@ static void test_process_group_single(int include_children)
     if (child == 0)
     {
         /* child is supposed to be killed by the parent :/ */
-        while (1)
+        volatile int keep_running = 1;
+        while (keep_running)
             ;
     }
     assert(init_process_group(&pgroup, child, include_children) == 0);
