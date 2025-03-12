@@ -74,8 +74,7 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     len <<= 1;
 
     /* Allocate memory to store process information */
-    procs = (struct kinfo_proc *)malloc(len);
-    if (procs == NULL)
+    if ((procs = (struct kinfo_proc *)malloc(len)) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for process information buffer\n");
         exit(EXIT_FAILURE); /* Exit on error */
@@ -91,8 +90,7 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
 
     /* Calculate the number of processes */
     it->count = (int)(len / sizeof(struct kinfo_proc));
-    it->pidlist = (pid_t *)malloc((size_t)it->count * sizeof(pid_t)); /* Allocate PID array */
-    if (it->pidlist == NULL)
+    if ((it->pidlist = (pid_t *)malloc((size_t)it->count * sizeof(pid_t))) == NULL)
     {
         free(procs);
         fprintf(stderr, "Memory allocation failed for PID list\n");

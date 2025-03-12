@@ -61,8 +61,7 @@ pid_t find_process_by_name(const char *process_name)
     int full_path_cmp = process_name[0] == '/';
     const char *process_cmp_name =
         full_path_cmp ? process_name : file_basename(process_name);
-    proc = (struct process *)malloc(sizeof(struct process));
-    if (proc == NULL)
+    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the process\n");
         exit(EXIT_FAILURE);
@@ -94,8 +93,7 @@ pid_t find_process_by_name(const char *process_name)
 int init_process_group(struct process_group *pgroup, pid_t target_pid, int include_children)
 {
     /* hashtable initialization */
-    pgroup->proctable = (struct process_table *)malloc(sizeof(struct process_table));
-    if (pgroup->proctable == NULL)
+    if ((pgroup->proctable = (struct process_table *)malloc(sizeof(struct process_table))) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
@@ -103,8 +101,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid, int inclu
     process_table_init(pgroup->proctable, 2048);
     pgroup->target_pid = target_pid;
     pgroup->include_children = include_children;
-    pgroup->proclist = (struct list *)malloc(sizeof(struct list));
-    if (pgroup->proclist == NULL)
+    if ((pgroup->proclist = (struct list *)malloc(sizeof(struct list))) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         exit(EXIT_FAILURE);
@@ -139,8 +136,8 @@ int close_process_group(struct process_group *pgroup)
 
 static struct process *process_dup(const struct process *proc)
 {
-    struct process *p = (struct process *)malloc(sizeof(struct process));
-    if (p == NULL)
+    struct process *p;
+    if ((p = (struct process *)malloc(sizeof(struct process))) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for duplicated process\n");
         exit(EXIT_FAILURE);
@@ -163,8 +160,7 @@ void update_process_group(struct process_group *pgroup)
     {
         exit(EXIT_FAILURE);
     }
-    tmp_process = (struct process *)malloc(sizeof(struct process));
-    if (tmp_process == NULL)
+    if ((tmp_process = (struct process *)malloc(sizeof(struct process))) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for tmp_process\n");
         exit(EXIT_FAILURE);

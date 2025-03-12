@@ -82,8 +82,7 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
         kvm_close(it->kd);
         return -1;
     }
-    it->procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) * (size_t)it->count);
-    if (it->procs == NULL)
+    if ((it->procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) * (size_t)it->count)) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         exit(EXIT_FAILURE);
@@ -128,8 +127,8 @@ pid_t getppid_of(pid_t pid)
 {
     pid_t ppid;
     kvm_t *kd;
-    char *errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX);
-    if (errbuf == NULL)
+    char *errbuf;
+    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);
@@ -162,8 +161,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
 {
     int ret;
     kvm_t *kd;
-    char *errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX);
-    if (errbuf == NULL)
+    char *errbuf;
+    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);

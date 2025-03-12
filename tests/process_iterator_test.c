@@ -50,8 +50,11 @@ static void test_single_process(void)
     struct process *process;
     struct process_filter filter;
     int count;
-    process = (struct process *)malloc(sizeof(struct process));
-    assert(process != NULL);
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
+    {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
     /* don't iterate children */
     filter.pid = getpid();
     filter.include_children = 0;
@@ -97,8 +100,11 @@ static void test_multiple_process(void)
         while (1)
             sleep(5);
     }
-    process = (struct process *)malloc(sizeof(struct process));
-    assert(process != NULL);
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
+    {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
     filter.pid = getpid();
     filter.include_children = 1;
     assert(init_process_iterator(&it, &filter) == 0);
@@ -127,8 +133,11 @@ static void test_all_processes(void)
     int count = 0;
     filter.pid = 0;
     filter.include_children = 0;
-    process = (struct process *)malloc(sizeof(struct process));
-    assert(process != NULL);
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
+    {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
     assert(init_process_iterator(&it, &filter) == 0);
 
     while (get_next_process(&it, process) == 0)
@@ -207,8 +216,11 @@ static void test_process_name(void)
     struct process_filter filter;
     const char *proc_name1, *proc_name2;
     int cmp_result;
-    process = (struct process *)malloc(sizeof(struct process));
-    assert(process != NULL);
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
+    {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
     filter.pid = getpid();
     filter.include_children = 0;
     assert(init_process_iterator(&it, &filter) == 0);
@@ -251,8 +263,11 @@ static void test_find_process_by_name(void)
     char *wrong_name;
     size_t len;
 
-    wrong_name = (char *)malloc(PATH_MAX + 1);
-    assert(wrong_name != NULL);
+    if ((wrong_name = (char *)malloc(PATH_MAX + 1)) == NULL)
+    {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
 
     /*
      * 'command' is the name of the current process (equivalent to argv[0]).
@@ -297,8 +312,11 @@ static void test_getppid_of(void)
     struct process_filter filter;
     filter.pid = 0;
     filter.include_children = 0;
-    process = (struct process *)malloc(sizeof(struct process));
-    assert(process != NULL);
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
+    {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
     assert(init_process_iterator(&it, &filter) == 0);
     while (get_next_process(&it, process) == 0)
     {

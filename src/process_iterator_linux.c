@@ -84,8 +84,7 @@ static int read_process_info(pid_t pid, struct process *p)
     {
         return -1;
     }
-    buffer = (char *)malloc(buff_size);
-    if (buffer == NULL)
+    if ((buffer = (char *)malloc(buff_size)) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the buffer\n");
         close(fd);
@@ -154,8 +153,7 @@ pid_t getppid_of(pid_t pid)
     {
         return (pid_t)-1;
     }
-    buffer = (char *)malloc(buff_size);
-    if (buffer == NULL)
+    if ((buffer = (char *)malloc(buff_size)) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the buffer\n");
         close(fd);

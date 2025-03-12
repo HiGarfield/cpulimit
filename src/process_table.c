@@ -37,8 +37,7 @@ void process_table_init(struct process_table *pt, size_t hashsize)
         return;
     }
     pt->hashsize = hashsize;
-    pt->table = (struct list **)calloc(pt->hashsize, sizeof(struct list *));
-    if (pt->table == NULL)
+    if ((pt->table = (struct list **)calloc(pt->hashsize, sizeof(struct list *))) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
@@ -76,8 +75,7 @@ void process_table_add(struct process_table *pt, struct process *p)
     idx = pid_hash(pt, p);
     if (pt->table[idx] == NULL)
     {
-        pt->table[idx] = (struct list *)malloc(sizeof(struct list));
-        if (pt->table[idx] == NULL)
+        if ((pt->table[idx] = (struct list *)malloc(sizeof(struct list))) == NULL)
         {
             fprintf(stderr, "Memory allocation failed for the process list\n");
             exit(EXIT_FAILURE);
