@@ -45,31 +45,11 @@
 #define EPSILON 1e-12
 #endif
 
-/* Control time slot in microseconds */
-/* Each slot is split into a working slice and a sleeping slice */
+/*
+ * Control time slot in microseconds
+ * Each slot is split into a working slice and a sleeping slice
+ */
 #define TIME_SLOT 100000
-
-/* GLOBAL VARIABLES */
-
-/* Define a global process group (family of processes) */
-static struct process_group pgroup;
-
-/* PID of cpulimit */
-static pid_t cpulimit_pid;
-
-/* Name of this program */
-static const char *program_name;
-
-/* Number of CPUs available in the system */
-static int NCPU;
-
-/* CONFIGURATION VARIABLES */
-
-/* Verbose mode flag */
-static int verbose = 0;
-
-/* Lazy mode flag (exit if no process is found) */
-static int lazy = 0;
 
 /* Quit flag for handling SIGINT and SIGTERM signals */
 static volatile sig_atomic_t quit_flag = 0;
@@ -98,14 +78,15 @@ static void sig_handler(int sig)
  * Prints the usage information for the program and exit.
  *
  * @param stream The file stream to write the usage information to (e.g., stdout).
+ * @param program_name The name of the program.
  * @param exit_code The exit code to return after printing usage.
  */
-static void print_usage_and_exit(FILE *stream, int exit_code)
+static void print_usage_and_exit(FILE *stream, const char *program_name, int exit_code)
 {
     /* Print the usage message along with available options */
     fprintf(stream, "Usage: %s [OPTIONS...] TARGET\n", program_name);
     fprintf(stream, "   OPTIONS:\n");
-    fprintf(stream, "      -l LIMIT, --limit=LIMIT   CPU percentage limit from 0 to %d (required)\n", 100 * NCPU);
+    fprintf(stream, "      -l LIMIT, --limit=LIMIT   CPU percentage limit from 0 to %d (required)\n", 100 * get_ncpu());
     fprintf(stream, "      -v, --verbose             show control statistics\n");
     fprintf(stream, "      -z, --lazy                exit if the target process is missing or stopped\n");
     fprintf(stream, "      -i, --include-children    also limit the child processes\n");
@@ -148,7 +129,7 @@ static double get_dynamic_time_slot(void)
     last_update = now;
 
     /* Adjust the time slot based on system load and number of CPUs */
-    new_time_slot = time_slot * load / NCPU / 0.3;
+    new_time_slot = time_slot * load / get_ncpu() / 0.3;
     new_time_slot = MAX(new_time_slot, MIN_TIME_SLOT);
     new_time_slot = MIN(new_time_slot, MAX_TIME_SLOT);
 
@@ -164,11 +145,10 @@ static double get_dynamic_time_slot(void)
  * @param procgroup Pointer to the process group containing the list of
  *                  processes to which the signal will be sent.
  * @param sig The signal to be sent to each process (e.g., SIGCONT/SIGSTOP).
- * @param verboseflag A flag indicating whether to print verbose error
- *                    messages (1 for verbose output, 0 for silent).
+ * @param verbose Verbose mode flag.
  */
 static void send_signal_to_processes(struct process_group *procgroup,
-                                     int sig, int verboseflag)
+                                     int sig, int verbose)
 {
     struct list_node *node = procgroup->proclist->first;
     while (node != NULL)
@@ -177,7 +157,7 @@ static void send_signal_to_processes(struct process_group *procgroup,
         const struct process *proc = (const struct process *)node->data;
         if (kill(proc->pid, sig) != 0)
         {
-            if (verboseflag)
+            if (verbose)
             {
                 fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
                         sig, (long)proc->pid, strerror(errno));
@@ -196,9 +176,12 @@ static void send_signal_to_processes(struct process_group *procgroup,
  * @param pid Process ID of the target process.
  * @param limit The CPU usage limit (0 to N_CPU).
  * @param include_children Whether to include child processes.
+ * @param verbose Verbose mode flag.
  */
-static void limit_process(pid_t pid, double limit, int include_children)
+static void limit_process(pid_t pid, double limit, int include_children, int verbose)
 {
+    /* Process group */
+    struct process_group pgroup;
     /* Slice of time in which the process is allowed to work */
     struct timespec twork;
     /* Slice of time in which the process is stopped */
@@ -331,7 +314,17 @@ int main(int argc, char *argv[])
     int limit_ok = 0;
     pid_t pid = 0;
     int include_children = 0;
+    /* Lazy mode flag (exit if no process is found) */
+    int lazy = 0;
+    /* Verbose mode flag */
+    int verbose = 0;
     int command_mode;
+
+    /* PID of cpulimit itself */
+    pid_t cpulimit_pid;
+
+    /* Number of CPUs available */
+    int n_cpu;
 
     /* For parsing command-line options */
     int next_option;
@@ -359,6 +352,9 @@ int main(int argc, char *argv[])
     /* Signal action struct for handling interrupts */
     struct sigaction sa;
 
+    /* Name of this program */
+    const char *program_name;
+
     /* Register the quit handler to run at program exit */
     if (atexit(quit_handler) != 0)
     {
@@ -373,7 +369,7 @@ int main(int argc, char *argv[])
     cpulimit_pid = getpid();
 
     /* Get the number of CPUs available */
-    NCPU = get_ncpu();
+    n_cpu = get_ncpu();
 
     /* Parse the command-line options */
     do
@@ -383,7 +379,7 @@ int main(int argc, char *argv[])
         {
             fprintf(stderr, "%s: option '%c' requires an argument.\n",
                     argv[0], next_option);
-            print_usage_and_exit(stderr, EXIT_FAILURE);
+            print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
         }
 
         switch (next_option)
@@ -417,11 +413,11 @@ int main(int argc, char *argv[])
             break;
         case 'h':
             /* Print usage information and exit */
-            print_usage_and_exit(stdout, EXIT_SUCCESS);
+            print_usage_and_exit(stdout, program_name, EXIT_SUCCESS);
             break;
         case '?':
             /* Print usage information on invalid option */
-            print_usage_and_exit(stderr, EXIT_FAILURE);
+            print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
             break;
         case -1:
             /* No more options to process */
@@ -435,7 +431,7 @@ int main(int argc, char *argv[])
     if (pid_ok && (pid <= 1 || pid >= get_pid_max()))
     {
         fprintf(stderr, "Error: Invalid value for argument PID\n");
-        print_usage_and_exit(stderr, EXIT_FAILURE);
+        print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
     }
     if (pid != 0)
     {
@@ -447,15 +443,15 @@ int main(int argc, char *argv[])
     if (!limit_ok)
     {
         fprintf(stderr, "Error: You must specify a CPU percentage limit\n");
-        print_usage_and_exit(stderr, EXIT_FAILURE);
+        print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
     }
 
     /* Calculate the CPU limit as a fraction */
     limit = perclimit / 100.0;
-    if (limit < 0 || limit > NCPU)
+    if (limit < 0 || limit > n_cpu)
     {
-        fprintf(stderr, "Error: limit must be in the range 0-%d00\n", NCPU);
-        print_usage_and_exit(stderr, EXIT_FAILURE);
+        fprintf(stderr, "Error: limit must be in the range 0-%d00\n", n_cpu);
+        print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
     }
 
     /* Determine if a command was provided */
@@ -465,7 +461,7 @@ int main(int argc, char *argv[])
     if (exe_ok + pid_ok + command_mode != 1)
     {
         fprintf(stderr, "Error: You must specify exactly one target process by name, PID, or command line\n");
-        print_usage_and_exit(stderr, EXIT_FAILURE);
+        print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
     }
 
     /* Set up signal handlers for SIGINT and SIGTERM */
@@ -488,13 +484,13 @@ int main(int argc, char *argv[])
     /* Print number of CPUs if in verbose mode */
     if (verbose)
     {
-        if (NCPU > 1)
+        if (n_cpu > 1)
         {
-            printf("%d CPUs detected\n", NCPU);
+            printf("%d CPUs detected\n", n_cpu);
         }
-        else if (NCPU == 1)
+        else if (n_cpu == 1)
         {
-            printf("%d CPU detected\n", NCPU);
+            printf("%d CPU detected\n", n_cpu);
         }
     }
 
@@ -560,7 +556,7 @@ int main(int argc, char *argv[])
                 /* Limiter process controls the CPU usage of the child process */
                 if (verbose)
                     printf("Limiting process %ld\n", (long)child);
-                limit_process(child, limit, include_children);
+                limit_process(child, limit, include_children, verbose);
                 exit(EXIT_SUCCESS);
             }
         }
@@ -607,7 +603,7 @@ int main(int argc, char *argv[])
                 exit(EXIT_FAILURE);
             }
             printf("Process %ld found\n", (long)pid);
-            limit_process(pid, limit, include_children);
+            limit_process(pid, limit, include_children, verbose);
         }
 
         /* Break the loop if lazy mode is enabled or quit flag is set */
