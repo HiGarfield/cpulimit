@@ -4,3 +4,4 @@ busy
 multi_process_busy
 process_iterator_test
 check-report.txt
+compile_commands.json
