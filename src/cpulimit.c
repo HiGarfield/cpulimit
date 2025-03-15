@@ -35,6 +35,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "cli.h"
 #include "list.h"
 #include "process_group.h"
 #include "process_iterator.h"
@@ -72,30 +73,6 @@ static void sig_handler(int sig)
     default:
         break;
     }
-}
-
-/**
- * Prints the usage information for the program and exit.
- *
- * @param stream The file stream to write the usage information to (e.g., stdout).
- * @param program_name The name of the program.
- * @param exit_code The exit code to return after printing usage.
- */
-static void print_usage_and_exit(FILE *stream, const char *program_name, int exit_code)
-{
-    /* Print the usage message along with available options */
-    fprintf(stream, "Usage: %s [OPTIONS...] TARGET\n", program_name);
-    fprintf(stream, "   OPTIONS:\n");
-    fprintf(stream, "      -l LIMIT, --limit=LIMIT   CPU percentage limit from 0 to %d (required)\n", 100 * get_ncpu());
-    fprintf(stream, "      -v, --verbose             show control statistics\n");
-    fprintf(stream, "      -z, --lazy                exit if the target process is missing or stopped\n");
-    fprintf(stream, "      -i, --include-children    also limit the child processes\n");
-    fprintf(stream, "      -h, --help                display the help message and exit\n");
-    fprintf(stream, "   TARGET must be exactly one of these:\n");
-    fprintf(stream, "      -p PID, --pid=PID         PID of the target process (implies -z)\n");
-    fprintf(stream, "      -e FILE, --exe=FILE       name or path of the executable file\n");
-    fprintf(stream, "      COMMAND [ARGS]            run the command and limit CPU usage (implies -z)\n");
-    exit(exit_code);
 }
 
 /**
@@ -306,54 +283,12 @@ static void quit_handler(void)
 
 int main(int argc, char *argv[])
 {
-    /* Variables to store user-provided arguments */
-    const char *exe = NULL;
-    double perclimit = 0.0;
-    int exe_ok = 0;
-    int pid_ok = 0;
-    int limit_ok = 0;
-    pid_t pid = 0;
-    int include_children = 0;
-    /* Lazy mode flag (exit if no process is found) */
-    int lazy = 0;
-    /* Verbose mode flag */
-    int verbose = 0;
-    int command_mode;
-
-    /* PID of cpulimit itself */
-    pid_t cpulimit_pid;
-
-    /* Number of CPUs available */
-    int n_cpu;
-
-    /* For parsing command-line options */
-    int next_option;
-    int option_index = 0;
-
-    /* Define valid short and long command-line options */
-    const char *short_options = "+p:e:l:vzih";
-    /* An array describing valid long options */
-    const struct option long_options[] = {
-        {"pid", required_argument, NULL, 'p'},
-        {"exe", required_argument, NULL, 'e'},
-        {"limit", required_argument, NULL, 'l'},
-        {"verbose", no_argument, NULL, 'v'},
-        {"lazy", no_argument, NULL, 'z'},
-        {"include-children", no_argument, NULL, 'i'},
-        {"help", no_argument, NULL, 'h'},
-        {0, 0, 0, 0}};
-
-    double limit;
-    char *endptr;
-
+    struct cpulimitcfg cfg;
     /* Set waiting time between process searches */
     struct timespec wait_time = {2, 0};
 
     /* Signal action struct for handling interrupts */
     struct sigaction sa;
-
-    /* Name of this program */
-    const char *program_name;
 
     /* Register the quit handler to run at program exit */
     if (atexit(quit_handler) != 0)
@@ -362,107 +297,8 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    /* Extract the program name and store it in program_name */
-    program_name = file_basename(argv[0]);
-
-    /* Get the current process ID */
-    cpulimit_pid = getpid();
-
-    /* Get the number of CPUs available */
-    n_cpu = get_ncpu();
-
-    /* Parse the command-line options */
-    do
-    {
-        next_option = getopt_long(argc, argv, short_options, long_options, &option_index);
-        if (strchr("pel", next_option) != NULL && optarg[0] == '-')
-        {
-            fprintf(stderr, "%s: option '%c' requires an argument.\n",
-                    argv[0], next_option);
-            print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
-        }
-
-        switch (next_option)
-        {
-        case 'p':
-            /* Store the PID provided by the user */
-            pid = (pid_t)strtol(optarg, &endptr, 10);
-            pid_ok = endptr != optarg && *endptr == '\0';
-            break;
-        case 'e':
-            /* Store the executable name provided by the user */
-            exe = optarg;
-            exe_ok = 1;
-            break;
-        case 'l':
-            /* Store the CPU limit percentage provided by the user */
-            perclimit = strtod(optarg, &endptr);
-            limit_ok = endptr != optarg && *endptr == '\0';
-            break;
-        case 'v':
-            /* Enable verbose mode */
-            verbose = 1;
-            break;
-        case 'z':
-            /* Enable lazy mode */
-            lazy = 1;
-            break;
-        case 'i':
-            /* Include child processes in the limit */
-            include_children = 1;
-            break;
-        case 'h':
-            /* Print usage information and exit */
-            print_usage_and_exit(stdout, program_name, EXIT_SUCCESS);
-            break;
-        case '?':
-            /* Print usage information on invalid option */
-            print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
-            break;
-        case -1:
-            /* No more options to process */
-            break;
-        default:
-            abort();
-        }
-    } while (next_option != -1);
-
-    /* Validate provided PID */
-    if (pid_ok && (pid <= 1 || pid >= get_pid_max()))
-    {
-        fprintf(stderr, "Error: Invalid value for argument PID\n");
-        print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
-    }
-    if (pid != 0)
-    {
-        /* Implicitly enable lazy mode if a PID is provided */
-        lazy = 1;
-    }
-
-    /* Ensure that a CPU limit was specified */
-    if (!limit_ok)
-    {
-        fprintf(stderr, "Error: You must specify a CPU percentage limit\n");
-        print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
-    }
-
-    /* Calculate the CPU limit as a fraction */
-    limit = perclimit / 100.0;
-    if (limit < 0 || limit > n_cpu)
-    {
-        fprintf(stderr, "Error: limit must be in the range 0-%d00\n", n_cpu);
-        print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
-    }
-
-    /* Determine if a command was provided */
-    command_mode = optind < argc;
-
-    /* Ensure exactly one target process (pid, executable, or command) is specified */
-    if (exe_ok + pid_ok + command_mode != 1)
-    {
-        fprintf(stderr, "Error: You must specify exactly one target process by name, PID, or command line\n");
-        print_usage_and_exit(stderr, program_name, EXIT_FAILURE);
-    }
+    /* Parse command line arguments */
+    parse_arguments(argc, argv, &cfg);
 
     /* Set up signal handlers for SIGINT and SIGTERM */
     sigemptyset(&sa.sa_mask);
@@ -482,8 +318,10 @@ int main(int argc, char *argv[])
     }
 
     /* Print number of CPUs if in verbose mode */
-    if (verbose)
+    if (cfg.verbose)
     {
+        /* Get the number of CPUs available */
+        int n_cpu = get_ncpu();
         if (n_cpu > 1)
         {
             printf("%d CPUs detected\n", n_cpu);
@@ -495,19 +333,18 @@ int main(int argc, char *argv[])
     }
 
     /* Handle command mode (run a command and limit its CPU usage) */
-    if (command_mode)
+    if (cfg.command_mode)
     {
         pid_t child;
-        char *const *cmd_args = argv + optind;
 
         /* If verbose, print the command being executed */
-        if (verbose)
+        if (cfg.verbose)
         {
-            int i;
-            printf("Running command: '%s", cmd_args[0]);
-            for (i = 1; i < argc - optind; i++)
+            char *const *arg;
+            printf("Running command: '%s", cfg.command_args[0]);
+            for (arg = cfg.command_args + 1; *arg != NULL; arg++)
             {
-                printf(" %s", cmd_args[i]);
+                printf(" %s", *arg);
             }
             printf("'\n");
         }
@@ -521,8 +358,8 @@ int main(int argc, char *argv[])
         else if (child == 0)
         {
             /* Execute the command in the child process */
-            int ret = execvp(cmd_args[0], cmd_args);
-            perror("Error"); /* Display error if execvp fails */
+            int ret = execvp(cfg.command_args[0], cfg.command_args);
+            perror("execvp"); /* Display error if execvp fails */
             exit(ret);
         }
         else
@@ -532,6 +369,7 @@ int main(int argc, char *argv[])
             limiter = fork();
             if (limiter < 0)
             {
+                perror("fork");
                 exit(EXIT_FAILURE);
             }
             else if (limiter > 0)
@@ -543,7 +381,7 @@ int main(int argc, char *argv[])
                 waitpid(limiter, &status_limiter, 0);
                 if (WIFEXITED(status_process))
                 {
-                    if (verbose)
+                    if (cfg.verbose)
                         printf("Process %ld terminated with exit status %d\n",
                                (long)child, WEXITSTATUS(status_process));
                     exit(WEXITSTATUS(status_process));
@@ -554,9 +392,9 @@ int main(int argc, char *argv[])
             else
             {
                 /* Limiter process controls the CPU usage of the child process */
-                if (verbose)
+                if (cfg.verbose)
                     printf("Limiting process %ld\n", (long)child);
-                limit_process(child, limit, include_children, verbose);
+                limit_process(child, cfg.limit, cfg.include_children, cfg.verbose);
                 exit(EXIT_SUCCESS);
             }
         }
@@ -566,10 +404,10 @@ int main(int argc, char *argv[])
     while (!quit_flag)
     {
         pid_t ret = 0;
-        if (pid_ok)
+        if (cfg.target_pid > 0)
         {
             /* Search for the process by PID */
-            ret = find_process_by_pid(pid);
+            ret = find_process_by_pid(cfg.target_pid);
             if (ret <= 0)
             {
                 printf("No process found or you aren't allowed to control it\n");
@@ -578,7 +416,7 @@ int main(int argc, char *argv[])
         else
         {
             /* Search for the process by executable name */
-            ret = find_process_by_name(exe);
+            ret = find_process_by_name(cfg.exe_name);
             if (ret == 0)
             {
                 printf("No process found\n");
@@ -589,25 +427,25 @@ int main(int argc, char *argv[])
             }
             else
             {
-                pid = ret;
+                cfg.target_pid = ret;
             }
         }
 
         /* If a process is found, start limiting its CPU usage */
         if (ret > 0)
         {
-            if (ret == cpulimit_pid)
+            if (ret == getpid())
             {
                 printf("Target process %ld is cpulimit itself! Aborting because it makes no sense\n",
                        (long)ret);
                 exit(EXIT_FAILURE);
             }
-            printf("Process %ld found\n", (long)pid);
-            limit_process(pid, limit, include_children, verbose);
+            printf("Process %ld found\n", (long)cfg.target_pid);
+            limit_process(cfg.target_pid, cfg.limit, cfg.include_children, cfg.verbose);
         }
 
         /* Break the loop if lazy mode is enabled or quit flag is set */
-        if (lazy || quit_flag)
+        if (cfg.lazy_mode || quit_flag)
             break;
 
         /* Wait for 2 seconds before the next process search */
