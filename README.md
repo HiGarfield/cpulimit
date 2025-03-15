@@ -78,19 +78,21 @@ The latest available code is here:
   sudo gmake uninstall
   ```
 
-### Run Unit Tests
+### Run Tests
+
+- Run unit tests
 
   ```sh
   ./tests/process_iterator_test
   ```
 
-### Test cpulimit with a Single Process
+- Test cpulimit with a single process
 
   ```sh
   ./src/cpulimit -l 40 -v ./tests/busy
   ```
 
-### Test cpulimit with Child Processes
+- Test cpulimit with child processes
 
   ```sh
   ./src/cpulimit -l 40 -i -v ./tests/multi_process_busy
