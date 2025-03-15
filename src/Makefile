@@ -12,6 +12,8 @@ override CFLAGS := $(filter-out -std=% -ansi -W%,$(CFLAGS)) \
                    -Wstrict-prototypes \
                    -Werror
 
+override CFLAGS += $(if $(filter -O%,$(CFLAGS)),,-O2)
+
 # If CHECK is set to 1, add stricter flags
 ifeq ($(CHECK),1)
 override CFLAGS += -Wshadow \
