@@ -119,4 +119,17 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg)
         fprintf(stderr, "CPU limit (-l) is required\n");
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
+
+    /* Print number of CPUs if in verbose mode */
+    if (cfg->verbose)
+    {
+        if (n_cpu > 1)
+        {
+            printf("%d CPUs detected\n", n_cpu);
+        }
+        else if (n_cpu == 1)
+        {
+            printf("%d CPU detected\n", n_cpu);
+        }
+    }
 }

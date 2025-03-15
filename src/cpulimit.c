@@ -441,21 +441,6 @@ int main(int argc, char *argv[])
     /* Set up signal handlers for SIGINT and SIGTERM */
     configure_signal_handlers();
 
-    /* Print number of CPUs if in verbose mode */
-    if (cfg.verbose)
-    {
-        /* Get the number of CPUs available */
-        int n_cpu = get_ncpu();
-        if (n_cpu > 1)
-        {
-            printf("%d CPUs detected\n", n_cpu);
-        }
-        else if (n_cpu == 1)
-        {
-            printf("%d CPU detected\n", n_cpu);
-        }
-    }
-
     if (cfg.command_mode)
     {
         run_command_mode(&cfg);
