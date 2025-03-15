@@ -281,14 +281,152 @@ static void quit_handler(void)
     }
 }
 
+/**
+ * Runs the program in command mode.
+ * Executes the specified command and limits its CPU usage.
+ *
+ * @param cfg Pointer to the configuration struct.
+ */
+static void run_command_mode(struct cpulimitcfg *cfg)
+{
+    pid_t child = fork();
+    if (child < 0)
+    {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    }
+    else if (child == 0)
+    {
+        int ret = execvp(cfg->command_args[0], cfg->command_args);
+        perror("execvp");
+        exit(ret);
+    }
+    else
+    {
+        pid_t limiter = fork();
+        if (limiter < 0)
+        {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
+        else if (limiter > 0)
+        {
+            int status_process, status_limiter;
+            waitpid(child, &status_process, 0);
+            waitpid(limiter, &status_limiter, 0);
+            if (WIFEXITED(status_process))
+            {
+                if (cfg->verbose)
+                    printf("Process %ld terminated with exit status %d\n",
+                           (long)child, WEXITSTATUS(status_process));
+                exit(WEXITSTATUS(status_process));
+            }
+            printf("Process %ld terminated abnormally\n", (long)child);
+            exit(status_process);
+        }
+        else
+        {
+            if (cfg->verbose)
+                printf("Limiting process %ld\n", (long)child);
+            limit_process(child, cfg->limit, cfg->include_children, cfg->verbose);
+            exit(EXIT_SUCCESS);
+        }
+    }
+}
+
+/**
+ * Runs the program in normal mode.
+ * Continuously searches for the target process and limits its CPU usage.
+ * The program will exit if the target process is not found or if the quit flag
+ * is set.
+ *
+ * @param cfg Pointer to the configuration struct.
+ */
+static void run_normal_mode(struct cpulimitcfg *cfg)
+{
+    /* Set waiting time between process searches */
+    const struct timespec wait_time = {2, 0};
+    while (!quit_flag)
+    {
+        pid_t ret = 0;
+        if (cfg->target_pid > 0)
+        {
+            /* If target_pid is set, search for the process by PID */
+            ret = find_process_by_pid(cfg->target_pid);
+            if (ret <= 0)
+                printf("No process found or you aren't allowed to control it\n");
+        }
+        else
+        {
+            /* If target_pid is not set, search for the process by name */
+            ret = find_process_by_name(cfg->exe_name);
+            if (ret == 0)
+            {
+                printf("No process found\n");
+            }
+            else if (ret < 0)
+            {
+                printf("Process found but you aren't allowed to control it\n");
+            }
+            else
+            {
+                cfg->target_pid = ret;
+            }
+        }
+
+        if (ret > 0)
+        {
+            if (ret == getpid())
+            {
+                printf("Target process %ld is cpulimit itself! Aborting\n",
+                       (long)ret);
+                exit(EXIT_FAILURE);
+            }
+            printf("Process %ld found\n", (long)cfg->target_pid);
+            limit_process(cfg->target_pid, cfg->limit, cfg->include_children, cfg->verbose);
+        }
+
+        if (cfg->lazy_mode || quit_flag)
+            break;
+
+        sleep_timespec(&wait_time);
+    }
+    exit(EXIT_SUCCESS);
+}
+
+/**
+ * Configures signal handlers for SIGINT and SIGTERM signals.
+ * Sets the signal handler for SIGINT and SIGTERM to sig_handler.
+ * The handler sets the quit_flag to 1 when a termination signal is received.
+ * Exits the program if setting the signal handler fails.
+ */
+static void configure_signal_handlers(void)
+{
+    struct sigaction sa;
+    size_t i;
+    static const int terminate_signals[] = {SIGINT, SIGTERM};
+    const size_t num_signals = sizeof(terminate_signals) / sizeof(*terminate_signals);
+
+    /* Configure handler for termination signals */
+    sigemptyset(&sa.sa_mask);
+    sa.sa_handler = sig_handler;
+    sa.sa_flags = SA_RESTART;
+
+    /* Set handlers for SIGINT and SIGTERM */
+    for (i = 0; i < num_signals; i++)
+    {
+        if (sigaction(terminate_signals[i], &sa, NULL) != 0)
+        {
+            perror("Failed to set signal handler");
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
+    /* Configuration struct */
     struct cpulimitcfg cfg;
-    /* Set waiting time between process searches */
-    struct timespec wait_time = {2, 0};
-
-    /* Signal action struct for handling interrupts */
-    struct sigaction sa;
 
     /* Register the quit handler to run at program exit */
     if (atexit(quit_handler) != 0)
@@ -301,21 +439,7 @@ int main(int argc, char *argv[])
     parse_arguments(argc, argv, &cfg);
 
     /* Set up signal handlers for SIGINT and SIGTERM */
-    sigemptyset(&sa.sa_mask);
-    sigaddset(&sa.sa_mask, SIGINT);
-    sigaddset(&sa.sa_mask, SIGTERM);
-    sa.sa_handler = &sig_handler;
-    sa.sa_flags = SA_RESTART;
-    if (sigaction(SIGINT, &sa, NULL) != 0)
-    {
-        perror("Failed to set SIGINT handler");
-        exit(EXIT_FAILURE);
-    }
-    if (sigaction(SIGTERM, &sa, NULL) != 0)
-    {
-        perror("Failed to set SIGTERM handler");
-        exit(EXIT_FAILURE);
-    }
+    configure_signal_handlers();
 
     /* Print number of CPUs if in verbose mode */
     if (cfg.verbose)
@@ -332,124 +456,13 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Handle command mode (run a command and limit its CPU usage) */
     if (cfg.command_mode)
     {
-        pid_t child;
-
-        /* If verbose, print the command being executed */
-        if (cfg.verbose)
-        {
-            char *const *arg;
-            printf("Running command: '%s", cfg.command_args[0]);
-            for (arg = cfg.command_args + 1; *arg != NULL; arg++)
-            {
-                printf(" %s", *arg);
-            }
-            printf("'\n");
-        }
-
-        /* Fork a child process to run the command */
-        child = fork();
-        if (child < 0)
-        {
-            exit(EXIT_FAILURE);
-        }
-        else if (child == 0)
-        {
-            /* Execute the command in the child process */
-            int ret = execvp(cfg.command_args[0], cfg.command_args);
-            perror("execvp"); /* Display error if execvp fails */
-            exit(ret);
-        }
-        else
-        {
-            /* Parent process forks another limiter process to control CPU usage */
-            pid_t limiter;
-            limiter = fork();
-            if (limiter < 0)
-            {
-                perror("fork");
-                exit(EXIT_FAILURE);
-            }
-            else if (limiter > 0)
-            {
-                /* Wait for both child and limiter processes to complete */
-                int status_process;
-                int status_limiter;
-                waitpid(child, &status_process, 0);
-                waitpid(limiter, &status_limiter, 0);
-                if (WIFEXITED(status_process))
-                {
-                    if (cfg.verbose)
-                        printf("Process %ld terminated with exit status %d\n",
-                               (long)child, WEXITSTATUS(status_process));
-                    exit(WEXITSTATUS(status_process));
-                }
-                printf("Process %ld terminated abnormally\n", (long)child);
-                exit(status_process);
-            }
-            else
-            {
-                /* Limiter process controls the CPU usage of the child process */
-                if (cfg.verbose)
-                    printf("Limiting process %ld\n", (long)child);
-                limit_process(child, cfg.limit, cfg.include_children, cfg.verbose);
-                exit(EXIT_SUCCESS);
-            }
-        }
+        run_command_mode(&cfg);
     }
-
-    /* Monitor and limit the target process specified by PID or executable name */
-    while (!quit_flag)
+    else
     {
-        pid_t ret = 0;
-        if (cfg.target_pid > 0)
-        {
-            /* Search for the process by PID */
-            ret = find_process_by_pid(cfg.target_pid);
-            if (ret <= 0)
-            {
-                printf("No process found or you aren't allowed to control it\n");
-            }
-        }
-        else
-        {
-            /* Search for the process by executable name */
-            ret = find_process_by_name(cfg.exe_name);
-            if (ret == 0)
-            {
-                printf("No process found\n");
-            }
-            else if (ret < 0)
-            {
-                printf("Process found but you aren't allowed to control it\n");
-            }
-            else
-            {
-                cfg.target_pid = ret;
-            }
-        }
-
-        /* If a process is found, start limiting its CPU usage */
-        if (ret > 0)
-        {
-            if (ret == getpid())
-            {
-                printf("Target process %ld is cpulimit itself! Aborting because it makes no sense\n",
-                       (long)ret);
-                exit(EXIT_FAILURE);
-            }
-            printf("Process %ld found\n", (long)cfg.target_pid);
-            limit_process(cfg.target_pid, cfg.limit, cfg.include_children, cfg.verbose);
-        }
-
-        /* Break the loop if lazy mode is enabled or quit flag is set */
-        if (cfg.lazy_mode || quit_flag)
-            break;
-
-        /* Wait for 2 seconds before the next process search */
-        sleep_timespec(&wait_time);
+        run_normal_mode(&cfg);
     }
 
     return 0;
