@@ -27,8 +27,6 @@
 #define _GNU_SOURCE
 #endif
 
-#include "list.h"
-#include "process_table.h"
 #include <sys/types.h>
 #include <time.h>
 

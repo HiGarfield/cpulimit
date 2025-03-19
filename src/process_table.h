@@ -27,10 +27,8 @@
 #define _GNU_SOURCE
 #endif
 
-#include "list.h"
 #include "process_iterator.h"
 #include <stddef.h>
-#include <sys/types.h>
 
 /**
  * Structure representing a process table.

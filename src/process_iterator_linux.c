@@ -29,6 +29,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include "process_iterator.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -36,11 +37,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-
-#include "process_iterator.h"
 
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {

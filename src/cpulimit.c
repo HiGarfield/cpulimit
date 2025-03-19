@@ -24,378 +24,46 @@
 #define _GNU_SOURCE
 #endif
 
-#include <errno.h>
-#include <getopt.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <time.h>
-#include <unistd.h>
-
 #include "cli.h"
+#include "limit_process.h"
+#include "limiter.h"
 #include "list.h"
 #include "process_group.h"
 #include "process_iterator.h"
 #include "util.h"
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#ifndef EPSILON
-/* Define a very small value to avoid division by zero */
-#define EPSILON 1e-12
-#endif
-
-/*
- * Control time slot in microseconds
- * Each slot is split into a working slice and a sleeping slice
- */
-#define TIME_SLOT 100000
-
-/* Quit flag for handling SIGINT and SIGTERM signals */
-static volatile sig_atomic_t quit_flag = 0;
+/* Limiter quit flag */
+static volatile sig_atomic_t limiter_quit_flag = 0;
 
 /**
  * Signal handler for SIGINT and SIGTERM signals.
- * Sets the quit_flag to 1 when a termination signal is received.
+ * Sets the limiter_quit_flag to 1 when a termination signal is received.
  *
  * @param sig Signal number (SIGINT or SIGTERM).
  */
 static void sig_handler(int sig)
 {
-    /* Handle SIGINT and SIGTERM signals by setting quit_flag to 1 */
-    switch (sig)
-    {
-    case SIGINT:
-    case SIGTERM:
-        quit_flag = 1;
-        break;
-    default:
-        break;
-    }
+    (void)sig;
+    limiter_quit_flag = 1;
 }
 
 /**
- * Dynamically calculates the time slot based on system load.
- * This allows the program to adapt to varying system conditions.
- *
- * @return The calculated dynamic time slot in microseconds.
- */
-static double get_dynamic_time_slot(void)
-{
-    static double time_slot = TIME_SLOT;
-    static const double MIN_TIME_SLOT = TIME_SLOT, /* Minimum allowed time slot */
-        MAX_TIME_SLOT = TIME_SLOT * 5;             /* Maximum allowed time slot */
-    static struct timespec last_update = {0, 0};
-    struct timespec now;
-    double load, new_time_slot;
-
-    /* Skip updates if the last check was less than 1000 ms ago */
-    if (get_current_time(&now) == 0 &&
-        timediff_in_ms(&now, &last_update) < 1000.0)
-    {
-        return time_slot;
-    }
-
-    /* Get the system load average */
-    if (getloadavg(&load, 1) != 1)
-    {
-        return time_slot;
-    }
-
-    last_update = now;
-
-    /* Adjust the time slot based on system load and number of CPUs */
-    new_time_slot = time_slot * load / get_ncpu() / 0.3;
-    new_time_slot = MAX(new_time_slot, MIN_TIME_SLOT);
-    new_time_slot = MIN(new_time_slot, MAX_TIME_SLOT);
-
-    /* Smoothly adjust the time slot using a moving average */
-    time_slot = time_slot * 0.6 + new_time_slot * 0.4;
-
-    return time_slot;
-}
-
-/**
- * Sends a specified signal to all processes in a given process group.
- *
- * @param procgroup Pointer to the process group containing the list of
- *                  processes to which the signal will be sent.
- * @param sig The signal to be sent to each process (e.g., SIGCONT/SIGSTOP).
- * @param verbose Verbose mode flag.
- */
-static void send_signal_to_processes(struct process_group *procgroup,
-                                     int sig, int verbose)
-{
-    struct list_node *node = procgroup->proclist->first;
-    while (node != NULL)
-    {
-        struct list_node *next_node = node->next;
-        const struct process *proc = (const struct process *)node->data;
-        if (kill(proc->pid, sig) != 0)
-        {
-            if (verbose)
-            {
-                fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
-                        sig, (long)proc->pid, strerror(errno));
-            }
-            delete_node(procgroup->proclist, node);
-            remove_process(procgroup, proc->pid);
-        }
-        node = next_node;
-    }
-}
-
-/**
- * Controls the CPU usage of a process (and optionally its children).
- * Limits the amount of time the process can run based on a given percentage.
- *
- * @param pid Process ID of the target process.
- * @param limit The CPU usage limit (0 to N_CPU).
- * @param include_children Whether to include child processes.
- * @param verbose Verbose mode flag.
- */
-static void limit_process(pid_t pid, double limit, int include_children, int verbose)
-{
-    /* Process group */
-    struct process_group pgroup;
-    /* Counter for the number of cycles */
-    int cycle_counter = 0;
-    /* Working rate for the process group in a time slot */
-    double workingrate = limit / get_ncpu();
-    /* Flag to indicate if the process group is sleeping */
-    int pg_sleeping = 0;
-
-    /* Increase priority of the current process to reduce overhead */
-    increase_priority();
-
-    /* Initialize the process group (including children if needed) */
-    init_process_group(&pgroup, pid, include_children);
-
-    if (verbose)
-        printf("Members in the process group owned by %ld: %lu\n",
-               (long)pgroup.target_pid,
-               (unsigned long)get_list_count(pgroup.proclist));
-
-    /* Main loop to control the process until quit_flag is set */
-    while (!quit_flag)
-    {
-        double cpu_usage, twork_nsec, tsleep_nsec, time_slot;
-        struct timespec twork, tsleep;
-
-        /* Update the process group, including checking for dead processes */
-        update_process_group(&pgroup);
-
-        /* Exit if no more processes are running */
-        if (is_empty_list(pgroup.proclist))
-        {
-            if (verbose)
-                printf("No more processes.\n");
-            break;
-        }
-
-        /* Estimate CPU usage of all processes in the group */
-        cpu_usage = get_process_group_cpu_usage(&pgroup);
-        /* If CPU usage cannot be estimated, set it to the limit */
-        cpu_usage = cpu_usage < 0 ? limit : cpu_usage;
-
-        /* Adjust workingrate based on CPU usage and limit */
-        workingrate = workingrate * limit / MAX(cpu_usage, EPSILON);
-        /* Clamp workingrate to the valid range (0, 1) */
-        workingrate = MIN(workingrate, 1 - EPSILON);
-        workingrate = MAX(workingrate, EPSILON);
-
-        /* Get the dynamic time slot */
-        time_slot = get_dynamic_time_slot();
-
-        /* Calculate work and sleep times in nanoseconds */
-        twork_nsec = time_slot * 1000 * workingrate;
-        nsec2timespec(twork_nsec, &twork);
-
-        tsleep_nsec = time_slot * 1000 - twork_nsec;
-        nsec2timespec(tsleep_nsec, &tsleep);
-
-        if (verbose)
-        {
-            /* Print CPU usage statistics every 10 cycles */
-            if (cycle_counter % 200 == 0)
-                printf("\n%9s%16s%16s%14s\n",
-                       "%CPU", "work quantum", "sleep quantum", "active rate");
-
-            if (cycle_counter % 10 == 0 && cycle_counter > 0)
-                printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n",
-                       cpu_usage * 100, twork_nsec / 1000,
-                       tsleep_nsec / 1000, workingrate * 100);
-        }
-
-        if (twork.tv_nsec > 0 || twork.tv_sec > 0)
-        {
-            if (pg_sleeping)
-            {
-                /* Resume processes in the group */
-                send_signal_to_processes(&pgroup, SIGCONT, verbose);
-                pg_sleeping = 0;
-            }
-            /* Allow processes to run during the work slice */
-            sleep_timespec(&twork);
-        }
-
-        if (tsleep.tv_nsec > 0 || tsleep.tv_sec > 0)
-        {
-            if (!pg_sleeping)
-            {
-                /* Stop processes during the sleep slice if needed */
-                send_signal_to_processes(&pgroup, SIGSTOP, verbose);
-                pg_sleeping = 1;
-            }
-            /* Allow the processes to sleep during the sleep slice */
-            sleep_timespec(&tsleep);
-        }
-
-        cycle_counter = (cycle_counter + 1) % 200;
-    }
-
-    /* If the quit_flag is set, resume all processes before exiting */
-    if (quit_flag)
-    {
-        send_signal_to_processes(&pgroup, SIGCONT, 0);
-    }
-
-    /* Clean up the process group */
-    close_process_group(&pgroup);
-}
-
-/**
- * Handles the cleanup when a termination signal is received.
- * Clears the current line on the console if the quit flag is set.
+ * Quit handler function.
+ * Clear the current line on console (fix for ^C issue).
  */
 static void quit_handler(void)
 {
-    /* If quit_flag is set, clear the current line on console (fix for ^C issue) */
-    if (quit_flag)
+    if (limiter_quit_flag)
     {
         printf("\r");
     }
 }
 
 /**
- * Runs the program in command mode.
- * Executes the specified command and limits its CPU usage.
- *
- * @param cfg Pointer to the configuration struct.
- */
-static void run_command_mode(struct cpulimitcfg *cfg)
-{
-    pid_t child = fork();
-    if (child < 0)
-    {
-        perror("fork");
-        exit(EXIT_FAILURE);
-    }
-    else if (child == 0)
-    {
-        int ret = execvp(cfg->command_args[0], cfg->command_args);
-        perror("execvp");
-        exit(ret);
-    }
-    else
-    {
-        pid_t limiter = fork();
-        if (limiter < 0)
-        {
-            perror("fork");
-            exit(EXIT_FAILURE);
-        }
-        else if (limiter > 0)
-        {
-            int status_process, status_limiter;
-            waitpid(child, &status_process, 0);
-            waitpid(limiter, &status_limiter, 0);
-            if (WIFEXITED(status_process))
-            {
-                if (cfg->verbose)
-                    printf("Process %ld terminated with exit status %d\n",
-                           (long)child, WEXITSTATUS(status_process));
-                exit(WEXITSTATUS(status_process));
-            }
-            printf("Process %ld terminated abnormally\n", (long)child);
-            exit(status_process);
-        }
-        else
-        {
-            if (cfg->verbose)
-                printf("Limiting process %ld\n", (long)child);
-            limit_process(child, cfg->limit, cfg->include_children, cfg->verbose);
-            exit(EXIT_SUCCESS);
-        }
-    }
-}
-
-/**
- * Runs the program in normal mode.
- * Continuously searches for the target process and limits its CPU usage.
- * The program will exit if the target process is not found or if the quit flag
- * is set.
- *
- * @param cfg Pointer to the configuration struct.
- */
-static void run_normal_mode(struct cpulimitcfg *cfg)
-{
-    /* Set waiting time between process searches */
-    const struct timespec wait_time = {2, 0};
-    while (!quit_flag)
-    {
-        pid_t ret = 0;
-        if (cfg->target_pid > 0)
-        {
-            /* If target_pid is set, search for the process by PID */
-            ret = find_process_by_pid(cfg->target_pid);
-            if (ret <= 0)
-                printf("No process found or you aren't allowed to control it\n");
-        }
-        else
-        {
-            /* If target_pid is not set, search for the process by name */
-            ret = find_process_by_name(cfg->exe_name);
-            if (ret == 0)
-            {
-                printf("No process found\n");
-            }
-            else if (ret < 0)
-            {
-                printf("Process found but you aren't allowed to control it\n");
-            }
-            else
-            {
-                cfg->target_pid = ret;
-            }
-        }
-
-        if (ret > 0)
-        {
-            if (ret == getpid())
-            {
-                printf("Target process %ld is cpulimit itself! Aborting\n",
-                       (long)ret);
-                exit(EXIT_FAILURE);
-            }
-            printf("Process %ld found\n", (long)cfg->target_pid);
-            limit_process(cfg->target_pid, cfg->limit, cfg->include_children, cfg->verbose);
-        }
-
-        if (cfg->lazy_mode || quit_flag)
-            break;
-
-        sleep_timespec(&wait_time);
-    }
-    exit(EXIT_SUCCESS);
-}
-
-/**
  * Configures signal handlers for SIGINT and SIGTERM signals.
- * Sets the signal handler for SIGINT and SIGTERM to sig_handler.
- * The handler sets the quit_flag to 1 when a termination signal is received.
- * Exits the program if setting the signal handler fails.
  */
 static void configure_signal_handlers(void)
 {
@@ -440,11 +108,11 @@ int main(int argc, char *argv[])
 
     if (cfg.command_mode)
     {
-        run_command_mode(&cfg);
+        run_command_mode(&cfg, &limiter_quit_flag);
     }
     else
     {
-        run_normal_mode(&cfg);
+        run_normal_mode(&cfg, &limiter_quit_flag);
     }
 
     return 0;

@@ -28,7 +28,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
+#if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
 #include <sys/time.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 #if defined(__linux__)
