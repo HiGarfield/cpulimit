@@ -65,6 +65,7 @@ static int read_process_info(pid_t pid, struct process *p)
     const size_t buff_size = 2048;
     ssize_t nread;
     char *buffer;
+    const char *ptr_start;
     double usertime, systime;
     long ppid;
     int fd;
@@ -96,7 +97,16 @@ static int read_process_info(pid_t pid, struct process *p)
         return -1;
     }
     buffer[nread] = '\0';
-    if (sscanf(buffer, "%*s (%*[^)]) %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
+    ptr_start = strrchr(buffer, ')');
+    if (ptr_start == NULL)
+    {
+        free(buffer);
+        return -1;
+    }
+    for (ptr_start++; isspace(*ptr_start); ptr_start++)
+    {
+    }
+    if (sscanf(ptr_start, "%c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
                &state, &ppid, &usertime, &systime) != 4 ||
         strchr("ZXx", state) != NULL)
     {
@@ -138,6 +148,7 @@ pid_t getppid_of(pid_t pid)
     const size_t buff_size = 2048;
     ssize_t nread;
     char *buffer;
+    const char *ptr_start;
     long ppid;
     int fd;
 
@@ -165,7 +176,16 @@ pid_t getppid_of(pid_t pid)
         return (pid_t)-1;
     }
     buffer[nread] = '\0';
-    if (sscanf(buffer, "%*s (%*[^)]) %c %ld", &state, &ppid) != 2 ||
+    ptr_start = strrchr(buffer, ')');
+    if (ptr_start == NULL)
+    {
+        free(buffer);
+        return (pid_t)-1;
+    }
+    for (ptr_start++; isspace(*ptr_start); ptr_start++)
+    {
+    }
+    if (sscanf(ptr_start, "%c %ld", &state, &ppid) != 2 ||
         strchr("ZXx", state) != NULL)
     {
         free(buffer);
