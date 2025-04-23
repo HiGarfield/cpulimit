@@ -211,15 +211,21 @@ int __getloadavg(double *loadavg, int nelem)
     struct sysinfo si;
     int i;
 
-    if (nelem <= 0)
-        return nelem ? -1 : 0;
-    sysinfo(&si);
-    if (nelem > 3)
-        nelem = 3;
+    if (nelem < 0)
+        return -1;
+    if (nelem == 0)
+        return 0;
+
+    if (sysinfo(&si) != 0)
+    {
+        return -1;
+    }
+
+    nelem = (nelem > 3) ? 3 : nelem;
 
     for (i = 0; i < nelem; i++)
     {
-        loadavg[i] = 1.0 / (1 << SI_LOAD_SHIFT) * si.loads[i];
+        loadavg[i] = (double)si.loads[i] / (1 << SI_LOAD_SHIFT);
     }
 
     return nelem;
