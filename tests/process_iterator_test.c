@@ -97,7 +97,9 @@ static void test_multiple_process(void)
     {
         /* child is supposed to be killed by the parent :/ */
         while (1)
+        {
             sleep(5);
+        }
     }
     if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
     {
@@ -110,11 +112,17 @@ static void test_multiple_process(void)
     while (get_next_process(&it, process) == 0)
     {
         if (process->pid == getpid())
+        {
             assert(process->ppid == getppid());
+        }
         else if (process->pid == child)
+        {
             assert(process->ppid == getpid());
+        }
         else
+        {
             assert(0);
+        }
         assert(process->cputime >= 0);
         count++;
     }

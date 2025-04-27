@@ -101,7 +101,9 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc)
     proc->cputime = (double)kproc->ki_runtime / 1000.0;
     len_max = sizeof(proc->command) - 1;
     if ((args = kvm_getargv(kd, kproc, (int)len_max)) == NULL)
+    {
         return -1;
+    }
     strncpy(proc->command, args[0], len_max);
     proc->command[len_max] = '\0';
     return 0;
@@ -112,7 +114,9 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process)
     int count;
     struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
     if (count == 0 || kproc == NULL || kproc2proc(kd, kproc, process) != 0)
+    {
         return -1;
+    }
     return 0;
 }
 
@@ -149,7 +153,9 @@ pid_t getppid_of(pid_t pid)
 static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid)
 {
     if (child_pid <= 0 || parent_pid <= 0 || child_pid == parent_pid)
+    {
         return 0;
+    }
     while (child_pid > 1 && child_pid != parent_pid)
     {
         child_pid = _getppid_of(kd, child_pid);
@@ -209,17 +215,23 @@ int get_next_process(struct process_iterator *it, struct process *p)
         {
             it->i++;
             if (kproc2proc(it->kd, kproc, p) != 0)
+            {
                 continue;
+            }
             if (p->pid != it->filter->pid &&
                 !_is_child_of(it->kd, p->pid, it->filter->pid))
+            {
                 continue;
+            }
             return 0;
         }
         else if (it->filter->pid == 0)
         {
             it->i++;
             if (kproc2proc(it->kd, kproc, p) != 0)
+            {
                 continue;
+            }
             return 0;
         }
     }

@@ -113,7 +113,9 @@ static int pti2proc(struct proc_taskallinfo *ti, struct process *process)
     process->ppid = (pid_t)ti->pbsd.pbi_ppid;
     process->cputime = ti->ptinfo.pti_total_user / 1e6 + ti->ptinfo.pti_total_system / 1e6;
     if (proc_pidpath(process->pid, process->command, sizeof(process->command)) <= 0)
+    {
         return -1;
+    }
     return 0;
 }
 
@@ -150,9 +152,13 @@ pid_t getppid_of(pid_t pid)
 int is_child_of(pid_t child_pid, pid_t parent_pid)
 {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid)
+    {
         return 0;
+    }
     if (parent_pid == 1)
+    {
         return 1;
+    }
     while (child_pid > 1 && child_pid != parent_pid)
     {
         child_pid = getppid_of(child_pid);
@@ -181,7 +187,9 @@ static int read_process_info(pid_t pid, struct process *p)
 int get_next_process(struct process_iterator *it, struct process *p)
 {
     if (it->i >= it->count)
+    {
         return -1;
+    }
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
         if (read_process_info(it->filter->pid, p) == 0)
@@ -203,7 +211,9 @@ int get_next_process(struct process_iterator *it, struct process *p)
         {
             it->i++;
             if (p->pid != it->filter->pid && !is_child_of(p->pid, it->filter->pid))
+            {
                 continue;
+            }
             return 0;
         }
         else if (it->filter->pid == 0)

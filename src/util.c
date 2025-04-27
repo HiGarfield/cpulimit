@@ -108,7 +108,9 @@ void increase_priority(void)
     {
         if (setpriority(PRIO_PROCESS, 0, priority) == 0 &&
             getpriority(PRIO_PROCESS, 0) == priority)
+        {
             break;
+        }
     }
 }
 
@@ -212,9 +214,13 @@ int __getloadavg(double *loadavg, int nelem)
     int i;
 
     if (nelem < 0)
+    {
         return -1;
+    }
     if (nelem == 0)
+    {
         return 0;
+    }
 
     if (sysinfo(&si) != 0)
     {

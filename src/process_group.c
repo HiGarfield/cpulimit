@@ -85,7 +85,9 @@ pid_t find_process_by_name(const char *process_name)
     }
     free(proc);
     if (close_process_iterator(&it) != 0)
+    {
         exit(EXIT_FAILURE);
+    }
 
     return (pid > 0) ? find_process_by_pid(pid) : 0;
 }
@@ -189,7 +191,9 @@ void update_process_group(struct process_group *pgroup)
             double sample;
             add_elem(pgroup->proclist, p);
             if (dt < MIN_DT)
+            {
                 continue;
+            }
             /* process exists. update CPU usage */
             sample = (tmp_process->cputime - p->cputime) / dt;
             sample = MIN(sample, 1.0 * get_ncpu());
@@ -209,7 +213,9 @@ void update_process_group(struct process_group *pgroup)
     free(tmp_process);
     close_process_iterator(&it);
     if (dt < MIN_DT)
+    {
         return;
+    }
     pgroup->last_update = now;
 }
 

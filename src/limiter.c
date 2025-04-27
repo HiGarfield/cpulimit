@@ -65,8 +65,10 @@ void run_command_mode(struct cpulimitcfg *cfg,
             if (WIFEXITED(status_process))
             {
                 if (cfg->verbose)
+                {
                     printf("Process %ld terminated with exit status %d\n",
                            (long)child, WEXITSTATUS(status_process));
+                }
                 exit(WEXITSTATUS(status_process));
             }
             printf("Process %ld terminated abnormally\n", (long)child);
@@ -75,7 +77,9 @@ void run_command_mode(struct cpulimitcfg *cfg,
         else
         {
             if (cfg->verbose)
+            {
                 printf("Limiting process %ld\n", (long)child);
+            }
             limit_process(child, cfg->limit, cfg->include_children, cfg->verbose, quit_flag);
             exit(EXIT_SUCCESS);
         }
@@ -95,7 +99,9 @@ void run_normal_mode(struct cpulimitcfg *cfg,
             /* If target_pid is set, search for the process by PID */
             ret = find_process_by_pid(cfg->target_pid);
             if (ret <= 0)
+            {
                 printf("No process found or you aren't allowed to control it\n");
+            }
         }
         else
         {
@@ -128,7 +134,9 @@ void run_normal_mode(struct cpulimitcfg *cfg,
         }
 
         if (cfg->lazy_mode || *quit_flag)
+        {
             break;
+        }
 
         sleep_timespec(&wait_time);
     }

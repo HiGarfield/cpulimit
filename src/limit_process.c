@@ -136,9 +136,11 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose,
     init_process_group(&pgroup, pid, include_children);
 
     if (verbose)
+    {
         printf("Members in the process group owned by %ld: %lu\n",
                (long)pgroup.target_pid,
                (unsigned long)get_list_count(pgroup.proclist));
+    }
 
     /* Main loop to control the process until quit_flag is set */
     while (!*quit_flag)
@@ -153,7 +155,9 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose,
         if (is_empty_list(pgroup.proclist))
         {
             if (verbose)
+            {
                 printf("No more processes.\n");
+            }
             break;
         }
 
@@ -182,13 +186,17 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose,
         {
             /* Print CPU usage statistics every 10 cycles */
             if (cycle_counter % 200 == 0)
+            {
                 printf("\n%9s%16s%16s%14s\n",
                        "%CPU", "work quantum", "sleep quantum", "active rate");
+            }
 
             if (cycle_counter % 10 == 0 && cycle_counter > 0)
+            {
                 printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n",
                        cpu_usage * 100, twork_nsec / 1000,
                        tsleep_nsec / 1000, workingrate * 100);
+            }
         }
 
         if (twork.tv_nsec > 0 || twork.tv_sec > 0)
