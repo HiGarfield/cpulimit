@@ -1,4 +1,4 @@
-SortIncludes: false
+SortIncludes: true
 BasedOnStyle: Microsoft
 ColumnLimit: 0
 IndentWidth: 4
