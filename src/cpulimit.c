@@ -34,6 +34,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 /* Limiter quit flag */
 static volatile sig_atomic_t limiter_quit_flag = 0;
@@ -56,9 +57,10 @@ static void sig_handler(int sig)
  */
 static void quit_handler(void)
 {
-    if (limiter_quit_flag)
+    if (limiter_quit_flag && isatty(STDOUT_FILENO))
     {
         printf("\r");
+        fflush(stdout);
     }
 }
 
