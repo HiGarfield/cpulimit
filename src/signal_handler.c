@@ -24,57 +24,44 @@
 #define _GNU_SOURCE
 #endif
 
-#include "cli.h"
-#include "limit_process.h"
-#include "limiter.h"
-#include "list.h"
-#include "process_group.h"
-#include "process_iterator.h"
 #include "signal_handler.h"
-#include "util.h"
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+
+volatile sig_atomic_t limiter_quit_flag = 0;
 
 /**
- * Quit handler function.
- * Clear the current line on console (fix for ^C issue).
+ * Signal handler for SIGINT and SIGTERM signals.
+ * Sets the limiter_quit_flag to 1 when a termination signal is received.
+ *
+ * @param sig Signal number (SIGINT or SIGTERM).
  */
-static void quit_handler(void)
+static void sig_handler(int sig)
 {
-    if (limiter_quit_flag && isatty(STDOUT_FILENO))
-    {
-        printf("\r");
-        fflush(stdout);
-    }
+    (void)sig;
+    limiter_quit_flag = 1;
 }
 
-int main(int argc, char *argv[])
+void configure_signal_handlers(void)
 {
-    /* Configuration struct */
-    struct cpulimitcfg cfg;
+    struct sigaction sa;
+    size_t i;
+    static const int terminate_signals[] = {SIGINT, SIGTERM};
+    const size_t num_signals = sizeof(terminate_signals) / sizeof(*terminate_signals);
 
-    /* Register the quit handler to run at program exit */
-    if (atexit(quit_handler) != 0)
+    /* Configure handler for termination signals */
+    sigemptyset(&sa.sa_mask);
+    sa.sa_handler = sig_handler;
+    sa.sa_flags = SA_RESTART;
+
+    /* Set handlers for SIGINT and SIGTERM */
+    for (i = 0; i < num_signals; i++)
     {
-        fprintf(stderr, "Failed to register quit_handler\n");
-        exit(EXIT_FAILURE);
+        if (sigaction(terminate_signals[i], &sa, NULL) != 0)
+        {
+            perror("Failed to set signal handler");
+            exit(EXIT_FAILURE);
+        }
     }
-
-    /* Parse command line arguments */
-    parse_arguments(argc, argv, &cfg);
-
-    /* Set up signal handlers for SIGINT and SIGTERM */
-    configure_signal_handlers();
-
-    if (cfg.command_mode)
-    {
-        run_command_mode(&cfg, &limiter_quit_flag);
-    }
-    else
-    {
-        run_normal_mode(&cfg, &limiter_quit_flag);
-    }
-
-    return 0;
 }
