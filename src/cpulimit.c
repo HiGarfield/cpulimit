@@ -42,7 +42,7 @@
  */
 static void quit_handler(void)
 {
-    if (limiter_quit_flag && isatty(STDOUT_FILENO))
+    if (is_quit_flag_set() && isatty(STDOUT_FILENO))
     {
         printf("\r");
         fflush(stdout);
@@ -69,11 +69,11 @@ int main(int argc, char *argv[])
 
     if (cfg.command_mode)
     {
-        run_command_mode(&cfg, &limiter_quit_flag);
+        run_command_mode(&cfg);
     }
     else
     {
-        run_normal_mode(&cfg, &limiter_quit_flag);
+        run_normal_mode(&cfg);
     }
 
     return 0;

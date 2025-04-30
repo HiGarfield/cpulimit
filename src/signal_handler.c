@@ -29,7 +29,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-volatile sig_atomic_t limiter_quit_flag = 0;
+/* Limiter quit flag */
+static volatile sig_atomic_t limiter_quit_flag = 0;
 
 /**
  * Signal handler for SIGINT and SIGTERM signals.
@@ -64,4 +65,9 @@ void configure_signal_handlers(void)
             exit(EXIT_FAILURE);
         }
     }
+}
+
+int is_quit_flag_set(void)
+{
+    return !!limiter_quit_flag;
 }

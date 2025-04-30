@@ -27,7 +27,6 @@
 #define _GNU_SOURCE
 #endif
 
-#include <signal.h>
 #include <sys/types.h>
 
 /**
@@ -38,10 +37,7 @@
  * @param limit The CPU usage limit (0 to N_CPU).
  * @param include_children Whether to include child processes.
  * @param verbose Verbose mode flag.
- * @param quit_flag Pointer to a volatile sig_atomic_t variable to indicate
- *                  when to quit the control loop.
  */
-void limit_process(pid_t pid, double limit, int include_children, int verbose,
-                   const volatile sig_atomic_t *quit_flag);
+void limit_process(pid_t pid, double limit, int include_children, int verbose);
 
 #endif

@@ -27,6 +27,7 @@
 #include "limiter.h"
 #include "limit_process.h"
 #include "process_group.h"
+#include "signal_handler.h"
 #include "util.h"
 #include <signal.h>
 #include <stdio.h>
@@ -34,8 +35,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-void run_command_mode(struct cpulimitcfg *cfg,
-                      const volatile sig_atomic_t *quit_flag)
+void run_command_mode(struct cpulimitcfg *cfg)
 {
     pid_t child = fork();
     if (child < 0)
@@ -80,18 +80,17 @@ void run_command_mode(struct cpulimitcfg *cfg,
             {
                 printf("Limiting process %ld\n", (long)child);
             }
-            limit_process(child, cfg->limit, cfg->include_children, cfg->verbose, quit_flag);
+            limit_process(child, cfg->limit, cfg->include_children, cfg->verbose);
             exit(EXIT_SUCCESS);
         }
     }
 }
 
-void run_normal_mode(struct cpulimitcfg *cfg,
-                     const volatile sig_atomic_t *quit_flag)
+void run_normal_mode(struct cpulimitcfg *cfg)
 {
     /* Set waiting time between process searches */
     const struct timespec wait_time = {2, 0};
-    while (!*quit_flag)
+    while (!is_quit_flag_set())
     {
         pid_t ret = 0;
         if (cfg->target_pid > 0)
@@ -130,10 +129,10 @@ void run_normal_mode(struct cpulimitcfg *cfg,
                 exit(EXIT_FAILURE);
             }
             printf("Process %ld found\n", (long)cfg->target_pid);
-            limit_process(cfg->target_pid, cfg->limit, cfg->include_children, cfg->verbose, quit_flag);
+            limit_process(cfg->target_pid, cfg->limit, cfg->include_children, cfg->verbose);
         }
 
-        if (cfg->lazy_mode || *quit_flag)
+        if (cfg->lazy_mode || is_quit_flag_set())
         {
             break;
         }

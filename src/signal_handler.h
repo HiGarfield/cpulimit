@@ -27,14 +27,16 @@
 #define _GNU_SOURCE
 #endif
 
-#include <signal.h>
-
-/* Limiter quit flag */
-extern volatile sig_atomic_t limiter_quit_flag;
-
 /**
  * Configures signal handlers for SIGINT and SIGTERM signals.
  */
 void configure_signal_handlers(void);
+
+/**
+ * Check if the limiter quit flag is set.
+ *
+ * @return 1 if the flag is set, 0 otherwise.
+ */
+int is_quit_flag_set(void);
 
 #endif

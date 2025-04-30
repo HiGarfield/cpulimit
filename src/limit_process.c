@@ -28,6 +28,7 @@
 #include "list.h"
 #include "process_group.h"
 #include "process_iterator.h"
+#include "signal_handler.h"
 #include "util.h"
 #include <errno.h>
 #include <signal.h>
@@ -117,8 +118,7 @@ static void send_signal_to_processes(struct process_group *procgroup,
     }
 }
 
-void limit_process(pid_t pid, double limit, int include_children, int verbose,
-                   const volatile sig_atomic_t *quit_flag)
+void limit_process(pid_t pid, double limit, int include_children, int verbose)
 {
     /* Process group */
     struct process_group pgroup;
@@ -148,7 +148,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose,
     }
 
     /* Main loop to control the process until quit_flag is set */
-    while (!*quit_flag)
+    while (!is_quit_flag_set())
     {
         double cpu_usage, twork_nsec, tsleep_nsec, time_slot;
         struct timespec twork, tsleep;
@@ -232,7 +232,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose,
     }
 
     /* If the quit_flag is set, resume all processes before exiting */
-    if (*quit_flag)
+    if (is_quit_flag_set())
     {
         send_signal_to_processes(&pgroup, SIGCONT, 0);
     }

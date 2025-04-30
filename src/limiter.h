@@ -28,18 +28,14 @@
 #endif
 
 #include "cli.h"
-#include <signal.h>
 
 /**
  * Runs the program in command mode.
  * Executes the specified command and limits its CPU usage.
  *
  * @param cfg Pointer to the configuration struct.
- * @param quit_flag Pointer to a volatile sig_atomic_t variable to indicate
- *                  when to quit the control loop.
  */
-void run_command_mode(struct cpulimitcfg *cfg,
-                      const volatile sig_atomic_t *quit_flag);
+void run_command_mode(struct cpulimitcfg *cfg);
 
 /**
  * Runs the program in normal mode.
@@ -48,10 +44,7 @@ void run_command_mode(struct cpulimitcfg *cfg,
  * is set.
  *
  * @param cfg Pointer to the configuration struct.
- * @param quit_flag Pointer to a volatile sig_atomic_t variable to indicate
- *                  when to quit the control loop.
  */
-void run_normal_mode(struct cpulimitcfg *cfg,
-                     const volatile sig_atomic_t *quit_flag);
+void run_normal_mode(struct cpulimitcfg *cfg);
 
 #endif
