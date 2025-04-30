@@ -133,7 +133,12 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose,
     increase_priority();
 
     /* Initialize the process group (including children if needed) */
-    init_process_group(&pgroup, pid, include_children);
+    if (init_process_group(&pgroup, pid, include_children) != 0)
+    {
+        fprintf(stderr, "Failed to initialize process group for PID %ld\n",
+                (long)pid);
+        exit(EXIT_FAILURE);
+    }
 
     if (verbose)
     {
