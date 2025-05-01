@@ -178,7 +178,7 @@ static void test_process_group_all(void)
     assert(close_process_group(&pgroup) == 0);
 }
 
-static void test_process_group_single(int include_children)
+static void test_proc_group_single(int include_children)
 {
     struct process_group pgroup;
     int i;
@@ -212,6 +212,15 @@ static void test_process_group_single(int include_children)
     }
     assert(close_process_group(&pgroup) == 0);
     assert(kill(child, SIGKILL) == 0);
+}
+
+static void test_process_group_single(void)
+{
+    /* Test without including children */
+    test_proc_group_single(0);
+
+    /* Test with including children */
+    test_proc_group_single(1);
 }
 
 static char *command = NULL;
@@ -334,7 +343,15 @@ static void test_getppid_of(void)
     assert(getppid_of(getpid()) == getppid());
 }
 
-int main(int argc __attribute__((unused)), char *argv[])
+#define RUN_TEST(test_func)                      \
+    do                                           \
+    {                                            \
+        printf("Running %s()...\n", #test_func); \
+        test_func();                             \
+        printf("%s() passed.\n", #test_func);    \
+    } while (0)
+
+int main(int argc, char *argv[])
 {
     /* ignore SIGINT and SIGTERM during tests*/
     struct sigaction sa;
@@ -344,49 +361,20 @@ int main(int argc __attribute__((unused)), char *argv[])
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 
+    assert(argc >= 1);
     command = argv[0];
 
-    printf("Running test_single_process()...\n");
-    test_single_process();
-    printf("test_single_process() passed.\n");
-
-    printf("Running test_multiple_process()...\n");
-    test_multiple_process();
-    printf("test_multiple_process() passed.\n");
-
-    printf("Running test_all_processes()...\n");
-    test_all_processes();
-    printf("test_all_processes() passed.\n");
-
-    printf("Running test_process_group_all()...\n");
-    test_process_group_all();
-    printf("test_process_group_all() passed.\n");
-
-    printf("Running test_process_group_single()...\n");
-    test_process_group_single(0);
-    test_process_group_single(1);
-    printf("test_process_group_single() passed.\n");
-
-    printf("Running test_process_group_wrong_pid()...\n");
-    test_process_group_wrong_pid();
-    printf("test_process_group_wrong_pid() passed.\n");
-
-    printf("Running test_process_name()...\n");
-    test_process_name();
-    printf("test_process_name() passed.\n");
-
-    printf("Running test_find_process_by_pid()...\n");
-    test_find_process_by_pid();
-    printf("test_find_process_by_pid() passed.\n");
-
-    printf("Running test_find_process_by_name()...\n");
-    test_find_process_by_name();
-    printf("test_find_process_by_name() passed.\n");
-
-    printf("Running test_getppid_of()...\n");
-    test_getppid_of();
-    printf("test_getppid_of() passed.\n");
-
+    printf("Starting tests...\n");
+    RUN_TEST(test_single_process);
+    RUN_TEST(test_multiple_process);
+    RUN_TEST(test_all_processes);
+    RUN_TEST(test_process_group_all);
+    RUN_TEST(test_process_group_single);
+    RUN_TEST(test_process_group_wrong_pid);
+    RUN_TEST(test_process_name);
+    RUN_TEST(test_find_process_by_pid);
+    RUN_TEST(test_find_process_by_name);
+    RUN_TEST(test_getppid_of);
     printf("All tests passed.\n");
 
     return 0;
