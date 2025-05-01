@@ -26,6 +26,7 @@
 
 #undef NDEBUG
 
+#include "../src/limit_process.h"
 #include "../src/list.h"
 #include "../src/process_group.h"
 #include "../src/process_iterator.h"
@@ -36,6 +37,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static void ignore_signal(int sig)
@@ -91,15 +93,17 @@ static void test_multiple_process(void)
     struct process *process;
     struct process_filter filter;
     int count = 0;
-    pid_t child = fork();
-    assert(child >= 0);
-    if (child == 0)
+    pid_t child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0)
     {
         /* child is supposed to be killed by the parent :/ */
-        while (1)
+        volatile int keep_running = 1;
+        while (keep_running)
         {
             sleep(5);
         }
+        exit(EXIT_SUCCESS);
     }
     if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
     {
@@ -115,7 +119,7 @@ static void test_multiple_process(void)
         {
             assert(process->ppid == getppid());
         }
-        else if (process->pid == child)
+        else if (process->pid == child_pid)
         {
             assert(process->ppid == getpid());
         }
@@ -129,7 +133,8 @@ static void test_multiple_process(void)
     assert(count == 2);
     free(process);
     assert(close_process_iterator(&it) == 0);
-    assert(kill(child, SIGKILL) == 0);
+    assert(kill(child_pid, SIGKILL) == 0);
+    waitpid(child_pid, NULL, 0);
 }
 
 static void test_all_processes(void)
@@ -182,16 +187,17 @@ static void test_proc_group_single(int include_children)
 {
     struct process_group pgroup;
     int i;
-    pid_t child = fork();
-    assert(child >= 0);
-    if (child == 0)
+    pid_t child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0)
     {
         /* child is supposed to be killed by the parent :/ */
         volatile int keep_running = 1;
         while (keep_running)
             ;
+        exit(EXIT_SUCCESS);
     }
-    assert(init_process_group(&pgroup, child, include_children) == 0);
+    assert(init_process_group(&pgroup, child_pid, include_children) == 0);
     for (i = 0; i < 100; i++)
     {
         struct list_node *node = NULL;
@@ -201,7 +207,7 @@ static void test_proc_group_single(int include_children)
         for (node = pgroup.proclist->first; node != NULL; node = node->next)
         {
             const struct process *p = (const struct process *)node->data;
-            assert(p->pid == child);
+            assert(p->pid == child_pid);
             assert(p->ppid == getpid());
             /* p->cpu_usage should be -1 or [0, NCPU] */
             assert((p->cpu_usage >= -1.00001 && p->cpu_usage <= -0.99999) ||
@@ -211,7 +217,8 @@ static void test_proc_group_single(int include_children)
         assert(count == 1);
     }
     assert(close_process_group(&pgroup) == 0);
-    assert(kill(child, SIGKILL) == 0);
+    assert(kill(child_pid, SIGKILL) == 0);
+    waitpid(child_pid, NULL, 0);
 }
 
 static void test_process_group_single(void)
@@ -343,6 +350,88 @@ static void test_getppid_of(void)
     assert(getppid_of(getpid()) == getppid());
 }
 
+#define BUFFER_SIZE 30
+
+static void test_limit_process(void)
+{
+    const double cpu_usage_limit = 0.5;
+    const char *pipe_str = "test_limit_process";
+    pid_t child_pid;
+    int pipefd[2];
+    assert(pipe(pipefd) == 0);
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid > 0)
+    {
+        pid_t limiter_pid = fork();
+        assert(limiter_pid >= 0);
+        if (limiter_pid > 0)
+        {
+            int i, count = 0;
+            double cpu_usage = 0;
+            struct process_group pgroup;
+            char buf[BUFFER_SIZE];
+            const struct timespec delay_time = {10, 0},
+                                  sleep_time = {0, 500000000L};
+            sleep_timespec(&delay_time);
+            assert(init_process_group(&pgroup, child_pid, 1) == 0);
+            for (i = 0; i < 40; i++)
+            {
+                double temp_cpu_usage;
+                sleep_timespec(&sleep_time);
+                update_process_group(&pgroup);
+                assert(get_list_count(pgroup.proclist) == 4);
+                temp_cpu_usage = get_process_group_cpu_usage(&pgroup);
+                if (temp_cpu_usage > 0)
+                {
+                    cpu_usage += temp_cpu_usage;
+                    count++;
+                }
+            }
+            assert(close_process_group(&pgroup) == 0);
+            assert(count > 0);
+            close(pipefd[1]);
+            assert(read(pipefd[0], buf, BUFFER_SIZE) ==
+                   (ssize_t)(strlen(pipe_str) + 1));
+            close(pipefd[0]);
+            assert(strcmp(buf, pipe_str) == 0);
+            assert(kill(-child_pid, SIGKILL) == 0);
+            assert(kill(limiter_pid, SIGKILL) == 0);
+            waitpid(limiter_pid, NULL, 0);
+            while (waitpid(-child_pid, NULL, 0) > 0)
+                ;
+            cpu_usage /= count;
+            printf("CPU usage limit: %.3f, CPU usage: %.3f\n",
+                   cpu_usage_limit, cpu_usage);
+            assert(cpu_usage <= get_ncpu());
+            return;
+        }
+        else
+        {
+            /* limiter_pid == 0, limiter process */
+            close(pipefd[0]);
+            close(pipefd[1]);
+            limit_process(child_pid, cpu_usage_limit, 1, 0);
+            exit(EXIT_SUCCESS);
+        }
+    }
+    else
+    {
+        /* child_pid == 0, fork four child process to be limited */
+        volatile int keep_running = 1;
+        size_t write_len = strlen(pipe_str) + 1;
+        setpgid(0, 0);
+        close(pipefd[0]);
+        assert(write(pipefd[1], pipe_str, write_len) == (ssize_t)write_len);
+        close(pipefd[1]);
+        assert(fork() >= 0);
+        assert(fork() >= 0);
+        while (keep_running)
+            ;
+        exit(EXIT_SUCCESS);
+    }
+}
+
 #define RUN_TEST(test_func)                      \
     do                                           \
     {                                            \
@@ -375,6 +464,7 @@ int main(int argc, char *argv[])
     RUN_TEST(test_find_process_by_pid);
     RUN_TEST(test_find_process_by_name);
     RUN_TEST(test_getppid_of);
+    RUN_TEST(test_limit_process);
     printf("All tests passed.\n");
 
     return 0;
