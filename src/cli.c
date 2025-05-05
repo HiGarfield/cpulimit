@@ -39,7 +39,7 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg, in
     fprintf(stream, "      -l LIMIT, --limit=LIMIT   CPU percentage limit from 0 to %d (required)\n", 100 * get_ncpu());
     fprintf(stream, "      -v, --verbose             show control statistics\n");
     fprintf(stream, "      -z, --lazy                exit if the target process is missing or stopped\n");
-    fprintf(stream, "      -i, --include-children    also limit the child processes\n");
+    fprintf(stream, "      -i, --include-children    limit total CPU usage of target and descendants\n");
     fprintf(stream, "      -h, --help                display the help message and exit\n");
     fprintf(stream, "   TARGET must be exactly one of these:\n");
     fprintf(stream, "      -p PID, --pid=PID         PID of the target process (implies -z)\n");
