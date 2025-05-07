@@ -59,7 +59,7 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     return 0;
 }
 
-static int read_process_info(pid_t pid, struct process *p)
+static int read_process_info(pid_t pid, struct process *p, int read_cmd)
 {
     char statfile[64], exefile[64], state;
     const size_t buff_size = 2048;
@@ -121,6 +121,10 @@ static int read_process_info(pid_t pid, struct process *p)
     }
     p->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
 
+    if (!read_cmd)
+    {
+        return 0;
+    }
     /* read command line */
     sprintf(exefile, "/proc/%ld/cmdline", (long)p->pid);
 #ifdef O_CLOEXEC
@@ -138,7 +142,6 @@ static int read_process_info(pid_t pid, struct process *p)
         return -1;
     }
     p->command[nread] = '\0';
-
     return 0;
 }
 
@@ -278,7 +281,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
 
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
-        int ret = read_process_info(it->filter->pid, p);
+        int ret = read_process_info(it->filter->pid, p, it->filter->read_cmd);
         it->end_of_processes = 1;
         return ret == 0 ? 0 : -1;
     }
@@ -303,7 +306,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
         {
             continue;
         }
-        if (read_process_info(p->pid, p) != 0)
+        if (read_process_info(p->pid, p, it->filter->read_cmd) != 0)
         {
             continue;
         }

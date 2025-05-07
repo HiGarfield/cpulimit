@@ -92,13 +92,18 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     return 0;
 }
 
-static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc)
+static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
+                      int read_cmd)
 {
     char **args;
     size_t len_max;
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;
     proc->cputime = (double)kproc->ki_runtime / 1000.0;
+    if (!read_cmd)
+    {
+        return 0;
+    }
     len_max = sizeof(proc->command) - 1;
     if ((args = kvm_getargv(kd, kproc, (int)len_max)) == NULL)
     {
@@ -109,11 +114,13 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc)
     return 0;
 }
 
-static int get_single_process(kvm_t *kd, pid_t pid, struct process *process)
+static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
+                              int read_cmd)
 {
     int count;
     struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
-    if (count == 0 || kproc == NULL || kproc2proc(kd, kproc, process) != 0)
+    if (count == 0 || kproc == NULL ||
+        kproc2proc(kd, kproc, process, read_cmd) != 0)
     {
         return -1;
     }
@@ -194,7 +201,8 @@ int get_next_process(struct process_iterator *it, struct process *p)
     }
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
-        if (get_single_process(it->kd, it->filter->pid, p) != 0)
+        if (get_single_process(it->kd, it->filter->pid, p,
+                               it->filter->read_cmd) != 0)
         {
             it->i = it->count = 0;
             return -1;
@@ -214,7 +222,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
         if (it->filter->pid != 0 && it->filter->include_children)
         {
             it->i++;
-            if (kproc2proc(it->kd, kproc, p) != 0)
+            if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0)
             {
                 continue;
             }
@@ -228,7 +236,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
         else if (it->filter->pid == 0)
         {
             it->i++;
-            if (kproc2proc(it->kd, kproc, p) != 0)
+            if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0)
             {
                 continue;
             }

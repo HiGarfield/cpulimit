@@ -69,6 +69,7 @@ pid_t find_process_by_name(const char *process_name)
 
     filter.pid = 0;
     filter.include_children = 0;
+    filter.read_cmd = 1;
     init_process_iterator(&it, &filter);
     while (get_next_process(&it, proc) != -1)
     {
@@ -171,6 +172,7 @@ void update_process_group(struct process_group *pgroup)
     dt = timediff_in_ms(&now, &pgroup->last_update);
     filter.pid = pgroup->target_pid;
     filter.include_children = pgroup->include_children;
+    filter.read_cmd = 0;
     init_process_iterator(&it, &filter);
     clear_list(pgroup->proclist);
     init_list(pgroup->proclist, sizeof(pid_t));

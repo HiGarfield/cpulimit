@@ -67,6 +67,9 @@ struct process_filter
 
     /* Flag indicating whether to include child processes (1 for yes, 0 for no) */
     int include_children;
+
+    /* Flag indicating whether to read command of process */
+    int read_cmd;
 };
 
 /**

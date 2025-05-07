@@ -107,11 +107,16 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     return 0; /* Success */
 }
 
-static int pti2proc(struct proc_taskallinfo *ti, struct process *process)
+static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
+                    int read_cmd)
 {
     process->pid = (pid_t)ti->pbsd.pbi_pid;
     process->ppid = (pid_t)ti->pbsd.pbi_ppid;
     process->cputime = ti->ptinfo.pti_total_user / 1e6 + ti->ptinfo.pti_total_system / 1e6;
+    if (!read_cmd)
+    {
+        return 0;
+    }
     if (proc_pidpath(process->pid, process->command, sizeof(process->command)) <= 0)
     {
         return -1;
@@ -166,7 +171,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
     return child_pid == parent_pid;
 }
 
-static int read_process_info(pid_t pid, struct process *p)
+static int read_process_info(pid_t pid, struct process *p, int read_cmd)
 {
     struct proc_taskallinfo ti;
     if (get_process_pti(pid, &ti) != 0)
@@ -177,7 +182,7 @@ static int read_process_info(pid_t pid, struct process *p)
     {
         return -1;
     }
-    if (pti2proc(&ti, p) != 0)
+    if (pti2proc(&ti, p, read_cmd) != 0)
     {
         return -1;
     }
@@ -192,7 +197,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
     }
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
-        if (read_process_info(it->filter->pid, p) == 0)
+        if (read_process_info(it->filter->pid, p, it->filter->read_cmd) == 0)
         {
             it->i = it->count = 1;
             return 0;
@@ -202,7 +207,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
     }
     while (it->i < it->count)
     {
-        if (read_process_info(it->pidlist[it->i], p) != 0)
+        if (read_process_info(it->pidlist[it->i], p, it->filter->read_cmd) != 0)
         {
             it->i++;
             continue;

@@ -59,6 +59,7 @@ static void test_single_process(void)
     /* don't iterate children */
     filter.pid = getpid();
     filter.include_children = 0;
+    filter.read_cmd = 0;
     count = 0;
     assert(init_process_iterator(&it, &filter) == 0);
     while (get_next_process(&it, process) == 0)
@@ -73,6 +74,7 @@ static void test_single_process(void)
     /* iterate children */
     filter.pid = getpid();
     filter.include_children = 1;
+    filter.read_cmd = 0;
     count = 0;
     assert(init_process_iterator(&it, &filter) == 0);
     while (get_next_process(&it, process) == 0)
@@ -112,6 +114,7 @@ static void test_multiple_process(void)
     }
     filter.pid = getpid();
     filter.include_children = 1;
+    filter.read_cmd = 0;
     assert(init_process_iterator(&it, &filter) == 0);
     while (get_next_process(&it, process) == 0)
     {
@@ -145,6 +148,7 @@ static void test_all_processes(void)
     int count = 0;
     filter.pid = 0;
     filter.include_children = 0;
+    filter.read_cmd = 0;
     if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
     {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
@@ -246,6 +250,7 @@ static void test_process_name(void)
     }
     filter.pid = getpid();
     filter.include_children = 0;
+    filter.read_cmd = 1;
     assert(init_process_iterator(&it, &filter) == 0);
     assert(get_next_process(&it, process) == 0);
     assert(process->pid == getpid());
@@ -335,6 +340,7 @@ static void test_getppid_of(void)
     struct process_filter filter;
     filter.pid = 0;
     filter.include_children = 0;
+    filter.read_cmd = 0;
     if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
     {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
