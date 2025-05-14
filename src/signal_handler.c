@@ -48,7 +48,7 @@ void configure_signal_handlers(void)
 {
     struct sigaction sa;
     size_t i;
-    static const int terminate_signals[] = {SIGINT, SIGTERM};
+    static const int terminate_signals[] = {SIGINT, SIGTERM, SIGHUP, SIGQUIT};
     const size_t num_signals = sizeof(terminate_signals) / sizeof(*terminate_signals);
 
     /* Configure handler for termination signals */
