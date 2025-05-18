@@ -29,6 +29,7 @@
 #include "process_group.h"
 #include "signal_handler.h"
 #include "util.h"
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,13 +38,13 @@
 
 void run_command_mode(struct cpulimitcfg *cfg)
 {
-    pid_t child = fork();
-    if (child < 0)
+    pid_t cmd_runner_pid = fork();
+    if (cmd_runner_pid < 0)
     {
         perror("fork");
         exit(EXIT_FAILURE);
     }
-    else if (child == 0)
+    else if (cmd_runner_pid == 0)
     {
         int ret = execvp(cfg->command_args[0], cfg->command_args);
         perror("execvp");
@@ -51,36 +52,79 @@ void run_command_mode(struct cpulimitcfg *cfg)
     }
     else
     {
-        pid_t limiter = fork();
-        if (limiter < 0)
+        pid_t limiter_pid = fork();
+        if (limiter_pid < 0)
         {
             perror("fork");
             exit(EXIT_FAILURE);
         }
-        else if (limiter > 0)
+        else if (limiter_pid > 0)
         {
-            int status_process, status_limiter;
-            waitpid(child, &status_process, 0);
-            waitpid(limiter, &status_limiter, 0);
-            if (WIFEXITED(status_process))
+            int status, cmd_runner_status = -1;
+            while (1)
             {
+                pid_t wpid = wait(&status);
+                if (wpid > 0)
+                {
+                    if (wpid == cmd_runner_pid)
+                    {
+                        cmd_runner_status = status;
+                    }
+                }
+                else if (wpid == -1)
+                {
+                    if (errno == EINTR)
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (cmd_runner_status < 0)
+            {
+                printf("Error waiting for child process\n");
+                exit(EXIT_FAILURE);
+            }
+            else if (WIFEXITED(cmd_runner_status))
+            {
+                int child_exit_status = WEXITSTATUS(cmd_runner_status);
                 if (cfg->verbose)
                 {
-                    printf("Process %ld terminated with exit status %d\n",
-                           (long)child, WEXITSTATUS(status_process));
+                    printf("Process %ld exited with status %d\n",
+                           (long)cmd_runner_pid, child_exit_status);
                 }
-                exit(WEXITSTATUS(status_process));
+                exit(child_exit_status);
             }
-            printf("Process %ld terminated abnormally\n", (long)child);
-            exit(status_process);
+            else if (WIFSIGNALED(cmd_runner_status))
+            {
+                int signal_number = WTERMSIG(cmd_runner_status);
+                int child_exit_status = 128 + signal_number;
+                if (cfg->verbose)
+                {
+                    printf("Process %ld terminated by signal %d\n",
+                           (long)cmd_runner_pid, signal_number);
+                }
+                exit(child_exit_status);
+            }
+            else
+            {
+                printf("Process %ld terminated abnormally\n",
+                       (long)cmd_runner_pid);
+                exit(EXIT_FAILURE);
+            }
         }
         else
         {
             if (cfg->verbose)
             {
-                printf("Limiting process %ld\n", (long)child);
+                printf("Limiting process %ld\n", (long)cmd_runner_pid);
             }
-            limit_process(child, cfg->limit, cfg->include_children, cfg->verbose);
+            limit_process(cmd_runner_pid, cfg->limit, cfg->include_children,
+                          cfg->verbose);
             exit(EXIT_SUCCESS);
         }
     }
