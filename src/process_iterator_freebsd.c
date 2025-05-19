@@ -97,6 +97,7 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
 {
     char **args;
     size_t len_max;
+    memset(proc, 0, sizeof(struct process));
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;
     proc->cputime = (double)kproc->ki_runtime / 1000.0;

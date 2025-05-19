@@ -71,6 +71,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     int fd;
     static long sc_clk_tck = -1;
 
+    memset(p, 0, sizeof(struct process));
     p->pid = pid;
 
     /* read stat file */

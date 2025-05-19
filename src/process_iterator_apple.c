@@ -174,6 +174,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
 static int read_process_info(pid_t pid, struct process *p, int read_cmd)
 {
     struct proc_taskallinfo ti;
+    memset(p, 0, sizeof(struct process));
     if (get_process_pti(pid, &ti) != 0)
     {
         return -1;
