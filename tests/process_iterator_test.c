@@ -412,14 +412,11 @@ static void test_limit_process(void)
             assert(cpu_usage <= get_ncpu());
             return;
         }
-        else
-        {
-            /* limiter_pid == 0, limiter process */
-            close(pipefd[0]);
-            close(pipefd[1]);
-            limit_process(child_pid, cpu_usage_limit, 1, 0);
-            exit(EXIT_SUCCESS);
-        }
+        /* limiter_pid == 0, limiter process */
+        close(pipefd[0]);
+        close(pipefd[1]);
+        limit_process(child_pid, cpu_usage_limit, 1, 0);
+        exit(EXIT_SUCCESS);
     }
     else
     {

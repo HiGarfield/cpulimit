@@ -78,10 +78,7 @@ void run_command_mode(struct cpulimitcfg *cfg)
                     {
                         continue;
                     }
-                    else
-                    {
-                        break;
-                    }
+                    break;
                 }
             }
 
