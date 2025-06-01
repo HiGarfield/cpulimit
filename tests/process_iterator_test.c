@@ -373,7 +373,7 @@ static void test_limit_process(void)
         assert(limiter_pid >= 0);
         if (limiter_pid > 0)
         {
-            int i, count = 0;
+            int i, count = 0, cmp_result;
             double cpu_usage = 0;
             struct process_group pgroup;
             char buf[BUFFER_SIZE];
@@ -400,7 +400,8 @@ static void test_limit_process(void)
             assert(read(pipefd[0], buf, BUFFER_SIZE) ==
                    (ssize_t)(strlen(pipe_str) + 1));
             close(pipefd[0]);
-            assert(strcmp(buf, pipe_str) == 0);
+            cmp_result = strcmp(buf, pipe_str);
+            assert(cmp_result == 0);
             assert(kill(-child_pid, SIGKILL) == 0);
             assert(kill(limiter_pid, SIGKILL) == 0);
             waitpid(limiter_pid, NULL, 0);
