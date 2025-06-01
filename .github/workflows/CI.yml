@@ -15,7 +15,7 @@ jobs:
   build:
     name: Build on ${{ matrix.os }}
     permissions:
-      contents: read
+      contents: write
     strategy:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, macos-13, macos-14, macos-15]
@@ -58,16 +58,36 @@ jobs:
           echo "${random_path}"
           sudo "${random_path}"
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@main
+      - name: Get Timestamp
+        id: timestamp
+        run: |
+          export TZ=Asia/Shanghai
+          TIMESTAMP=$(git log -1 --format="%cd" --date=format-local:'%Y%m%d%H%M')
+          echo "Release version: $TIMESTAMP"
+          echo "RELEASE_VERSION=$TIMESTAMP" >> $GITHUB_ENV
+
+      - name: Upload binaries to release
+        uses: HiGarfield/upload-release-action@master
         with:
-          name: cpulimit-${{ matrix.os }}
-          path: src/cpulimit
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: src/cpulimit
+          asset_name: cpulimit-${{ matrix.os }}
+          tag: ${{ env.RELEASE_VERSION }}
+          overwrite: true
+
+      - name: Remove old releases
+        uses: HiGarfield/delete-older-releases@master
+        continue-on-error: true
+        with:
+          keep_latest: 1
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-FreeBSD:
     name: Build on FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
     permissions:
-      contents: read
+      contents: write
     strategy:
       matrix:
         osver: ['13.4', '14.2', '15.0']
@@ -105,8 +125,28 @@ jobs:
             echo "${random_path}"
             sudo "${random_path}"
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@main
+      - name: Get Timestamp
+        id: timestamp
+        run: |
+          export TZ=Asia/Shanghai
+          TIMESTAMP=$(git log -1 --format="%cd" --date=format-local:'%Y%m%d%H%M')
+          echo "Release version: $TIMESTAMP"
+          echo "RELEASE_VERSION=$TIMESTAMP" >> $GITHUB_ENV
+
+      - name: Upload binaries to release
+        uses: HiGarfield/upload-release-action@master
         with:
-          name: cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
-          path: src/cpulimit
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: src/cpulimit
+          asset_name: cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
+          tag: ${{ env.RELEASE_VERSION }}
+          overwrite: true
+
+      - name: Remove old releases
+        uses: HiGarfield/delete-older-releases@master
+        continue-on-error: true
+        with:
+          keep_latest: 1
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
