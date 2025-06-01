@@ -46,9 +46,10 @@ void run_command_mode(struct cpulimitcfg *cfg)
     }
     else if (cmd_runner_pid == 0)
     {
-        int ret = execvp(cfg->command_args[0], cfg->command_args);
+        execvp(cfg->command_args[0], cfg->command_args);
+        /* If execvp fails, print an error message and exit */
         perror("execvp");
-        exit(ret);
+        exit(EXIT_FAILURE);
     }
     else
     {
