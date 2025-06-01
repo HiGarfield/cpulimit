@@ -94,9 +94,7 @@ CPPCHECK_OPTS += --enable=all \
                  --suppress=ConfigurationNotChecked \
                  --suppress=unmatchedSuppression \
                  --suppress=*:/*/include/* \
-                 --suppress=unusedFunction \
-                 --suppress=checkersReport \
-                 -j 12
+                 --suppress=checkersReport
 
 # Check report file
 CHECK_REPORT := check-report.txt
@@ -113,18 +111,29 @@ $(TARGET): $(wildcard *.c *.h)
 
 # Clean target
 clean:
-	rm -f *~ $(TARGET) $(CHECK_REPORT)
+	rm -f *~ *.o *.json $(TARGET) $(CHECK_REPORT)
 
 # Format source files with clang-format
 format: $(wildcard *.c *.h)
+	@command -v clang-format >/dev/null 2>&1 || { \
+        echo "clang-format is not installed. Please install it to format the code."; \
+        exit 1; \
+    }
 	clang-format -i $^
+	@echo "Source files formatted successfully."
 
-# Check source files with clang-tidy
+# Check source files with cppcheck
 check: $(wildcard *.c *.h)
-	cppcheck $(CPPCHECK_OPTS) . 2>$(CHECK_REPORT)
+	@command -v cppcheck >/dev/null 2>&1 || { \
+        echo "cppcheck is not installed. Please install it to check the code."; \
+        exit 1; \
+    }
+	cppcheck $(CPPCHECK_OPTS) . 2>"$(CHECK_REPORT)"
+	@echo "See $(shell pwd)/$(CHECK_REPORT) for cppcheck report."
 
 # Install cpulimit to /usr/local/bin
 install: $(TARGET)
+	install -d $(DESTDIR)
 	install -m 755 $(TARGET) $(DESTDIR)
 
 # Uninstall cpulimit from /usr/local/bin
