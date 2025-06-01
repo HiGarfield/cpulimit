@@ -116,28 +116,26 @@ size_t get_list_count(const struct list *l)
     return l != NULL ? l->count : 0;
 }
 
-void *first_elem(const struct list *l)
-{
-    return l != NULL && l->first != NULL ? l->first->data : NULL;
-}
-
 struct list_node *first_node(const struct list *l)
 {
     return l != NULL ? l->first : NULL;
 }
 
-void *last_elem(const struct list *l)
-{
-    return l != NULL && l->last != NULL ? l->last->data : NULL;
-}
-
-struct list_node *last_node(const struct list *l)
-{
-    return l != NULL ? l->last : NULL;
-}
-
-struct list_node *xlocate_node(const struct list *l, const void *elem,
-                               size_t offset, size_t length)
+/**
+ * Searches for an element in the list by its content.
+ *
+ * Comparison is performed from the specified offset and for a specified length.
+ * If offset=0, comparison starts from the address pointed to by data.
+ * If length=0, the default keysize is used.
+ *
+ * @param l Pointer to the list to search.
+ * @param elem Pointer to the element to locate.
+ * @param offset Offset from which to start the comparison.
+ * @param length Length of the comparison.
+ * @return Pointer to the node if found; NULL if not found.
+ */
+static struct list_node *xlocate_node(const struct list *l, const void *elem,
+                                      size_t offset, size_t length)
 {
     struct list_node *cur;
     size_t cmp_len;
@@ -169,8 +167,17 @@ struct list_node *locate_node(const struct list *l, const void *elem)
     return xlocate_node(l, elem, 0, 0);
 }
 
-void *xlocate_elem(const struct list *l, const void *elem,
-                   size_t offset, size_t length)
+/**
+ * Similar to xlocate_node(), but returns the content of the node.
+ *
+ * @param l Pointer to the list to search.
+ * @param elem Pointer to the element to locate.
+ * @param offset Offset from which to start the comparison.
+ * @param length Length of the comparison.
+ * @return Pointer to the content of the node if found; NULL if not found.
+ */
+static void *xlocate_elem(const struct list *l, const void *elem,
+                          size_t offset, size_t length)
 {
     struct list_node *node = xlocate_node(l, elem, offset, length);
     return node != NULL ? node->data : NULL;

@@ -225,7 +225,7 @@ double get_process_group_cpu_usage(const struct process_group *pgroup)
 {
     const struct list_node *node;
     double cpu_usage = -1;
-    for (node = pgroup->proclist->first; node != NULL; node = node->next)
+    for (node = first_node(pgroup->proclist); node != NULL; node = node->next)
     {
         const struct process *p = (struct process *)node->data;
         if (p->cpu_usage < 0)

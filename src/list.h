@@ -114,64 +114,12 @@ int is_empty_list(const struct list *l);
 size_t get_list_count(const struct list *l);
 
 /**
- * Returns the content of the first element in the list.
- *
- * @param l Pointer to the list.
- * @return Pointer to the content of the first node, or NULL if the list is empty.
- */
-void *first_elem(const struct list *l);
-
-/**
  * Returns the first node in the list.
  *
  * @param l Pointer to the list.
  * @return Pointer to the first node, or NULL if the list is empty.
  */
 struct list_node *first_node(const struct list *l);
-
-/**
- * Returns the content of the last element in the list.
- *
- * @param l Pointer to the list.
- * @return Pointer to the content of the last node, or NULL if the list is empty.
- */
-void *last_elem(const struct list *l);
-
-/**
- * Returns the last node in the list.
- *
- * @param l Pointer to the list.
- * @return Pointer to the last node, or NULL if the list is empty.
- */
-struct list_node *last_node(const struct list *l);
-
-/**
- * Searches for an element in the list by its content.
- *
- * Comparison is performed from the specified offset and for a specified length.
- * If offset=0, comparison starts from the address pointed to by data.
- * If length=0, the default keysize is used.
- *
- * @param l Pointer to the list to search.
- * @param elem Pointer to the element to locate.
- * @param offset Offset from which to start the comparison.
- * @param length Length of the comparison.
- * @return Pointer to the node if found; NULL if not found.
- */
-struct list_node *xlocate_node(const struct list *l, const void *elem,
-                               size_t offset, size_t length);
-
-/**
- * Similar to xlocate_node(), but returns the content of the node.
- *
- * @param l Pointer to the list to search.
- * @param elem Pointer to the element to locate.
- * @param offset Offset from which to start the comparison.
- * @param length Length of the comparison.
- * @return Pointer to the content of the node if found; NULL if not found.
- */
-void *xlocate_elem(const struct list *l, const void *elem,
-                   size_t offset, size_t length);
 
 /**
  * Locates a node in the list using default parameters (offset=0, length=0).

@@ -99,7 +99,7 @@ static double get_dynamic_time_slot(void)
 static void send_signal_to_processes(struct process_group *procgroup,
                                      int sig, int verbose)
 {
-    struct list_node *node = procgroup->proclist->first;
+    struct list_node *node = first_node(procgroup->proclist);
     while (node != NULL)
     {
         struct list_node *next_node = node->next;
