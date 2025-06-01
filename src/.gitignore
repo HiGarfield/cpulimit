@@ -1,5 +1,5 @@
 *.o
 *~
+*.json
 cpulimit
 check-report.txt
-compile_commands.json
