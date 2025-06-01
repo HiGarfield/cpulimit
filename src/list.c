@@ -190,21 +190,21 @@ void *locate_elem(const struct list *l, const void *elem)
 
 static void clear_all_list_nodes(struct list *l, int free_data)
 {
-    if (l == NULL)
+    struct list_node *current, *next;
+    if (l == NULL || l->count == 0)
     {
         return;
     }
-    while (l->first != NULL)
+    for (current = l->first; current != NULL; current = next)
     {
-        struct list_node *tmp = l->first;
-        l->first = l->first->next;
-        if (free_data)
+        next = current->next;
+        if (free_data && current->data != NULL)
         {
-            free(tmp->data);
+            free(current->data);
         }
-        free(tmp);
+        free(current);
     }
-    l->last = NULL;
+    l->first = l->last = NULL;
     l->count = 0;
 }
 
