@@ -1,14 +1,16 @@
 # CPULIMIT
 
-Cpulimit is a tool that limits the CPU usage of a process (expressed in percentage, not in CPU time). It is useful for controlling batch jobs when you don't want them to consume too many CPU cycles. The goal is to prevent a process from running for more than a specified time ratio. It does not change the nice value or other scheduling priority settings, but instead focuses on the real CPU usage. Additionally, it adapts dynamically and quickly to the overall system load.
+Cpulimit is a tool that limits the CPU usage of a process (expressed as a percentage, not CPU time). It is useful for controlling batch jobs that should not consume excessive CPU resources. The tool prevents a process from using more than a specified percentage of CPU capacity. Instead of modifying nice values or scheduling priorities, it operates by monitoring actual CPU usage and dynamically adapts to the overall system load.
 
 Cpulimit is supported on Linux, macOS, and FreeBSD.
 
-The control of CPU usage is achieved by sending `SIGSTOP` and `SIGCONT` POSIX signals to processes. If the `-i` option is enabled, all descendant processes of the specified process will share the same percentage of CPU usage.
+CPU usage control is achieved by sending `SIGSTOP` and `SIGCONT` POSIX signals to processes. When the `-i` or `--include-children` option is enabled, cpulimit limits the total CPU usage of the target process and its descendant processes.
 
-Developed by [Angelo Marletta](https://github.com/opsengine/cpulimit). Please send your feedback, bug reports, feature requests, or just thanks.
+Originally developed by [Angelo Marletta](https://github.com/opsengine/cpulimit). Please submit feedback, bug reports, feature requests, or expressions of appreciation.
 
-This forked repository is maintained by [HiGarfield](https://github.com/HiGarfield/cpulimit). **This repository has undergone extensive bug fixes and code improvements based on the original repository.**
+This forked repository is maintained by [HiGarfield](https://github.com/HiGarfield/cpulimit). **This repository features extensive improvements and bug fixes compared to the original repository.**
+
+Prebuilt binaries for common platforms are available in [Releases](https://github.com/HiGarfield/cpulimit/releases/latest).​
 
 ## Usage
 
@@ -83,6 +85,13 @@ The latest available code is here:
   sudo gmake install
   ```
 
+- Without a build environment, install directly using the platform-specific binaries from [Releases](https://github.com/HiGarfield/cpulimit/releases/latest):​
+  ```sh
+  sudo mkdir -p /usr/local/bin
+  sudo cp -f cpulimit-* /usr/local/bin/cpulimit
+  sudo chmod 755 /usr/local/bin/cpulimit
+  ```
+
 ### Uninstall
 
 - On Linux/macOS:
@@ -95,6 +104,11 @@ The latest available code is here:
 
   ```sh
   sudo gmake uninstall
+  ```
+
+- To uninstall without a build environment:
+  ```sh
+  sudo rm -f /usr/local/bin/cpulimit
   ```
 
 ### Run Tests
@@ -119,4 +133,4 @@ The latest available code is here:
 
 ## Contributions
 
-You are welcome to contribute to cpulimit with bug fixes, new features, or support for a new OS. If you want to submit a pull request, please do it on the `develop` branch and ensure that all tests pass.
+Contributions to cpulimit are welcome, whether bug fixes, new features, or support for additional operating systems. When submitting pull requests, please submit them to the `develop` branch and ensure all tests pass successfully.
