@@ -132,6 +132,7 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg)
     /* Initialize configuration structure */
     memset(cfg, 0, sizeof(struct cpulimitcfg));
     cfg->program_name = file_basename(argv[0]);
+    cfg->limit = -1.0; /* Default limit is -1 (unset) */
 
     /* Parse command line options */
     while ((opt = getopt_long(argc, argv, "+p:e:l:vzih", long_options, NULL)) != -1)
@@ -186,8 +187,8 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg)
     /* Validate target specification */
     validate_target_options(cfg);
 
-    /* Validate CPU limit */
-    if (cfg->limit <= 0)
+    /* Limit was not set */
+    if (cfg->limit < 0)
     {
         fprintf(stderr, "CPU limit (-l/--limit) is required\n");
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
