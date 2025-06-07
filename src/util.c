@@ -34,6 +34,8 @@
 #include <time.h>
 #include <unistd.h>
 #if defined(__linux__)
+#include <ctype.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #endif
@@ -167,7 +169,7 @@ pid_t get_pid_max(void)
 {
 #if defined(__linux__)
     int fd;
-    char buffer[64];
+    char buffer[64], *endptr;
     ssize_t bytes_read;
     long pid_max;
 
@@ -190,8 +192,10 @@ pid_t get_pid_max(void)
     }
     buffer[bytes_read] = '\0';
 
-    pid_max = strtol(buffer, NULL, 10);
-    if (pid_max <= 0)
+    errno = 0;
+    pid_max = strtol(buffer, &endptr, 10);
+    if (errno != 0 || endptr == buffer ||
+        (*endptr != '\0' && !isspace(*endptr)) || pid_max <= 0)
     {
         fprintf(stderr, "Failed to read /proc/sys/kernel/pid_max\n");
         return PID_T_MAX;

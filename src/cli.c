@@ -26,6 +26,7 @@
 
 #include "cli.h"
 #include "util.h"
+#include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,8 +63,10 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg, in
 static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg)
 {
     char *endptr;
-    long pid = strtol(pid_str, &endptr, 10);
-    if (endptr == pid_str || *endptr != '\0' ||
+    long pid;
+    errno = 0;
+    pid = strtol(pid_str, &endptr, 10);
+    if (errno != 0 || endptr == pid_str || *endptr != '\0' ||
         pid <= 1 || pid >= get_pid_max())
     {
         fprintf(stderr, "Invalid PID: %s\n", pid_str);
@@ -83,8 +86,10 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
                                int n_cpu)
 {
     char *endptr;
-    double percent_limit = strtod(limit_str, &endptr);
-    if (endptr == limit_str || *endptr != '\0' ||
+    double percent_limit;
+    errno = 0;
+    percent_limit = strtod(limit_str, &endptr);
+    if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
         percent_limit < 0 || percent_limit > 100 * n_cpu)
     {
         fprintf(stderr, "Invalid limit value: %s\n", limit_str);
