@@ -132,46 +132,44 @@ void run_normal_mode(struct cpulimitcfg *cfg)
 {
     /* Set waiting time between process searches */
     const struct timespec wait_time = {2, 0};
+    int pid_mode = cfg->target_pid > 0;
+    int exe_mode = cfg->exe_name != NULL;
     while (!is_quit_flag_set())
     {
-        pid_t ret = 0;
-        if (cfg->target_pid > 0)
+        pid_t found_pid = 0;
+        if (pid_mode)
         {
-            /* If target_pid is set, search for the process by PID */
-            ret = find_process_by_pid(cfg->target_pid);
-            if (ret <= 0)
+            /* Search for the process by PID */
+            found_pid = find_process_by_pid(cfg->target_pid);
+            if (found_pid <= 0)
             {
                 printf("No process found or you aren't allowed to control it\n");
             }
         }
-        else
+        else if (exe_mode)
         {
-            /* If target_pid is not set, search for the process by name */
-            ret = find_process_by_name(cfg->exe_name);
-            if (ret == 0)
+            /* Search for the process by name */
+            found_pid = find_process_by_name(cfg->exe_name);
+            if (found_pid == 0)
             {
                 printf("No process found\n");
             }
-            else if (ret < 0)
+            else if (found_pid < 0)
             {
                 printf("Process found but you aren't allowed to control it\n");
             }
-            else
-            {
-                cfg->target_pid = ret;
-            }
         }
 
-        if (ret > 0)
+        if (found_pid > 0)
         {
-            if (ret == getpid())
+            if (found_pid == getpid())
             {
                 printf("Target process %ld is cpulimit itself! Aborting\n",
-                       (long)ret);
+                       (long)found_pid);
                 exit(EXIT_FAILURE);
             }
-            printf("Process %ld found\n", (long)cfg->target_pid);
-            limit_process(cfg->target_pid, cfg->limit, cfg->include_children, cfg->verbose);
+            printf("Process %ld found\n", (long)found_pid);
+            limit_process(found_pid, cfg->limit, cfg->include_children, cfg->verbose);
         }
 
         if (cfg->lazy_mode || is_quit_flag_set())
