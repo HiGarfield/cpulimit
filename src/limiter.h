@@ -30,21 +30,21 @@
 #include "cli.h"
 
 /**
- * Runs the program in command mode.
+ * Runs the limiter in command mode.
  * Executes the specified command and limits its CPU usage.
  *
  * @param cfg Pointer to the configuration struct.
  */
-void run_command_mode(struct cpulimitcfg *cfg);
+void run_command_mode(const struct cpulimitcfg *cfg);
 
 /**
- * Runs the program in normal mode.
+ * Runs the limiter in pid or exe mode.
  * Continuously searches for the target process and limits its CPU usage.
- * The program will exit if the target process is not found or if the quit flag
+ * The limiter will exit if the target process is not found or if the quit flag
  * is set.
  *
  * @param cfg Pointer to the configuration struct.
  */
-void run_normal_mode(struct cpulimitcfg *cfg);
+void run_pid_or_exe_mode(const struct cpulimitcfg *cfg);
 
 #endif

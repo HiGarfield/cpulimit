@@ -36,7 +36,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-void run_command_mode(struct cpulimitcfg *cfg)
+void run_command_mode(const struct cpulimitcfg *cfg)
 {
     pid_t cmd_runner_pid = fork();
     if (cmd_runner_pid < 0)
@@ -46,8 +46,10 @@ void run_command_mode(struct cpulimitcfg *cfg)
     }
     else if (cmd_runner_pid == 0)
     {
+        /* Command runner process: execute the command */
         execvp(cfg->command_args[0], cfg->command_args);
-        /* If execvp fails, print an error message and exit */
+
+        /* Following lines will only be reached if execvp fails */
         perror("execvp");
         exit(EXIT_FAILURE);
     }
@@ -57,10 +59,17 @@ void run_command_mode(struct cpulimitcfg *cfg)
         if (limiter_pid < 0)
         {
             perror("fork");
+            /* If fork fails, clean up the command runner process */
+            kill(cmd_runner_pid, SIGTERM);
+            waitpid(cmd_runner_pid, NULL, 0);
             exit(EXIT_FAILURE);
         }
         else if (limiter_pid > 0)
         {
+            /*
+             * Parent process: wait for the command runner and limiter processes
+             * to finish
+             */
             int status, cmd_runner_status = -1;
             while (1)
             {
@@ -117,6 +126,7 @@ void run_command_mode(struct cpulimitcfg *cfg)
         }
         else
         {
+            /* Limiter process: limit the command runner */
             if (cfg->verbose)
             {
                 printf("Limiting process %ld\n", (long)cmd_runner_pid);
@@ -128,7 +138,7 @@ void run_command_mode(struct cpulimitcfg *cfg)
     }
 }
 
-void run_normal_mode(struct cpulimitcfg *cfg)
+void run_pid_or_exe_mode(const struct cpulimitcfg *cfg)
 {
     /* Set waiting time between process searches */
     const struct timespec wait_time = {2, 0};

@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        run_normal_mode(&cfg);
+        run_pid_or_exe_mode(&cfg);
     }
 
     return 0;
