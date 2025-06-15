@@ -34,6 +34,7 @@
 #include "process_iterator.h"
 #include <errno.h>
 #include <libproc.h>
+#include <mach/mach_time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,12 +108,27 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     return 0; /* Success */
 }
 
+static double platform_time_to_ms(double platform_time)
+{
+    static int initialized = 0;
+    static double factor;
+    if (!initialized)
+    {
+        mach_timebase_info_data_t timebase_info;
+        mach_timebase_info(&timebase_info);
+        factor = (double)timebase_info.numer / (double)timebase_info.denom;
+        initialized = 1;
+    }
+    return platform_time * factor / 1e6;
+}
+
 static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
                     int read_cmd)
 {
     process->pid = (pid_t)ti->pbsd.pbi_pid;
     process->ppid = (pid_t)ti->pbsd.pbi_ppid;
-    process->cputime = ti->ptinfo.pti_total_user / 1e6 + ti->ptinfo.pti_total_system / 1e6;
+    process->cputime = platform_time_to_ms(ti->ptinfo.pti_total_user) +
+                       platform_time_to_ms(ti->ptinfo.pti_total_system);
     if (!read_cmd)
     {
         return 0;
