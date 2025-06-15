@@ -220,6 +220,12 @@ int get_next_process(struct process_iterator *it, struct process *p)
             /* skip system processes */
             continue;
         }
+        if (kproc->ki_stat == SZOMB)
+        {
+            it->i++;
+            /* skip zombie processes */
+            continue;
+        }
         if (it->filter->pid != 0 && it->filter->include_children)
         {
             it->i++;
