@@ -126,8 +126,7 @@ static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
 
 static int get_process_pti(pid_t pid, struct proc_taskallinfo *ti)
 {
-    int bytes = proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, ti, sizeof(*ti));
-    if (bytes <= 0)
+    if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, ti, sizeof(*ti)) != (int)sizeof(*ti))
     {
         if (errno != EPERM && errno != ESRCH)
         {
@@ -135,10 +134,9 @@ static int get_process_pti(pid_t pid, struct proc_taskallinfo *ti)
         }
         return -1;
     }
-    else if (bytes < (int)sizeof(*ti))
+    if (ti->pbsd.pbi_status == SZOMB)
     {
-        fprintf(stderr, "proc_pidinfo: too few bytes; expected %lu, got %d\n",
-                (unsigned long)sizeof(*ti), bytes);
+        /* skip zombie processes */
         return -1;
     }
     return 0;
@@ -208,25 +206,17 @@ int get_next_process(struct process_iterator *it, struct process *p)
     }
     while (it->i < it->count)
     {
-        if (read_process_info(it->pidlist[it->i], p, it->filter->read_cmd) != 0)
+        if (read_process_info(it->pidlist[it->i], p, it->filter->read_cmd) == 0)
         {
-            it->i++;
-            continue;
-        }
-        if (it->filter->pid != 0 && it->filter->include_children)
-        {
-            it->i++;
-            if (p->pid != it->filter->pid && !is_child_of(p->pid, it->filter->pid))
+            if (it->filter->pid == 0 ||
+                p->pid == it->filter->pid ||
+                (it->filter->include_children && is_child_of(p->pid, it->filter->pid)))
             {
-                continue;
+                it->i++;
+                return 0;
             }
-            return 0;
         }
-        else if (it->filter->pid == 0)
-        {
-            it->i++;
-            return 0;
-        }
+        it->i++;
     }
     return -1;
 }
