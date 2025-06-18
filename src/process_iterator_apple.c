@@ -110,14 +110,12 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
 
 static double platform_time_to_ms(double platform_time)
 {
-    static int initialized = 0;
-    static double factor;
-    if (!initialized)
+    static double factor = -1;
+    if (factor < 0)
     {
         mach_timebase_info_data_t timebase_info;
         mach_timebase_info(&timebase_info);
         factor = (double)timebase_info.numer / (double)timebase_info.denom;
-        initialized = 1;
     }
     return platform_time * factor / 1e6;
 }
