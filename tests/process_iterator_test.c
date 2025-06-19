@@ -32,11 +32,14 @@
 #include "../src/process_iterator.h"
 #include "../src/util.h"
 #include <assert.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -356,15 +359,14 @@ static void test_getppid_of(void)
     assert(getppid_of(getpid()) == getppid());
 }
 
-#define BUFFER_SIZE 30
-
 static void test_limit_process(void)
 {
     const double cpu_usage_limit = 0.5;
-    const char *pipe_str = "test_limit_process";
     pid_t child_pid;
-    int pipefd[2];
-    assert(pipe(pipefd) == 0);
+    const char *sem_name = "/test_limit_process_sem";
+    sem_t *sem = sem_open(sem_name, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 0);
+    assert(sem != SEM_FAILED);
+    assert(sem_unlink(sem_name) == 0);
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid > 0)
@@ -373,20 +375,30 @@ static void test_limit_process(void)
         assert(limiter_pid >= 0);
         if (limiter_pid > 0)
         {
-            int i, count = 0, cmp_result;
+            int i, count = 0;
             double cpu_usage = 0;
             struct process_group pgroup;
-            char buf[BUFFER_SIZE];
-            const struct timespec delay_time = {10, 0},
-                                  sleep_time = {0, 500000000L};
-            sleep_timespec(&delay_time);
+            const struct timespec sleep_time = {0, 500000000L};
+
+            for (i = 0; i < 4; i++)
+            {
+                assert(sem_wait(sem) == 0);
+            }
+            assert(sem_close(sem) == 0);
+
+            /* Initialize process group monitoring */
             assert(init_process_group(&pgroup, child_pid, 1) == 0);
-            for (i = 0; i < 40; i++)
+
+            /* Monitor CPU usage over 60 iterations */
+            for (i = 0; i < 60; i++)
             {
                 double temp_cpu_usage;
                 sleep_timespec(&sleep_time);
                 update_process_group(&pgroup);
+
+                /* Verify all 4 processes are being monitored */
                 assert(get_list_count(pgroup.proclist) == 4);
+
                 temp_cpu_usage = get_process_group_cpu_usage(&pgroup);
                 if (temp_cpu_usage > 0)
                 {
@@ -396,40 +408,47 @@ static void test_limit_process(void)
             }
             assert(close_process_group(&pgroup) == 0);
             assert(count > 0);
-            close(pipefd[1]);
-            assert(read(pipefd[0], buf, BUFFER_SIZE) ==
-                   (ssize_t)(strlen(pipe_str) + 1));
-            close(pipefd[0]);
-            cmp_result = strcmp(buf, pipe_str);
-            assert(cmp_result == 0);
-            assert(kill(-child_pid, SIGKILL) == 0);
+
+            /* Terminate limiter process first */
             assert(kill(limiter_pid, SIGKILL) == 0);
             waitpid(limiter_pid, NULL, 0);
+
+            /* Terminate entire process group */
+            assert(kill(-child_pid, SIGKILL) == 0);
             while (waitpid(-child_pid, NULL, 0) > 0)
                 ;
+
+            /* Calculate and display average CPU usage */
             cpu_usage /= count;
             printf("CPU usage limit: %.3f, CPU usage: %.3f\n",
                    cpu_usage_limit, cpu_usage);
+
+            /* Verify CPU usage */
             assert(cpu_usage <= get_ncpu());
+
             return;
         }
-        /* limiter_pid == 0, limiter process */
-        close(pipefd[0]);
-        close(pipefd[1]);
+        /* limiter_pid == 0: CPU limiter process */
+        assert(sem_close(sem) == 0);
         limit_process(child_pid, cpu_usage_limit, 1, 0);
         exit(EXIT_SUCCESS);
     }
     else
     {
-        /* child_pid == 0, fork four child process to be limited */
+        /* child_pid == 0: Target process group */
         volatile int keep_running = 1;
-        size_t write_len = strlen(pipe_str) + 1;
+
+        /* Create new process group */
         setpgid(0, 0);
-        close(pipefd[0]);
-        assert(write(pipefd[1], pipe_str, write_len) == (ssize_t)write_len);
-        close(pipefd[1]);
+
+        /* Fork 4 child processes */
         assert(fork() >= 0);
         assert(fork() >= 0);
+
+        assert(sem_post(sem) == 0);
+        assert(sem_close(sem) == 0);
+
+        /* Keep processes running until terminated */
         while (keep_running)
             ;
         exit(EXIT_SUCCESS);
