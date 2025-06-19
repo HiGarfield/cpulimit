@@ -201,7 +201,9 @@ static void test_proc_group_single(int include_children)
         /* child is supposed to be killed by the parent :/ */
         volatile int keep_running = 1;
         while (keep_running)
+        {
             ;
+        }
         exit(EXIT_SUCCESS);
     }
     assert(init_process_group(&pgroup, child_pid, include_children) == 0);
@@ -416,7 +418,9 @@ static void test_limit_process(void)
             /* Terminate entire process group */
             assert(kill(-child_pid, SIGKILL) == 0);
             while (waitpid(-child_pid, NULL, 0) > 0)
+            {
                 ;
+            }
 
             /* Calculate and display average CPU usage */
             cpu_usage /= count;
@@ -450,7 +454,9 @@ static void test_limit_process(void)
 
         /* Keep processes running until terminated */
         while (keep_running)
+        {
             ;
+        }
         exit(EXIT_SUCCESS);
     }
 }

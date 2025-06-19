@@ -35,7 +35,9 @@ static void *busy_loop(void *arg)
     (void)arg;
     pthread_detach(pthread_self());
     while (keep_loop)
+    {
         ;
+    }
     return NULL;
 }
 

@@ -28,6 +28,8 @@ int main(void)
     fork();
     fork();
     while (keep_loop)
+    {
         ;
+    }
     return 0;
 }
