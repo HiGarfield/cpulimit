@@ -32,6 +32,7 @@
 #include "../src/process_iterator.h"
 #include "../src/util.h"
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <semaphore.h>
@@ -380,11 +381,30 @@ static void test_limit_process(void)
             int i, count = 0;
             double cpu_usage = 0;
             struct process_group pgroup;
-            const struct timespec sleep_time = {0, 500000000L};
+            const struct timespec sleep_time = {0, 500000000L},
+                                  retry_delay = {0, 10000000L};
+            struct timespec end_time, current_time;
 
-            for (i = 0; i < 4; i++)
+            assert(get_current_time(&end_time) == 0);
+            end_time.tv_sec += 10; /* 10 seconds timeout */
+            for (i = 0; i < 4;)
             {
-                assert(sem_wait(sem) == 0);
+                errno = 0;
+                if (sem_trywait(sem) == 0)
+                {
+                    i++;
+                    continue;
+                }
+                assert(errno == EAGAIN);
+                assert(get_current_time(&current_time) == 0);
+                if (current_time.tv_sec > end_time.tv_sec ||
+                    (current_time.tv_sec == end_time.tv_sec &&
+                     current_time.tv_nsec >= end_time.tv_nsec))
+                {
+                    fprintf(stderr, "Timeout waiting for child processes to start\n");
+                    exit(EXIT_FAILURE);
+                }
+                assert(sleep_timespec(&retry_delay) == 0);
             }
             assert(sem_close(sem) == 0);
 
@@ -395,7 +415,7 @@ static void test_limit_process(void)
             for (i = 0; i < 60; i++)
             {
                 double temp_cpu_usage;
-                sleep_timespec(&sleep_time);
+                assert(sleep_timespec(&sleep_time) == 0);
                 update_process_group(&pgroup);
 
                 /* Verify all 4 processes are being monitored */
