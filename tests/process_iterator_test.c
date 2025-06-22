@@ -400,6 +400,9 @@ static void test_limit_process(void)
                      current_time.tv_nsec >= end_time.tv_nsec))
                 {
                     fprintf(stderr, "Timeout waiting for child processes to start\n");
+                    kill_and_wait(limiter_pid, SIGKILL);
+                    kill_and_wait(-child_pid, SIGKILL);
+                    assert(sem_close(sem) == 0);
                     exit(EXIT_FAILURE);
                 }
                 assert(sleep_timespec(&retry_delay) == 0);
