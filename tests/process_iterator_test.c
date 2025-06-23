@@ -104,10 +104,11 @@ static void test_multiple_process(void)
     if (child_pid == 0)
     {
         /* child is supposed to be killed by the parent :/ */
+        const struct timespec sleep_time = {5, 0L}; /* 5s */
         volatile int keep_running = 1;
         while (keep_running)
         {
-            sleep(5);
+            sleep_timespec(&sleep_time);
         }
         exit(EXIT_SUCCESS);
     }
@@ -405,7 +406,7 @@ static void test_limit_process(void)
                     assert(sem_close(sem) == 0);
                     exit(EXIT_FAILURE);
                 }
-                assert(sleep_timespec(&retry_delay) == 0);
+                sleep_timespec(&retry_delay);
             }
             assert(sem_close(sem) == 0);
 
@@ -416,7 +417,7 @@ static void test_limit_process(void)
             for (i = 0; i < 60; i++)
             {
                 double temp_cpu_usage;
-                assert(sleep_timespec(&sleep_time) == 0);
+                sleep_timespec(&sleep_time);
                 update_process_group(&pgroup);
 
                 /* Verify all 4 processes are being monitored */
