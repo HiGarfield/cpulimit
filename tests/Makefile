@@ -71,6 +71,10 @@ override LDFLAGS += $(shell \
     echo -lrt \
 )
 
+# Add pthread support
+override CFLAGS += -pthread
+override LDFLAGS += -pthread
+
 # cppcheck options
 CPPCHECK_OPTS := $(shell \
     echo | $(CC) -E -x c -v - 2>&1 | \
@@ -105,7 +109,7 @@ all: $(TARGETS)
 
 # Target rules
 busy: busy.c $(wildcard $(SRC)/util.*)
-	$(CC) $(CFLAGS) $(filter-out %.h,$^) -lpthread $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(filter-out %.h,$^) $(LDFLAGS) -o $@
 
 multi_process_busy: multi_process_busy.c
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
