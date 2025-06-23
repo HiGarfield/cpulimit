@@ -25,23 +25,25 @@
 #endif
 
 #include "util.h" /* Must be included at first!!! */
+#include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
 #if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
 #include <sys/time.h>
 #endif
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 #if defined(__linux__)
 #include <ctype.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #endif
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/sysctl.h>
-#include <sys/types.h>
 #endif
 
 #ifdef __IMPL_GETLOADAVG
@@ -209,6 +211,82 @@ pid_t get_pid_max(void)
 #else
 #error "Unsupported platform"
 #endif
+}
+
+void kill_and_wait(pid_t pid, int kill_signal)
+{
+    struct timespec now, end_time;
+    const struct timespec sleep_time = {0, 10000000L}; /* 10 ms */
+
+    switch (kill_signal)
+    {
+    case SIGKILL:
+    case SIGTERM:
+        break;
+    default:
+        fprintf(stderr,
+                "Invalid signal %d for kill_and_wait\n", kill_signal);
+        return;
+    }
+
+    /* Initialize timeout: 5 seconds */
+    get_current_time(&end_time);
+    end_time.tv_sec += 5;
+
+    kill(pid, kill_signal); /* Send initial signal */
+
+    while (1)
+    {
+        pid_t wpid = waitpid(pid, NULL, WNOHANG);
+
+        if (wpid > 0)
+        { /* Process terminated */
+            /* Single process: exit after cleanup */
+            /* Process group: continue to next member */
+            if (pid > 0)
+            {
+                break;
+            }
+        }
+        else if (wpid == -1)
+        { /* Waitpid error */
+            if (errno != EINTR)
+            {
+                break; /* Non-interrupt error */
+            }
+        }
+        else
+        { /* wpid == 0: process still running */
+            /* Check timeout */
+            get_current_time(&now);
+            if (now.tv_sec > end_time.tv_sec ||
+                (now.tv_sec == end_time.tv_sec &&
+                 now.tv_nsec >= end_time.tv_nsec))
+            {
+                if (kill_signal == SIGTERM)
+                {
+                    /* SIGTERM timeout: escalate to SIGKILL */
+                    kill(pid, SIGKILL);
+                    kill_signal = SIGKILL;
+                    /* Reset timeout for SIGKILL (5 seconds) */
+                    get_current_time(&end_time);
+                    end_time.tv_sec += 5;
+                }
+                else
+                {
+                    break; /* SIGKILL timeout: stop waiting */
+                }
+            }
+            /* Short sleep to reduce CPU usage (10ms) */
+            sleep_timespec(&sleep_time);
+        }
+    }
+
+    /* Final cleanup: reap all remaining zombies */
+    while (waitpid(pid, NULL, WNOHANG) > 0)
+    {
+        /* Keep reaping until none left */
+    }
 }
 
 #ifdef __IMPL_GETLOADAVG

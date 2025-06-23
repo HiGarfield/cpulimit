@@ -118,6 +118,22 @@ int get_ncpu(void);
 pid_t get_pid_max(void);
 
 /**
+ * Terminates a child process or process group and waits for it to exit.
+ *
+ * If pid > 0, treats pid as a single process.
+ * If pid < 0, treats -pid as a process group ID.
+ * Sends the given signal (SIGTERM or SIGKILL) and waits up to 5 seconds.
+ * If SIGTERM times out, escalates to SIGKILL and waits an additional 5 seconds.
+ * If processes are not reaped after 5 + 5 seconds, function exits.
+ *
+ * @param pid          The process ID or negative process group ID to terminate.
+ * @param kill_signal  The signal to send to the process (SIGTERM or SIGKILL).
+ *                     If SIGTERM is used, it will escalate to SIGKILL if the
+ *                     process does not exit within 5 seconds.
+ */
+void kill_and_wait(pid_t pid, int kill_signal);
+
+/**
  * If uClibc/uClibc-ng is below 1.0.42,
  * implement a custom `getloadavg` function
  */

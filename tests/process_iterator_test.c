@@ -140,8 +140,7 @@ static void test_multiple_process(void)
     assert(count == 2);
     free(process);
     assert(close_process_iterator(&it) == 0);
-    assert(kill(child_pid, SIGKILL) == 0);
-    waitpid(child_pid, NULL, 0);
+    kill_and_wait(child_pid, SIGKILL);
 }
 
 static void test_all_processes(void)
@@ -227,8 +226,7 @@ static void test_proc_group_single(int include_children)
         assert(count == 1);
     }
     assert(close_process_group(&pgroup) == 0);
-    assert(kill(child_pid, SIGKILL) == 0);
-    waitpid(child_pid, NULL, 0);
+    kill_and_wait(child_pid, SIGKILL);
 }
 
 static void test_process_group_single(void)
@@ -432,15 +430,10 @@ static void test_limit_process(void)
             assert(count > 0);
 
             /* Terminate limiter process first */
-            assert(kill(limiter_pid, SIGKILL) == 0);
-            waitpid(limiter_pid, NULL, 0);
+            kill_and_wait(limiter_pid, SIGKILL);
 
             /* Terminate entire process group */
-            assert(kill(-child_pid, SIGKILL) == 0);
-            while (waitpid(-child_pid, NULL, 0) > 0)
-            {
-                ;
-            }
+            kill_and_wait(-child_pid, SIGKILL);
 
             /* Calculate and display average CPU usage */
             cpu_usage /= count;

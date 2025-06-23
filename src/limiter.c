@@ -60,8 +60,7 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         {
             perror("fork");
             /* If fork fails, clean up the command runner process */
-            kill(cmd_runner_pid, SIGTERM);
-            waitpid(cmd_runner_pid, NULL, 0);
+            kill_and_wait(cmd_runner_pid, SIGTERM);
             exit(EXIT_FAILURE);
         }
         else if (limiter_pid > 0)
