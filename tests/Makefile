@@ -60,6 +60,9 @@ SRC := ../src
 # Detect operating system
 UNAME ?= $(shell uname)
 
+# Force 64-bit time_t and file offsets to prevent Y2038 issue
+override CFLAGS += -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64
+
 # Platform-specific linker flags
 override LDFLAGS += $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
                     $(if $(findstring Darwin,$(UNAME)),-lproc)
