@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 
 void process_table_init(struct process_table *pt, size_t hashsize)
@@ -76,14 +77,31 @@ void process_table_add(struct process_table *pt, struct process *p)
     idx = pid_hash(pt, p);
     if (pt->table[idx] == NULL)
     {
+        /* If the bucket is empty, create a new list and add the process */
         if ((pt->table[idx] = (struct list *)malloc(sizeof(struct list))) == NULL)
         {
             fprintf(stderr, "Memory allocation failed for the process list\n");
             exit(EXIT_FAILURE);
         }
         init_list(pt->table[idx], sizeof(pid_t));
+        add_elem(pt->table[idx], p);
     }
-    add_elem(pt->table[idx], p);
+    else
+    {
+        /* If the bucket already exists, check if the process exists */
+        struct process *found_process =
+            (struct process *)locate_elem(pt->table[idx], p);
+        if (found_process != NULL)
+        {
+            /* Process already exists, update it */
+            memcpy(found_process, p, sizeof(struct process));
+        }
+        else
+        {
+            /* Process does not exist, add it */
+            add_elem(pt->table[idx], p);
+        }
+    }
 }
 
 int process_table_del(struct process_table *pt, const void *procptr)
@@ -105,6 +123,12 @@ int process_table_del(struct process_table *pt, const void *procptr)
         return 1; /* nothing to delete */
     }
     destroy_node(pt->table[idx], node);
+    /* Clean up empty bucket */
+    if (is_empty_list(pt->table[idx]))
+    {
+        free(pt->table[idx]);
+        pt->table[idx] = NULL;
+    }
     return 0;
 }
 
