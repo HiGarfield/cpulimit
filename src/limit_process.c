@@ -79,8 +79,7 @@ static double get_dynamic_time_slot(void)
 
     /* Adjust the time slot based on system load and number of CPUs */
     new_time_slot = time_slot * load / get_ncpu() / 0.3;
-    new_time_slot = MAX(new_time_slot, MIN_TIME_SLOT);
-    new_time_slot = MIN(new_time_slot, MAX_TIME_SLOT);
+    new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);
 
     /* Smoothly adjust the time slot using a moving average */
     time_slot = time_slot * 0.6 + new_time_slot * 0.4;
@@ -174,8 +173,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
         /* Adjust workingrate based on CPU usage and limit */
         workingrate = workingrate * limit / MAX(cpu_usage, EPSILON);
         /* Clamp workingrate to the valid range (0, 1) */
-        workingrate = MIN(workingrate, 1 - EPSILON);
-        workingrate = MAX(workingrate, EPSILON);
+        workingrate = CLAMP(workingrate, EPSILON, 1 - EPSILON);
 
         /* Get the dynamic time slot */
         time_slot = get_dynamic_time_slot();

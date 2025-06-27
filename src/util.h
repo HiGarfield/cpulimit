@@ -33,10 +33,16 @@
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif
+#endif /* MAX */
+
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
+#endif /* MIN */
+
+#ifndef CLAMP
+#define CLAMP(x, low, high) \
+    ((x) < (low) ? (low) : ((x) > (high) ? (high) : (x)))
+#endif /* CLAMP */
 
 #ifndef MAX_SIGNED_INT_TYPE
 #define MAX_SIGNED_INT_TYPE(type) \
