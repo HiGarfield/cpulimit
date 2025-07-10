@@ -2,17 +2,17 @@
 CC ?= gcc
 
 # Compiler flags
-override CFLAGS := $(filter-out -std=% -ansi -W%,$(CFLAGS)) \
-                   -std=c89 \
+override CFLAGS := $(filter-out -Wno%,$(CFLAGS)) \
+                   $(if $(filter -O%,$(CFLAGS)),,-O2) \
+                   $(if $(filter -ansi -std=%,$(CFLAGS)),,-std=c89) \
                    -pedantic \
                    -Wall \
                    -Wextra \
                    -Wold-style-definition \
                    -Wmissing-prototypes \
                    -Wstrict-prototypes \
-                   -Werror
-
-override CFLAGS += $(if $(filter -O%,$(CFLAGS)),,-O2)
+                   -Werror \
+                   -pipe
 
 # If CHECK is set to 1, add stricter flags
 ifeq ($(CHECK),1)
