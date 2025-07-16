@@ -77,6 +77,7 @@ void run_command_mode(const struct cpulimitcfg *cfg)
                 {
                     if (wpid == cmd_runner_pid)
                     {
+                        kill(limiter_pid, SIGTERM);
                         cmd_runner_status = status;
                     }
                 }
