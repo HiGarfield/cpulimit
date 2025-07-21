@@ -49,6 +49,96 @@ static void ignore_signal(int sig)
     (void)sig;
 }
 
+/**
+ * Terminates a child process or process group and waits for it to exit.
+ *
+ * If pid > 0, treats pid as a single process.
+ * If pid < 0, treats -pid as a process group ID.
+ * Sends the given signal (SIGTERM or SIGKILL) and waits up to 5 seconds.
+ * If SIGTERM times out, escalates to SIGKILL and waits an additional 5 seconds.
+ * If processes are not reaped after 5 + 5 seconds, function exits.
+ *
+ * @param pid          The process ID or negative process group ID to terminate.
+ * @param kill_signal  The signal to send to the process (SIGTERM or SIGKILL).
+ *                     If SIGTERM is used, it will escalate to SIGKILL if the
+ *                     process does not exit within 5 seconds.
+ */
+static void kill_and_wait(pid_t pid, int kill_signal)
+{
+    struct timespec now, end_time;
+    const struct timespec sleep_time = {0, 10000000L}; /* 10 ms */
+
+    switch (kill_signal)
+    {
+    case SIGKILL:
+    case SIGTERM:
+        break;
+    default:
+        fprintf(stderr,
+                "Invalid signal %d for kill_and_wait\n", kill_signal);
+        return;
+    }
+
+    /* Initialize timeout: 5 seconds */
+    get_current_time(&end_time);
+    end_time.tv_sec += 5;
+
+    kill(pid, kill_signal); /* Send initial signal */
+
+    while (1)
+    {
+        pid_t wpid = waitpid(pid, NULL, WNOHANG);
+
+        if (wpid > 0)
+        { /* Process terminated */
+            /* Single process: exit after cleanup */
+            /* Process group: continue to next member */
+            if (pid > 0)
+            {
+                break;
+            }
+        }
+        else if (wpid == -1)
+        { /* Waitpid error */
+            if (errno != EINTR)
+            {
+                break; /* Non-interrupt error */
+            }
+        }
+        else
+        { /* wpid == 0: process still running */
+            /* Check timeout */
+            get_current_time(&now);
+            if (now.tv_sec > end_time.tv_sec ||
+                (now.tv_sec == end_time.tv_sec &&
+                 now.tv_nsec >= end_time.tv_nsec))
+            {
+                if (kill_signal == SIGTERM)
+                {
+                    /* SIGTERM timeout: escalate to SIGKILL */
+                    kill(pid, SIGKILL);
+                    kill_signal = SIGKILL;
+                    /* Reset timeout for SIGKILL (5 seconds) */
+                    get_current_time(&end_time);
+                    end_time.tv_sec += 5;
+                }
+                else
+                {
+                    break; /* SIGKILL timeout: stop waiting */
+                }
+            }
+            /* Short sleep to reduce CPU usage (10ms) */
+            sleep_timespec(&sleep_time);
+        }
+    }
+
+    /* Final cleanup: reap all remaining zombies */
+    while (waitpid(pid, NULL, WNOHANG) > 0)
+    {
+        /* Keep reaping until none left */
+    }
+}
+
 static void test_single_process(void)
 {
     struct process_iterator it;
