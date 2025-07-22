@@ -91,7 +91,7 @@ void run_command_mode(const struct cpulimitcfg *cfg)
                     int child_exit_status = WEXITSTATUS(cmd_runner_status);
                     if (cfg->verbose)
                     {
-                        printf("Process %ld exited with status %d\n",
+                        printf("\nProcess %ld exited with status %d\n",
                                (long)cmd_runner_pid, child_exit_status);
                     }
                     exit(child_exit_status);
@@ -102,14 +102,14 @@ void run_command_mode(const struct cpulimitcfg *cfg)
                     int child_exit_status = 128 + signal_number;
                     if (cfg->verbose)
                     {
-                        printf("Process %ld terminated by signal %d\n",
+                        printf("\nProcess %ld terminated by signal %d\n",
                                (long)cmd_runner_pid, signal_number);
                     }
                     exit(child_exit_status);
                 }
                 else
                 {
-                    printf("Process %ld terminated abnormally\n",
+                    printf("\nProcess %ld terminated abnormally\n",
                            (long)cmd_runner_pid);
                     exit(EXIT_FAILURE);
                 }
