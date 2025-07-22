@@ -47,6 +47,8 @@ void run_command_mode(const struct cpulimitcfg *cfg)
     else if (cmd_runner_pid == 0)
     {
         /* Command runner process: execute the command */
+        setpgid(0, 0);
+
         execvp(cfg->command_args[0], cfg->command_args);
 
         /* Following lines will only be reached if execvp fails */
@@ -64,19 +66,22 @@ void run_command_mode(const struct cpulimitcfg *cfg)
                       cfg->verbose);
         if (is_quit_flag_set())
         {
-            kill(cmd_runner_pid, SIGTERM);
+            kill(-cmd_runner_pid, SIGTERM);
         }
         while (1)
         {
             int cmd_runner_status;
-            pid_t wpid = waitpid(cmd_runner_pid, &cmd_runner_status, 0);
+            pid_t wpid = waitpid(-cmd_runner_pid, &cmd_runner_status, 0);
             if (wpid < 0)
             {
                 if (errno == EINTR)
                 {
                     continue; /* Interrupted by a signal, retry wait */
                 }
-                perror("waitpid");
+                if (errno != ECHILD)
+                {
+                    perror("waitpid");
+                }
                 break;
             }
             if (wpid == cmd_runner_pid)
