@@ -1,6 +1,9 @@
 # Compiler configuration
 CC ?= gcc
 
+# Force 64-bit time_t and file offsets to prevent Y2038 issue
+override CFLAGS += -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64
+
 # Compiler flags
 override CFLAGS := $(filter-out -Wno%,$(CFLAGS)) \
                    $(if $(filter -O%,$(CFLAGS)),,-O2) \
@@ -60,19 +63,10 @@ SRC := ../src
 # Detect operating system
 UNAME ?= $(shell uname)
 
-# Force 64-bit time_t and file offsets to prevent Y2038 issue
-override CFLAGS += -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64
-
 # Platform-specific linker flags
-override LDFLAGS += $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
+override LDFLAGS += $(if $(findstring Linux,$(UNAME)),-lrt) \
+                    $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
                     $(if $(findstring Darwin,$(UNAME)),-lproc)
-
-# Check for librt availability
-override LDFLAGS += $(shell \
-    echo "int main(void){ return 0; }" | \
-    $(CC) -x c -o /dev/null -lrt - >/dev/null 2>&1 && \
-    echo -lrt \
-)
 
 # Add pthread support
 override CFLAGS += -pthread
