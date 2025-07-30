@@ -165,52 +165,6 @@ int get_ncpu(void)
     return cached_ncpu;
 }
 
-pid_t get_pid_max(void)
-{
-#if defined(__linux__)
-    int fd;
-    char buffer[64], *endptr;
-    ssize_t bytes_read;
-    long pid_max;
-
-#ifdef O_CLOEXEC
-    if ((fd = open("/proc/sys/kernel/pid_max", O_RDONLY | O_CLOEXEC)) < 0)
-#else
-    if ((fd = open("/proc/sys/kernel/pid_max", O_RDONLY)) < 0)
-#endif
-    {
-        fprintf(stderr, "Failed to open /proc/sys/kernel/pid_max\n");
-        return PID_T_MAX;
-    }
-
-    bytes_read = read(fd, buffer, sizeof(buffer) - 1);
-    close(fd);
-    if (bytes_read <= 0)
-    {
-        fprintf(stderr, "Failed to read /proc/sys/kernel/pid_max\n");
-        return PID_T_MAX;
-    }
-    buffer[bytes_read] = '\0';
-
-    errno = 0;
-    pid_max = strtol(buffer, &endptr, 10);
-    if (errno != 0 || endptr == buffer ||
-        (*endptr != '\0' && !isspace(*endptr)) || pid_max <= 0)
-    {
-        fprintf(stderr, "Failed to read /proc/sys/kernel/pid_max\n");
-        return PID_T_MAX;
-    }
-
-    return (pid_t)pid_max;
-#elif defined(__FreeBSD__)
-    return (pid_t)99998;
-#elif defined(__APPLE__)
-    return (pid_t)99998;
-#else
-#error "Unsupported platform"
-#endif
-}
-
 #ifdef __IMPL_GETLOADAVG
 int __getloadavg(double *loadavg, int nelem)
 {

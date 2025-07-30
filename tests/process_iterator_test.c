@@ -369,7 +369,7 @@ static void test_process_group_wrong_pid(void)
     assert(get_list_count(pgroup.proclist) == 0);
     assert(close_process_group(&pgroup) == 0);
 
-    assert(init_process_group(&pgroup, PID_T_MAX, 0) == 0);
+    assert(init_process_group(&pgroup, INT_MAX, 0) == 0);
     assert(get_list_count(pgroup.proclist) == 0);
     update_process_group(&pgroup);
     assert(get_list_count(pgroup.proclist) == 0);

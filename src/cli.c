@@ -66,8 +66,7 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg)
     long pid;
     errno = 0;
     pid = strtol(pid_str, &endptr, 10);
-    if (errno != 0 || endptr == pid_str || *endptr != '\0' ||
-        pid <= 1 || pid >= get_pid_max())
+    if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid <= 1)
     {
         fprintf(stderr, "Invalid PID: %s\n", pid_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);

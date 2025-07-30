@@ -44,15 +44,6 @@
     ((x) < (low) ? (low) : ((x) > (high) ? (high) : (x)))
 #endif /* CLAMP */
 
-#ifndef MAX_SIGNED_INT_TYPE
-#define MAX_SIGNED_INT_TYPE(type) \
-    ((type)((((type)1 << (sizeof(type) * CHAR_BIT - 2)) - 1) * 2 + 1))
-#endif /* MAX_SIGNED_INT_TYPE */
-
-#ifndef PID_T_MAX
-#define PID_T_MAX (MAX_SIGNED_INT_TYPE(pid_t))
-#endif /* PID_T_MAX */
-
 /**
  * Converts nanoseconds to a timespec structure.
  *
@@ -114,14 +105,6 @@ void increase_priority(void);
  *         obtained.
  */
 int get_ncpu(void);
-
-/**
- * Retrieves the maximum process ID.
- *
- * @return The maximum process ID that can be assigned, or maximum value of
- *         `pid_t` type if an error occurred.
- */
-pid_t get_pid_max(void);
 
 /**
  * If uClibc/uClibc-ng is below 1.0.42,
