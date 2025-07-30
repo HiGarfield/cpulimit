@@ -25,41 +25,13 @@
 #endif
 
 #include "cli.h"
-#include "limit_process.h"
 #include "limiter.h"
-#include "list.h"
-#include "process_group.h"
-#include "process_iterator.h"
 #include "signal_handler.h"
-#include "util.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-/**
- * Quit handler function.
- * Clear the current line on console (fix for ^C issue).
- */
-static void quit_handler(void)
-{
-    if (is_quit_flag_set() && isatty(STDOUT_FILENO))
-    {
-        printf("\r");
-        fflush(stdout);
-    }
-}
 
 int main(int argc, char *argv[])
 {
     /* Configuration struct */
     struct cpulimitcfg cfg;
-
-    /* Register the quit handler to run at program exit */
-    if (atexit(quit_handler) != 0)
-    {
-        fprintf(stderr, "Failed to register quit_handler\n");
-        exit(EXIT_FAILURE);
-    }
 
     /* Parse command line arguments */
     parse_arguments(argc, argv, &cfg);

@@ -28,6 +28,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 /* Limiter quit flag */
 static volatile sig_atomic_t limiter_quit_flag = 0;
@@ -40,8 +41,14 @@ static volatile sig_atomic_t limiter_quit_flag = 0;
  */
 static void sig_handler(int sig)
 {
-    (void)sig;
+    /* Handle the Ctrl+C issue */
+    ssize_t ret = write(STDOUT_FILENO, "\n", 1);
+
     limiter_quit_flag = 1;
+
+    /* Suppress unused parameter or return value warnings */
+    (void)sig;
+    (void)ret;
 }
 
 void configure_signal_handlers(void)
