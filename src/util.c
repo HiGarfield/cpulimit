@@ -121,49 +121,47 @@ void increase_priority(void)
 int get_ncpu(void)
 {
     static int cached_ncpu = -1;
-
     if (cached_ncpu > 0)
     {
         return cached_ncpu;
     }
-
 #if defined(_SC_NPROCESSORS_ONLN)
     {
         long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-        cached_ncpu = ncpu > 0 ? (int)ncpu : 1;
+        cached_ncpu = (ncpu > 0) ? (int)ncpu : 1;
     }
 #elif defined(__APPLE__) || defined(__FreeBSD__)
     {
-        int ncpu = 0, mib[2];
-        mib[0] = CTL_HW;
+        int ncpu = 0, mib[2] = {CTL_HW};
+        size_t len = sizeof(ncpu);
 #if defined(HW_AVAILCPU)
         mib[1] = HW_AVAILCPU;
-#elif defined(HW_NCPU)
-        mib[1] = HW_NCPU;
-#else
-#error "Unsupported platform"
+        if (sysctl(mib, 2, &ncpu, &len, NULL, 0) == 0 && ncpu > 0)
+        {
+            cached_ncpu = ncpu;
+        }
 #endif
-        size_t len = sizeof(ncpu);
-        if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
+        if (cached_ncpu <= 0)
         {
             mib[1] = HW_NCPU;
-            if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
+            if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu <= 0)
             {
-                cached_ncpu = 1;
-                return 1;
+                cached_ncpu = 1; /* Return 1 on complete failure */
+            }
+            else
+            {
+                cached_ncpu = ncpu;
             }
         }
-        cached_ncpu = ncpu;
     }
 #elif defined(__linux__)
     {
         int ncpu = get_nprocs();
-        cached_ncpu = ncpu > 0 ? ncpu : 1;
+        cached_ncpu = (ncpu > 0) ? ncpu : 1;
     }
 #else
 #error "Unsupported platform"
 #endif
-
     return cached_ncpu;
 }
 
