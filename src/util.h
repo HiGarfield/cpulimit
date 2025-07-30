@@ -27,8 +27,6 @@
 #define _GNU_SOURCE
 #endif
 
-#include <limits.h>
-#include <sys/types.h>
 #include <time.h>
 
 #ifndef MAX

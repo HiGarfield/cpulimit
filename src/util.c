@@ -25,23 +25,13 @@
 #endif
 
 #include "util.h" /* Must be included at first!!! */
-#include <errno.h>
-#include <signal.h>
-#include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
 #if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
 #include <sys/time.h>
 #endif
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
-#if defined(__linux__)
-#include <ctype.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#endif
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/sysctl.h>
 #endif
