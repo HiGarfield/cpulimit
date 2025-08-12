@@ -25,6 +25,7 @@
 #endif
 
 #include "limiter.h"
+#include "cli.h"
 #include "limit_process.h"
 #include "process_group.h"
 #include "signal_handler.h"
@@ -33,6 +34,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 

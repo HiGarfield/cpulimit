@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 
 /* Define a very small value to avoid division by zero */
 #ifndef EPSILON

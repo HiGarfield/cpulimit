@@ -35,6 +35,7 @@
 #include <errno.h>
 #include <libproc.h>
 #include <mach/mach_time.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -33,6 +33,7 @@
 #include <time.h>
 #include <unistd.h>
 #if defined(__APPLE__) || defined(__FreeBSD__)
+#include <stddef.h>
 #include <sys/sysctl.h>
 #endif
 
