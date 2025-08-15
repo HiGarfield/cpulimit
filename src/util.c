@@ -84,8 +84,8 @@ int sleep_timespec(const struct timespec *t)
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier)
 {
-    return (double)(later->tv_sec - earlier->tv_sec) * 1e3 +
-           (double)(later->tv_nsec - earlier->tv_nsec) / 1e6;
+    return difftime(later->tv_sec, earlier->tv_sec) * 1e3 +
+           ((double)later->tv_nsec - (double)earlier->tv_nsec) / 1e6;
 }
 
 const char *file_basename(const char *path)
