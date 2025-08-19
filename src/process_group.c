@@ -175,8 +175,6 @@ void update_process_group(struct process_group *pgroup)
     filter.read_cmd = 0;
     init_process_iterator(&it, &filter);
     clear_list(pgroup->proclist);
-    init_list(pgroup->proclist, sizeof(pid_t));
-
     while (get_next_process(&it, tmp_process) != -1)
     {
         struct process *p = process_table_find(pgroup->proctable, tmp_process);
