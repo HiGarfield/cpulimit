@@ -106,7 +106,7 @@ static void send_signal_to_processes(struct process_group *procgroup,
         const struct process *proc = (const struct process *)node->data;
         if (kill(proc->pid, sig) != 0)
         {
-            if (verbose)
+            if (verbose && errno != ESRCH)
             {
                 fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
                         sig, (long)proc->pid, strerror(errno));
