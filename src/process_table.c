@@ -89,12 +89,12 @@ void process_table_add(struct process_table *pt, struct process *p)
     else
     {
         /* If the bucket already exists, check if the process exists */
-        struct process *found_process =
-            (struct process *)locate_elem(pt->table[idx], p);
-        if (found_process != NULL)
+        struct list_node *node = (struct list_node *)locate_node(pt->table[idx], p);
+        if (node != NULL)
         {
             /* Process already exists, update it */
-            memcpy(found_process, p, sizeof(struct process));
+            free(node->data);
+            node->data = p;
         }
         else
         {
