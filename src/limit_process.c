@@ -104,16 +104,16 @@ static void send_signal_to_processes(struct process_group *procgroup,
     while (node != NULL)
     {
         struct list_node *next_node = node->next;
-        const struct process *proc = (const struct process *)node->data;
-        if (kill(proc->pid, sig) != 0)
+        pid_t pid = ((struct process *)node->data)->pid;
+        if (kill(pid, sig) != 0)
         {
             if (verbose && errno != ESRCH)
             {
                 fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
-                        sig, (long)proc->pid, strerror(errno));
+                        sig, (long)pid, strerror(errno));
             }
             delete_node(procgroup->proclist, node);
-            remove_process(procgroup, proc->pid);
+            remove_process(procgroup, pid);
         }
         node = next_node;
     }
