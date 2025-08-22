@@ -89,7 +89,7 @@ void process_table_add(struct process_table *pt, struct process *p)
     else
     {
         /* If the bucket already exists, check if the process exists */
-        struct list_node *node = (struct list_node *)locate_node(pt->table[idx], p);
+        struct list_node *node = locate_node(pt->table[idx], p);
         if (node != NULL)
         {
             /* Process already exists, update it */
