@@ -62,7 +62,8 @@ struct process *process_table_find(const struct process_table *pt,
                                    const void *procptr);
 
 /**
- * Adds a process to the process table.
+ * Adds a process to the process table. ONLY can be called when p does not
+ * exist in pt.
  *
  * @param pt The process table to add the process to
  * @param p The process to add

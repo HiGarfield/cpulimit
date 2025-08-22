@@ -77,31 +77,15 @@ void process_table_add(struct process_table *pt, struct process *p)
     idx = pid_hash(pt, p);
     if (pt->table[idx] == NULL)
     {
-        /* If the bucket is empty, create a new list and add the process */
+        /* If the bucket is empty, create a new one */
         if ((pt->table[idx] = (struct list *)malloc(sizeof(struct list))) == NULL)
         {
             fprintf(stderr, "Memory allocation failed for the process list\n");
             exit(EXIT_FAILURE);
         }
         init_list(pt->table[idx], sizeof(pid_t));
-        add_elem(pt->table[idx], p);
     }
-    else
-    {
-        /* If the bucket already exists, check if the process exists */
-        struct list_node *node = locate_node(pt->table[idx], p);
-        if (node != NULL)
-        {
-            /* Process already exists, update it */
-            free(node->data);
-            node->data = p;
-        }
-        else
-        {
-            /* Process does not exist, add it */
-            add_elem(pt->table[idx], p);
-        }
-    }
+    add_elem(pt->table[idx], p);
 }
 
 int process_table_del(struct process_table *pt, const void *procptr)
