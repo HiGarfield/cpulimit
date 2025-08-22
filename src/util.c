@@ -101,8 +101,7 @@ void increase_priority(void)
     old_priority = getpriority(PRIO_PROCESS, 0);
     for (priority = MAX_PRIORITY; priority < old_priority; priority++)
     {
-        if (setpriority(PRIO_PROCESS, 0, priority) == 0 &&
-            getpriority(PRIO_PROCESS, 0) == priority)
+        if (setpriority(PRIO_PROCESS, 0, priority) == 0)
         {
             break;
         }
