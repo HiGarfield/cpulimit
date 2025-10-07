@@ -60,6 +60,8 @@ void run_command_mode(const struct cpulimitcfg *cfg)
     }
     else
     {
+        int child_exit_status, found_cmd_runner;
+
         /* Limiter process: limit the command runner */
         if (cfg->verbose)
         {
@@ -71,10 +73,14 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         {
             kill(-cmd_runner_pid, SIGTERM);
         }
+
+        child_exit_status = EXIT_FAILURE;
+        found_cmd_runner = 0;
+
         while (1)
         {
-            int cmd_runner_status;
-            pid_t wpid = waitpid(-cmd_runner_pid, &cmd_runner_status, 0);
+            int status;
+            pid_t wpid = waitpid(-cmd_runner_pid, &status, 0);
             if (wpid < 0)
             {
                 if (errno == EINTR)
@@ -89,35 +95,35 @@ void run_command_mode(const struct cpulimitcfg *cfg)
             }
             if (wpid == cmd_runner_pid)
             {
-                if (WIFEXITED(cmd_runner_status))
+                found_cmd_runner = 1;
+                if (WIFEXITED(status))
                 {
-                    int child_exit_status = WEXITSTATUS(cmd_runner_status);
+                    child_exit_status = WEXITSTATUS(status);
                     if (cfg->verbose)
                     {
                         printf("Process %ld exited with status %d\n",
                                (long)cmd_runner_pid, child_exit_status);
                     }
-                    exit(child_exit_status);
                 }
-                else if (WIFSIGNALED(cmd_runner_status))
+                else if (WIFSIGNALED(status))
                 {
-                    int signal_number = WTERMSIG(cmd_runner_status);
-                    int child_exit_status = 128 + signal_number;
+                    int signal_number = WTERMSIG(status);
+                    child_exit_status = 128 + signal_number;
                     if (cfg->verbose)
                     {
                         printf("Process %ld terminated by signal %d\n",
                                (long)cmd_runner_pid, signal_number);
                     }
-                    exit(child_exit_status);
                 }
                 else
                 {
                     printf("Process %ld terminated abnormally\n",
                            (long)cmd_runner_pid);
-                    exit(EXIT_FAILURE);
+                    child_exit_status = EXIT_FAILURE;
                 }
             }
         }
+        exit(found_cmd_runner ? child_exit_status : EXIT_FAILURE);
     }
 }
 
