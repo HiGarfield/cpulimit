@@ -106,10 +106,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
         free(buffer);
         return -1;
     }
-    for (ptr_start++; isspace(*ptr_start); ptr_start++)
-    {
-    }
-    if (sscanf(ptr_start, "%c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
+    if (sscanf(ptr_start, ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
                &state, &ppid, &usertime, &systime) != 4 ||
         !isalpha(state) || strchr("ZXx", state) != NULL ||
         ppid <= 0 || usertime < 0 || systime < 0)
@@ -189,10 +186,7 @@ pid_t getppid_of(pid_t pid)
         free(buffer);
         return (pid_t)-1;
     }
-    for (ptr_start++; isspace(*ptr_start); ptr_start++)
-    {
-    }
-    if (sscanf(ptr_start, "%c %ld", &state, &ppid) != 2 ||
+    if (sscanf(ptr_start, ") %c %ld", &state, &ppid) != 2 ||
         !isalpha(state) || strchr("ZXx", state) != NULL || ppid <= 0)
     {
         free(buffer);
