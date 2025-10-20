@@ -41,16 +41,32 @@
 
 void run_command_mode(const struct cpulimitcfg *cfg)
 {
-    pid_t cmd_runner_pid = fork();
+    pid_t cmd_runner_pid;
+    int sync_pipe[2];
+    if (pipe(sync_pipe) < 0)
+    {
+        perror("pipe");
+        exit(EXIT_FAILURE);
+    }
+    cmd_runner_pid = fork();
     if (cmd_runner_pid < 0)
     {
         perror("fork");
+        close(sync_pipe[0]);
+        close(sync_pipe[1]);
         exit(EXIT_FAILURE);
     }
     else if (cmd_runner_pid == 0)
     {
         /* Command runner process: execute the command */
         setpgid(0, 0);
+
+        close(sync_pipe[0]);
+        if (write(sync_pipe[1], "A", 1) != 1)
+        {
+            perror("write sync");
+        }
+        close(sync_pipe[1]);
 
         execvp(cfg->command_args[0], cfg->command_args);
 
@@ -61,6 +77,14 @@ void run_command_mode(const struct cpulimitcfg *cfg)
     else
     {
         int child_exit_status, found_cmd_runner;
+        char ack;
+
+        close(sync_pipe[1]);
+        if (read(sync_pipe[0], &ack, 1) != 1)
+        {
+            perror("read sync");
+        }
+        close(sync_pipe[0]);
 
         /* Limiter process: limit the command runner */
         if (cfg->verbose)
