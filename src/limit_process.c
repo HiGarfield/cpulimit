@@ -232,7 +232,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
     }
 
     /* If the quit_flag is set, resume all processes before exiting */
-    if (is_quit_flag_set())
+    if (is_quit_flag_set() && pg_sleeping)
     {
         send_signal_to_processes(&pgroup, SIGCONT, 0);
     }
