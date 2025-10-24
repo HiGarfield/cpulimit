@@ -33,15 +33,12 @@
 #include "../src/util.h"
 #include <assert.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -458,50 +455,32 @@ static void test_limit_process(void)
 {
     const double cpu_usage_limit = 0.5;
     pid_t child_pid;
-    const char *sem_name = "/test_limit_process_sem";
-    sem_t *sem = sem_open(sem_name, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 0);
-    assert(sem != SEM_FAILED);
-    assert(sem_unlink(sem_name) == 0);
+    int sync_pipe[2];
+    assert(pipe(sync_pipe) == 0);
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid > 0)
     {
-        pid_t limiter_pid = fork();
+        pid_t limiter_pid;
+        ssize_t bytes_read, n = 1;
+        char ack;
+
+        assert(close(sync_pipe[1]) == 0);
+        for (bytes_read = 0; n != 0 && bytes_read < 4; bytes_read += n)
+        {
+            n = read(sync_pipe[0], &ack, 1);
+        }
+        assert(close(sync_pipe[0]) == 0);
+        assert(bytes_read == 4);
+
+        limiter_pid = fork();
         assert(limiter_pid >= 0);
         if (limiter_pid > 0)
         {
             int i, count = 0;
             double cpu_usage = 0;
             struct process_group pgroup;
-            const struct timespec sleep_time = {0, 500000000L},
-                                  retry_delay = {0, 10000000L};
-            struct timespec end_time, current_time;
-
-            assert(get_current_time(&end_time) == 0);
-            end_time.tv_sec += 10; /* 10 seconds timeout */
-            for (i = 0; i < 4;)
-            {
-                errno = 0;
-                if (sem_trywait(sem) == 0)
-                {
-                    i++;
-                    continue;
-                }
-                assert(errno == EAGAIN);
-                assert(get_current_time(&current_time) == 0);
-                if (current_time.tv_sec > end_time.tv_sec ||
-                    (current_time.tv_sec == end_time.tv_sec &&
-                     current_time.tv_nsec >= end_time.tv_nsec))
-                {
-                    fprintf(stderr, "Timeout waiting for child processes to start\n");
-                    kill_and_wait(limiter_pid, SIGKILL);
-                    kill_and_wait(-child_pid, SIGKILL);
-                    assert(sem_close(sem) == 0);
-                    exit(EXIT_FAILURE);
-                }
-                sleep_timespec(&retry_delay);
-            }
-            assert(sem_close(sem) == 0);
+            const struct timespec sleep_time = {0, 500000000L};
 
             /* Initialize process group monitoring */
             assert(init_process_group(&pgroup, child_pid, 1) == 0);
@@ -543,7 +522,6 @@ static void test_limit_process(void)
             return;
         }
         /* limiter_pid == 0: CPU limiter process */
-        assert(sem_close(sem) == 0);
         limit_process(child_pid, cpu_usage_limit, 1, 0);
         exit(EXIT_SUCCESS);
     }
@@ -555,12 +533,14 @@ static void test_limit_process(void)
         /* Create new process group */
         setpgid(0, 0);
 
+        assert(close(sync_pipe[0]) == 0);
+
         /* Fork 4 child processes */
         assert(fork() >= 0);
         assert(fork() >= 0);
 
-        assert(sem_post(sem) == 0);
-        assert(sem_close(sem) == 0);
+        assert(write(sync_pipe[1], "A", 1) == 1);
+        assert(close(sync_pipe[1]) == 0);
 
         /* Keep processes running until terminated */
         while (keep_running)
