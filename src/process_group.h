@@ -77,11 +77,12 @@ void update_process_group(struct process_group *pgroup);
 int close_process_group(struct process_group *pgroup);
 
 /**
- * Look for a process by its PID.
+ * Check if a process exists and is controllable by signals
  *
- * @param pid The PID of the desired process.
- * @return PID of the found process if successful,
- *         Negative PID if the process does not exist or if the signal fails.
+ * @param pid: Process ID to look up
+ * @return PID of the found process if it is found and controllable by signals,
+ *         0 if the process is not found,
+ *         Negative PID if the process is found but cannot be controlled.
  */
 pid_t find_process_by_pid(pid_t pid);
 

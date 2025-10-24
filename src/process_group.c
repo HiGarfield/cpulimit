@@ -24,6 +24,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,7 +40,33 @@
 
 pid_t find_process_by_pid(pid_t pid)
 {
-    return (kill(pid, 0) == 0) ? pid : -pid;
+    int result;
+    if (pid <= 0)
+    {
+        return 0;
+    }
+    result = kill(pid, 0);
+    if (result == 0)
+    {
+        /* Process exists and we have permission to send signals */
+        return pid;
+    }
+    else
+    {
+        /* Check error condition */
+        switch (errno)
+        {
+        case ESRCH:
+            /* Process does not exist */
+            return 0;
+        case EPERM:
+            /* No permission to send signals to this process */
+            return -pid;
+        default:
+            /* Other errors, treat as process not existing */
+            return 0;
+        }
+    }
 }
 
 pid_t find_process_by_name(const char *process_name)
