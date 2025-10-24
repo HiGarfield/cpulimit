@@ -156,34 +156,20 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg)
     /* Set waiting time between process searches */
     const struct timespec wait_time = {2, 0};
     int pid_mode = cfg->target_pid > 0;
-    int exe_mode = cfg->exe_name != NULL;
     while (!is_quit_flag_set())
     {
-        pid_t found_pid = 0;
-        if (pid_mode)
-        {
-            /* Search for the process by PID */
-            found_pid = find_process_by_pid(cfg->target_pid);
-            if (found_pid <= 0)
-            {
-                printf("No process found or you aren't allowed to control it\n");
-            }
-        }
-        else if (exe_mode)
-        {
-            /* Search for the process by name */
-            found_pid = find_process_by_name(cfg->exe_name);
-            if (found_pid == 0)
-            {
-                printf("No process found\n");
-            }
-            else if (found_pid < 0)
-            {
-                printf("Process found but you aren't allowed to control it\n");
-            }
-        }
+        pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
+                                   : find_process_by_name(cfg->exe_name);
 
-        if (found_pid > 0)
+        if (found_pid == 0)
+        {
+            printf("Process cannot be found\n");
+        }
+        else if (found_pid < 0)
+        {
+            printf("No permission to control proces\n");
+        }
+        else
         {
             if (found_pid == getpid())
             {
