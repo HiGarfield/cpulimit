@@ -91,7 +91,7 @@ pid_t find_process_by_pid(pid_t pid);
  *
  * @param process_name The name of the desired process. It can be an absolute path
  *                     to the executable file or just the file name.
- * @return PID of the found process if it is found,
+ * @return PID of the found process if it is found and controllable by signals,
  *         0 if the process is not found,
  *         Negative PID if the process is found but cannot be controlled.
  */
