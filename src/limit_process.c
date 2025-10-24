@@ -190,14 +190,14 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
         if (verbose)
         {
             /* Print CPU usage statistics every 10 cycles */
-            if (cycle_counter % 200 == 0)
+            if (cycle_counter % 10 == 0)
             {
-                printf("\n%9s%16s%16s%14s\n",
-                       "%CPU", "work quantum", "sleep quantum", "active rate");
-            }
-
-            if (cycle_counter % 10 == 0 && cycle_counter > 0)
-            {
+                if (cycle_counter % 200 == 0)
+                {
+                    printf("\n%9s%16s%16s%14s\n",
+                           "%CPU", "work quantum",
+                           "sleep quantum", "active rate");
+                }
                 printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n",
                        cpu_usage * 100, twork_nsec / 1000,
                        tsleep_nsec / 1000, workingrate * 100);
