@@ -24,6 +24,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,7 +40,10 @@
 
 pid_t find_process_by_pid(pid_t pid)
 {
-    return (kill(pid, 0) == 0) ? pid : -pid;
+    return pid <= 0            ? 0
+           : kill(pid, 0) == 0 ? pid
+           : errno == EPERM    ? -pid
+                               : 0;
 }
 
 pid_t find_process_by_name(const char *process_name)
