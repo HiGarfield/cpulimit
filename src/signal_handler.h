@@ -28,7 +28,7 @@
 #endif
 
 /**
- * Configures signal handlers for SIGINT and SIGTERM signals.
+ * Configures signal handlers for termination signals.
  */
 void configure_signal_handlers(void);
 

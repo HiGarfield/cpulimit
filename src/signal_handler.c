@@ -36,14 +36,17 @@
 static volatile sig_atomic_t limiter_quit_flag = 0;
 
 /**
- * Signal handler for SIGINT and SIGTERM signals.
- * Sets the limiter_quit_flag to 1 when a termination signal is received.
+ * Signal handler for termination signals
  *
- * @param sig Signal number (SIGINT or SIGTERM).
+ * Handles termination signals such as SIGINT, SIGTERM, SIGHUP, and SIGQUIT.
+ * When a signal is received, it sets the limiter_quit_flag to indicate
+ * that the program should terminate gracefully.
+ *
+ * @param sig The signal number
  */
 static void sig_handler(int sig)
 {
-    /* Handle the Ctrl+C issue */
+    /* Handle the Ctrl+C or Ctrl+\ issue */
     ssize_t ret = write(STDOUT_FILENO, "\n", 1);
 
     limiter_quit_flag = 1;
@@ -57,18 +60,24 @@ void configure_signal_handlers(void)
 {
     struct sigaction sa;
     size_t i;
-    static const int terminate_signals[] = {SIGINT, SIGTERM, SIGHUP, SIGQUIT};
-    const size_t num_signals = sizeof(terminate_signals) / sizeof(*terminate_signals);
+    /* Signals that trigger application termination */
+    static const int term_sigs[] = {
+        SIGINT,  /* Terminal interrupt (Ctrl+C) */
+        SIGTERM, /* Termination request (default kill) */
+        SIGHUP,  /* Hangup on controlling terminal */
+        SIGQUIT  /* Terminal quit (Ctrl+\) with core dump */
+    };
+    const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
-    /* Configure handler for termination signals */
-    sigemptyset(&sa.sa_mask);
-    sa.sa_handler = sig_handler;
-    sa.sa_flags = SA_RESTART;
+    /* Initialize and configure sigaction structure */
+    sigemptyset(&sa.sa_mask);    /* Block no extra signals in handler */
+    sa.sa_handler = sig_handler; /* Use unified signal handler */
+    sa.sa_flags = SA_RESTART;    /* Restart interrupted system calls */
 
-    /* Set handlers for SIGINT and SIGTERM */
-    for (i = 0; i < num_signals; i++)
+    /* Register handler for each termination signal */
+    for (i = 0; i < num_sigs; i++)
     {
-        if (sigaction(terminate_signals[i], &sa, NULL) != 0)
+        if (sigaction(term_sigs[i], &sa, NULL) != 0)
         {
             perror("Failed to set signal handler");
             exit(EXIT_FAILURE);
