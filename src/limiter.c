@@ -59,7 +59,13 @@ void run_command_mode(const struct cpulimitcfg *cfg)
     else if (cmd_runner_pid == 0)
     {
         /* Command runner process: execute the command */
-        setpgid(0, 0);
+        if (setpgid(0, 0) < 0)
+        {
+            perror("setpgid");
+            close(sync_pipe[0]);
+            close(sync_pipe[1]);
+            exit(EXIT_FAILURE);
+        }
 
         close(sync_pipe[0]);
         if (write(sync_pipe[1], "A", 1) != 1)
@@ -80,9 +86,12 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         char ack;
 
         close(sync_pipe[1]);
-        if (read(sync_pipe[0], &ack, 1) != 1)
+        if (read(sync_pipe[0], &ack, 1) != 1 || ack != 'A')
         {
             perror("read sync");
+            close(sync_pipe[0]);
+            waitpid(cmd_runner_pid, NULL, 0);
+            exit(EXIT_FAILURE);
         }
         close(sync_pipe[0]);
 
