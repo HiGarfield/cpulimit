@@ -176,7 +176,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg)
         }
         else if (found_pid < 0)
         {
-            printf("No permission to control proces\n");
+            printf("No permission to control process\n");
         }
         else
         {
