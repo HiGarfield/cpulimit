@@ -74,7 +74,11 @@ pid_t find_process_by_name(const char *process_name)
     filter.pid = 0;
     filter.include_children = 0;
     filter.read_cmd = 1;
-    init_process_iterator(&it, &filter);
+    if (init_process_iterator(&it, &filter) != 0)
+    {
+        fprintf(stderr, "Failed to initialize process iterator\n");
+        exit(EXIT_FAILURE);
+    }
     while (get_next_process(&it, proc) != -1)
     {
         const char *cmd_cmp_name =
@@ -177,7 +181,11 @@ void update_process_group(struct process_group *pgroup)
     filter.pid = pgroup->target_pid;
     filter.include_children = pgroup->include_children;
     filter.read_cmd = 0;
-    init_process_iterator(&it, &filter);
+    if (init_process_iterator(&it, &filter) != 0)
+    {
+        fprintf(stderr, "Failed to initialize process iterator\n");
+        exit(EXIT_FAILURE);
+    }
     clear_list(pgroup->proclist);
     while (get_next_process(&it, tmp_process) != -1)
     {
