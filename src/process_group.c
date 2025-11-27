@@ -40,10 +40,23 @@
 
 pid_t find_process_by_pid(pid_t pid)
 {
-    return pid <= 0            ? 0
-           : kill(pid, 0) == 0 ? pid
-           : errno == EPERM    ? -pid
-                               : 0;
+    /* invalid pid */
+    if (pid <= 0)
+    {
+        return 0;
+    }
+    /* process exists and can be signaled */
+    if (kill(pid, 0) == 0)
+    {
+        return pid;
+    }
+    /* process exists but cannot be signaled */
+    if (errno == EPERM)
+    {
+        return -pid;
+    }
+    /* process does not exist */
+    return 0;
 }
 
 pid_t find_process_by_name(const char *process_name)
