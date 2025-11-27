@@ -43,7 +43,8 @@ Checks: >
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cert-err34-c,
   -bugprone-suspicious-include,
-  -clang-analyzer-security.insecureAPI.*
+  -clang-analyzer-security.insecureAPI.*,
+  -android-cloexec-pipe
 
 # Turn all the warnings from the checks above into errors.
 WarningsAsErrors: "*"
