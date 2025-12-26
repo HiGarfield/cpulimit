@@ -119,6 +119,12 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     if (sc_clk_tck < 0)
     {
         sc_clk_tck = sysconf(_SC_CLK_TCK);
+        /* check sysconf result */
+        if (sc_clk_tck <= 0)
+        {
+            fprintf(stderr, "sysconf(_SC_CLK_TCK) failed\n");
+            exit(EXIT_FAILURE);
+        }
     }
     p->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
 
