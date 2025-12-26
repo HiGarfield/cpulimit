@@ -97,7 +97,7 @@ pid_t find_process_by_name(const char *process_name)
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : file_basename(proc->command);
         /* process found */
-        if (strcmp(cmd_cmp_name, process_cmp_name) == 0)
+        if (strncmp(cmd_cmp_name, process_cmp_name, sizeof(proc->command)) == 0)
         {
             if (pid < 0 || is_child_of(pid, proc->pid))
             {
