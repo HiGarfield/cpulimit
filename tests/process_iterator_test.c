@@ -312,7 +312,7 @@ static void test_all_processes(void)
 static void test_process_group_all(void)
 {
     struct process_group pgroup;
-    struct list_node *node = NULL;
+    const struct list_node *node = NULL;
     int count = 0;
 
     /* Initialize process group with all processes */
@@ -364,7 +364,7 @@ static void test_proc_group_single(int include_children)
     /* Update process group 100 times and verify consistency */
     for (i = 0; i < 100; i++)
     {
-        struct list_node *node = NULL;
+        const struct list_node *node = NULL;
         int count = 0;
 
         update_process_group(&pgroup);
