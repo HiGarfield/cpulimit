@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef __UTIL_H
@@ -30,77 +29,89 @@
 #include <time.h>
 
 #ifndef MAX
+/** @def MAX(a, b)
+ *  @brief Return the maximum of two values
+ *  @param a First value
+ *  @param b Second value
+ *  @return The greater of a and b
+ */
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif /* MAX */
 
 #ifndef MIN
+/** @def MIN(a, b)
+ *  @brief Return the minimum of two values
+ *  @param a First value
+ *  @param b Second value
+ *  @return The lesser of a and b
+ */
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif /* MIN */
 
 #ifndef CLAMP
+/** @def CLAMP(x, low, high)
+ *  @brief Clamp a value between a lower and upper bound
+ *  @param x Value to clamp
+ *  @param low Lower bound
+ *  @param high Upper bound
+ *  @return x if low <= x <= high, low if x < low, high if x > high
+ */
 #define CLAMP(x, low, high) \
     ((x) < (low) ? (low) : ((x) > (high) ? (high) : (x)))
 #endif /* CLAMP */
 
 /**
- * Converts nanoseconds to a timespec structure.
- *
- * @param nsec Pointer to the number of nanoseconds to convert.
- * @param t    Pointer to a timespec structure where the converted time
- *             will be stored.
+ * @brief Convert nanoseconds to a timespec structure
+ * @param nsec Number of nanoseconds to convert
+ * @param t Pointer to a timespec structure where the converted time
+ *          will be stored
  */
 void nsec2timespec(double nsec, struct timespec *t);
 
 /**
- * Retrieves the current time into a timespec structure.
- *
- * @param ts Pointer to a timespec structure where the current time will
- *           be stored.
- *
- * @return 0 for success, or -1 for failure.
+ * @brief Get the current time
+ * @param ts Pointer to timespec structure to store the current time
+ * @return 0 on success, -1 on failure
  */
 int get_current_time(struct timespec *ts);
 
 /**
- * Sleeps for a specified timespec duration.
- *
+ * @brief Sleep for a specified timespec duration
  * @param t Pointer to a timespec structure that specifies the duration
- *          to sleep.
- *
- * @return 0 for success, or -1 for failure.
+ *          to sleep
+ * @return 0 for success, or -1 for failure
  */
 int sleep_timespec(const struct timespec *t);
 
 /**
- * Computes the difference between two timespec structures in milliseconds.
- *
- * @param later   Pointer to the timespec for the later time.
- * @param earlier Pointer to the timespec for the earlier time.
- *
- * @return The difference in milliseconds (`later`-`earlier`).
+ * @brief Compute the difference between two timespec structures in milliseconds
+ * @param later Pointer to the timespec for the later time
+ * @param earlier Pointer to the timespec for the earlier time
+ * @return The difference in milliseconds (later - earlier)
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier);
 
 /**
- * Gets the basename of a file from the full path.
- *
- * @param path Pointer to a string containing the full path of the file.
- *
- * @return A pointer to the basename of the file.
+ * @brief Get the basename of a file from the full path
+ * @param path Pointer to a string containing the full path of the file
+ * @return A pointer to the basename of the file
+ * @note Returns a pointer to the substring after the last '/', or the
+ *       original string if no '/' is found
  */
 const char *file_basename(const char *path);
 
 /**
- * Increases the priority of the current process.
+ * @brief Increase the priority of the current process
+ * @note Attempts to set the process priority to the maximum
  */
 void increase_priority(void);
 
 /**
- * Retrieves the number of available CPUs.
- *
+ * @brief Get the number of available CPUs
  * @return The number of available CPUs, or 1 if the count could not be
- *         obtained.
+ *         obtained
+ * @note The result is cached after the first call
  */
 int get_ncpu(void);
 
@@ -118,15 +129,13 @@ int get_ncpu(void);
       __UCLIBC_MINOR__ == 0 &&      \
       __UCLIBC_SUBLEVEL__ < 42))
 /**
- * Retrieves up to nelem load averages for system processes over the
- * last 1, 5, and 15 minutes.
- *
- * @param loadavg Pointer to an array for storing the load averages.
- *                It must have enough space for nelem samples.
- * @param nelem   Number of samples to retrieve (1 to 3).
- *
+ * @brief Get up to nelem load averages for system processes
+ * @param loadavg Pointer to an array for storing the load averages
+ *                It must have enough space for nelem samples
+ * @param nelem Number of samples to retrieve (1 to 3)
  * @return The number of samples retrieved, or -1 if the load
- *         average could not be obtained.
+ *         average could not be obtained
+ * @note Only available on uClibc/uClibc-ng below version 1.0.42
  */
 int __getloadavg(double *loadavg, int nelem);
 #define getloadavg(loadavg, nelem) \

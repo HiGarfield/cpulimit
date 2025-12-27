@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef _GNU_SOURCE
@@ -39,15 +38,25 @@
 #include <time.h>
 #include <unistd.h>
 
+/**
+ * @brief Run the program in command execution mode
+ * @param cfg Pointer to the configuration structure
+ * @note This function forks a child process to execute a command and then
+ *       limits the CPU usage of that command and its children.
+ */
 void run_command_mode(const struct cpulimitcfg *cfg)
 {
     pid_t cmd_runner_pid;
     int sync_pipe[2];
+
+    /* Create a pipe for synchronization between parent and child */
     if (pipe(sync_pipe) < 0)
     {
         perror("pipe");
         exit(EXIT_FAILURE);
     }
+
+    /* Fork a child process to run the command */
     cmd_runner_pid = fork();
     if (cmd_runner_pid < 0)
     {
@@ -68,6 +77,7 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         }
 
         close(sync_pipe[0]);
+        /* Send synchronization signal to parent */
         if (write(sync_pipe[1], "A", 1) != 1)
         {
             perror("write sync");
@@ -86,6 +96,7 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         char ack;
 
         close(sync_pipe[1]);
+        /* Wait for child to be ready before starting CPU limiting */
         if (read(sync_pipe[0], &ack, 1) != 1 || ack != 'A')
         {
             perror("read sync");
@@ -95,13 +106,15 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         }
         close(sync_pipe[0]);
 
-        /* Limiter process: limit the command runner */
+        /* Limiter process: limit the CPU usage of the command runner */
         if (cfg->verbose)
         {
             printf("Limiting process %ld\n", (long)cmd_runner_pid);
         }
         limit_process(cmd_runner_pid, cfg->limit, cfg->include_children,
                       cfg->verbose);
+
+        /* If quit flag is set, terminate the command runner and its group */
         if (is_quit_flag_set())
         {
             kill(-cmd_runner_pid, SIGTERM);
@@ -110,6 +123,7 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         child_exit_status = EXIT_FAILURE;
         found_cmd_runner = 0;
 
+        /* Wait for all child processes in the command runner's process group */
         while (1)
         {
             int status;
@@ -160,11 +174,18 @@ void run_command_mode(const struct cpulimitcfg *cfg)
     }
 }
 
+/**
+ * @brief Run the program in PID or executable name mode
+ * @param cfg Pointer to the configuration structure
+ * @note This function continuously searches for the target process (by PID or
+ *       executable name) and applies CPU limiting when found.
+ */
 void run_pid_or_exe_mode(const struct cpulimitcfg *cfg)
 {
     /* Set waiting time between process searches */
     const struct timespec wait_time = {2, 0};
     int pid_mode = cfg->target_pid > 0;
+
     while (!is_quit_flag_set())
     {
         pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
@@ -180,6 +201,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg)
         }
         else
         {
+            /* Prevent limiting cpulimit itself */
             if (found_pid == getpid())
             {
                 printf("Target process %ld is cpulimit itself! Aborting\n",
@@ -187,14 +209,18 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg)
                 exit(EXIT_FAILURE);
             }
             printf("Process %ld found\n", (long)found_pid);
-            limit_process(found_pid, cfg->limit, cfg->include_children, cfg->verbose);
+            /* Apply CPU limiting to the found process */
+            limit_process(found_pid, cfg->limit, cfg->include_children,
+                          cfg->verbose);
         }
 
+        /* Exit if in lazy mode or quit flag is set */
         if (cfg->lazy_mode || is_quit_flag_set())
         {
             break;
         }
 
+        /* Wait before searching again */
         sleep_timespec(&wait_time);
     }
     exit(EXIT_SUCCESS);

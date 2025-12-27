@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef _GNU_SOURCE
@@ -32,6 +31,11 @@
 #include <string.h>
 #include <sys/types.h>
 
+/**
+ * @brief Initialize a process table with the given hash size
+ * @param pt Pointer to the process table structure to initialize
+ * @param hashsize Size of the hash table
+ */
 void process_table_init(struct process_table *pt, size_t hashsize)
 {
     if (pt == NULL)
@@ -39,6 +43,7 @@ void process_table_init(struct process_table *pt, size_t hashsize)
         return;
     }
     pt->hashsize = hashsize;
+    /* Allocate memory for the hash table */
     if ((pt->table = (struct list **)calloc(pt->hashsize, sizeof(struct list *))) == NULL)
     {
         fprintf(stderr, "Memory allocation failed for the process table\n");
@@ -46,11 +51,25 @@ void process_table_init(struct process_table *pt, size_t hashsize)
     }
 }
 
+/**
+ * @brief Calculate hash index for a process ID
+ * @param pt Pointer to the process table structure
+ * @param procptr Pointer to a pid_t variable or a struct process object
+ *                representing the target process
+ * @return Hash index
+ */
 static size_t pid_hash(const struct process_table *pt, const void *procptr)
 {
     return (size_t)(*((const pid_t *)procptr)) % pt->hashsize;
 }
 
+/**
+ * @brief Find a process in the process table based on the PID
+ * @param pt Pointer to the process table to search in
+ * @param procptr Pointer to a pid_t variable or a struct process object
+ *                representing the target process
+ * @return Pointer to the found process, or NULL if not found
+ */
 struct process *process_table_find(const struct process_table *pt,
                                    const void *procptr)
 {
@@ -67,6 +86,12 @@ struct process *process_table_find(const struct process_table *pt,
     return (struct process *)locate_elem(pt->table[idx], procptr);
 }
 
+/**
+ * @brief Add a process to the process table
+ * @param pt The process table to add the process to
+ * @param p The process to add
+ * @note This function should only be called when p does not exist in pt
+ */
 void process_table_add(struct process_table *pt, struct process *p)
 {
     size_t idx;
@@ -88,6 +113,13 @@ void process_table_add(struct process_table *pt, struct process *p)
     add_elem(pt->table[idx], p);
 }
 
+/**
+ * @brief Delete a process from the process table based on the PID
+ * @param pt Pointer to the process table to delete the process from
+ * @param procptr Pointer to a pid_t variable or a struct process object
+ *                representing the target process
+ * @return 0 if deletion is successful, 1 if process not found
+ */
 int process_table_del(struct process_table *pt, const void *procptr)
 {
     struct list_node *node;
@@ -99,12 +131,12 @@ int process_table_del(struct process_table *pt, const void *procptr)
     idx = pid_hash(pt, procptr);
     if (pt->table[idx] == NULL)
     {
-        return 1; /* nothing to delete */
+        return 1; /* Nothing to delete */
     }
     node = locate_node(pt->table[idx], procptr);
     if (node == NULL)
     {
-        return 1; /* nothing to delete */
+        return 1; /* Nothing to delete */
     }
     destroy_node(pt->table[idx], node);
     /* Clean up empty bucket */
@@ -116,6 +148,10 @@ int process_table_del(struct process_table *pt, const void *procptr)
     return 0;
 }
 
+/**
+ * @brief Destroy the process table and free up the memory
+ * @param pt Pointer to the process table to destroy
+ */
 void process_table_destroy(struct process_table *pt)
 {
     size_t idx;

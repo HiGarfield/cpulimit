@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef __CLI_H
@@ -31,7 +30,7 @@
 
 /**
  * @struct cpulimitcfg
- * @brief Configuration structure for CPU limitation parameters
+ * @brief Configuration structure for CPU limit parameters
  */
 struct cpulimitcfg
 {
@@ -41,25 +40,25 @@ struct cpulimitcfg
     pid_t target_pid;
     /** Executable name to search for */
     const char *exe_name;
-    /** CPU usage limit (0.0-N_CPU) */
+    /** CPU usage limit (0.0 to N_CPU) */
     double limit;
-    /** Flag to include child processes */
+    /** Flag to include child processes in the limit */
     int include_children;
-    /** Exit if target process not found */
+    /** Exit if target process is not found or stopped */
     int lazy_mode;
-    /** Verbose output flag */
+    /** Enable verbose output mode */
     int verbose;
-    /** Command execution mode flag */
+    /** Flag indicating command execution mode */
     int command_mode;
     /** Arguments for command execution */
     char *const *command_args;
 };
 
 /**
- * @brief Parse command line arguments into configuration structure
+ * @brief Parse command line arguments and populate configuration.
  * @param argc Argument count from main()
  * @param argv Argument vector from main()
- * @param cfg Pointer to configuration structure to populate
+ * @param cfg Pointer to the configuration structure to populate
  */
 void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg);
 

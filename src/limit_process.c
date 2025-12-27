@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef _GNU_SOURCE
@@ -50,10 +49,10 @@
 #define TIME_SLOT 100000
 
 /**
- * Dynamically calculates the time slot based on system load.
- * This allows the program to adapt to varying system conditions.
- *
- * @return The calculated dynamic time slot in microseconds.
+ * @brief Dynamically calculate the time slot based on system load
+ * @return The calculated dynamic time slot in microseconds
+ * @note This function adapts the time slot based on system load to
+ *       optimize responsiveness under varying system conditions.
  */
 static double get_dynamic_time_slot(void)
 {
@@ -90,12 +89,10 @@ static double get_dynamic_time_slot(void)
 }
 
 /**
- * Sends a specified signal to all processes in a given process group.
- *
- * @param procgroup Pointer to the process group containing the list of
- *                  processes to which the signal will be sent.
- * @param sig The signal to be sent to each process (e.g., SIGCONT/SIGSTOP).
- * @param verbose Verbose mode flag.
+ * @brief Send a signal to all processes in a process group
+ * @param procgroup Pointer to the process group structure
+ * @param sig Signal to send to each process
+ * @param verbose Verbose output flag
  */
 static void send_signal_to_processes(struct process_group *procgroup,
                                      int sig, int verbose)
@@ -119,6 +116,16 @@ static void send_signal_to_processes(struct process_group *procgroup,
     }
 }
 
+/**
+ * @brief Apply CPU usage limiting to a process or process group
+ * @param pid Process ID of the target process
+ * @param limit CPU usage limit (0.0 to N_CPU)
+ * @param include_children Flag to include child processes
+ * @param verbose Verbose output flag
+ * @note This function implements the main CPU limiting algorithm that
+ *       alternates between letting the target process run and stopping
+ *       it to enforce the CPU usage limit.
+ */
 void limit_process(pid_t pid, double limit, int include_children, int verbose)
 {
     /* Process group */

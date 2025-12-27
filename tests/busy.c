@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef _GNU_SOURCE
@@ -29,6 +28,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/**
+ * @brief Busy loop thread function
+ * @param arg Thread argument (unused)
+ * @return NULL pointer
+ * @note This function runs an infinite busy loop to consume CPU cycles
+ */
 static void *busy_loop(void *arg)
 {
     volatile int keep_loop = 1;
@@ -41,6 +46,15 @@ static void *busy_loop(void *arg)
     return NULL;
 }
 
+/**
+ * @brief Main function for CPU load generator
+ * @param argc Argument count
+ * @param argv Argument vector
+ * @return 0 on success, exits with failure on error
+ * @note This program creates multiple threads to generate CPU load for
+ *       testing cpulimit functionality. Number of threads can be specified
+ *       via command line argument.
+ */
 int main(int argc, char *argv[])
 {
     int i, num_threads;

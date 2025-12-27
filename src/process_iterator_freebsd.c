@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifdef __FreeBSD__
@@ -47,6 +46,12 @@
 
 #include "process_iterator.h"
 
+/**
+ * @brief Initialize a process iterator
+ * @param it Pointer to the process_iterator structure
+ * @param filter Pointer to the process_filter structure
+ * @return 0 on success, exits with error on failure
+ */
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {
     const struct kinfo_proc *procs;
@@ -94,6 +99,14 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     return 0;
 }
 
+/**
+ * @brief Convert kinfo_proc structure to process structure
+ * @param kd Kernel virtual memory descriptor
+ * @param kproc Pointer to source kinfo_proc structure
+ * @param proc Pointer to destination process structure
+ * @param read_cmd Flag indicating whether to read command line
+ * @return 0 on success, -1 on failure
+ */
 static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
                       int read_cmd)
 {
@@ -117,6 +130,14 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
     return 0;
 }
 
+/**
+ * @brief Get information for a single process by PID
+ * @param kd Kernel virtual memory descriptor
+ * @param pid Process ID to query
+ * @param process Pointer to process structure to fill
+ * @param read_cmd Flag indicating whether to read command line
+ * @return 0 on success, -1 on failure
+ */
 static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
                               int read_cmd)
 {
@@ -130,6 +151,12 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
     return 0;
 }
 
+/**
+ * @brief Get the parent process ID of a given PID (internal helper)
+ * @param kd Kernel virtual memory descriptor
+ * @param pid Process ID to query
+ * @return Parent process ID, or -1 on error
+ */
 static pid_t _getppid_of(kvm_t *kd, pid_t pid)
 {
     int count;
@@ -137,6 +164,11 @@ static pid_t _getppid_of(kvm_t *kd, pid_t pid)
     return (count == 0 || kproc == NULL) ? (pid_t)(-1) : kproc->ki_ppid;
 }
 
+/**
+ * @brief Get the parent process ID (PPID) of a given PID
+ * @param pid The given PID
+ * @return Parent process ID, or -1 on error
+ */
 pid_t getppid_of(pid_t pid)
 {
     pid_t ppid;
@@ -160,12 +192,20 @@ pid_t getppid_of(pid_t pid)
     return ppid;
 }
 
+/**
+ * @brief Check if a process is a child of another process (internal helper)
+ * @param kd Kernel virtual memory descriptor
+ * @param child_pid Potential child process ID
+ * @param parent_pid Potential parent process ID
+ * @return 1 if child_pid is a child of parent_pid, 0 otherwise
+ */
 static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid)
 {
     if (child_pid <= 0 || parent_pid <= 0 || child_pid == parent_pid)
     {
         return 0;
     }
+    /* Traverse parent chain to check ancestry */
     while (child_pid > 1 && child_pid != parent_pid)
     {
         child_pid = _getppid_of(kd, child_pid);
@@ -173,6 +213,12 @@ static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid)
     return child_pid == parent_pid;
 }
 
+/**
+ * @brief Check if a process is a child of another process
+ * @param child_pid Potential child process ID
+ * @param parent_pid Potential parent process ID
+ * @return 1 if child_pid is a child of parent_pid, 0 otherwise
+ */
 int is_child_of(pid_t child_pid, pid_t parent_pid)
 {
     int ret;
@@ -195,12 +241,19 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
     return ret;
 }
 
+/**
+ * @brief Get the next process matching the filter criteria
+ * @param it Pointer to the process_iterator structure
+ * @param p Pointer to the process structure to store process information
+ * @return 0 on success, -1 if no more processes are available
+ */
 int get_next_process(struct process_iterator *it, struct process *p)
 {
     if (it->i >= it->count)
     {
         return -1;
     }
+    /* Special case: single PID without children */
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
         if (get_single_process(it->kd, it->filter->pid, p,
@@ -212,19 +265,20 @@ int get_next_process(struct process_iterator *it, struct process *p)
         it->i = it->count = 1;
         return 0;
     }
+    /* Iterate through process list and apply filters */
     while (it->i < it->count)
     {
         struct kinfo_proc *kproc = it->procs + it->i;
         if (kproc->ki_flag & P_SYSTEM)
         {
             it->i++;
-            /* skip system processes */
+            /* Skip system processes */
             continue;
         }
         if (kproc->ki_stat == SZOMB)
         {
             it->i++;
-            /* skip zombie processes */
+            /* Skip zombie processes */
             continue;
         }
         if (it->filter->pid != 0 && it->filter->include_children)
@@ -254,6 +308,11 @@ int get_next_process(struct process_iterator *it, struct process *p)
     return -1;
 }
 
+/**
+ * @brief Close the process iterator and free resources
+ * @param it Pointer to the process_iterator structure
+ * @return 0 on success, -1 on failure
+ */
 int close_process_iterator(struct process_iterator *it)
 {
     if (it->procs != NULL)

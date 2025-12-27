@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef _GNU_SOURCE
@@ -46,12 +45,23 @@
 #include <sys/sysinfo.h>
 #endif
 
+/**
+ * @brief Convert nanoseconds to a timespec structure
+ * @param nsec Number of nanoseconds to convert
+ * @param t Pointer to a timespec structure where the converted time
+ *          will be stored
+ */
 void nsec2timespec(double nsec, struct timespec *t)
 {
     t->tv_sec = (time_t)(nsec / 1e9);
     t->tv_nsec = (long)(nsec - (double)t->tv_sec * 1e9);
 }
 
+/**
+ * @brief Get the current time
+ * @param ts Pointer to timespec structure to store the current time
+ * @return 0 on success, -1 on failure
+ */
 int get_current_time(struct timespec *ts)
 {
 #if defined(CLOCK_MONOTONIC)
@@ -70,6 +80,12 @@ int get_current_time(struct timespec *ts)
 #endif
 }
 
+/**
+ * @brief Sleep for a specified timespec duration
+ * @param t Pointer to a timespec structure that specifies the duration
+ *          to sleep
+ * @return 0 for success, or -1 for failure
+ */
 int sleep_timespec(const struct timespec *t)
 {
 #if (defined(__linux__) || defined(__FreeBSD__)) &&           \
@@ -81,6 +97,12 @@ int sleep_timespec(const struct timespec *t)
 #endif
 }
 
+/**
+ * @brief Compute the difference between two timespec structures in milliseconds
+ * @param later Pointer to the timespec for the later time
+ * @param earlier Pointer to the timespec for the earlier time
+ * @return The difference in milliseconds (later - earlier)
+ */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier)
 {
@@ -88,12 +110,23 @@ double timediff_in_ms(const struct timespec *later,
            ((double)later->tv_nsec - (double)earlier->tv_nsec) / 1e6;
 }
 
+/**
+ * @brief Get the basename of a file from the full path
+ * @param path Pointer to a string containing the full path of the file
+ * @return A pointer to the basename of the file
+ * @note Returns a pointer to the substring after the last '/', or the
+ *       original string if no '/' is found
+ */
 const char *file_basename(const char *path)
 {
     const char *p = strrchr(path, '/');
     return p != NULL ? p + 1 : path;
 }
 
+/**
+ * @brief Increase the priority of the current process
+ * @note Attempts to set the process priority to the maximum
+ */
 void increase_priority(void)
 {
     static const int MAX_PRIORITY = -20;
@@ -108,6 +141,12 @@ void increase_priority(void)
     }
 }
 
+/**
+ * @brief Get the number of available CPUs
+ * @return The number of available CPUs, or 1 if the count could not be
+ *         obtained
+ * @note The result is cached after the first call
+ */
 int get_ncpu(void)
 {
     static int cached_ncpu = -1;
@@ -156,6 +195,15 @@ int get_ncpu(void)
 }
 
 #ifdef __IMPL_GETLOADAVG
+/**
+ * @brief Get up to nelem load averages for system processes
+ * @param loadavg Pointer to an array for storing the load averages
+ *                It must have enough space for nelem samples
+ * @param nelem Number of samples to retrieve (1 to 3)
+ * @return The number of samples retrieved, or -1 if the load
+ *         average could not be obtained
+ * @note Only available on uClibc/uClibc-ng below version 1.0.42
+ */
 int __getloadavg(double *loadavg, int nelem)
 {
     struct sysinfo si;

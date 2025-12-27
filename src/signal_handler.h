@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef __SIGNAL_HANDLER_H
@@ -28,14 +27,16 @@
 #endif
 
 /**
- * Configures signal handlers for termination signals.
+ * @brief Configure signal handlers for graceful termination
+ * @note This function sets up signal handlers for termination signals
+ *       (SIGINT, SIGTERM, SIGHUP, SIGQUIT) to allow the program to
+ *       exit gracefully.
  */
 void configure_signal_handlers(void);
 
 /**
- * Check if the limiter quit flag is set.
- *
- * @return 1 if the flag is set, 0 otherwise.
+ * @brief Check if the quit flag is set
+ * @return 1 if the quit flag is set, 0 otherwise
  */
 int is_quit_flag_set(void);
 

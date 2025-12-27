@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifndef _GNU_SOURCE
@@ -36,13 +35,11 @@
 static volatile sig_atomic_t limiter_quit_flag = 0;
 
 /**
- * Signal handler for termination signals
- *
- * Handles termination signals such as SIGINT, SIGTERM, SIGHUP, and SIGQUIT.
- * When a signal is received, it sets the limiter_quit_flag to indicate
- * that the program should terminate gracefully.
- *
+ * @brief Signal handler for termination signals
  * @param sig The signal number
+ * @note This handler sets the quit flag to indicate the program should
+ *       terminate gracefully. It handles SIGINT, SIGTERM, SIGHUP, and
+ *       SIGQUIT signals.
  */
 static void sig_handler(int sig)
 {
@@ -56,6 +53,12 @@ static void sig_handler(int sig)
     (void)ret;
 }
 
+/**
+ * @brief Configure signal handlers for graceful termination
+ * @note This function sets up signal handlers for termination signals
+ *       (SIGINT, SIGTERM, SIGHUP, SIGQUIT) to allow the program to
+ *       exit gracefully.
+ */
 void configure_signal_handlers(void)
 {
     struct sigaction sa;
@@ -85,6 +88,10 @@ void configure_signal_handlers(void)
     }
 }
 
+/**
+ * @brief Check if the quit flag is set
+ * @return 1 if the quit flag is set, 0 otherwise
+ */
 int is_quit_flag_set(void)
 {
     return !!limiter_quit_flag;

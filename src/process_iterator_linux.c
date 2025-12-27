@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,9 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #ifdef __linux__
@@ -42,6 +41,12 @@
 #include <time.h>
 #include <unistd.h>
 
+/**
+ * @brief Initialize a process iterator
+ * @param it Pointer to the process_iterator structure
+ * @param filter Pointer to the process_filter structure
+ * @return 0 on success, -1 on failure
+ */
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {
     it->filter = filter;
@@ -52,7 +57,7 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
         it->dip = NULL;
         return 0;
     }
-    /* open a directory stream to /proc directory */
+    /* Open a directory stream to /proc directory */
     if ((it->dip = opendir("/proc")) == NULL)
     {
         perror("opendir");
@@ -61,6 +66,13 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     return 0;
 }
 
+/**
+ * @brief Read process information from /proc filesystem
+ * @param pid Process ID to query
+ * @param p Pointer to process structure to fill
+ * @param read_cmd Flag indicating whether to read command line
+ * @return 0 on success, -1 on failure
+ */
 static int read_process_info(pid_t pid, struct process *p, int read_cmd)
 {
     char statfile[64], exefile[64], state;
@@ -76,7 +88,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     memset(p, 0, sizeof(struct process));
     p->pid = pid;
 
-    /* read stat file */
+    /* Read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)p->pid);
 #ifdef O_CLOEXEC
     if ((fd = open(statfile, O_RDONLY | O_CLOEXEC)) < 0)
@@ -119,7 +131,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     if (sc_clk_tck < 0)
     {
         sc_clk_tck = sysconf(_SC_CLK_TCK);
-        /* check sysconf result */
+        /* Check sysconf result */
         if (sc_clk_tck <= 0)
         {
             fprintf(stderr, "sysconf(_SC_CLK_TCK) failed\n");
@@ -132,7 +144,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     {
         return 0;
     }
-    /* read command line */
+    /* Read command line */
     sprintf(exefile, "/proc/%ld/cmdline", (long)p->pid);
 #ifdef O_CLOEXEC
     if ((fd = open(exefile, O_RDONLY | O_CLOEXEC)) < 0)
@@ -152,6 +164,11 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     return 0;
 }
 
+/**
+ * @brief Get the parent process ID (PPID) of a given PID
+ * @param pid The given PID
+ * @return Parent process ID, or -1 on error
+ */
 pid_t getppid_of(pid_t pid)
 {
     char statfile[64], state;
@@ -162,7 +179,7 @@ pid_t getppid_of(pid_t pid)
     long ppid;
     int fd;
 
-    /* read stat file */
+    /* Read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)pid);
 #ifdef O_CLOEXEC
     if ((fd = open(statfile, O_RDONLY | O_CLOEXEC)) < 0)
@@ -202,6 +219,12 @@ pid_t getppid_of(pid_t pid)
     return (pid_t)ppid;
 }
 
+/**
+ * @brief Get the start time of a process
+ * @param pid Process ID to query
+ * @param start_time Pointer to timespec to store start time
+ * @return 0 on success, -1 on failure
+ */
 static int get_start_time(pid_t pid, struct timespec *start_time)
 {
     struct stat procfs_stat;
@@ -219,13 +242,24 @@ static int get_start_time(pid_t pid, struct timespec *start_time)
     return ret;
 }
 
-/* whether t1 is earlier than t2 */
+/**
+ * @brief Compare two timespec structures to see if t1 is earlier than t2
+ * @param t1 First timespec
+ * @param t2 Second timespec
+ * @return 1 if t1 is earlier than t2, 0 otherwise
+ */
 static int earlier_than(const struct timespec *t1, const struct timespec *t2)
 {
     return t1->tv_sec < t2->tv_sec ||
            (t1->tv_sec == t2->tv_sec && t1->tv_nsec < t2->tv_nsec);
 }
 
+/**
+ * @brief Check if a process is a child of another process
+ * @param child_pid Potential child process ID
+ * @param parent_pid Potential parent process ID
+ * @return 1 if child_pid is a child of parent_pid, 0 otherwise
+ */
 int is_child_of(pid_t child_pid, pid_t parent_pid)
 {
     int ret_child, ret_parent;
@@ -258,6 +292,11 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
     return 0;
 }
 
+/**
+ * @brief Check if a string consists only of digits
+ * @param str String to check
+ * @return 1 if the string is numeric, 0 otherwise
+ */
 static int is_numeric(const char *str)
 {
     if (str == NULL || *str == '\0')
@@ -274,6 +313,12 @@ static int is_numeric(const char *str)
     return 1;
 }
 
+/**
+ * @brief Get the next process matching the filter criteria
+ * @param it Pointer to the process_iterator structure
+ * @param p Pointer to the process structure to store process information
+ * @return 0 on success, -1 if no more processes are available
+ */
 int get_next_process(struct process_iterator *it, struct process *p)
 {
     const struct dirent *dit = NULL;
@@ -290,7 +335,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
         return ret == 0 ? 0 : -1;
     }
 
-    /* read in from /proc and seek for process dirs */
+    /* Read in from /proc and seek for process directories */
     while ((dit = readdir(it->dip)) != NULL)
     {
 #ifdef _DIRENT_HAVE_D_TYPE
@@ -316,11 +361,16 @@ int get_next_process(struct process_iterator *it, struct process *p)
         }
         return 0;
     }
-    /* end of processes */
+    /* End of processes */
     it->end_of_processes = 1;
     return -1;
 }
 
+/**
+ * @brief Close the process iterator and free resources
+ * @param it Pointer to the process_iterator structure
+ * @return 0 on success, -1 on failure
+ */
 int close_process_iterator(struct process_iterator *it)
 {
     int ret = 0;

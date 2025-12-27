@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,11 +15,10 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  *
  * Author: Simon Sigurdhsson
- *
  */
 
 #ifdef __APPLE__
@@ -42,6 +41,12 @@
 #include <sys/sysctl.h>
 #include <sys/types.h>
 
+/**
+ * @brief Initialize a process iterator
+ * @param it Pointer to the process_iterator structure
+ * @param filter Pointer to the process_filter structure
+ * @return 0 on success, exits with error on failure
+ */
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {
     size_t len;
@@ -52,6 +57,7 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     it->i = 0;
     it->filter = filter;
 
+    /* Special case: single PID without children */
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
         /* In this case, it->pidlist is never used */
@@ -109,6 +115,11 @@ int init_process_iterator(struct process_iterator *it, struct process_filter *fi
     return 0; /* Success */
 }
 
+/**
+ * @brief Convert platform-specific time units to milliseconds
+ * @param platform_time Time in platform-specific units
+ * @return Time in milliseconds
+ */
 static double platform_time_to_ms(double platform_time)
 {
     static double factor = -1;
@@ -121,6 +132,13 @@ static double platform_time_to_ms(double platform_time)
     return platform_time * factor / 1e6;
 }
 
+/**
+ * @brief Convert proc_taskallinfo structure to process structure
+ * @param ti Pointer to source proc_taskallinfo structure
+ * @param process Pointer to destination process structure
+ * @param read_cmd Flag indicating whether to read command path
+ * @return 0 on success, -1 on failure
+ */
 static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
                     int read_cmd)
 {
@@ -139,6 +157,12 @@ static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
     return 0;
 }
 
+/**
+ * @brief Get process task information for a given PID
+ * @param pid Process ID to query
+ * @param ti Pointer to structure to store task information
+ * @return 0 on success, -1 on failure
+ */
 static int get_process_pti(pid_t pid, struct proc_taskallinfo *ti)
 {
     if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, ti, sizeof(*ti)) != (int)sizeof(*ti))
@@ -151,17 +175,22 @@ static int get_process_pti(pid_t pid, struct proc_taskallinfo *ti)
     }
     if (ti->pbsd.pbi_status == SZOMB)
     {
-        /* skip zombie processes */
+        /* Skip zombie processes */
         return -1;
     }
     if (ti->pbsd.pbi_flags & PROC_FLAG_SYSTEM)
     {
-        /* skip system processes */
+        /* Skip system processes */
         return -1;
     }
     return 0;
 }
 
+/**
+ * @brief Get the parent process ID (PPID) of a given PID
+ * @param pid The given PID
+ * @return Parent process ID, or -1 on error
+ */
 pid_t getppid_of(pid_t pid)
 {
     struct proc_taskallinfo ti;
@@ -172,6 +201,12 @@ pid_t getppid_of(pid_t pid)
     return (pid_t)(-1);
 }
 
+/**
+ * @brief Check if a process is a child of another process
+ * @param child_pid Potential child process ID
+ * @param parent_pid Potential parent process ID
+ * @return 1 if child_pid is a child of parent_pid, 0 otherwise
+ */
 int is_child_of(pid_t child_pid, pid_t parent_pid)
 {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid)
@@ -182,6 +217,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
     {
         return 1;
     }
+    /* Traverse parent chain to check ancestry */
     while (child_pid > 1 && child_pid != parent_pid)
     {
         child_pid = getppid_of(child_pid);
@@ -189,6 +225,13 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
     return child_pid == parent_pid;
 }
 
+/**
+ * @brief Read process information for a given PID
+ * @param pid Process ID to query
+ * @param p Pointer to process structure to fill
+ * @param read_cmd Flag indicating whether to read command path
+ * @return 0 on success, -1 on failure
+ */
 static int read_process_info(pid_t pid, struct process *p, int read_cmd)
 {
     struct proc_taskallinfo ti;
@@ -204,12 +247,19 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     return 0;
 }
 
+/**
+ * @brief Get the next process matching the filter criteria
+ * @param it Pointer to the process_iterator structure
+ * @param p Pointer to the process structure to store process information
+ * @return 0 on success, -1 if no more processes are available
+ */
 int get_next_process(struct process_iterator *it, struct process *p)
 {
     if (it->i >= it->count)
     {
         return -1;
     }
+    /* Special case: single PID without children */
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
         if (read_process_info(it->filter->pid, p, it->filter->read_cmd) == 0)
@@ -220,6 +270,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
         it->i = it->count = 0;
         return -1;
     }
+    /* Iterate through PID list and apply filters */
     while (it->i < it->count)
     {
         if (read_process_info(it->pidlist[it->i], p, it->filter->read_cmd) == 0)
@@ -237,6 +288,11 @@ int get_next_process(struct process_iterator *it, struct process *p)
     return -1;
 }
 
+/**
+ * @brief Close the process iterator and free resources
+ * @param it Pointer to the process_iterator structure
+ * @return 0 on success
+ */
 int close_process_iterator(struct process_iterator *it)
 {
     if (it->pidlist != NULL)

@@ -1,8 +1,8 @@
-/**
- *
+/*
  * cpulimit - a CPU usage limiter for Linux, macOS, and FreeBSD
  *
- * Copyright (C) 2005-2012, by: Angelo Marletta <angelo dot marletta at gmail dot com>
+ * Copyright (C) 2005-2012  Angelo Marletta
+ * <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -15,20 +15,28 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
+ * along with this program; if not, see
+ * <https://www.gnu.org/licenses/>.
  */
 
 #include <unistd.h>
 
+/**
+ * @brief CPU load generator using fork
+ * @return Always returns 0
+ * @note This program creates 4 processes (original + 3 children) that
+ *       each run an infinite busy loop, consuming CPU cycles for
+ *       testing purposes.
+ */
 int main(void)
 {
     volatile int keep_loop = 1;
+    /* Create two child processes, resulting in 4 total processes */
     fork();
     fork();
     while (keep_loop)
     {
+        /* Infinite busy loop to consume CPU cycles */
         ;
     }
     return 0;
