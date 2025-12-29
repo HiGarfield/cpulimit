@@ -339,7 +339,7 @@ int get_next_process(struct process_iterator *it, struct process *p)
     while ((dit = readdir(it->dip)) != NULL)
     {
 #ifdef _DIRENT_HAVE_D_TYPE
-        if (dit->d_type != DT_DIR)
+        if (dit->d_type != DT_DIR && dit->d_type != DT_UNKNOWN)
         {
             continue;
         }
