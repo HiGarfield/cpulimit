@@ -38,7 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/sysctl.h>
+#include <sys/proc.h>
 #include <sys/types.h>
 
 /**
@@ -49,70 +49,73 @@
  */
 int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
 {
-    size_t len;
-    struct kinfo_proc *procs;
-    int i;
-    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    const int max_retries = 5, min_buffer_size = 1024 * (int)sizeof(pid_t);
+    int buffer_size, retries, success = 0;
 
-    it->i = 0;
+    if (it == NULL || filter == NULL)
+    {
+        exit(EXIT_FAILURE);
+    }
+    memset(it, 0, sizeof(*it));
     it->filter = filter;
 
-    /* Special case: single PID without children */
-    if (it->filter->pid != 0 && !it->filter->include_children)
+    /* Fast path: single PID requested, no child processes needed */
+    if (filter->pid != 0 && !filter->include_children)
     {
-        /* In this case, it->pidlist is never used */
-        it->pidlist = NULL;
-        it->i = -1;
-        it->count = 0;
+        /* In this case, pidlist is never used */
+        it->count = 1;
         return 0;
     }
-
-    /* Get the size of all process information */
-    if (sysctl(mib, 4, NULL, &len, NULL, 0) != 0)
+    /* Initial buffer size */
+    buffer_size = proc_listpids(PROC_ALL_PIDS, 0, NULL, 0);
+    if (buffer_size < min_buffer_size)
     {
-        perror("Failed to get process information buffer size");
-        exit(EXIT_FAILURE); /* Exit on error */
+        buffer_size = min_buffer_size;
+    }
+    /* Retry loop: allocate buffer and attempt to fetch process list */
+    for (retries = 0; retries < max_retries; retries++)
+    {
+        int bytes;
+
+        if ((it->pidlist = (pid_t *)malloc((size_t)buffer_size)) == NULL)
+        {
+            break;
+        }
+
+        /* Retrieve process ID list from system */
+        bytes = proc_listpids(PROC_ALL_PIDS, 0, it->pidlist, buffer_size);
+        /* System call failure - cannot recover */
+        if (bytes <= 0)
+        {
+            break;
+        }
+        /* Check if buffer was large enough (bytes used < buffer capacity) */
+        if (bytes < buffer_size)
+        {
+            it->count = bytes / (int)sizeof(pid_t); /* Number of PIDs */
+            success = 1;                            /* Mark as successful */
+            break;
+        }
+
+        /* Buffer was too small: free and increase size for next attempt */
+        free(it->pidlist);
+        it->pidlist = NULL;
+        /* Double the buffer size */
+        buffer_size *= 2;
     }
 
-    /*
-     * Double the size of the process information buffer
-     * to prevent buffer overflow caused by an increase
-     * in the number of processes.
-     */
-    len <<= 1;
-
-    /* Allocate memory to store process information */
-    if ((procs = (struct kinfo_proc *)malloc(len)) == NULL)
+    /* Cleanup on failure */
+    if (!success)
     {
-        fprintf(stderr, "Memory allocation failed for process information buffer\n");
-        exit(EXIT_FAILURE); /* Exit on error */
+        if (it->pidlist != NULL)
+        {
+            free(it->pidlist);
+            it->pidlist = NULL;
+        }
+        exit(EXIT_FAILURE);
     }
 
-    /* Get process information */
-    if (sysctl(mib, 4, procs, &len, NULL, 0) != 0)
-    {
-        free(procs);
-        perror("Failed to get process information");
-        exit(EXIT_FAILURE); /* Exit on error */
-    }
-
-    /* Calculate the number of processes */
-    it->count = (int)(len / sizeof(struct kinfo_proc));
-    if ((it->pidlist = (pid_t *)malloc((size_t)it->count * sizeof(pid_t))) == NULL)
-    {
-        free(procs);
-        fprintf(stderr, "Memory allocation failed for PID list\n");
-        exit(EXIT_FAILURE); /* Exit on error */
-    }
-
-    /* Fill the PID array */
-    for (i = 0; i < it->count; i++)
-    {
-        it->pidlist[i] = procs[i].kp_proc.p_pid;
-    }
-
-    free(procs);
-    return 0; /* Success */
+    return 0;
 }
 
 /**
