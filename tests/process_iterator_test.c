@@ -214,8 +214,7 @@ static void test_multiple_process(void)
     {
         /* Child process: sleep in a loop until killed */
         const struct timespec sleep_time = {5, 0L}; /* 5s */
-        volatile int keep_running = 1;
-        while (keep_running)
+        while (1)
         {
             sleep_timespec(&sleep_time);
         }
@@ -350,8 +349,7 @@ static void test_proc_group_single(int include_children)
     if (child_pid == 0)
     {
         /* Child process: busy loop until killed */
-        volatile int keep_running = 1;
-        while (keep_running)
+        while (1)
         {
             ;
         }
@@ -661,7 +659,6 @@ static void test_limit_process(void)
     else
     {
         /* child_pid == 0: Target process group */
-        volatile int keep_running = 1;
 
         /* Create new process group */
         setpgid(0, 0);
@@ -677,7 +674,7 @@ static void test_limit_process(void)
         assert(close(sync_pipe[1]) == 0);
 
         /* Keep processes running until terminated */
-        while (keep_running)
+        while (1)
         {
             ;
         }

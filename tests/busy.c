@@ -36,10 +36,9 @@
  */
 static void *busy_loop(void *arg)
 {
-    volatile int keep_loop = 1;
     (void)arg;
     pthread_detach(pthread_self());
-    while (keep_loop)
+    while (1)
     {
         ;
     }

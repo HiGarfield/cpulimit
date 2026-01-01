@@ -30,11 +30,10 @@
  */
 int main(void)
 {
-    volatile int keep_loop = 1;
     /* Create two child processes, resulting in 4 total processes */
     fork();
     fork();
-    while (keep_loop)
+    while (1)
     {
         /* Infinite busy loop to consume CPU cycles */
         ;
