@@ -149,48 +149,54 @@ void increase_priority(void)
  */
 int get_ncpu(void)
 {
+    /* Static cache: -1 means uninitialized */
     static int cached_ncpu = -1;
-    if (cached_ncpu > 0)
+
+    /* Only compute if not cached yet */
+    if (cached_ncpu < 0)
     {
-        return cached_ncpu;
-    }
 #if defined(_SC_NPROCESSORS_ONLN)
-    {
+        /* POSIX systems using sysconf */
         long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
         cached_ncpu = (ncpu > 0) ? (int)ncpu : 1;
-    }
+
 #elif defined(__APPLE__) || defined(__FreeBSD__)
-    {
-        int ncpu = 0, mib[2] = {CTL_HW};
-        size_t len = sizeof(ncpu);
+        /* macOS / FreeBSD using sysctl */
+        int ncpu = 0; /* CPU count */
+        size_t len;   /* Length of value for sysctl */
+        int mib[2];   /* Management Information Base array */
+
+        len = sizeof(ncpu);
+
+        /* Try to get available CPUs first */
+        mib[0] = CTL_HW;
 #if defined(HW_AVAILCPU)
         mib[1] = HW_AVAILCPU;
-        if (sysctl(mib, 2, &ncpu, &len, NULL, 0) == 0 && ncpu > 0)
-        {
-            cached_ncpu = ncpu;
-        }
+#else
+        mib[1] = HW_NCPU;
 #endif
-        if (cached_ncpu <= 0)
+        if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
         {
+            /* Fallback to total CPUs */
             mib[1] = HW_NCPU;
-            if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu <= 0)
+            if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
             {
-                cached_ncpu = 1; /* Return 1 on complete failure */
-            }
-            else
-            {
-                cached_ncpu = ncpu;
+                ncpu = 1; /* Complete failure fallback */
             }
         }
-    }
+        cached_ncpu = ncpu;
+
 #elif defined(__linux__)
-    {
-        int ncpu = get_nprocs();
+        /* Linux using get_nprocs */
+        int ncpu;
+        ncpu = get_nprocs();
         cached_ncpu = (ncpu > 0) ? ncpu : 1;
-    }
+
 #else
 #error "Unsupported platform"
 #endif
+    }
+
     return cached_ncpu;
 }
 
