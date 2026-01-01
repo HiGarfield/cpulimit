@@ -218,7 +218,6 @@ static void test_multiple_process(void)
         {
             sleep_timespec(&sleep_time);
         }
-        exit(EXIT_SUCCESS);
     }
 
     /* Allocate memory for process structure */
@@ -353,7 +352,6 @@ static void test_proc_group_single(int include_children)
         {
             ;
         }
-        exit(EXIT_SUCCESS);
     }
 
     /* Initialize process group with the child PID */
@@ -678,7 +676,6 @@ static void test_limit_process(void)
         {
             ;
         }
-        exit(EXIT_SUCCESS);
     }
 }
 
