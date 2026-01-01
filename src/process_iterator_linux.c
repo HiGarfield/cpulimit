@@ -47,7 +47,8 @@
  * @param filter Pointer to the process_filter structure
  * @return 0 on success, -1 on failure
  */
-int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
+int init_process_iterator(struct process_iterator *it,
+                          const struct process_filter *filter)
 {
     it->filter = filter;
     it->end_of_processes = 0;

@@ -98,7 +98,7 @@ struct process_iterator
     pid_t *pidlist;
 #endif
     /** Pointer to a process filter to apply during iteration */
-    struct process_filter *filter;
+    const struct process_filter *filter;
 };
 
 /**
@@ -107,7 +107,8 @@ struct process_iterator
  * @param filter Pointer to the process_filter structure
  * @return 0 on success, -1 on failure
  */
-int init_process_iterator(struct process_iterator *it, struct process_filter *filter);
+int init_process_iterator(struct process_iterator *it,
+                          const struct process_filter *filter);
 
 /**
  * @brief Get the next process matching the filter criteria

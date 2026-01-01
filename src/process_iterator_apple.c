@@ -47,7 +47,8 @@
  * @param filter Pointer to the process_filter structure
  * @return 0 on success, exits with error on failure
  */
-int init_process_iterator(struct process_iterator *it, struct process_filter *filter)
+int init_process_iterator(struct process_iterator *it,
+                          const struct process_filter *filter)
 {
     const int max_retries = 5, min_buffer_size = 1024 * (int)sizeof(pid_t);
     int buffer_size, retries, success = 0;
