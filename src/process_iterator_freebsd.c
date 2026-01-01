@@ -113,6 +113,10 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
 {
     char **args;
     size_t len_max;
+    if (kproc == NULL || proc == NULL)
+    {
+        return -1;
+    }
     memset(proc, 0, sizeof(struct process));
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;
@@ -122,7 +126,8 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
         return 0;
     }
     len_max = sizeof(proc->command) - 1;
-    if ((args = kvm_getargv(kd, kproc, (int)len_max)) == NULL)
+    args = kvm_getargv(kd, kproc, (int)len_max);
+    if (args == NULL || args[0] == NULL)
     {
         return -1;
     }
@@ -250,11 +255,17 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
  */
 int get_next_process(struct process_iterator *it, struct process *p)
 {
+    if (it == NULL || p == NULL)
+    {
+        return -1;
+    }
+
     if (it->i >= it->count)
     {
         return -1;
     }
-    /* Special case: single PID without children */
+
+    /* Single PID without children */
     if (it->filter->pid != 0 && !it->filter->include_children)
     {
         if (get_single_process(it->kd, it->filter->pid, p,
@@ -266,46 +277,37 @@ int get_next_process(struct process_iterator *it, struct process *p)
         it->i = it->count = 1;
         return 0;
     }
-    /* Iterate through process list and apply filters */
+
     while (it->i < it->count)
     {
-        struct kinfo_proc *kproc = it->procs + it->i;
-        if (kproc->ki_flag & P_SYSTEM)
+        struct kinfo_proc *kproc = &it->procs[it->i++];
+        /* Skip system and zombie processes */
+        if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB))
         {
-            it->i++;
-            /* Skip system processes */
             continue;
         }
-        if (kproc->ki_stat == SZOMB)
+        /*
+         * If filtering by PID + children, try to reject early
+         * using kinfo_proc data only.
+         */
+        if (it->filter->pid != 0 && it->filter->include_children &&
+            kproc->ki_pid != it->filter->pid &&
+            !_is_child_of(it->kd, kproc->ki_pid, it->filter->pid))
         {
-            it->i++;
-            /* Skip zombie processes */
             continue;
         }
-        if (it->filter->pid != 0 && it->filter->include_children)
+
+        /*
+         * Now do the expensive conversion only if needed
+         */
+        if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0)
         {
-            it->i++;
-            if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0)
-            {
-                continue;
-            }
-            if (p->pid != it->filter->pid &&
-                !_is_child_of(it->kd, p->pid, it->filter->pid))
-            {
-                continue;
-            }
-            return 0;
+            continue;
         }
-        else if (it->filter->pid == 0)
-        {
-            it->i++;
-            if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0)
-            {
-                continue;
-            }
-            return 0;
-        }
+
+        return 0;
     }
+
     return -1;
 }
 
