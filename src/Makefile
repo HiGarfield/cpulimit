@@ -63,7 +63,7 @@ TARGET := cpulimit
 DESTDIR := /usr/local/bin
 
 # Detect operating system
-UNAME ?= $(shell uname)
+UNAME ?= $(shell uname -s)
 
 # Platform-specific linker flags
 override LDFLAGS += $(if $(findstring Linux,$(UNAME)),-lrt) \
@@ -76,10 +76,6 @@ CPPCHECK_OPTS := $(shell \
     grep "^[[:space:]]*/[[:graph:]]*/include[[:graph:]]*$$" | \
     sed 's/^/-I /' \
 )
-CPPCHECK_OPTS += $(if $(findstring Linux,$(UNAME)),-D__linux__) \
-                 $(if $(findstring FreeBSD,$(UNAME)),-D__FreeBSD__) \
-                 $(if $(findstring Darwin,$(UNAME)),-D__APPLE__)
-CPPCHECK_OPTS += -D_GNU_SOURCE
 CPPCHECK_OPTS += --enable=all \
                  --inconclusive \
                  --check-level=exhaustive \
@@ -87,6 +83,7 @@ CPPCHECK_OPTS += --enable=all \
                  --library=gnu \
                  --force \
                  --std=c89 \
+                 --project=compile_commands.json \
                  --suppress=missingIncludeSystem \
                  --suppress=ConfigurationNotChecked \
                  --suppress=unmatchedSuppression \
@@ -120,12 +117,17 @@ format: $(wildcard *.c *.h)
 	@echo "Source files formatted successfully."
 
 # Check source files with cppcheck
-check: $(wildcard *.c *.h)
+check: $(wildcard *.c *.h) clean
+	@command -v bear >/dev/null 2>&1 || { \
+        echo "bear is not installed. Please install it to check the code."; \
+        exit 1; \
+    }
 	@command -v cppcheck >/dev/null 2>&1 || { \
         echo "cppcheck is not installed. Please install it to check the code."; \
         exit 1; \
     }
-	cppcheck $(CPPCHECK_OPTS) . 2>"$(CHECK_REPORT)"
+	bear -- $(MAKE) all CHECK=1
+	cppcheck $(CPPCHECK_OPTS) 2>"$(CHECK_REPORT)"
 	@echo "See $(shell pwd)/$(CHECK_REPORT) for cppcheck report."
 
 # Install cpulimit to /usr/local/bin
