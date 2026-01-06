@@ -35,6 +35,10 @@
 #include <kvm.h>
 #endif
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 /**
  * @struct process
  * @brief Structure representing a process descriptor
