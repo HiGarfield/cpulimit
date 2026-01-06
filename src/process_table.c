@@ -54,36 +54,33 @@ void process_table_init(struct process_table *pt, size_t hashsize)
 /**
  * @brief Calculate hash index for a process ID
  * @param pt Pointer to the process table structure
- * @param procptr Pointer to a pid_t variable or a struct process object
- *                representing the target process
+ * @param pid The process ID to hash
  * @return Hash index
  */
-static size_t pid_hash(const struct process_table *pt, const void *procptr)
+static size_t pid_hash(const struct process_table *pt, pid_t pid)
 {
-    return (size_t)(*((const pid_t *)procptr)) % pt->hashsize;
+    return (size_t)pid % pt->hashsize;
 }
 
 /**
  * @brief Find a process in the process table based on the PID
  * @param pt Pointer to the process table to search in
- * @param procptr Pointer to a pid_t variable or a struct process object
- *                representing the target process
+ * @param pid The process ID to search for
  * @return Pointer to the found process, or NULL if not found
  */
-struct process *process_table_find(const struct process_table *pt,
-                                   const void *procptr)
+struct process *process_table_find(const struct process_table *pt, pid_t pid)
 {
     size_t idx;
-    if (pt == NULL || procptr == NULL)
+    if (pt == NULL)
     {
         return NULL;
     }
-    idx = pid_hash(pt, procptr);
+    idx = pid_hash(pt, pid);
     if (pt->table[idx] == NULL)
     {
         return NULL;
     }
-    return (struct process *)locate_elem(pt->table[idx], procptr);
+    return (struct process *)locate_elem(pt->table[idx], &pid);
 }
 
 /**
@@ -99,7 +96,7 @@ void process_table_add(struct process_table *pt, struct process *p)
     {
         return;
     }
-    idx = pid_hash(pt, p);
+    idx = pid_hash(pt, p->pid);
     if (pt->table[idx] == NULL)
     {
         /* If the bucket is empty, create a new one */
@@ -116,24 +113,23 @@ void process_table_add(struct process_table *pt, struct process *p)
 /**
  * @brief Delete a process from the process table based on the PID
  * @param pt Pointer to the process table to delete the process from
- * @param procptr Pointer to a pid_t variable or a struct process object
- *                representing the target process
+ * @param pid The process ID of the process to delete
  * @return 0 if deletion is successful, 1 if process not found
  */
-int process_table_del(struct process_table *pt, const void *procptr)
+int process_table_del(struct process_table *pt, pid_t pid)
 {
     struct list_node *node;
     size_t idx;
-    if (pt == NULL || procptr == NULL)
+    if (pt == NULL)
     {
         return 1;
     }
-    idx = pid_hash(pt, procptr);
+    idx = pid_hash(pt, pid);
     if (pt->table[idx] == NULL)
     {
         return 1; /* Nothing to delete */
     }
-    node = locate_node(pt->table[idx], procptr);
+    node = locate_node(pt->table[idx], &pid);
     if (node == NULL)
     {
         return 1; /* Nothing to delete */

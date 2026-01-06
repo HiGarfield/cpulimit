@@ -253,7 +253,8 @@ void update_process_group(struct process_group *pgroup)
     /* Iterate through processes and update the process group */
     while (get_next_process(&it, tmp_process) != -1)
     {
-        struct process *p = process_table_find(pgroup->proctable, tmp_process);
+        struct process *p = process_table_find(pgroup->proctable,
+                                               tmp_process->pid);
         if (p == NULL)
         {
             /* Process is new. Add it to the table and list */
@@ -330,5 +331,5 @@ double get_process_group_cpu_usage(const struct process_group *pgroup)
  */
 int remove_process(struct process_group *pgroup, pid_t pid)
 {
-    return process_table_del(pgroup->proctable, &pid);
+    return process_table_del(pgroup->proctable, pid);
 }

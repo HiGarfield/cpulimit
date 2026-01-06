@@ -51,12 +51,10 @@ void process_table_init(struct process_table *pt, size_t hashsize);
 /**
  * @brief Find a process in the process table based on the PID
  * @param pt Pointer to the process table to search in
- * @param procptr Pointer to a pid_t variable or a struct process object
- *                representing the target process
+ * @param pid The process ID to search for
  * @return Pointer to the found process, or NULL if not found
  */
-struct process *process_table_find(const struct process_table *pt,
-                                   const void *procptr);
+struct process *process_table_find(const struct process_table *pt, pid_t pid);
 
 /**
  * @brief Add a process to the process table
@@ -69,11 +67,10 @@ void process_table_add(struct process_table *pt, struct process *p);
 /**
  * @brief Delete a process from the process table based on the PID
  * @param pt Pointer to the process table to delete the process from
- * @param procptr Pointer to a pid_t variable or a struct process object
- *                representing the target process
+ * @param pid The process ID of the process to delete
  * @return 0 if deletion is successful, 1 if process not found
  */
-int process_table_del(struct process_table *pt, const void *procptr);
+int process_table_del(struct process_table *pt, pid_t pid);
 
 /**
  * @brief Destroy the process table and free up the memory
