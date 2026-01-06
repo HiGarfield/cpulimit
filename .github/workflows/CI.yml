@@ -90,7 +90,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        osver: ['13.5', '14.3', '15.0']
+        osver: ['13.5', '14.3']
         arch: ['x86_64', 'aarch64']
     runs-on: ubuntu-latest
 
