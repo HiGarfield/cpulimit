@@ -95,12 +95,4 @@ void update_process_group(struct process_group *pgroup);
  */
 double get_process_group_cpu_usage(const struct process_group *pgroup);
 
-/**
- * @brief Remove a process from the process group by its PID
- * @param pgroup Pointer to the process group from which to remove the process
- * @param pid The PID of the process to remove
- * @return 0 if removal is successful, or 1 if process is not found
- */
-int remove_process(struct process_group *pgroup, pid_t pid);
-
 #endif

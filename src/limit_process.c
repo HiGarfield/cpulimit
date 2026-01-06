@@ -27,6 +27,7 @@
 #include "list.h"
 #include "process_group.h"
 #include "process_iterator.h"
+#include "process_table.h"
 #include "signal_handler.h"
 #include "util.h"
 #include <errno.h>
@@ -110,7 +111,7 @@ static void send_signal_to_processes(struct process_group *procgroup,
                         sig, (long)pid, strerror(errno));
             }
             delete_node(procgroup->proclist, node);
-            remove_process(procgroup, pid);
+            process_table_del(procgroup->proctable, pid);
         }
         node = next_node;
     }
