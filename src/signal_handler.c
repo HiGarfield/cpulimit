@@ -24,6 +24,7 @@
 #endif
 
 #include "signal_handler.h"
+#include <errno.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -43,6 +44,8 @@ static volatile sig_atomic_t limiter_quit_flag = 0;
  */
 static void sig_handler(int sig)
 {
+    int saved_errno = errno;
+
     /* Handle the Ctrl+C or Ctrl+\ issue */
     ssize_t ret = write(STDOUT_FILENO, "\n", 1);
 
@@ -51,6 +54,8 @@ static void sig_handler(int sig)
     /* Suppress unused parameter or return value warnings */
     (void)sig;
     (void)ret;
+
+    errno = saved_errno;
 }
 
 /**
