@@ -151,7 +151,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
 
     if (verbose)
     {
-        printf("Members in the process group owned by %ld: %lu\n",
+        printf("Process group of PID %ld: %lu member(s)\n",
                (long)pgroup.target_pid,
                (unsigned long)get_list_count(pgroup.proclist));
     }
@@ -170,7 +170,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
         {
             if (verbose)
             {
-                printf("No more processes.\n");
+                printf("No running target process found.\n");
             }
             break;
         }
