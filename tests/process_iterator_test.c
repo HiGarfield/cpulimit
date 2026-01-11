@@ -44,15 +44,6 @@
 #include <unistd.h>
 
 /**
- * @brief Signal handler that ignores signals
- * @param sig Signal number (unused)
- */
-static void ignore_signal(int sig)
-{
-    (void)sig;
-}
-
-/**
  * @brief Terminate a child process or process group and wait for it to exit
  * @param pid Process ID (positive) or negative process group ID
  * @param kill_signal Signal to send (SIGTERM or SIGKILL)
@@ -701,14 +692,6 @@ static void test_limit_process(void)
  */
 int main(int argc, char *argv[])
 {
-    /* ignore SIGINT and SIGTERM during tests */
-    struct sigaction sa;
-    sa.sa_handler = ignore_signal;
-    sa.sa_flags = 0;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
-
     assert(argc >= 1);
     command = argv[0];
 
