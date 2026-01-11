@@ -108,7 +108,7 @@ busy: busy.c $(wildcard $(SRC)/util.*)
 multi_process_busy: multi_process_busy.c
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
-process_iterator_test: process_iterator_test.c \
+cpulimit_test: cpulimit_test.c \
                        $(filter-out $(SRC)/main.c $(SRC)/cli.c $(SRC)/limiter.c,\
                        $(wildcard $(SRC)/*.c $(SRC)/*.h))
 	$(CC) $(CFLAGS) $(filter-out $(SRC)/process_iterator_%.c %.h,$^) $(LDFLAGS) -o $@

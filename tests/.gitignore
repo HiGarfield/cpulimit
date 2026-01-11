@@ -4,4 +4,4 @@
 check-report.txt
 busy
 multi_process_busy
-process_iterator_test
+cpulimit_test

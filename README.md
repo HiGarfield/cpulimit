@@ -116,7 +116,7 @@ The latest available code is here:
 - Run unit tests
 
   ```sh
-  ./tests/process_iterator_test
+  ./tests/cpulimit_test
   ```
 
 - Test cpulimit with a single process
