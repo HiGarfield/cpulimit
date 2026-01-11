@@ -129,20 +129,20 @@ static void send_signal_to_processes(struct process_group *procgroup,
  */
 void limit_process(pid_t pid, double limit, int include_children, int verbose)
 {
-    /* Process group */
-    struct process_group pgroup;
-    /* Counter for the number of cycles */
+    /* Process group to manage */
+    struct process_group proc_group;
+    /* Cycle counter for periodic verbose output */
     int cycle_counter = 0;
-    /* Working rate for the process group in a time slot */
-    double workingrate = limit / get_ncpu();
-    /* Flag to indicate if the process group is sleeping */
-    int pg_sleeping = 0;
+    /* Work ratio: fraction of time slot the process should run */
+    double work_ratio = limit / get_ncpu();
+    /* Flag indicating if the process group is currently suspended */
+    int is_suspended = 0;
 
     /* Increase priority of the current process to reduce overhead */
     increase_priority();
 
     /* Initialize the process group (including children if needed) */
-    if (init_process_group(&pgroup, pid, include_children) != 0)
+    if (init_process_group(&proc_group, pid, include_children) != 0)
     {
         fprintf(stderr, "Failed to initialize process group for PID %ld\n",
                 (long)pid);
@@ -152,21 +152,21 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
     if (verbose)
     {
         printf("Process group of PID %ld: %lu member(s)\n",
-               (long)pgroup.target_pid,
-               (unsigned long)get_list_count(pgroup.proclist));
+               (long)proc_group.target_pid,
+               (unsigned long)get_list_count(proc_group.proclist));
     }
 
-    /* Main loop to control the process until quit_flag is set */
+    /* Main control loop until quit_flag is set */
     while (!is_quit_flag_set())
     {
-        double cpu_usage, twork_nsec, tsleep_nsec, time_slot;
-        struct timespec twork, tsleep;
+        double cpu_usage, work_time_ns, sleep_time_ns, time_slot;
+        struct timespec work_time, sleep_time;
 
-        /* Update the process group, including checking for dead processes */
-        update_process_group(&pgroup);
+        /* Update process group status and remove terminated processes */
+        update_process_group(&proc_group);
 
-        /* Exit if no more processes are running */
-        if (is_empty_list(pgroup.proclist))
+        /* Exit if no more target processes are running */
+        if (is_empty_list(proc_group.proclist))
         {
             if (verbose)
             {
@@ -176,24 +176,24 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
         }
 
         /* Estimate CPU usage of all processes in the group */
-        cpu_usage = get_process_group_cpu_usage(&pgroup);
+        cpu_usage = get_process_group_cpu_usage(&proc_group);
         /* If CPU usage cannot be estimated, set it to the limit */
         cpu_usage = cpu_usage < 0 ? limit : cpu_usage;
 
-        /* Adjust workingrate based on CPU usage and limit */
-        workingrate = workingrate * limit / MAX(cpu_usage, EPSILON);
-        /* Clamp workingrate to the valid range (0, 1) */
-        workingrate = CLAMP(workingrate, EPSILON, 1 - EPSILON);
+        /* Adjust work ratio based on current CPU usage vs. limit */
+        work_ratio = work_ratio * limit / MAX(cpu_usage, EPSILON);
+        /* Clamp work ratio to valid range (0, 1) */
+        work_ratio = CLAMP(work_ratio, EPSILON, 1 - EPSILON);
 
-        /* Get the dynamic time slot */
+        /* Get the dynamic time slot duration */
         time_slot = get_dynamic_time_slot();
 
         /* Calculate work and sleep times in nanoseconds */
-        twork_nsec = time_slot * 1000 * workingrate;
-        nsec2timespec(twork_nsec, &twork);
+        work_time_ns = time_slot * 1000 * work_ratio;
+        nsec2timespec(work_time_ns, &work_time);
 
-        tsleep_nsec = time_slot * 1000 - twork_nsec;
-        nsec2timespec(tsleep_nsec, &tsleep);
+        sleep_time_ns = time_slot * 1000 - work_time_ns;
+        nsec2timespec(sleep_time_ns, &sleep_time);
 
         if (verbose)
         {
@@ -207,44 +207,49 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
                            "sleep quantum", "active rate");
                 }
                 printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n",
-                       cpu_usage * 100, twork_nsec / 1000,
-                       tsleep_nsec / 1000, workingrate * 100);
+                       cpu_usage * 100, work_time_ns / 1000,
+                       sleep_time_ns / 1000, work_ratio * 100);
             }
         }
 
-        if (twork.tv_nsec > 0 || twork.tv_sec > 0)
+        if (work_time.tv_nsec > 0 || work_time.tv_sec > 0)
         {
-            if (pg_sleeping)
+            if (is_suspended)
             {
-                /* Resume processes in the group */
-                send_signal_to_processes(&pgroup, SIGCONT, verbose);
-                pg_sleeping = 0;
+                /* Resume suspended processes */
+                send_signal_to_processes(&proc_group, SIGCONT, verbose);
+                is_suspended = 0;
             }
-            /* Allow processes to run during the work slice */
-            sleep_timespec(&twork);
+            /* Allow processes to run during work interval */
+            sleep_timespec(&work_time);
         }
 
-        if (tsleep.tv_nsec > 0 || tsleep.tv_sec > 0)
+        if (is_quit_flag_set())
         {
-            if (!pg_sleeping)
+            break;
+        }
+
+        if (sleep_time.tv_nsec > 0 || sleep_time.tv_sec > 0)
+        {
+            if (!is_suspended)
             {
-                /* Stop processes during the sleep slice if needed */
-                send_signal_to_processes(&pgroup, SIGSTOP, verbose);
-                pg_sleeping = 1;
+                /* Suspend processes during sleep interval */
+                send_signal_to_processes(&proc_group, SIGSTOP, verbose);
+                is_suspended = 1;
             }
-            /* Allow the processes to sleep during the sleep slice */
-            sleep_timespec(&tsleep);
+            /* Wait during sleep interval */
+            sleep_timespec(&sleep_time);
         }
 
         cycle_counter = (cycle_counter + 1) % 200;
     }
 
-    /* If the quit_flag is set, resume all processes before exiting */
-    if (is_quit_flag_set() && pg_sleeping)
+    /* If quit_flag is set, resume suspended processes before exiting */
+    if (is_quit_flag_set() && is_suspended)
     {
-        send_signal_to_processes(&pgroup, SIGCONT, 0);
+        send_signal_to_processes(&proc_group, SIGCONT, 0);
     }
 
-    /* Clean up the process group */
-    close_process_group(&pgroup);
+    /* Clean up process group resources */
+    close_process_group(&proc_group);
 }
