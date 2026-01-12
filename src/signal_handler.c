@@ -62,7 +62,8 @@ static void sig_handler(int sig)
  * @brief Configure signal handlers for graceful termination
  * @note This function sets up signal handlers for termination signals
  *       (SIGINT, SIGTERM, SIGHUP, SIGQUIT) to allow the program to
- *       exit gracefully.
+ *       exit gracefully. The handler blocks all other signals to avoid
+ *       reentrancy issues.
  */
 void configure_signal_handlers(void)
 {
@@ -78,7 +79,8 @@ void configure_signal_handlers(void)
     const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
     /* Initialize and configure sigaction structure */
-    sigemptyset(&sa.sa_mask);    /* Block no extra signals in handler */
+    /* Block all signals during handler execution to avoid reentrancy issues */
+    sigfillset(&sa.sa_mask);
     sa.sa_handler = sig_handler; /* Use unified signal handler */
     sa.sa_flags = SA_RESTART;    /* Restart interrupted system calls */
 

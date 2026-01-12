@@ -30,7 +30,8 @@
  * @brief Configure signal handlers for graceful termination
  * @note This function sets up signal handlers for termination signals
  *       (SIGINT, SIGTERM, SIGHUP, SIGQUIT) to allow the program to
- *       exit gracefully.
+ *       exit gracefully. The handler blocks all other signals to avoid
+ *       reentrancy issues.
  */
 void configure_signal_handlers(void);
 
