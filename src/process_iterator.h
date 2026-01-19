@@ -28,16 +28,26 @@
 
 #include <limits.h>
 #include <sys/types.h>
-#ifdef __linux__
+#if defined(__linux__)
 #include <dirent.h>
-#endif
-#ifdef __FreeBSD__
+#elif defined(__FreeBSD__)
 #include <kvm.h>
+#include <sys/param.h>
+#elif defined(__APPLE__)
+#include <libproc.h>
 #endif
 
+/* CMD_BUFF_SIZE */
+#if defined(__linux__)
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
+#define CMD_BUFF_SIZE PATH_MAX
+#elif defined(__FreeBSD__)
+#define CMD_BUFF_SIZE MAXPATHLEN
+#elif defined(__APPLE__)
+#define CMD_BUFF_SIZE PROC_PIDPATHINFO_MAXSIZE
+#endif /* CMD_BUFF_SIZE */
 
 /**
  * @struct process
@@ -54,7 +64,7 @@ struct process
     /** Actual CPU usage estimation (value in range 0-NCPU) */
     double cpu_usage;
     /** Absolute path of the executable file */
-    char command[PATH_MAX];
+    char command[CMD_BUFF_SIZE];
 };
 
 /**

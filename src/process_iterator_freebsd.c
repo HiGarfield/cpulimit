@@ -34,6 +34,7 @@
 
 #include <fcntl.h>
 #include <kvm.h>
+#include <limits.h>
 #include <paths.h>
 #include <stddef.h>
 #include <stdio.h>

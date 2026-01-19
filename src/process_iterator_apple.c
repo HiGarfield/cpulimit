@@ -158,6 +158,7 @@ static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
     {
         return -1;
     }
+    process->command[sizeof(process->command) - 1] = '\0';
     return 0;
 }
 
