@@ -12,7 +12,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  create-release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      release_version: ${{ steps.version.outputs.release_version }}
+    steps:
+      - uses: actions/checkout@main
+
+      - id: version
+        shell: bash
+        run: |
+          v=$(TZ=Asia/Shanghai git log -1 --format="%cd" --date=format-local:'%Y%m%d%H%M')
+          echo "release_version=$v" >> $GITHUB_OUTPUT
+
+      - uses: HiGarfield/action-gh-release@master
+        with:
+          tag_name: ${{ steps.version.outputs.release_version }}
+          make_latest: true
+
+  build-Linux-macOS:
+    needs: [ create-release ]
     name: Build on ${{ matrix.os }}
     permissions:
       contents: write
@@ -50,41 +71,24 @@ jobs:
             export CFLAGS="$CFLAGS -m32"
           fi
           make CHECK=1
-          random_folder="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
+          random_folder="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
           mkdir -p "./tests/${random_folder}"
-          random_file="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
+          random_file="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
           random_path="./tests/${random_folder}/${random_file}"
           cp -f ./tests/cpulimit_test "${random_path}"
           echo "${random_path}"
           sudo "${random_path}"
-
-      - name: Get Timestamp
-        id: timestamp
-        run: |
-          export TZ=Asia/Shanghai
-          TIMESTAMP=$(git log -1 --format="%cd" --date=format-local:'%Y%m%d%H%M')
-          echo "Release version: $TIMESTAMP"
-          echo "RELEASE_VERSION=$TIMESTAMP" >> $GITHUB_ENV
+          cp -f ./src/cpulimit ./src/cpulimit-${{ matrix.os }}
 
       - name: Upload binaries to release
-        uses: HiGarfield/upload-release-action@master
+        uses: HiGarfield/action-gh-release@master
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: src/cpulimit
-          asset_name: cpulimit-${{ matrix.os }}
-          tag: ${{ env.RELEASE_VERSION }}
-          overwrite: true
-
-      - name: Remove old releases
-        uses: HiGarfield/delete-older-releases@master
-        continue-on-error: true
-        with:
-          keep_latest: 1
-          delete_tags: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ needs.create-release.outputs.release_version }}
+          files: src/cpulimit-${{ matrix.os }}
+          overwrite_files: true
 
   build-FreeBSD:
+    needs: [ create-release ]
     name: Build on FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
     permissions:
       contents: write
@@ -92,7 +96,7 @@ jobs:
       matrix:
         osver: ['13.5', '14.3']
         arch: ['x86_64', 'aarch64']
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -117,36 +121,39 @@ jobs:
             gmake CHECK=1 CC=clang++
             gmake clean
             gmake CHECK=1
-            random_folder="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
+            random_folder="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
             mkdir -p "./tests/${random_folder}"
-            random_file="$(mktemp $(printf 'X%.0s' $(seq 1 255)))"
+            random_file="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
             random_path="./tests/${random_folder}/${random_file}"
             cp -f ./tests/cpulimit_test "${random_path}"
             echo "${random_path}"
             sudo "${random_path}"
 
-      - name: Get Timestamp
-        id: timestamp
-        run: |
-          export TZ=Asia/Shanghai
-          TIMESTAMP=$(git log -1 --format="%cd" --date=format-local:'%Y%m%d%H%M')
-          echo "Release version: $TIMESTAMP"
-          echo "RELEASE_VERSION=$TIMESTAMP" >> $GITHUB_ENV
+            cp -f ./src/cpulimit ./src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
 
       - name: Upload binaries to release
-        uses: HiGarfield/upload-release-action@master
+        uses: HiGarfield/action-gh-release@master
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: src/cpulimit
-          asset_name: cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
-          tag: ${{ env.RELEASE_VERSION }}
-          overwrite: true
+          tag_name: ${{ needs.create-release.outputs.release_version }}
+          files: src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
+          overwrite_files: true
 
-      - name: Remove old releases
-        uses: HiGarfield/delete-older-releases@master
+  cleanup-releases:
+    needs: [ build-Linux-macOS, build-FreeBSD ]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: HiGarfield/delete-release-action@master
         continue-on-error: true
         with:
-          keep_latest: 1
-          delete_tags: true
+          release-drop: true
+          release-keep-count: 0
+          release-drop-tag: true
+          pre-release-drop: true
+          pre-release-keep-count: -1
+          pre-release-drop-tag: true
+          draft-drop: true
+          draft-drop-count: -1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
