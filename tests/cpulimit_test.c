@@ -425,7 +425,7 @@ static void test_process_name(void)
     /* Compare command names */
     proc_name1 = file_basename(command);
     proc_name2 = file_basename(process->command);
-    cmp_result = strncmp(proc_name1, proc_name2, sizeof(process->command));
+    cmp_result = strcmp(proc_name1, proc_name2);
     assert(cmp_result == 0);
 
     /* Verify no more processes */

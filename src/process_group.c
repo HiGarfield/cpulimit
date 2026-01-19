@@ -112,7 +112,7 @@ pid_t find_process_by_name(const char *process_name)
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : file_basename(proc->command);
         /* Process found */
-        if (strncmp(cmd_cmp_name, process_cmp_name, sizeof(proc->command)) == 0)
+        if (strcmp(cmd_cmp_name, process_cmp_name) == 0)
         {
             /* Select the newest or child process if multiple matches found */
             if (pid < 0 || is_child_of(pid, proc->pid))
