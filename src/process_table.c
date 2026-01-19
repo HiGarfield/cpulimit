@@ -25,10 +25,10 @@
 
 #include "process_table.h"
 #include "list.h"
+#include "process_iterator.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 
 /**

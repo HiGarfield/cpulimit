@@ -26,6 +26,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <sys/param.h>
 #include <time.h>
 
 #ifndef MAX

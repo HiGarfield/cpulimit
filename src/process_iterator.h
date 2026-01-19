@@ -26,10 +26,10 @@
 #define _GNU_SOURCE
 #endif
 
-#include <limits.h>
 #include <sys/types.h>
 #if defined(__linux__)
 #include <dirent.h>
+#include <limits.h>
 #elif defined(__FreeBSD__)
 #include <kvm.h>
 #include <sys/param.h>
