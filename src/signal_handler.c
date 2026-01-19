@@ -42,8 +42,7 @@ static volatile sig_atomic_t limiter_quit_flag = 0;
  *       terminate gracefully. It handles SIGINT, SIGTERM, SIGHUP, and
  *       SIGQUIT signals.
  */
-static void sig_handler(int sig)
-{
+static void sig_handler(int sig) {
     int saved_errno = errno;
 
     /* Handle the Ctrl+C or Ctrl+\ issue */
@@ -65,8 +64,7 @@ static void sig_handler(int sig)
  *       exit gracefully. The handler blocks all other signals to avoid
  *       reentrancy issues.
  */
-void configure_signal_handlers(void)
-{
+void configure_signal_handlers(void) {
     struct sigaction sa;
     size_t i;
     /* Signals that trigger application termination */
@@ -85,10 +83,8 @@ void configure_signal_handlers(void)
     sa.sa_flags = SA_RESTART;    /* Restart interrupted system calls */
 
     /* Register handler for each termination signal */
-    for (i = 0; i < num_sigs; i++)
-    {
-        if (sigaction(term_sigs[i], &sa, NULL) != 0)
-        {
+    for (i = 0; i < num_sigs; i++) {
+        if (sigaction(term_sigs[i], &sa, NULL) != 0) {
             perror("Failed to set signal handler");
             exit(EXIT_FAILURE);
         }
@@ -99,7 +95,6 @@ void configure_signal_handlers(void)
  * @brief Check if the quit flag is set
  * @return 1 if the quit flag is set, 0 otherwise
  */
-int is_quit_flag_set(void)
-{
+int is_quit_flag_set(void) {
     return !!limiter_quit_flag;
 }

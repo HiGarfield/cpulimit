@@ -53,19 +53,16 @@
  *       waits an additional 5 seconds. If processes are not reaped after
  *       5 + 5 seconds, function exits.
  */
-static void kill_and_wait(pid_t pid, int kill_signal)
-{
+static void kill_and_wait(pid_t pid, int kill_signal) {
     struct timespec now, end_time;
     const struct timespec sleep_time = {0, 10000000L}; /* 10 ms */
 
-    switch (kill_signal)
-    {
+    switch (kill_signal) {
     case SIGKILL:
     case SIGTERM:
         break;
     default:
-        fprintf(stderr,
-                "Invalid signal %d for kill_and_wait\n", kill_signal);
+        fprintf(stderr, "Invalid signal %d for kill_and_wait\n", kill_signal);
         return;
     }
 
@@ -75,45 +72,33 @@ static void kill_and_wait(pid_t pid, int kill_signal)
 
     kill(pid, kill_signal); /* Send initial signal */
 
-    while (1)
-    {
+    while (1) {
         pid_t wpid = waitpid(pid, NULL, WNOHANG);
 
-        if (wpid > 0)
-        { /* Process terminated */
+        if (wpid > 0) { /* Process terminated */
             /* Single process: exit after cleanup */
             /* Process group: continue to next member */
-            if (pid > 0)
-            {
+            if (pid > 0) {
                 break;
             }
-        }
-        else if (wpid == -1)
-        { /* Waitpid error */
-            if (errno != EINTR)
-            {
+        } else if (wpid == -1) { /* Waitpid error */
+            if (errno != EINTR) {
                 break; /* Non-interrupt error */
             }
-        }
-        else
-        { /* wpid == 0: process still running */
+        } else { /* wpid == 0: process still running */
             /* Check timeout */
             get_current_time(&now);
             if (now.tv_sec > end_time.tv_sec ||
                 (now.tv_sec == end_time.tv_sec &&
-                 now.tv_nsec >= end_time.tv_nsec))
-            {
-                if (kill_signal == SIGTERM)
-                {
+                 now.tv_nsec >= end_time.tv_nsec)) {
+                if (kill_signal == SIGTERM) {
                     /* SIGTERM timeout: escalate to SIGKILL */
                     kill(pid, SIGKILL);
                     kill_signal = SIGKILL;
                     /* Reset timeout for SIGKILL (5 seconds) */
                     get_current_time(&end_time);
                     end_time.tv_sec += 5;
-                }
-                else
-                {
+                } else {
                     break; /* SIGKILL timeout: stop waiting */
                 }
             }
@@ -123,8 +108,7 @@ static void kill_and_wait(pid_t pid, int kill_signal)
     }
 
     /* Final cleanup: reap all remaining zombies */
-    while (waitpid(pid, NULL, WNOHANG) > 0)
-    {
+    while (waitpid(pid, NULL, WNOHANG) > 0) {
         /* Keep reaping until none left */
     }
 }
@@ -134,16 +118,14 @@ static void kill_and_wait(pid_t pid, int kill_signal)
  * @note Tests that the process iterator can retrieve the current process
  *       information correctly, both with and without child processes
  */
-static void test_single_process(void)
-{
+static void test_single_process(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
     int count;
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
-    {
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -156,8 +138,7 @@ static void test_single_process(void)
 
     /* Initialize iterator and iterate through processes */
     assert(init_process_iterator(&it, &filter) == 0);
-    while (get_next_process(&it, process) == 0)
-    {
+    while (get_next_process(&it, process) == 0) {
         assert(process->pid == getpid());
         assert(process->ppid == getppid());
         assert(process->cputime >= 0);
@@ -173,8 +154,7 @@ static void test_single_process(void)
     count = 0;
 
     assert(init_process_iterator(&it, &filter) == 0);
-    while (get_next_process(&it, process) == 0)
-    {
+    while (get_next_process(&it, process) == 0) {
         assert(process->pid == getpid());
         assert(process->ppid == getppid());
         assert(process->cputime >= 0);
@@ -190,8 +170,7 @@ static void test_single_process(void)
  * @note Creates a child process and verifies that the iterator can
  *       retrieve both parent and child process information
  */
-static void test_multiple_process(void)
-{
+static void test_multiple_process(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
@@ -201,19 +180,16 @@ static void test_multiple_process(void)
     pid_t child_pid = fork();
     assert(child_pid >= 0);
 
-    if (child_pid == 0)
-    {
+    if (child_pid == 0) {
         /* Child process: sleep in a loop until killed */
         const struct timespec sleep_time = {5, 0L}; /* 5s */
-        while (1)
-        {
+        while (1) {
             sleep_timespec(&sleep_time);
         }
     }
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
-    {
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -225,18 +201,12 @@ static void test_multiple_process(void)
 
     /* Initialize iterator and verify both processes are found */
     assert(init_process_iterator(&it, &filter) == 0);
-    while (get_next_process(&it, process) == 0)
-    {
-        if (process->pid == getpid())
-        {
+    while (get_next_process(&it, process) == 0) {
+        if (process->pid == getpid()) {
             assert(process->ppid == getppid());
-        }
-        else if (process->pid == child_pid)
-        {
+        } else if (process->pid == child_pid) {
             assert(process->ppid == getpid());
-        }
-        else
-        {
+        } else {
             assert(0);
         }
         assert(process->cputime >= 0);
@@ -255,8 +225,7 @@ static void test_multiple_process(void)
  * @note Verifies that the iterator can retrieve at least 10 processes
  *       and that the current process is correctly identified
  */
-static void test_all_processes(void)
-{
+static void test_all_processes(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
@@ -268,8 +237,7 @@ static void test_all_processes(void)
     filter.read_cmd = 0;
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
-    {
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -277,10 +245,8 @@ static void test_all_processes(void)
     /* Initialize iterator and count processes */
     assert(init_process_iterator(&it, &filter) == 0);
 
-    while (get_next_process(&it, process) == 0)
-    {
-        if (process->pid == getpid())
-        {
+    while (get_next_process(&it, process) == 0) {
+        if (process->pid == getpid()) {
             assert(process->ppid == getppid());
             assert(process->cputime >= 0);
         }
@@ -298,8 +264,7 @@ static void test_all_processes(void)
  * @note Verifies that a process group initialized with PID 0 (all processes)
  *       contains at least 10 processes
  */
-static void test_process_group_all(void)
-{
+static void test_process_group_all(void) {
     struct process_group pgroup;
     const struct list_node *node = NULL;
     int count = 0;
@@ -309,8 +274,7 @@ static void test_process_group_all(void)
     update_process_group(&pgroup);
 
     /* Count processes in the group */
-    for (node = pgroup.proclist->first; node != NULL; node = node->next)
-    {
+    for (node = pgroup.proclist->first; node != NULL; node = node->next) {
         count++;
     }
     assert(count > 10);
@@ -327,8 +291,7 @@ static void test_process_group_all(void)
  * @note Creates a child process and verifies that the process group correctly
  *       tracks it, with or without child process inclusion
  */
-static void test_proc_group_single(int include_children)
-{
+static void test_proc_group_single(int include_children) {
     struct process_group pgroup;
     int i;
 
@@ -336,11 +299,9 @@ static void test_proc_group_single(int include_children)
     pid_t child_pid = fork();
     assert(child_pid >= 0);
 
-    if (child_pid == 0)
-    {
+    if (child_pid == 0) {
         /* Child process: busy loop until killed */
-        while (1)
-        {
+        while (1) {
             ;
         }
     }
@@ -349,16 +310,14 @@ static void test_proc_group_single(int include_children)
     assert(init_process_group(&pgroup, child_pid, include_children) == 0);
 
     /* Update process group 100 times and verify consistency */
-    for (i = 0; i < 100; i++)
-    {
+    for (i = 0; i < 100; i++) {
         const struct list_node *node = NULL;
         int count = 0;
 
         update_process_group(&pgroup);
         assert(get_list_count(pgroup.proclist) == 1);
 
-        for (node = pgroup.proclist->first; node != NULL; node = node->next)
-        {
+        for (node = pgroup.proclist->first; node != NULL; node = node->next) {
             const struct process *p = (const struct process *)node->data;
             assert(p->pid == child_pid);
             assert(p->ppid == getpid());
@@ -376,12 +335,12 @@ static void test_proc_group_single(int include_children)
 }
 
 /**
- * @brief Test process group with a single process (both with and without children)
+ * @brief Test process group with a single process (both with and without
+ * children)
  * @note Wrapper function to test process group with include_children set to
  *       0 and 1
  */
-static void test_process_group_single(void)
-{
+static void test_process_group_single(void) {
     /* Test without including children */
     test_proc_group_single(0);
 
@@ -396,8 +355,7 @@ static char *command = NULL;
  * @note Verifies that the process iterator can correctly retrieve the
  *       command name of the current process
  */
-static void test_process_name(void)
-{
+static void test_process_name(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
@@ -405,8 +363,7 @@ static void test_process_name(void)
     int cmp_result;
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
-    {
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -439,8 +396,7 @@ static void test_process_name(void)
  * @note Verifies that process group initialization with invalid PIDs
  *       (-1 and INT_MAX) results in empty process lists
  */
-static void test_process_group_wrong_pid(void)
-{
+static void test_process_group_wrong_pid(void) {
     struct process_group pgroup;
 
     /* Test with PID -1 */
@@ -462,8 +418,7 @@ static void test_process_group_wrong_pid(void)
  * @brief Test find_process_by_pid function
  * @note Verifies that the current process can be found by its PID
  */
-static void test_find_process_by_pid(void)
-{
+static void test_find_process_by_pid(void) {
     assert(find_process_by_pid(getpid()) == getpid());
 }
 
@@ -472,22 +427,20 @@ static void test_find_process_by_pid(void)
  * @note Tests various cases: correct process name, empty string,
  *       modified process names that should not match
  */
-static void test_find_process_by_name(void)
-{
+static void test_find_process_by_name(void) {
     char *wrong_name;
     size_t len;
 
     /* Allocate buffer for modified process names */
-    if ((wrong_name = (char *)malloc(PATH_MAX + 1)) == NULL)
-    {
+    if ((wrong_name = (char *)malloc(PATH_MAX + 1)) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
 
     /*
      * 'command' is the name of the current process (equivalent to argv[0]).
-     * Verify that the find_process_by_name function can find the current process
-     * (PID should match the return value of getpid()).
+     * Verify that the find_process_by_name function can find the current
+     * process (PID should match the return value of getpid()).
      */
     assert(find_process_by_name(command) == getpid());
 
@@ -525,8 +478,7 @@ static void test_find_process_by_name(void)
  * @note Verifies that getppid_of returns the correct parent PID for
  *       multiple processes, including the current process
  */
-static void test_getppid_of(void)
-{
+static void test_getppid_of(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
@@ -536,16 +488,14 @@ static void test_getppid_of(void)
     filter.read_cmd = 0;
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL)
-    {
+    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
 
     /* Iterate through all processes and verify parent PID */
     assert(init_process_iterator(&it, &filter) == 0);
-    while (get_next_process(&it, process) == 0)
-    {
+    while (get_next_process(&it, process) == 0) {
         assert(getppid_of(process->pid) == process->ppid);
     }
     free(process);
@@ -560,8 +510,7 @@ static void test_getppid_of(void)
  * @note Creates a process group with 4 processes and applies CPU limiting
  *       to verify that the CPU usage stays within the specified limit
  */
-static void test_limit_process(void)
-{
+static void test_limit_process(void) {
     const double cpu_usage_limit = 0.5;
     pid_t child_pid;
     int sync_pipe[2];
@@ -573,8 +522,7 @@ static void test_limit_process(void)
     child_pid = fork();
     assert(child_pid >= 0);
 
-    if (child_pid > 0)
-    {
+    if (child_pid > 0) {
         /* Parent process: monitor CPU usage */
         pid_t limiter_pid;
         ssize_t bytes_read, n = 1;
@@ -583,8 +531,7 @@ static void test_limit_process(void)
         assert(close(sync_pipe[1]) == 0);
 
         /* Wait for 4 acknowledgements (from 4 processes) */
-        for (bytes_read = 0; n != 0 && bytes_read < 4; bytes_read += n)
-        {
+        for (bytes_read = 0; n != 0 && bytes_read < 4; bytes_read += n) {
             n = read(sync_pipe[0], &ack, 1);
         }
         assert(close(sync_pipe[0]) == 0);
@@ -594,8 +541,7 @@ static void test_limit_process(void)
         limiter_pid = fork();
         assert(limiter_pid >= 0);
 
-        if (limiter_pid > 0)
-        {
+        if (limiter_pid > 0) {
             /* Monitor process: track CPU usage */
             int i, count = 0;
             double cpu_usage = 0;
@@ -606,8 +552,7 @@ static void test_limit_process(void)
             assert(init_process_group(&pgroup, child_pid, 1) == 0);
 
             /* Monitor CPU usage over 60 iterations */
-            for (i = 0; i < 60; i++)
-            {
+            for (i = 0; i < 60; i++) {
                 double temp_cpu_usage;
                 sleep_timespec(&sleep_time);
                 update_process_group(&pgroup);
@@ -616,8 +561,7 @@ static void test_limit_process(void)
                 assert(get_list_count(pgroup.proclist) == 4);
 
                 temp_cpu_usage = get_process_group_cpu_usage(&pgroup);
-                if (temp_cpu_usage > 0)
-                {
+                if (temp_cpu_usage > 0) {
                     cpu_usage += temp_cpu_usage;
                     count++;
                 }
@@ -633,8 +577,8 @@ static void test_limit_process(void)
 
             /* Calculate and display average CPU usage */
             cpu_usage /= count;
-            printf("CPU usage limit: %.3f, CPU usage: %.3f\n",
-                   cpu_usage_limit, cpu_usage);
+            printf("CPU usage limit: %.3f, CPU usage: %.3f\n", cpu_usage_limit,
+                   cpu_usage);
 
             /* Verify CPU usage */
             assert(cpu_usage <= get_ncpu());
@@ -644,9 +588,7 @@ static void test_limit_process(void)
         /* limiter_pid == 0: CPU limiter process */
         limit_process(child_pid, cpu_usage_limit, 1, 0);
         exit(EXIT_SUCCESS);
-    }
-    else
-    {
+    } else {
         /* child_pid == 0: Target process group */
 
         /* Create new process group */
@@ -663,8 +605,7 @@ static void test_limit_process(void)
         assert(close(sync_pipe[1]) == 0);
 
         /* Keep processes running until terminated */
-        while (1)
-        {
+        while (1) {
             ;
         }
     }
@@ -674,12 +615,11 @@ static void test_limit_process(void)
  *  @brief Macro to run a test function and print its status
  *  @param test_func Name of the test function to run
  */
-#define RUN_TEST(test_func)                      \
-    do                                           \
-    {                                            \
-        printf("Running %s()...\n", #test_func); \
-        test_func();                             \
-        printf("%s() passed.\n", #test_func);    \
+#define RUN_TEST(test_func)                                                    \
+    do {                                                                       \
+        printf("Running %s()...\n", #test_func);                               \
+        test_func();                                                           \
+        printf("%s() passed.\n", #test_func);                                  \
     } while (0)
 
 /**
@@ -690,8 +630,7 @@ static void test_limit_process(void)
  * @note Runs all test functions and prints their results. Ignores SIGINT
  *       and SIGTERM during testing to prevent interruption.
  */
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     assert(argc >= 1);
     command = argv[0];
 

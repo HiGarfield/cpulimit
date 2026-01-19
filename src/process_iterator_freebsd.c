@@ -28,7 +28,8 @@
 #define _GNU_SOURCE
 #endif
 
-#if defined(__STRICT_ANSI__) || !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 199901L)
+#if defined(__STRICT_ANSI__) || !defined(__STDC_VERSION__) ||                  \
+    (__STDC_VERSION__ < 199901L)
 #define inline __inline
 #endif
 
@@ -54,30 +55,27 @@
  * @return 0 on success, exits with error on failure
  */
 int init_process_iterator(struct process_iterator *it,
-                          const struct process_filter *filter)
-{
+                          const struct process_filter *filter) {
     const struct kinfo_proc *procs;
     char *errbuf;
 
     it->filter = filter;
 
-    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL)
-    {
+    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);
     }
 
     /* Open the kvm interface, get a descriptor */
-    if ((it->kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf)) == NULL)
-    {
+    if ((it->kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf)) ==
+        NULL) {
         fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
         free(errbuf);
         return -1;
     }
     free(errbuf);
 
-    if (it->filter->pid != 0 && !it->filter->include_children)
-    {
+    if (it->filter->pid != 0 && !it->filter->include_children) {
         /* In this case, it->procs is never used */
         it->procs = NULL;
         it->i = -1;
@@ -86,13 +84,12 @@ int init_process_iterator(struct process_iterator *it,
     }
 
     /* Get the list of processes. */
-    if ((procs = kvm_getprocs(it->kd, KERN_PROC_PROC, 0, &it->count)) == NULL)
-    {
+    if ((procs = kvm_getprocs(it->kd, KERN_PROC_PROC, 0, &it->count)) == NULL) {
         kvm_close(it->kd);
         return -1;
     }
-    if ((it->procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) * (size_t)it->count)) == NULL)
-    {
+    if ((it->procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
+                                                 (size_t)it->count)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         exit(EXIT_FAILURE);
     }
@@ -110,26 +107,22 @@ int init_process_iterator(struct process_iterator *it,
  * @return 0 on success, -1 on failure
  */
 static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
-                      int read_cmd)
-{
+                      int read_cmd) {
     char **args;
     size_t len_max;
-    if (kproc == NULL || proc == NULL)
-    {
+    if (kproc == NULL || proc == NULL) {
         return -1;
     }
     memset(proc, 0, sizeof(struct process));
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;
     proc->cputime = (double)kproc->ki_runtime / 1000.0;
-    if (!read_cmd)
-    {
+    if (!read_cmd) {
         return 0;
     }
     len_max = sizeof(proc->command) - 1;
     args = kvm_getargv(kd, kproc, (int)len_max);
-    if (args == NULL || args[0] == NULL)
-    {
+    if (args == NULL || args[0] == NULL) {
         return -1;
     }
     strncpy(proc->command, args[0], len_max);
@@ -146,13 +139,11 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
  * @return 0 on success, -1 on failure
  */
 static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
-                              int read_cmd)
-{
+                              int read_cmd) {
     int count;
     struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
     if (count == 0 || kproc == NULL ||
-        kproc2proc(kd, kproc, process, read_cmd) != 0)
-    {
+        kproc2proc(kd, kproc, process, read_cmd) != 0) {
         return -1;
     }
     return 0;
@@ -164,8 +155,7 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
  * @param pid Process ID to query
  * @return Parent process ID, or -1 on error
  */
-static pid_t _getppid_of(kvm_t *kd, pid_t pid)
-{
+static pid_t _getppid_of(kvm_t *kd, pid_t pid) {
     int count;
     struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
     return (count == 0 || kproc == NULL) ? (pid_t)(-1) : kproc->ki_ppid;
@@ -176,19 +166,16 @@ static pid_t _getppid_of(kvm_t *kd, pid_t pid)
  * @param pid The given PID
  * @return Parent process ID, or -1 on error
  */
-pid_t getppid_of(pid_t pid)
-{
+pid_t getppid_of(pid_t pid) {
     pid_t ppid;
     kvm_t *kd;
     char *errbuf;
-    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL)
-    {
+    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);
     }
     kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
-    if (kd == NULL)
-    {
+    if (kd == NULL) {
         fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
         free(errbuf);
         return (pid_t)(-1);
@@ -206,15 +193,12 @@ pid_t getppid_of(pid_t pid)
  * @param parent_pid Potential parent process ID
  * @return 1 if child_pid is a child of parent_pid, 0 otherwise
  */
-static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid)
-{
-    if (child_pid <= 0 || parent_pid <= 0 || child_pid == parent_pid)
-    {
+static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
+    if (child_pid <= 0 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
     /* Traverse parent chain to check ancestry */
-    while (child_pid > 1 && child_pid != parent_pid)
-    {
+    while (child_pid > 1 && child_pid != parent_pid) {
         child_pid = _getppid_of(kd, child_pid);
     }
     return child_pid == parent_pid;
@@ -226,19 +210,16 @@ static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid)
  * @param parent_pid Potential parent process ID
  * @return 1 if child_pid is a child of parent_pid, 0 otherwise
  */
-int is_child_of(pid_t child_pid, pid_t parent_pid)
-{
+int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret;
     kvm_t *kd;
     char *errbuf;
-    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL)
-    {
+    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);
     }
     kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
-    if (kd == NULL)
-    {
+    if (kd == NULL) {
         fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
         exit(EXIT_FAILURE);
     }
@@ -254,24 +235,19 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
  * @param p Pointer to the process structure to store process information
  * @return 0 on success, -1 if no more processes are available
  */
-int get_next_process(struct process_iterator *it, struct process *p)
-{
-    if (it == NULL || p == NULL)
-    {
+int get_next_process(struct process_iterator *it, struct process *p) {
+    if (it == NULL || p == NULL) {
         return -1;
     }
 
-    if (it->i >= it->count)
-    {
+    if (it->i >= it->count) {
         return -1;
     }
 
     /* Single PID without children */
-    if (it->filter->pid != 0 && !it->filter->include_children)
-    {
+    if (it->filter->pid != 0 && !it->filter->include_children) {
         if (get_single_process(it->kd, it->filter->pid, p,
-                               it->filter->read_cmd) != 0)
-        {
+                               it->filter->read_cmd) != 0) {
             it->i = it->count = 0;
             return -1;
         }
@@ -279,12 +255,10 @@ int get_next_process(struct process_iterator *it, struct process *p)
         return 0;
     }
 
-    while (it->i < it->count)
-    {
+    while (it->i < it->count) {
         struct kinfo_proc *kproc = &it->procs[it->i++];
         /* Skip system and zombie processes */
-        if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB))
-        {
+        if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
             continue;
         }
         /*
@@ -293,16 +267,14 @@ int get_next_process(struct process_iterator *it, struct process *p)
          */
         if (it->filter->pid != 0 && it->filter->include_children &&
             kproc->ki_pid != it->filter->pid &&
-            !_is_child_of(it->kd, kproc->ki_pid, it->filter->pid))
-        {
+            !_is_child_of(it->kd, kproc->ki_pid, it->filter->pid)) {
             continue;
         }
 
         /*
          * Now do the expensive conversion only if needed
          */
-        if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0)
-        {
+        if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0) {
             continue;
         }
 
@@ -317,15 +289,12 @@ int get_next_process(struct process_iterator *it, struct process *p)
  * @param it Pointer to the process_iterator structure
  * @return 0 on success, -1 on failure
  */
-int close_process_iterator(struct process_iterator *it)
-{
-    if (it->procs != NULL)
-    {
+int close_process_iterator(struct process_iterator *it) {
+    if (it->procs != NULL) {
         free(it->procs);
         it->procs = NULL;
     }
-    if (kvm_close(it->kd) != 0)
-    {
+    if (kvm_close(it->kd) != 0) {
         perror("kvm_close");
         return -1;
     }

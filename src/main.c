@@ -27,8 +27,7 @@
 #include "limiter.h"
 #include "signal_handler.h"
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     /* Configuration structure for CPU limiting */
     struct cpulimitcfg cfg;
 
@@ -39,13 +38,10 @@ int main(int argc, char *argv[])
     configure_signal_handlers();
 
     /* Determine execution mode based on configuration */
-    if (cfg.command_mode)
-    {
+    if (cfg.command_mode) {
         /* Run in command execution mode */
         run_command_mode(&cfg);
-    }
-    else
-    {
+    } else {
         /* Run in PID or executable name search mode */
         run_pid_or_exe_mode(&cfg);
     }

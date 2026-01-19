@@ -32,8 +32,7 @@
  * @struct list_node
  * @brief Structure representing a node in a doubly linked list
  */
-struct list_node
-{
+struct list_node {
     /** Pointer to the data content of the node */
     void *data;
     /** Pointer to the previous node in the list */
@@ -46,8 +45,7 @@ struct list_node
  * @struct list
  * @brief Structure representing a doubly linked list
  */
-struct list
-{
+struct list {
     /** Pointer to the first node in the list */
     struct list_node *first;
     /** Pointer to the last node in the list */

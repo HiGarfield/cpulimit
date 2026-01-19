@@ -33,8 +33,7 @@
  * @struct process_table
  * @brief Structure representing a hash table for process storage
  */
-struct process_table
-{
+struct process_table {
     /** Array of pointers to linked lists for storing processes */
     struct list **table;
     /** Size of the hash table for the process table */

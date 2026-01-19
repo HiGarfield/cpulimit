@@ -55,25 +55,23 @@
  * @note This function adapts the time slot based on system load to
  *       optimize responsiveness under varying system conditions.
  */
-static double get_dynamic_time_slot(void)
-{
+static double get_dynamic_time_slot(void) {
     static double time_slot = TIME_SLOT;
-    static const double MIN_TIME_SLOT = TIME_SLOT, /* Minimum allowed time slot */
-        MAX_TIME_SLOT = TIME_SLOT * 5;             /* Maximum allowed time slot */
+    static const double MIN_TIME_SLOT =
+                            TIME_SLOT, /* Minimum allowed time slot */
+        MAX_TIME_SLOT = TIME_SLOT * 5; /* Maximum allowed time slot */
     static struct timespec last_update = {0, 0};
     struct timespec now;
     double load, new_time_slot;
 
     /* Skip updates if the last check was less than 1000 ms ago */
     if (get_current_time(&now) == 0 &&
-        timediff_in_ms(&now, &last_update) < 1000.0)
-    {
+        timediff_in_ms(&now, &last_update) < 1000.0) {
         return time_slot;
     }
 
     /* Get the system load average */
-    if (getloadavg(&load, 1) != 1)
-    {
+    if (getloadavg(&load, 1) != 1) {
         return time_slot;
     }
 
@@ -95,18 +93,14 @@ static double get_dynamic_time_slot(void)
  * @param sig Signal to send to each process
  * @param verbose Verbose output flag
  */
-static void send_signal_to_processes(struct process_group *procgroup,
-                                     int sig, int verbose)
-{
+static void send_signal_to_processes(struct process_group *procgroup, int sig,
+                                     int verbose) {
     struct list_node *node = first_node(procgroup->proclist);
-    while (node != NULL)
-    {
+    while (node != NULL) {
         struct list_node *next_node = node->next;
         pid_t pid = ((struct process *)node->data)->pid;
-        if (kill(pid, sig) != 0)
-        {
-            if (verbose && errno != ESRCH)
-            {
+        if (kill(pid, sig) != 0) {
+            if (verbose && errno != ESRCH) {
                 fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
                         sig, (long)pid, strerror(errno));
             }
@@ -127,8 +121,7 @@ static void send_signal_to_processes(struct process_group *procgroup,
  *       alternates between letting the target process run and stopping
  *       it to enforce the CPU usage limit.
  */
-void limit_process(pid_t pid, double limit, int include_children, int verbose)
-{
+void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     /* Process group to manage */
     struct process_group proc_group;
     /* Cycle counter for periodic verbose output */
@@ -142,23 +135,20 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
     increase_priority();
 
     /* Initialize the process group (including children if needed) */
-    if (init_process_group(&proc_group, pid, include_children) != 0)
-    {
+    if (init_process_group(&proc_group, pid, include_children) != 0) {
         fprintf(stderr, "Failed to initialize process group for PID %ld\n",
                 (long)pid);
         exit(EXIT_FAILURE);
     }
 
-    if (verbose)
-    {
+    if (verbose) {
         printf("Process group of PID %ld: %lu member(s)\n",
                (long)proc_group.target_pid,
                (unsigned long)get_list_count(proc_group.proclist));
     }
 
     /* Main control loop until quit_flag is set */
-    while (!is_quit_flag_set())
-    {
+    while (!is_quit_flag_set()) {
         double cpu_usage, work_time_ns, sleep_time_ns, time_slot;
         struct timespec work_time, sleep_time;
 
@@ -166,10 +156,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
         update_process_group(&proc_group);
 
         /* Exit if no more target processes are running */
-        if (is_empty_list(proc_group.proclist))
-        {
-            if (verbose)
-            {
+        if (is_empty_list(proc_group.proclist)) {
+            if (verbose) {
                 printf("No running target process found.\n");
             }
             break;
@@ -195,27 +183,21 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
         sleep_time_ns = time_slot * 1000 - work_time_ns;
         nsec2timespec(sleep_time_ns, &sleep_time);
 
-        if (verbose)
-        {
+        if (verbose) {
             /* Print CPU usage statistics every 10 cycles */
-            if (cycle_counter % 10 == 0)
-            {
-                if (cycle_counter % 200 == 0)
-                {
-                    printf("\n%9s%16s%16s%14s\n",
-                           "%CPU", "work quantum",
+            if (cycle_counter % 10 == 0) {
+                if (cycle_counter % 200 == 0) {
+                    printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum",
                            "sleep quantum", "active rate");
                 }
-                printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n",
-                       cpu_usage * 100, work_time_ns / 1000,
-                       sleep_time_ns / 1000, work_ratio * 100);
+                printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n", cpu_usage * 100,
+                       work_time_ns / 1000, sleep_time_ns / 1000,
+                       work_ratio * 100);
             }
         }
 
-        if (work_time.tv_nsec > 0 || work_time.tv_sec > 0)
-        {
-            if (is_suspended)
-            {
+        if (work_time.tv_nsec > 0 || work_time.tv_sec > 0) {
+            if (is_suspended) {
                 /* Resume suspended processes */
                 send_signal_to_processes(&proc_group, SIGCONT, verbose);
                 is_suspended = 0;
@@ -224,15 +206,12 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
             sleep_timespec(&work_time);
         }
 
-        if (is_quit_flag_set())
-        {
+        if (is_quit_flag_set()) {
             break;
         }
 
-        if (sleep_time.tv_nsec > 0 || sleep_time.tv_sec > 0)
-        {
-            if (!is_suspended)
-            {
+        if (sleep_time.tv_nsec > 0 || sleep_time.tv_sec > 0) {
+            if (!is_suspended) {
                 /* Suspend processes during sleep interval */
                 send_signal_to_processes(&proc_group, SIGSTOP, verbose);
                 is_suspended = 1;
@@ -245,8 +224,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose)
     }
 
     /* If quit_flag is set, resume suspended processes before exiting */
-    if (is_quit_flag_set() && is_suspended)
-    {
+    if (is_quit_flag_set() && is_suspended) {
         send_signal_to_processes(&proc_group, SIGCONT, 0);
     }
 

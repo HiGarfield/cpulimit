@@ -48,19 +48,16 @@
  * @return 0 on success, -1 on failure
  */
 int init_process_iterator(struct process_iterator *it,
-                          const struct process_filter *filter)
-{
+                          const struct process_filter *filter) {
     it->filter = filter;
     it->end_of_processes = 0;
-    if (it->filter->pid != 0 && !it->filter->include_children)
-    {
+    if (it->filter->pid != 0 && !it->filter->include_children) {
         /* In this case, it->dip is never used */
         it->dip = NULL;
         return 0;
     }
     /* Open a directory stream to /proc directory */
-    if ((it->dip = opendir("/proc")) == NULL)
-    {
+    if ((it->dip = opendir("/proc")) == NULL) {
         perror("opendir");
         return -1;
     }
@@ -74,8 +71,7 @@ int init_process_iterator(struct process_iterator *it,
  * @param read_cmd Flag indicating whether to read command line
  * @return 0 on success, -1 on failure
  */
-static int read_process_info(pid_t pid, struct process *p, int read_cmd)
-{
+static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     char statfile[64], exefile[64], state;
     const size_t buff_size = 2048;
     ssize_t nread;
@@ -99,50 +95,44 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     {
         return -1;
     }
-    if ((buffer = (char *)malloc(buff_size)) == NULL)
-    {
+    if ((buffer = (char *)malloc(buff_size)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the buffer\n");
         close(fd);
         exit(EXIT_FAILURE);
     }
     nread = read(fd, buffer, buff_size - 1);
     close(fd);
-    if (nread <= 0)
-    {
+    if (nread <= 0) {
         free(buffer);
         return -1;
     }
     buffer[nread] = '\0';
     ptr_start = strrchr(buffer, ')');
-    if (ptr_start == NULL)
-    {
+    if (ptr_start == NULL) {
         free(buffer);
         return -1;
     }
-    if (sscanf(ptr_start, ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
-               &state, &ppid, &usertime, &systime) != 4 ||
-        !isalpha(state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0 || usertime < 0 || systime < 0)
-    {
+    if (sscanf(ptr_start,
+               ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf", &state,
+               &ppid, &usertime, &systime) != 4 ||
+        !isalpha(state) || strchr("ZXx", state) != NULL || ppid <= 0 ||
+        usertime < 0 || systime < 0) {
         free(buffer);
         return -1;
     }
     free(buffer);
     p->ppid = (pid_t)ppid;
-    if (sc_clk_tck < 0)
-    {
+    if (sc_clk_tck < 0) {
         sc_clk_tck = sysconf(_SC_CLK_TCK);
         /* Check sysconf result */
-        if (sc_clk_tck <= 0)
-        {
+        if (sc_clk_tck <= 0) {
             fprintf(stderr, "sysconf(_SC_CLK_TCK) failed\n");
             exit(EXIT_FAILURE);
         }
     }
     p->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
 
-    if (!read_cmd)
-    {
+    if (!read_cmd) {
         return 0;
     }
     /* Read command line */
@@ -157,8 +147,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
     }
     nread = read(fd, p->command, sizeof(p->command) - 1);
     close(fd);
-    if (nread <= 0)
-    {
+    if (nread <= 0) {
         return -1;
     }
     p->command[nread] = '\0';
@@ -170,8 +159,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd)
  * @param pid The given PID
  * @return Parent process ID, or -1 on error
  */
-pid_t getppid_of(pid_t pid)
-{
+pid_t getppid_of(pid_t pid) {
     char statfile[64], state;
     const size_t buff_size = 2048;
     ssize_t nread;
@@ -190,29 +178,25 @@ pid_t getppid_of(pid_t pid)
     {
         return (pid_t)-1;
     }
-    if ((buffer = (char *)malloc(buff_size)) == NULL)
-    {
+    if ((buffer = (char *)malloc(buff_size)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the buffer\n");
         close(fd);
         exit(EXIT_FAILURE);
     }
     nread = read(fd, buffer, buff_size - 1);
     close(fd);
-    if (nread <= 0)
-    {
+    if (nread <= 0) {
         free(buffer);
         return (pid_t)-1;
     }
     buffer[nread] = '\0';
     ptr_start = strrchr(buffer, ')');
-    if (ptr_start == NULL)
-    {
+    if (ptr_start == NULL) {
         free(buffer);
         return (pid_t)-1;
     }
-    if (sscanf(ptr_start, ") %c %ld", &state, &ppid) != 2 ||
-        !isalpha(state) || strchr("ZXx", state) != NULL || ppid <= 0)
-    {
+    if (sscanf(ptr_start, ") %c %ld", &state, &ppid) != 2 || !isalpha(state) ||
+        strchr("ZXx", state) != NULL || ppid <= 0) {
         free(buffer);
         return (pid_t)-1;
     }
@@ -226,18 +210,15 @@ pid_t getppid_of(pid_t pid)
  * @param start_time Pointer to timespec to store start time
  * @return 0 on success, -1 on failure
  */
-static int get_start_time(pid_t pid, struct timespec *start_time)
-{
+static int get_start_time(pid_t pid, struct timespec *start_time) {
     struct stat procfs_stat;
     char procfs_path[64];
     int ret;
-    if (start_time == NULL)
-    {
+    if (start_time == NULL) {
         return -1;
     }
     sprintf(procfs_path, "/proc/%ld", (long)pid);
-    if ((ret = stat(procfs_path, &procfs_stat)) == 0)
-    {
+    if ((ret = stat(procfs_path, &procfs_stat)) == 0) {
         *start_time = procfs_stat.st_mtim;
     }
     return ret;
@@ -249,8 +230,7 @@ static int get_start_time(pid_t pid, struct timespec *start_time)
  * @param t2 Second timespec
  * @return 1 if t1 is earlier than t2, 0 otherwise
  */
-static int earlier_than(const struct timespec *t1, const struct timespec *t2)
-{
+static int earlier_than(const struct timespec *t1, const struct timespec *t2) {
     return t1->tv_sec < t2->tv_sec ||
            (t1->tv_sec == t2->tv_sec && t1->tv_nsec < t2->tv_nsec);
 }
@@ -261,32 +241,26 @@ static int earlier_than(const struct timespec *t1, const struct timespec *t2)
  * @param parent_pid Potential parent process ID
  * @return 1 if child_pid is a child of parent_pid, 0 otherwise
  */
-int is_child_of(pid_t child_pid, pid_t parent_pid)
-{
+int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret_child, ret_parent;
     struct timespec child_start_time, parent_start_time;
-    if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid)
-    {
+    if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
-    if (parent_pid == 1)
-    {
+    if (parent_pid == 1) {
         return 1;
     }
     ret_parent = get_start_time(parent_pid, &parent_start_time);
-    while (child_pid > 1)
-    {
-        if (ret_parent == 0)
-        {
+    while (child_pid > 1) {
+        if (ret_parent == 0) {
             ret_child = get_start_time(child_pid, &child_start_time);
-            if (ret_child == 0 && earlier_than(&child_start_time, &parent_start_time))
-            {
+            if (ret_child == 0 &&
+                earlier_than(&child_start_time, &parent_start_time)) {
                 return 0;
             }
         }
         child_pid = getppid_of(child_pid);
-        if (child_pid == parent_pid)
-        {
+        if (child_pid == parent_pid) {
             return 1;
         }
     }
@@ -298,16 +272,12 @@ int is_child_of(pid_t child_pid, pid_t parent_pid)
  * @param str String to check
  * @return 1 if the string is numeric, 0 otherwise
  */
-static int is_numeric(const char *str)
-{
-    if (str == NULL || *str == '\0')
-    {
+static int is_numeric(const char *str) {
+    if (str == NULL || *str == '\0') {
         return 0;
     }
-    for (; *str != '\0'; str++)
-    {
-        if (!isdigit(*str))
-        {
+    for (; *str != '\0'; str++) {
+        if (!isdigit(*str)) {
             return 0;
         }
     }
@@ -320,44 +290,35 @@ static int is_numeric(const char *str)
  * @param p Pointer to the process structure to store process information
  * @return 0 on success, -1 if no more processes are available
  */
-int get_next_process(struct process_iterator *it, struct process *p)
-{
+int get_next_process(struct process_iterator *it, struct process *p) {
     const struct dirent *dit = NULL;
 
-    if (it->end_of_processes)
-    {
+    if (it->end_of_processes) {
         return -1;
     }
 
-    if (it->filter->pid != 0 && !it->filter->include_children)
-    {
+    if (it->filter->pid != 0 && !it->filter->include_children) {
         int ret = read_process_info(it->filter->pid, p, it->filter->read_cmd);
         it->end_of_processes = 1;
         return ret == 0 ? 0 : -1;
     }
 
     /* Read in from /proc and seek for process directories */
-    while ((dit = readdir(it->dip)) != NULL)
-    {
+    while ((dit = readdir(it->dip)) != NULL) {
 #ifdef _DIRENT_HAVE_D_TYPE
-        if (dit->d_type != DT_DIR && dit->d_type != DT_UNKNOWN)
-        {
+        if (dit->d_type != DT_DIR && dit->d_type != DT_UNKNOWN) {
             continue;
         }
 #endif
         if (!is_numeric(dit->d_name) ||
-            (p->pid = (pid_t)atol(dit->d_name)) <= 0)
-        {
+            (p->pid = (pid_t)atol(dit->d_name)) <= 0) {
             continue;
         }
-        if (it->filter->pid != 0 &&
-            it->filter->pid != p->pid &&
-            !is_child_of(p->pid, it->filter->pid))
-        {
+        if (it->filter->pid != 0 && it->filter->pid != p->pid &&
+            !is_child_of(p->pid, it->filter->pid)) {
             continue;
         }
-        if (read_process_info(p->pid, p, it->filter->read_cmd) != 0)
-        {
+        if (read_process_info(p->pid, p, it->filter->read_cmd) != 0) {
             continue;
         }
         return 0;
@@ -372,18 +333,14 @@ int get_next_process(struct process_iterator *it, struct process *p)
  * @param it Pointer to the process_iterator structure
  * @return 0 on success, -1 on failure
  */
-int close_process_iterator(struct process_iterator *it)
-{
+int close_process_iterator(struct process_iterator *it) {
     int ret = 0;
-    if (it == NULL)
-    {
+    if (it == NULL) {
         return -1; /* Invalid argument */
     }
 
-    if (it->dip != NULL)
-    {
-        if ((ret = closedir(it->dip)) != 0)
-        {
+    if (it->dip != NULL) {
+        if ((ret = closedir(it->dip)) != 0) {
             perror("closedir");
         }
         it->dip = NULL;

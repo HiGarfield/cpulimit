@@ -57,7 +57,7 @@
  *  @param high Upper bound
  *  @return x if low <= x <= high, low if x < low, high if x > high
  */
-#define CLAMP(x, low, high) \
+#define CLAMP(x, low, high)                                                    \
     ((x) < (low) ? (low) : ((x) > (high) ? (high) : (x)))
 #endif /* CLAMP */
 
@@ -120,14 +120,10 @@ int get_ncpu(void);
  * If uClibc/uClibc-ng is below 1.0.42,
  * implement a custom `getloadavg` function
  */
-#if defined(__linux__) &&           \
-    defined(__UCLIBC__) &&          \
-    defined(__UCLIBC_MAJOR__) &&    \
-    defined(__UCLIBC_MINOR__) &&    \
-    defined(__UCLIBC_SUBLEVEL__) && \
-    ((__UCLIBC_MAJOR__ < 1) ||      \
-     (__UCLIBC_MAJOR__ == 1 &&      \
-      __UCLIBC_MINOR__ == 0 &&      \
+#if defined(__linux__) && defined(__UCLIBC__) && defined(__UCLIBC_MAJOR__) &&  \
+    defined(__UCLIBC_MINOR__) && defined(__UCLIBC_SUBLEVEL__) &&               \
+    ((__UCLIBC_MAJOR__ < 1) ||                                                 \
+     (__UCLIBC_MAJOR__ == 1 && __UCLIBC_MINOR__ == 0 &&                        \
       __UCLIBC_SUBLEVEL__ < 42))
 /**
  * @brief Get up to nelem load averages for system processes
@@ -139,8 +135,7 @@ int get_ncpu(void);
  * @note Only available on uClibc/uClibc-ng below version 1.0.42
  */
 int __getloadavg(double *loadavg, int nelem);
-#define getloadavg(loadavg, nelem) \
-    (__getloadavg((loadavg), (nelem)))
+#define getloadavg(loadavg, nelem) (__getloadavg((loadavg), (nelem)))
 #define __IMPL_GETLOADAVG
 #endif
 

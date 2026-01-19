@@ -1,4 +1,15 @@
-SortIncludes: true
-BasedOnStyle: Microsoft
-ColumnLimit: 0
-IndentWidth: 4
+# Based on LLVM style for C language projects
+BasedOnStyle: LLVM
+
+# Customized settings (only non-default values)
+
+# Indentation settings
+IndentWidth: 4           # Use 4 spaces for indentation
+TabWidth: 4              # Set tab width to 4 characters
+
+# Line settings
+BreakStringLiterals: false  # Don't break long string literals across multiple lines
+SeparateDefinitionBlocks: Always  # Insert an empty line between definition blocks
+
+# Function settings
+AllowShortFunctionsOnASingleLine: None  # Don't allow short functions on a single line

@@ -32,8 +32,7 @@
  * @struct cpulimitcfg
  * @brief Configuration structure for CPU limit parameters
  */
-struct cpulimitcfg
-{
+struct cpulimitcfg {
     /** Name of the program executable */
     const char *program_name;
     /** Target process ID to limit */

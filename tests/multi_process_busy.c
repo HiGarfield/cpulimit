@@ -28,13 +28,11 @@
  *       each run an infinite busy loop, consuming CPU cycles for
  *       testing purposes.
  */
-int main(void)
-{
+int main(void) {
     /* Create two child processes, resulting in 4 total processes */
     fork();
     fork();
-    while (1)
-    {
+    while (1) {
         /* Infinite busy loop to consume CPU cycles */
         ;
     }

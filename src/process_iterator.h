@@ -53,8 +53,7 @@
  * @struct process
  * @brief Structure representing a process descriptor
  */
-struct process
-{
+struct process {
     /** Process ID of the process */
     pid_t pid;
     /** Parent Process ID of the process */
@@ -71,11 +70,11 @@ struct process
  * @struct process_filter
  * @brief Structure representing a filter for processes
  */
-struct process_filter
-{
+struct process_filter {
     /** Process ID to filter */
     pid_t pid;
-    /** Flag indicating whether to include child processes (1 for yes, 0 for no) */
+    /** Flag indicating whether to include child processes (1 for yes, 0 for no)
+     */
     int include_children;
     /** Flag indicating whether to read command of process */
     int read_cmd;
@@ -87,15 +86,15 @@ struct process_filter
  * @note This structure provides a way to iterate over processes
  *       in different operating systems with their specific implementations
  */
-struct process_iterator
-{
+struct process_iterator {
 #if defined(__linux__)
     /** Directory stream for accessing the /proc filesystem on Linux */
     DIR *dip;
     /** Indicator for the end of processes */
     int end_of_processes;
 #elif defined(__FreeBSD__)
-    /** Kernel virtual memory descriptor for accessing process information on FreeBSD */
+    /** Kernel virtual memory descriptor for accessing process information on
+     * FreeBSD */
     kvm_t *kd;
     /** Array of process information structures */
     struct kinfo_proc *procs;

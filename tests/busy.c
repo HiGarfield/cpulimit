@@ -34,12 +34,10 @@
  * @return NULL pointer
  * @note This function runs an infinite busy loop to consume CPU cycles
  */
-static void *busy_loop(void *arg)
-{
+static void *busy_loop(void *arg) {
     (void)arg;
     pthread_detach(pthread_self());
-    while (1)
-    {
+    while (1) {
         ;
     }
     return NULL;
@@ -54,17 +52,14 @@ static void *busy_loop(void *arg)
  *       testing cpulimit functionality. Number of threads can be specified
  *       via command line argument.
  */
-int main(int argc, const char *argv[])
-{
+int main(int argc, const char *argv[]) {
     int i, num_threads;
     num_threads = argc == 2 ? atoi(argv[1]) : get_ncpu();
     num_threads = MAX(num_threads, 1);
 
-    for (i = 1; i < num_threads; i++)
-    {
+    for (i = 1; i < num_threads; i++) {
         pthread_t tid;
-        if (pthread_create(&tid, NULL, busy_loop, NULL) != 0)
-        {
+        if (pthread_create(&tid, NULL, busy_loop, NULL) != 0) {
             fprintf(stderr, "Failed to create thread %d\n", i);
             exit(EXIT_FAILURE);
         }

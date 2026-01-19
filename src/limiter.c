@@ -44,32 +44,26 @@
  * @note This function forks a child process to execute a command and then
  *       limits the CPU usage of that command and its children.
  */
-void run_command_mode(const struct cpulimitcfg *cfg)
-{
+void run_command_mode(const struct cpulimitcfg *cfg) {
     pid_t cmd_runner_pid;
     int sync_pipe[2];
 
     /* Create a pipe for synchronization between parent and child */
-    if (pipe(sync_pipe) < 0)
-    {
+    if (pipe(sync_pipe) < 0) {
         perror("pipe");
         exit(EXIT_FAILURE);
     }
 
     /* Fork a child process to run the command */
     cmd_runner_pid = fork();
-    if (cmd_runner_pid < 0)
-    {
+    if (cmd_runner_pid < 0) {
         perror("fork");
         close(sync_pipe[0]);
         close(sync_pipe[1]);
         exit(EXIT_FAILURE);
-    }
-    else if (cmd_runner_pid == 0)
-    {
+    } else if (cmd_runner_pid == 0) {
         /* Command runner process: execute the command */
-        if (setpgid(0, 0) < 0)
-        {
+        if (setpgid(0, 0) < 0) {
             perror("setpgid");
             close(sync_pipe[0]);
             close(sync_pipe[1]);
@@ -78,8 +72,7 @@ void run_command_mode(const struct cpulimitcfg *cfg)
 
         close(sync_pipe[0]);
         /* Send synchronization signal to parent */
-        if (write(sync_pipe[1], "A", 1) != 1)
-        {
+        if (write(sync_pipe[1], "A", 1) != 1) {
             perror("write sync");
         }
         close(sync_pipe[1]);
@@ -89,16 +82,13 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         /* Following lines will only be reached if execvp fails */
         perror("execvp");
         exit(EXIT_FAILURE);
-    }
-    else
-    {
+    } else {
         int child_exit_status, found_cmd_runner;
         char ack;
 
         close(sync_pipe[1]);
         /* Wait for child to be ready before starting CPU limiting */
-        if (read(sync_pipe[0], &ack, 1) != 1 || ack != 'A')
-        {
+        if (read(sync_pipe[0], &ack, 1) != 1 || ack != 'A') {
             perror("read sync");
             close(sync_pipe[0]);
             waitpid(cmd_runner_pid, NULL, 0);
@@ -107,16 +97,14 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         close(sync_pipe[0]);
 
         /* Limiter process: limit the CPU usage of the command runner */
-        if (cfg->verbose)
-        {
+        if (cfg->verbose) {
             printf("Limiting process %ld\n", (long)cmd_runner_pid);
         }
         limit_process(cmd_runner_pid, cfg->limit, cfg->include_children,
                       cfg->verbose);
 
         /* If quit flag is set, terminate the command runner and its group */
-        if (is_quit_flag_set())
-        {
+        if (is_quit_flag_set()) {
             kill(-cmd_runner_pid, SIGTERM);
         }
 
@@ -124,46 +112,34 @@ void run_command_mode(const struct cpulimitcfg *cfg)
         found_cmd_runner = 0;
 
         /* Wait for all child processes in the command runner's process group */
-        while (1)
-        {
+        while (1) {
             int status;
             pid_t wpid = waitpid(-cmd_runner_pid, &status, 0);
-            if (wpid < 0)
-            {
-                if (errno == EINTR)
-                {
+            if (wpid < 0) {
+                if (errno == EINTR) {
                     continue; /* Interrupted by a signal, retry wait */
                 }
-                if (errno != ECHILD)
-                {
+                if (errno != ECHILD) {
                     perror("waitpid");
                 }
                 break;
             }
-            if (wpid == cmd_runner_pid)
-            {
+            if (wpid == cmd_runner_pid) {
                 found_cmd_runner = 1;
-                if (WIFEXITED(status))
-                {
+                if (WIFEXITED(status)) {
                     child_exit_status = WEXITSTATUS(status);
-                    if (cfg->verbose)
-                    {
+                    if (cfg->verbose) {
                         printf("Process %ld exited with status %d\n",
                                (long)cmd_runner_pid, child_exit_status);
                     }
-                }
-                else if (WIFSIGNALED(status))
-                {
+                } else if (WIFSIGNALED(status)) {
                     int signal_number = WTERMSIG(status);
                     child_exit_status = 128 + signal_number;
-                    if (cfg->verbose)
-                    {
+                    if (cfg->verbose) {
                         printf("Process %ld terminated by signal %d\n",
                                (long)cmd_runner_pid, signal_number);
                     }
-                }
-                else
-                {
+                } else {
                     printf("Process %ld terminated abnormally\n",
                            (long)cmd_runner_pid);
                     child_exit_status = EXIT_FAILURE;
@@ -180,30 +156,22 @@ void run_command_mode(const struct cpulimitcfg *cfg)
  * @note This function continuously searches for the target process (by PID or
  *       executable name) and applies CPU limiting when found.
  */
-void run_pid_or_exe_mode(const struct cpulimitcfg *cfg)
-{
+void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
     /* Set waiting time between process searches */
     const struct timespec wait_time = {2, 0};
     int pid_mode = cfg->target_pid > 0;
 
-    while (!is_quit_flag_set())
-    {
+    while (!is_quit_flag_set()) {
         pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
                                    : find_process_by_name(cfg->exe_name);
 
-        if (found_pid == 0)
-        {
+        if (found_pid == 0) {
             printf("Process cannot be found\n");
-        }
-        else if (found_pid < 0)
-        {
+        } else if (found_pid < 0) {
             printf("No permission to control process\n");
-        }
-        else
-        {
+        } else {
             /* Prevent limiting cpulimit itself */
-            if (found_pid == getpid())
-            {
+            if (found_pid == getpid()) {
                 printf("Target process %ld is cpulimit itself! Aborting\n",
                        (long)found_pid);
                 exit(EXIT_FAILURE);
@@ -215,8 +183,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg)
         }
 
         /* Exit if in lazy mode or quit flag is set */
-        if (cfg->lazy_mode || is_quit_flag_set())
-        {
+        if (cfg->lazy_mode || is_quit_flag_set()) {
             break;
         }
 

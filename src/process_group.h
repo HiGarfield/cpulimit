@@ -33,15 +33,15 @@
  * @struct process_group
  * @brief Structure representing a group of processes for tracking
  */
-struct process_group
-{
+struct process_group {
     /** Pointer to the process table for storing process information */
     struct process_table *proctable;
     /** Pointer to the list of processes in this group */
     struct list *proclist;
     /** PID of the target process to monitor */
     pid_t target_pid;
-    /** Flag indicating whether to include child processes (1 for yes, 0 for no) */
+    /** Flag indicating whether to include child processes (1 for yes, 0 for no)
+     */
     int include_children;
     /** Timestamp of the last update for this process group */
     struct timespec last_update;
@@ -71,7 +71,8 @@ pid_t find_process_by_name(const char *process_name);
  * @param include_children Flag to include child processes in the group
  * @return 0 on success
  */
-int init_process_group(struct process_group *pgroup, pid_t target_pid, int include_children);
+int init_process_group(struct process_group *pgroup, pid_t target_pid,
+                       int include_children);
 
 /**
  * @brief Clean up and close a process group

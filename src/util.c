@@ -51,8 +51,7 @@
  * @param t Pointer to a timespec structure where the converted time
  *          will be stored
  */
-void nsec2timespec(double nsec, struct timespec *t)
-{
+void nsec2timespec(double nsec, struct timespec *t) {
     t->tv_sec = (time_t)(nsec / 1e9);
     t->tv_nsec = (long)(nsec - (double)t->tv_sec * 1e9);
 }
@@ -62,16 +61,14 @@ void nsec2timespec(double nsec, struct timespec *t)
  * @param ts Pointer to timespec structure to store the current time
  * @return 0 on success, -1 on failure
  */
-int get_current_time(struct timespec *ts)
-{
+int get_current_time(struct timespec *ts) {
 #if defined(CLOCK_MONOTONIC)
     return clock_gettime(CLOCK_MONOTONIC, ts);
 #elif defined(CLOCK_REALTIME)
     return clock_gettime(CLOCK_REALTIME, ts);
 #else
     struct timeval tv;
-    if (gettimeofday(&tv, NULL))
-    {
+    if (gettimeofday(&tv, NULL)) {
         return -1;
     }
     ts->tv_sec = tv.tv_sec;
@@ -86,10 +83,9 @@ int get_current_time(struct timespec *ts)
  *          to sleep
  * @return 0 for success, or -1 for failure
  */
-int sleep_timespec(const struct timespec *t)
-{
-#if (defined(__linux__) || defined(__FreeBSD__)) &&           \
-    defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L && \
+int sleep_timespec(const struct timespec *t) {
+#if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
+    defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(CLOCK_MONOTONIC)
     return clock_nanosleep(CLOCK_MONOTONIC, 0, t, NULL);
 #else
@@ -104,8 +100,7 @@ int sleep_timespec(const struct timespec *t)
  * @return The difference in milliseconds (later - earlier)
  */
 double timediff_in_ms(const struct timespec *later,
-                      const struct timespec *earlier)
-{
+                      const struct timespec *earlier) {
     return difftime(later->tv_sec, earlier->tv_sec) * 1e3 +
            ((double)later->tv_nsec - (double)earlier->tv_nsec) / 1e6;
 }
@@ -117,8 +112,7 @@ double timediff_in_ms(const struct timespec *later,
  * @note Returns a pointer to the substring after the last '/', or the
  *       original string if no '/' is found
  */
-const char *file_basename(const char *path)
-{
+const char *file_basename(const char *path) {
     const char *p = strrchr(path, '/');
     return p != NULL ? p + 1 : path;
 }
@@ -127,15 +121,12 @@ const char *file_basename(const char *path)
  * @brief Increase the priority of the current process
  * @note Attempts to set the process priority to the maximum
  */
-void increase_priority(void)
-{
+void increase_priority(void) {
     static const int MAX_PRIORITY = -20;
     int old_priority, priority;
     old_priority = getpriority(PRIO_PROCESS, 0);
-    for (priority = MAX_PRIORITY; priority < old_priority; priority++)
-    {
-        if (setpriority(PRIO_PROCESS, 0, priority) == 0)
-        {
+    for (priority = MAX_PRIORITY; priority < old_priority; priority++) {
+        if (setpriority(PRIO_PROCESS, 0, priority) == 0) {
             break;
         }
     }
@@ -147,14 +138,12 @@ void increase_priority(void)
  *         obtained
  * @note The result is cached after the first call
  */
-int get_ncpu(void)
-{
+int get_ncpu(void) {
     /* Static cache: -1 means uninitialized */
     static int cached_ncpu = -1;
 
     /* Only compute if not cached yet */
-    if (cached_ncpu < 0)
-    {
+    if (cached_ncpu < 0) {
 #if defined(_SC_NPROCESSORS_ONLN)
         /* POSIX systems using sysconf */
         long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
@@ -175,12 +164,10 @@ int get_ncpu(void)
 #else
         mib[1] = HW_NCPU;
 #endif
-        if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
-        {
+        if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1) {
             /* Fallback to total CPUs */
             mib[1] = HW_NCPU;
-            if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1)
-            {
+            if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1) {
                 ncpu = 1; /* Complete failure fallback */
             }
         }
@@ -210,29 +197,24 @@ int get_ncpu(void)
  *         average could not be obtained
  * @note Only available on uClibc/uClibc-ng below version 1.0.42
  */
-int __getloadavg(double *loadavg, int nelem)
-{
+int __getloadavg(double *loadavg, int nelem) {
     struct sysinfo si;
     int i;
 
-    if (nelem < 0)
-    {
+    if (nelem < 0) {
         return -1;
     }
-    if (nelem == 0)
-    {
+    if (nelem == 0) {
         return 0;
     }
 
-    if (sysinfo(&si) != 0)
-    {
+    if (sysinfo(&si) != 0) {
         return -1;
     }
 
     nelem = (nelem > 3) ? 3 : nelem;
 
-    for (i = 0; i < nelem; i++)
-    {
+    for (i = 0; i < nelem; i++) {
         loadavg[i] = (double)si.loads[i] / (1 << SI_LOAD_SHIFT);
     }
 

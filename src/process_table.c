@@ -36,16 +36,14 @@
  * @param pt Pointer to the process table structure to initialize
  * @param hashsize Size of the hash table
  */
-void process_table_init(struct process_table *pt, size_t hashsize)
-{
-    if (pt == NULL)
-    {
+void process_table_init(struct process_table *pt, size_t hashsize) {
+    if (pt == NULL) {
         return;
     }
     pt->hashsize = hashsize;
     /* Allocate memory for the hash table */
-    if ((pt->table = (struct list **)calloc(pt->hashsize, sizeof(struct list *))) == NULL)
-    {
+    if ((pt->table = (struct list **)calloc(pt->hashsize,
+                                            sizeof(struct list *))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
@@ -57,8 +55,7 @@ void process_table_init(struct process_table *pt, size_t hashsize)
  * @param pid The process ID to hash
  * @return Hash index
  */
-static size_t pid_hash(const struct process_table *pt, pid_t pid)
-{
+static size_t pid_hash(const struct process_table *pt, pid_t pid) {
     return (size_t)pid % pt->hashsize;
 }
 
@@ -68,16 +65,13 @@ static size_t pid_hash(const struct process_table *pt, pid_t pid)
  * @param pid The process ID to search for
  * @return Pointer to the found process, or NULL if not found
  */
-struct process *process_table_find(const struct process_table *pt, pid_t pid)
-{
+struct process *process_table_find(const struct process_table *pt, pid_t pid) {
     size_t idx;
-    if (pt == NULL)
-    {
+    if (pt == NULL) {
         return NULL;
     }
     idx = pid_hash(pt, pid);
-    if (pt->table[idx] == NULL)
-    {
+    if (pt->table[idx] == NULL) {
         return NULL;
     }
     return (struct process *)locate_elem(pt->table[idx], &pid);
@@ -89,19 +83,16 @@ struct process *process_table_find(const struct process_table *pt, pid_t pid)
  * @param p The process to add
  * @note This function should only be called when p does not exist in pt
  */
-void process_table_add(struct process_table *pt, struct process *p)
-{
+void process_table_add(struct process_table *pt, struct process *p) {
     size_t idx;
-    if (pt == NULL || p == NULL)
-    {
+    if (pt == NULL || p == NULL) {
         return;
     }
     idx = pid_hash(pt, p->pid);
-    if (pt->table[idx] == NULL)
-    {
+    if (pt->table[idx] == NULL) {
         /* If the bucket is empty, create a new one */
-        if ((pt->table[idx] = (struct list *)malloc(sizeof(struct list))) == NULL)
-        {
+        if ((pt->table[idx] = (struct list *)malloc(sizeof(struct list))) ==
+            NULL) {
             fprintf(stderr, "Memory allocation failed for the process list\n");
             exit(EXIT_FAILURE);
         }
@@ -116,28 +107,23 @@ void process_table_add(struct process_table *pt, struct process *p)
  * @param pid The process ID of the process to delete
  * @return 0 if deletion is successful, 1 if process not found
  */
-int process_table_del(struct process_table *pt, pid_t pid)
-{
+int process_table_del(struct process_table *pt, pid_t pid) {
     struct list_node *node;
     size_t idx;
-    if (pt == NULL)
-    {
+    if (pt == NULL) {
         return 1;
     }
     idx = pid_hash(pt, pid);
-    if (pt->table[idx] == NULL)
-    {
+    if (pt->table[idx] == NULL) {
         return 1; /* Nothing to delete */
     }
     node = locate_node(pt->table[idx], &pid);
-    if (node == NULL)
-    {
+    if (node == NULL) {
         return 1; /* Nothing to delete */
     }
     destroy_node(pt->table[idx], node);
     /* Clean up empty bucket */
-    if (is_empty_list(pt->table[idx]))
-    {
+    if (is_empty_list(pt->table[idx])) {
         free(pt->table[idx]);
         pt->table[idx] = NULL;
     }
@@ -148,17 +134,13 @@ int process_table_del(struct process_table *pt, pid_t pid)
  * @brief Destroy the process table and free up the memory
  * @param pt Pointer to the process table to destroy
  */
-void process_table_destroy(struct process_table *pt)
-{
+void process_table_destroy(struct process_table *pt) {
     size_t idx;
-    if (pt == NULL)
-    {
+    if (pt == NULL) {
         return;
     }
-    for (idx = 0; idx < pt->hashsize; idx++)
-    {
-        if (pt->table[idx] != NULL)
-        {
+    for (idx = 0; idx < pt->hashsize; idx++) {
+        if (pt->table[idx] != NULL) {
             destroy_list(pt->table[idx]);
             free(pt->table[idx]);
         }

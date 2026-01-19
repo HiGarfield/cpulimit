@@ -34,10 +34,8 @@
  * @param l Pointer to the list structure
  * @param keysize Size of the key for element comparison
  */
-void init_list(struct list *l, size_t keysize)
-{
-    if (l == NULL)
-    {
+void init_list(struct list *l, size_t keysize) {
+    if (l == NULL) {
         return;
     }
     l->first = l->last = NULL;
@@ -51,27 +49,22 @@ void init_list(struct list *l, size_t keysize)
  * @param elem Pointer to the element to add
  * @return Pointer to the newly created node, or NULL on failure
  */
-struct list_node *add_elem(struct list *l, void *elem)
-{
+struct list_node *add_elem(struct list *l, void *elem) {
     struct list_node *newnode;
-    if (l == NULL)
-    {
+    if (l == NULL) {
         return NULL;
     }
-    if ((newnode = (struct list_node *)malloc(sizeof(struct list_node))) == NULL)
-    {
+    if ((newnode = (struct list_node *)malloc(sizeof(struct list_node))) ==
+        NULL) {
         fprintf(stderr, "Memory allocation failed for the new list node\n");
         exit(EXIT_FAILURE);
     }
     newnode->data = elem;
     newnode->previous = l->last;
     newnode->next = NULL;
-    if (l->count == 0)
-    {
+    if (l->count == 0) {
         l->first = l->last = newnode;
-    }
-    else
-    {
+    } else {
         l->last->next = newnode;
         l->last = newnode;
     }
@@ -85,28 +78,20 @@ struct list_node *add_elem(struct list *l, void *elem)
  * @param node Pointer to the node to remove
  * @note This function only removes the node, not its data
  */
-void delete_node(struct list *l, struct list_node *node)
-{
-    if (l == NULL || node == NULL || l->count == 0)
-    {
+void delete_node(struct list *l, struct list_node *node) {
+    if (l == NULL || node == NULL || l->count == 0) {
         return;
     }
 
-    if (node->previous != NULL)
-    {
+    if (node->previous != NULL) {
         node->previous->next = node->next;
-    }
-    else
-    {
+    } else {
         l->first = node->next;
     }
 
-    if (node->next != NULL)
-    {
+    if (node->next != NULL) {
         node->next->previous = node->previous;
-    }
-    else
-    {
+    } else {
         l->last = node->previous;
     }
 
@@ -121,10 +106,8 @@ void delete_node(struct list *l, struct list_node *node)
  * @note This function should only be used when the node's data is
  *       dynamically allocated.
  */
-void destroy_node(struct list *l, struct list_node *node)
-{
-    if (node != NULL && node->data != NULL)
-    {
+void destroy_node(struct list *l, struct list_node *node) {
+    if (node != NULL && node->data != NULL) {
         free(node->data);
     }
     delete_node(l, node);
@@ -135,8 +118,7 @@ void destroy_node(struct list *l, struct list_node *node)
  * @param l Pointer to the list structure
  * @return 1 if the list is empty, 0 otherwise
  */
-int is_empty_list(const struct list *l)
-{
+int is_empty_list(const struct list *l) {
     return l == NULL || l->count == 0;
 }
 
@@ -145,8 +127,7 @@ int is_empty_list(const struct list *l)
  * @param l Pointer to the list structure
  * @return Number of elements in the list
  */
-size_t get_list_count(const struct list *l)
-{
+size_t get_list_count(const struct list *l) {
     return l != NULL ? l->count : 0;
 }
 
@@ -155,8 +136,7 @@ size_t get_list_count(const struct list *l)
  * @param l Pointer to the list structure
  * @return Pointer to the first node, or NULL if the list is empty
  */
-struct list_node *first_node(const struct list *l)
-{
+struct list_node *first_node(const struct list *l) {
     return l != NULL ? l->first : NULL;
 }
 
@@ -172,26 +152,21 @@ struct list_node *first_node(const struct list *l)
  *       is used for comparison.
  */
 static struct list_node *xlocate_node(const struct list *l, const void *elem,
-                                      size_t offset, size_t length)
-{
+                                      size_t offset, size_t length) {
     struct list_node *cur;
     size_t cmp_len;
 
-    if (l == NULL || elem == NULL)
-    {
+    if (l == NULL || elem == NULL) {
         return NULL;
     }
 
     cmp_len = (length != 0) ? length : l->keysize;
-    if (cmp_len == 0)
-    {
+    if (cmp_len == 0) {
         return NULL;
     }
 
-    for (cur = l->first; cur != NULL; cur = cur->next)
-    {
-        if (memcmp((const char *)cur->data + offset, elem, cmp_len) == 0)
-        {
+    for (cur = l->first; cur != NULL; cur = cur->next) {
+        if (memcmp((const char *)cur->data + offset, elem, cmp_len) == 0) {
             return cur;
         }
     }
@@ -207,8 +182,7 @@ static struct list_node *xlocate_node(const struct list *l, const void *elem,
  * @note Comparison starts from the beginning of the data, and the list's
  *       keysize is used for comparison.
  */
-struct list_node *locate_node(const struct list *l, const void *elem)
-{
+struct list_node *locate_node(const struct list *l, const void *elem) {
     return xlocate_node(l, elem, 0, 0);
 }
 
@@ -221,9 +195,8 @@ struct list_node *locate_node(const struct list *l, const void *elem)
  *       starts from the beginning of the data. If length=0, the list's keysize
  *       is used for comparison.
  */
-static void *xlocate_elem(const struct list *l, const void *elem,
-                          size_t offset, size_t length)
-{
+static void *xlocate_elem(const struct list *l, const void *elem, size_t offset,
+                          size_t length) {
     struct list_node *node = xlocate_node(l, elem, offset, length);
     return node != NULL ? node->data : NULL;
 }
@@ -236,8 +209,7 @@ static void *xlocate_elem(const struct list *l, const void *elem,
  * @note Comparison starts from the beginning of the data, and the list's
  *       keysize is used for comparison.
  */
-void *locate_elem(const struct list *l, const void *elem)
-{
+void *locate_elem(const struct list *l, const void *elem) {
     return xlocate_elem(l, elem, 0, 0);
 }
 
@@ -246,18 +218,14 @@ void *locate_elem(const struct list *l, const void *elem)
  * @param l Pointer to the list structure
  * @param free_data Flag indicating whether to free node data (1) or not (0)
  */
-static void clear_all_list_nodes(struct list *l, int free_data)
-{
+static void clear_all_list_nodes(struct list *l, int free_data) {
     struct list_node *current, *next;
-    if (l == NULL || l->count == 0)
-    {
+    if (l == NULL || l->count == 0) {
         return;
     }
-    for (current = l->first; current != NULL; current = next)
-    {
+    for (current = l->first; current != NULL; current = next) {
         next = current->next;
-        if (free_data && current->data != NULL)
-        {
+        if (free_data && current->data != NULL) {
             free(current->data);
         }
         free(current);
@@ -271,8 +239,7 @@ static void clear_all_list_nodes(struct list *l, int free_data)
  * @param l Pointer to the list to clear
  * @note This function does not free the node data, only removes the nodes
  */
-void clear_list(struct list *l)
-{
+void clear_list(struct list *l) {
     clear_all_list_nodes(l, 0);
 }
 
@@ -281,7 +248,6 @@ void clear_list(struct list *l)
  * @param l Pointer to the list to destroy
  * @note This function frees both the nodes and their associated data
  */
-void destroy_list(struct list *l)
-{
+void destroy_list(struct list *l) {
     clear_all_list_nodes(l, 1);
 }
