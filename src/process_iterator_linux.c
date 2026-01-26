@@ -219,7 +219,13 @@ static int get_start_time(pid_t pid, struct timespec *start_time) {
     }
     sprintf(procfs_path, "/proc/%ld", (long)pid);
     if ((ret = stat(procfs_path, &procfs_stat)) == 0) {
+#if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200809L) ||                \
+    (defined(_XOPEN_SOURCE) && _XOPEN_SOURCE >= 700)
         *start_time = procfs_stat.st_mtim;
+#else
+        start_time->tv_sec = procfs_stat.st_mtime;
+        start_time->tv_nsec = 0;
+#endif
     }
     return ret;
 }
