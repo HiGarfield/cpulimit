@@ -29,6 +29,7 @@
 #include "../src/list.h"
 #include "../src/process_group.h"
 #include "../src/process_iterator.h"
+#include "../src/signal_handler.h"
 #include "../src/util.h"
 #include <assert.h>
 #include <errno.h>
@@ -183,9 +184,10 @@ static void test_multiple_process(void) {
     if (child_pid == 0) {
         /* Child process: sleep in a loop until killed */
         const struct timespec sleep_time = {5, 0L}; /* 5s */
-        while (1) {
+        while (!is_quit_flag_set()) {
             sleep_timespec(&sleep_time);
         }
+        exit(EXIT_SUCCESS);
     }
 
     /* Allocate memory for process structure */
@@ -301,9 +303,10 @@ static void test_proc_group_single(int include_children) {
 
     if (child_pid == 0) {
         /* Child process: busy loop until killed */
-        while (1) {
+        while (!is_quit_flag_set()) {
             ;
         }
+        exit(EXIT_SUCCESS);
     }
 
     /* Initialize process group with the child PID */
@@ -513,7 +516,9 @@ static void test_getppid_of(void) {
 static void test_limit_process(void) {
     const double cpu_usage_limit = 0.5;
     pid_t child_pid;
-    int sync_pipe[2];
+    int sync_pipe[2], num_procs;
+    num_procs = get_ncpu();
+    num_procs = MAX(num_procs, 1);
 
     /* Create pipe for synchronization */
     assert(pipe(sync_pipe) == 0);
@@ -525,18 +530,26 @@ static void test_limit_process(void) {
     if (child_pid > 0) {
         /* Parent process: monitor CPU usage */
         pid_t limiter_pid;
-        ssize_t bytes_read, n = 1;
+        ssize_t bytes_read, ret;
         char ack;
 
         assert(close(sync_pipe[1]) == 0);
 
-        /* Wait for 4 acknowledgements (from 4 processes) */
-        for (bytes_read = 0; n != 0 && bytes_read < 4; bytes_read += n) {
-            n = read(sync_pipe[0], &ack, 1);
+        /* Wait for num_procs acknowledgements (from num_procs processes) */
+        for (bytes_read = 0; bytes_read < num_procs; bytes_read++) {
+            ret = read(sync_pipe[0], &ack, 1);
+            if (ret == -1 && errno == EINTR) {
+                continue; /* Interrupted, retry read */
+            }
+            assert(ret == 1 && ack == 'A');
         }
+        /* Now should read EOF */
+        do {
+            ret = read(sync_pipe[0], &ack, 1);
+        } while (ret == -1 && errno == EINTR);
+        assert(ret == 0);
         assert(close(sync_pipe[0]) == 0);
-        assert(bytes_read == 4);
-
+        assert(bytes_read == num_procs);
         /* Fork CPU limiter process */
         limiter_pid = fork();
         assert(limiter_pid >= 0);
@@ -552,13 +565,13 @@ static void test_limit_process(void) {
             assert(init_process_group(&pgroup, child_pid, 1) == 0);
 
             /* Monitor CPU usage over 60 iterations */
-            for (i = 0; i < 60; i++) {
+            for (i = 0; i < 60 && !is_quit_flag_set(); i++) {
                 double temp_cpu_usage;
                 sleep_timespec(&sleep_time);
                 update_process_group(&pgroup);
 
-                /* Verify all 4 processes are being monitored */
-                assert(get_list_count(pgroup.proclist) == 4);
+                /* Verify all num_procs processes are being monitored */
+                assert(get_list_count(pgroup.proclist) == (size_t)num_procs);
 
                 temp_cpu_usage = get_process_group_cpu_usage(&pgroup);
                 if (temp_cpu_usage > 0) {
@@ -590,24 +603,33 @@ static void test_limit_process(void) {
         exit(EXIT_SUCCESS);
     } else {
         /* child_pid == 0: Target process group */
+        int i;
 
         /* Create new process group */
         setpgid(0, 0);
 
         assert(close(sync_pipe[0]) == 0);
 
-        /* Fork 2 more child processes (total 4 including this one) */
-        assert(fork() >= 0);
-        assert(fork() >= 0);
+        /* Fork (num_procs - 1) child processes */
+        for (i = 1; i < num_procs; i++) {
+            pid_t pid = fork();
+            assert(pid >= 0);
+
+            if (pid == 0) {
+                /* Child process: do not create more children */
+                break;
+            }
+        }
 
         /* Send acknowledgement and close pipe */
         assert(write(sync_pipe[1], "A", 1) == 1);
         assert(close(sync_pipe[1]) == 0);
 
         /* Keep processes running until terminated */
-        while (1) {
+        while (!is_quit_flag_set()) {
             ;
         }
+        exit(EXIT_SUCCESS);
     }
 }
 
@@ -634,6 +656,7 @@ int main(int argc, char *argv[]) {
     assert(argc >= 1);
     command = argv[0];
 
+    configure_signal_handlers();
     printf("Starting tests...\n");
     RUN_TEST(test_single_process);
     RUN_TEST(test_multiple_process);
