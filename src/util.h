@@ -30,32 +30,35 @@
 #include <time.h>
 
 #ifndef MAX
-/** @def MAX(a, b)
- *  @brief Return the maximum of two values
- *  @param a First value
- *  @param b Second value
- *  @return The greater of a and b
+/**
+ * @def MAX(a, b)
+ * @brief Return the maximum of two values
+ * @param a First value
+ * @param b Second value
+ * @return The greater of a and b
  */
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif /* MAX */
 
 #ifndef MIN
-/** @def MIN(a, b)
- *  @brief Return the minimum of two values
- *  @param a First value
- *  @param b Second value
- *  @return The lesser of a and b
+/**
+ * @def MIN(a, b)
+ * @brief Return the minimum of two values
+ * @param a First value
+ * @param b Second value
+ * @return The lesser of a and b
  */
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif /* MIN */
 
 #ifndef CLAMP
-/** @def CLAMP(x, low, high)
- *  @brief Clamp a value between a lower and upper bound
- *  @param x Value to clamp
- *  @param low Lower bound
- *  @param high Upper bound
- *  @return x if low <= x <= high, low if x < low, high if x > high
+/**
+ * @def CLAMP(x, low, high)
+ * @brief Clamp a value between a lower and upper bound
+ * @param x Value to clamp
+ * @param low Lower bound
+ * @param high Upper bound
+ * @return x if low <= x <= high, low if x < low, high if x > high
  */
 #define CLAMP(x, low, high)                                                    \
     ((x) < (low) ? (low) : ((x) > (high) ? (high) : (x)))
