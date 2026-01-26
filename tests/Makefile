@@ -105,8 +105,8 @@ all: $(TARGETS)
 busy: busy.c $(wildcard $(SRC)/util.*)
 	$(CC) $(CFLAGS) $(filter-out %.h,$^) $(LDFLAGS) -o $@
 
-multi_process_busy: multi_process_busy.c
-	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*)
+	$(CC) $(CFLAGS) $(filter-out %.h,$^) $(LDFLAGS) -o $@
 
 cpulimit_test: cpulimit_test.c \
                        $(filter-out $(SRC)/main.c $(SRC)/cli.c $(SRC)/limiter.c,\
