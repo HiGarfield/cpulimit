@@ -24,6 +24,7 @@
 #endif
 
 #include "util.h" /* Must be included at first!!! */
+
 #include <string.h>
 #include <sys/resource.h>
 #if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)

@@ -13,3 +13,6 @@ SeparateDefinitionBlocks: Always  # Insert an empty line between definition bloc
 
 # Function settings
 AllowShortFunctionsOnASingleLine: None  # Don't allow short functions on a single line
+
+# Sorting include settings
+IncludeBlocks: Regroup  # Merge multiple include blocks together and sort as one. Then split into groups based on category priority

@@ -24,6 +24,7 @@
 #endif
 
 #include "signal_handler.h"
+
 #include <errno.h>
 #include <signal.h>
 #include <stddef.h>

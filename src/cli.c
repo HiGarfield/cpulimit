@@ -24,7 +24,9 @@
 #endif
 
 #include "cli.h"
+
 #include "util.h"
+
 #include <errno.h>
 #include <getopt.h>
 #include <stdio.h>

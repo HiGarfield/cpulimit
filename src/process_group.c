@@ -23,6 +23,13 @@
 #define _GNU_SOURCE
 #endif
 
+#include "process_group.h"
+
+#include "list.h"
+#include "process_iterator.h"
+#include "process_table.h"
+#include "util.h"
+
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -30,12 +37,6 @@
 #include <string.h>
 #include <sys/types.h>
 #include <time.h>
-
-#include "list.h"
-#include "process_group.h"
-#include "process_iterator.h"
-#include "process_table.h"
-#include "util.h"
 
 /**
  * @brief Find a process by its process ID

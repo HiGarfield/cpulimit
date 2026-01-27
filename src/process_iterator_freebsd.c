@@ -33,6 +33,8 @@
 #define inline __inline
 #endif
 
+#include "process_iterator.h"
+
 #include <fcntl.h>
 #include <kvm.h>
 #include <limits.h>
@@ -45,8 +47,6 @@
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <sys/user.h>
-
-#include "process_iterator.h"
 
 /**
  * @brief Initialize a process iterator
