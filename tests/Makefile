@@ -96,7 +96,7 @@ CPPCHECK_OPTS += --enable=all \
 CHECK_REPORT := check-report.txt
 
 # Phony targets
-.PHONY: all clean format check install uninstall
+.PHONY: all clean format check
 
 # Default target
 all: $(TARGETS)
@@ -139,11 +139,3 @@ check: $(wildcard *.c *.h) clean
 	bear -- $(MAKE) all CHECK=1
 	cppcheck $(CPPCHECK_OPTS) 2>"$(CHECK_REPORT)"
 	@echo "See $(shell pwd)/$(CHECK_REPORT) for cppcheck report."
-
-# Empty install rule
-install:
-	@:
-
-# Empty uninstall rule
-uninstall:
-	@:
