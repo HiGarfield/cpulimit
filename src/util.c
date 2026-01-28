@@ -36,6 +36,12 @@
 #include <stddef.h>
 #include <sys/sysctl.h>
 #endif
+#if defined(__linux__) && defined(__UCLIBC__)
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 
 #ifdef __IMPL_GETLOADAVG
 #include <stdlib.h>
@@ -133,6 +139,192 @@ void increase_priority(void) {
     }
 }
 
+#if defined(__linux__) && defined(__UCLIBC__)
+/**
+ * @brief Parse a CPU range string and return the number of CPUs specified.
+ * @param str: String containing CPU range specification
+ * @return >0: Number of CPUs, -1: Invalid format, -2: Memory allocation error
+ */
+static int parse_cpu_range(const char *str) {
+    char *str_copy, *token, *saveptr, *dash, *endptr;
+    const char *range_start, *range_end;
+    int cpu_count = 0, result = 0;
+    long start, end;
+    size_t str_len = 0;
+
+    if (str == NULL) {
+        return -1;
+    }
+
+    str_len = strlen(str);
+    if (str_len == 0) {
+        return 0;
+    }
+
+    /* Make a copy of the string for tokenization */
+    str_copy = (char *)malloc(str_len + 1);
+    if (str_copy == NULL) {
+        return -2; /* Memory allocation error */
+    }
+
+    strcpy(str_copy, str);
+
+    /* Remove trailing newline if present */
+    if (str_copy[str_len - 1] == '\n') {
+        str_copy[str_len - 1] = '\0';
+    }
+
+    /* First token (comma separated) */
+    token = strtok_r(str_copy, ",", &saveptr);
+
+    while (token != NULL) {
+        /* Skip leading whitespace */
+        while (isspace(*token)) {
+            token++;
+        }
+
+        /* Remove trailing whitespace */
+        if (*token != '\0') {
+            char *end_ptr = token + strlen(token) - 1;
+            while (end_ptr > token && isspace(*end_ptr)) {
+                *end_ptr = '\0';
+                end_ptr--;
+            }
+        }
+
+        /* Check if token is empty after trimming */
+        if (token[0] != '\0') {
+            /* Check for range format (contains dash) */
+            dash = strchr(token, '-');
+            if (dash != NULL) {
+                /* Range format: "start-end" */
+                *dash = '\0'; /* Split at dash position */
+
+                range_start = token;
+                range_end = dash + 1;
+
+                /* Skip whitespace in start string */
+                while (isspace(*range_start)) {
+                    range_start++;
+                }
+
+                /* Skip whitespace in end string */
+                while (isspace(*range_end)) {
+                    range_end++;
+                }
+
+                /* Convert start to integer */
+                errno = 0;
+                start = strtol(range_start, &endptr, 10);
+                if (endptr == range_start || *endptr != '\0' || errno != 0 ||
+                    start < 0) {
+                    result = -1; /* Invalid format */
+                    break;
+                }
+
+                /* Convert end to integer */
+                errno = 0;
+                end = strtol(range_end, &endptr, 10);
+                if (endptr == range_end || *endptr != '\0' || errno != 0 ||
+                    end < 0) {
+                    result = -1; /* Invalid format */
+                    break;
+                }
+
+                /* Calculate number of CPUs in this range */
+                if (start <= end) {
+                    cpu_count += (int)(end - start + 1);
+                } else {
+                    result = -1; /* Invalid range: start > end */
+                    break;
+                }
+            } else {
+                /* Single CPU number */
+                errno = 0;
+                start = strtol(token, &endptr, 10);
+                if (endptr == token || *endptr != '\0' || errno != 0 ||
+                    start < 0) {
+                    result = -1; /* Invalid format */
+                    break;
+                }
+
+                cpu_count++;
+            }
+        }
+
+        /* Get next token */
+        token = strtok_r(NULL, ",", &saveptr);
+    }
+
+    free(str_copy);
+
+    /* Return result */
+    if (result < 0) {
+        return result; /* Error occurred during parsing */
+    }
+
+    if (cpu_count <= 0) {
+        return 0; /* No CPUs found */
+    }
+
+    return cpu_count;
+}
+
+/**
+ * @brief Get the number of online CPUs from the sysfs file.
+ * @return >0: Number of online CPUs, 0: No online CPUs,
+ *         -1: Cannot open/read file,
+ *         -2: Invalid format,
+ *         -3: Memory allocation error
+ * @note This function reads from /sys/devices/system/cpu/online
+ *       and parses the CPU range string to determine the count.
+ *       The file format can be:
+ *         "0"                - Only CPU 0 is online
+ *         "0-3"              - CPUs 0-3 are online (continuous range)
+ *         "0,2,4,6"          - Discontinuous individual CPUs
+ *         "0-2,8-10,15-17"   - Multiple ranges
+ *         "0-3,5,7-9"        - Mixed format
+ */
+static int get_online_cpu_count(void) {
+    FILE *fp = NULL;
+    char *line = NULL;
+    size_t line_size = 0;
+    ssize_t bytes_read = 0;
+    int cpu_count = 0;
+
+    /* 1. Open the file */
+    fp = fopen("/sys/devices/system/cpu/online", "r");
+    if (fp == NULL) {
+        /* File does not exist or cannot be opened */
+        return -1;
+    }
+
+    /* 2. Read the first line (there should be only one line) */
+    bytes_read = getline(&line, &line_size, fp);
+
+    /* Close file immediately after reading */
+    fclose(fp);
+
+    if (bytes_read <= 0) {
+        /* Failed to read or empty file */
+        if (line != NULL) {
+            free(line);
+        }
+        return -1;
+    }
+
+    /* 3. Parse the CPU range string */
+    cpu_count = parse_cpu_range(line);
+
+    /* 4. Clean up and return */
+    if (line != NULL) {
+        free(line);
+    }
+
+    return cpu_count;
+}
+#endif
+
 /**
  * @brief Get the number of available CPUs
  * @return The number of available CPUs, or 1 if the count could not be
@@ -148,6 +340,14 @@ int get_ncpu(void) {
 #if defined(_SC_NPROCESSORS_ONLN)
         /* POSIX systems using sysconf */
         long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+#if defined(__linux__) && defined(__UCLIBC__)
+        /* Workaround: sysconf may return 1 with older uClibc even if more
+         * CPUs are online, so we double-check by reading from sysfs */
+        if (ncpu <= 1) {
+            /* Fallback to reading from sysfs */
+            ncpu = get_online_cpu_count();
+        }
+#endif
         cached_ncpu = (ncpu > 0) ? (int)ncpu : 1;
 
 #elif defined(__APPLE__) || defined(__FreeBSD__)
@@ -178,6 +378,14 @@ int get_ncpu(void) {
         /* Linux using get_nprocs */
         int ncpu;
         ncpu = get_nprocs();
+#if defined(__UCLIBC__)
+        /* Workaround: get_nprocs may return 1 with older uClibc even if more
+         * CPUs are online, so we double-check by reading from sysfs */
+        if (ncpu <= 1) {
+            /* Fallback to reading from sysfs */
+            ncpu = get_online_cpu_count();
+        }
+#endif
         cached_ncpu = (ncpu > 0) ? ncpu : 1;
 
 #else
