@@ -76,7 +76,8 @@ struct process *process_table_find(const struct process_table *pt, pid_t pid) {
     if (pt->table[idx] == NULL) {
         return NULL;
     }
-    return (struct process *)locate_elem(pt->table[idx], &pid);
+    return (struct process *)locate_elem(
+        pt->table[idx], &pid, offsetof(struct process, pid), sizeof(pid_t));
 }
 
 /**
@@ -98,7 +99,7 @@ void process_table_add(struct process_table *pt, struct process *p) {
             fprintf(stderr, "Memory allocation failed for the process list\n");
             exit(EXIT_FAILURE);
         }
-        init_list(pt->table[idx], sizeof(pid_t));
+        init_list(pt->table[idx]);
     }
     add_elem(pt->table[idx], p);
 }
@@ -119,7 +120,8 @@ int process_table_del(struct process_table *pt, pid_t pid) {
     if (pt->table[idx] == NULL) {
         return 1; /* Nothing to delete */
     }
-    node = locate_node(pt->table[idx], &pid);
+    node = locate_node(pt->table[idx], &pid, offsetof(struct process, pid),
+                       sizeof(pid_t));
     if (node == NULL) {
         return 1; /* Nothing to delete */
     }

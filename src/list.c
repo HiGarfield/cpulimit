@@ -33,14 +33,12 @@
 /**
  * @brief Initialize a doubly linked list
  * @param l Pointer to the list structure
- * @param keysize Size of the key for element comparison
  */
-void init_list(struct list *l, size_t keysize) {
+void init_list(struct list *l) {
     if (l == NULL) {
         return;
     }
     l->first = l->last = NULL;
-    l->keysize = keysize;
     l->count = 0;
 }
 
@@ -142,32 +140,24 @@ struct list_node *first_node(const struct list *l) {
 }
 
 /**
- * @brief Search for a node in the list by comparing a portion of its data
+ * @brief Locate a node in the list by comparing a portion of its data
  * @param l Pointer to the list to search
  * @param elem Pointer to the data to compare
  * @param offset Offset from which to start comparison in the node's data
- * @param length Length of the comparison (0 means use list's keysize)
+ * @param length Length of the comparison
  * @return Pointer to the found node, or NULL if not found
- * @note Comparison starts from the specified offset. If offset=0, comparison
- *       starts from the beginning of the data. If length=0, the list's keysize
- *       is used for comparison.
+ * @note Comparison starts from the specified offset.
  */
-static struct list_node *xlocate_node(const struct list *l, const void *elem,
-                                      size_t offset, size_t length) {
+struct list_node *locate_node(const struct list *l, const void *elem,
+                              size_t offset, size_t length) {
     struct list_node *cur;
-    size_t cmp_len;
 
-    if (l == NULL || elem == NULL) {
-        return NULL;
-    }
-
-    cmp_len = (length != 0) ? length : l->keysize;
-    if (cmp_len == 0) {
+    if (l == NULL || elem == NULL || length == 0) {
         return NULL;
     }
 
     for (cur = l->first; cur != NULL; cur = cur->next) {
-        if (memcmp((const char *)cur->data + offset, elem, cmp_len) == 0) {
+        if (memcmp((const char *)cur->data + offset, elem, length) == 0) {
             return cur;
         }
     }
@@ -176,42 +166,19 @@ static struct list_node *xlocate_node(const struct list *l, const void *elem,
 }
 
 /**
- * @brief Locate a node in the list by comparing its data
+ * @brief Locate an element in the list by comparing a portion of its data
  * @param l Pointer to the list to search
- * @param elem Pointer to the node to locate
- * @return Pointer to the node if found; NULL if not found
- * @note Comparison starts from the beginning of the data, and the list's
- *       keysize is used for comparison.
+ * @param elem Pointer to the data to compare
+ * @param offset Offset from which to start comparison in the node's data
+ * @param length Length of the comparison
+ * @return Pointer to the found node's data (element) if found,
+ *         or NULL if not found
+ * @note Comparison starts from the specified offset.
  */
-struct list_node *locate_node(const struct list *l, const void *elem) {
-    return xlocate_node(l, elem, 0, 0);
-}
-
-/**
- * @brief Locate an element in the list by comparing its data
- * @param l Pointer to the list to search
- * @param elem Pointer to the element to locate
- * @return Pointer to the element's data if found; NULL if not found
- * @note Comparison starts from the specified offset. If offset=0, comparison
- *       starts from the beginning of the data. If length=0, the list's keysize
- *       is used for comparison.
- */
-static void *xlocate_elem(const struct list *l, const void *elem, size_t offset,
-                          size_t length) {
-    struct list_node *node = xlocate_node(l, elem, offset, length);
+void *locate_elem(const struct list *l, const void *elem, size_t offset,
+                  size_t length) {
+    struct list_node *node = locate_node(l, elem, offset, length);
     return node != NULL ? node->data : NULL;
-}
-
-/**
- * @brief Locate an element in the list by comparing its data
- * @param l Pointer to the list to search
- * @param elem Pointer to the element to locate
- * @return Pointer to the element's data if found; NULL if not found
- * @note Comparison starts from the beginning of the data, and the list's
- *       keysize is used for comparison.
- */
-void *locate_elem(const struct list *l, const void *elem) {
-    return xlocate_elem(l, elem, 0, 0);
 }
 
 /**

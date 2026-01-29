@@ -145,7 +145,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
         fprintf(stderr, "Memory allocation failed for the process list\n");
         exit(EXIT_FAILURE);
     }
-    init_list(pgroup->proclist, sizeof(pid_t));
+    init_list(pgroup->proclist);
 
     /* Record current time for first update */
     if (get_current_time(&pgroup->last_update) != 0) {

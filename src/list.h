@@ -50,8 +50,6 @@ struct list {
     struct list_node *first;
     /** Pointer to the last node in the list */
     struct list_node *last;
-    /** Size of the search key in bytes for element comparison */
-    size_t keysize;
     /** Count of elements in the list */
     size_t count;
 };
@@ -59,9 +57,8 @@ struct list {
 /**
  * @brief Initialize a doubly linked list
  * @param l Pointer to the list structure
- * @param keysize Size of the key for element comparison
  */
-void init_list(struct list *l, size_t keysize);
+void init_list(struct list *l);
 
 /**
  * @brief Add a new element to the end of the list
@@ -110,24 +107,29 @@ size_t get_list_count(const struct list *l);
 struct list_node *first_node(const struct list *l);
 
 /**
- * @brief Locate a node in the list by comparing its data
+ * @brief Locate a node in the list by comparing a portion of its data
  * @param l Pointer to the list to search
- * @param elem Pointer to the node to locate
- * @return Pointer to the node if found; NULL if not found
- * @note Comparison starts from the beginning of the data, and the list's
- *       keysize is used for comparison.
+ * @param elem Pointer to the data to compare
+ * @param offset Offset from which to start comparison in the node's data
+ * @param length Length of the comparison
+ * @return Pointer to the found node, or NULL if not found
+ * @note Comparison starts from the specified offset.
  */
-struct list_node *locate_node(const struct list *l, const void *elem);
+struct list_node *locate_node(const struct list *l, const void *elem,
+                              size_t offset, size_t length);
 
 /**
- * @brief Locate an element in the list by comparing its data
+ * @brief Locate an element in the list by comparing a portion of its data
  * @param l Pointer to the list to search
- * @param elem Pointer to the element to locate
- * @return Pointer to the element's data if found; NULL if not found
- * @note Comparison starts from the beginning of the data, and the list's
- *       keysize is used for comparison.
+ * @param elem Pointer to the data to compare
+ * @param offset Offset from which to start comparison in the node's data
+ * @param length Length of the comparison
+ * @return Pointer to the found node's data (element) if found,
+ *         or NULL if not found
+ * @note Comparison starts from the specified offset.
  */
-void *locate_elem(const struct list *l, const void *elem);
+void *locate_elem(const struct list *l, const void *elem, size_t offset,
+                  size_t length);
 
 /**
  * @brief Clear all nodes from the list without freeing node data
