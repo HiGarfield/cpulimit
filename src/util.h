@@ -142,4 +142,15 @@ int __getloadavg(double *loadavg, int nelem);
 #define __IMPL_GETLOADAVG
 #endif
 
+#if defined(__linux__)
+/**
+ * @brief Read the first line from a text file
+ * @param file_name Path to the file to read
+ * @return Pointer to the allocated line buffer on success,
+ *         or NULL on failure or if no characters are read
+ * @note The caller is responsible for freeing the returned buffer
+ */
+char *read_line_from_file(const char *file_name);
+#endif
+
 #endif

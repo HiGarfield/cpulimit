@@ -36,9 +36,11 @@
 #include <stddef.h>
 #include <sys/sysctl.h>
 #endif
-#if defined(__linux__) && defined(__UCLIBC__)
+#if defined(__linux__)
+#if defined(__UCLIBC__)
 #include <ctype.h>
 #include <errno.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #endif
@@ -286,41 +288,15 @@ static int parse_cpu_range(const char *str) {
  *         "0-3,5,7-9"        - Mixed format
  */
 static int get_online_cpu_count(void) {
-    FILE *fp = NULL;
-    char *line = NULL;
-    size_t line_size = 0;
-    ssize_t bytes_read = 0;
-    int cpu_count = 0;
+    char *line;
+    int cpu_count;
 
-    /* 1. Open the file */
-    fp = fopen("/sys/devices/system/cpu/online", "r");
-    if (fp == NULL) {
-        /* File does not exist or cannot be opened */
-        return -1;
+    line = read_line_from_file("/sys/devices/system/cpu/online");
+    if (line == NULL) {
+        return -1; /* Cannot open/read file */
     }
-
-    /* 2. Read the first line (there should be only one line) */
-    bytes_read = getline(&line, &line_size, fp);
-
-    /* Close file immediately after reading */
-    fclose(fp);
-
-    if (bytes_read <= 0) {
-        /* Failed to read or empty file */
-        if (line != NULL) {
-            free(line);
-        }
-        return -1;
-    }
-
-    /* 3. Parse the CPU range string */
     cpu_count = parse_cpu_range(line);
-
-    /* 4. Clean up and return */
-    if (line != NULL) {
-        free(line);
-    }
-
+    free(line);
     return cpu_count;
 }
 #endif
@@ -430,3 +406,29 @@ int __getloadavg(double *loadavg, int nelem) {
     return nelem;
 }
 #endif
+
+#if defined(__linux__)
+/**
+ * @brief Read the first line from a text file
+ * @param file_name Path to the file to read
+ * @return Pointer to the allocated line buffer on success,
+ *         or NULL on failure or if no characters are read
+ * @note The caller is responsible for freeing the returned buffer
+ */
+char *read_line_from_file(const char *file_name) {
+    FILE *fp;
+    char *line = NULL;
+    size_t line_size = 0;
+    if (file_name == NULL || (fp = fopen(file_name, "r")) == NULL) {
+        return NULL;
+    }
+    if (getline(&line, &line_size, fp) < 0) {
+        free(line);
+        fclose(fp);
+        return NULL;
+    }
+    fclose(fp);
+    line[strcspn(line, "\r\n")] = '\0';
+    return line;
+}
+#endif /* __linux__ */

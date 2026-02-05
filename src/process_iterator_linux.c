@@ -29,6 +29,7 @@
 #endif
 
 #include "process_iterator.h"
+#include "util.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -74,13 +75,10 @@ int init_process_iterator(struct process_iterator *it,
  */
 static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     char statfile[64], exefile[64], state;
-    const size_t buff_size = 2048;
-    ssize_t nread;
     char *buffer;
     const char *ptr_start;
     double usertime, systime;
     long ppid;
-    int fd;
     static long sc_clk_tck = -1;
 
     memset(p, 0, sizeof(struct process));
@@ -88,26 +86,9 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
 
     /* Read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)p->pid);
-#ifdef O_CLOEXEC
-    if ((fd = open(statfile, O_RDONLY | O_CLOEXEC)) < 0)
-#else
-    if ((fd = open(statfile, O_RDONLY)) < 0)
-#endif
-    {
+    if ((buffer = read_line_from_file(statfile)) == NULL) {
         return -1;
     }
-    if ((buffer = (char *)malloc(buff_size)) == NULL) {
-        fprintf(stderr, "Memory allocation failed for the buffer\n");
-        close(fd);
-        exit(EXIT_FAILURE);
-    }
-    nread = read(fd, buffer, buff_size - 1);
-    close(fd);
-    if (nread <= 0) {
-        free(buffer);
-        return -1;
-    }
-    buffer[nread] = '\0';
     ptr_start = strrchr(buffer, ')');
     if (ptr_start == NULL) {
         free(buffer);
@@ -138,20 +119,11 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     }
     /* Read command line */
     sprintf(exefile, "/proc/%ld/cmdline", (long)p->pid);
-#ifdef O_CLOEXEC
-    if ((fd = open(exefile, O_RDONLY | O_CLOEXEC)) < 0)
-#else
-    if ((fd = open(exefile, O_RDONLY)) < 0)
-#endif
-    {
+    if ((buffer = read_line_from_file(exefile)) == NULL) {
         return -1;
     }
-    nread = read(fd, p->command, sizeof(p->command) - 1);
-    close(fd);
-    if (nread <= 0) {
-        return -1;
-    }
-    p->command[nread] = '\0';
+    strncpy(p->command, buffer, sizeof(p->command) - 1);
+    free(buffer);
     return 0;
 }
 
@@ -162,35 +134,15 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
  */
 pid_t getppid_of(pid_t pid) {
     char statfile[64], state;
-    const size_t buff_size = 2048;
-    ssize_t nread;
     char *buffer;
     const char *ptr_start;
     long ppid;
-    int fd;
 
     /* Read stat file */
     sprintf(statfile, "/proc/%ld/stat", (long)pid);
-#ifdef O_CLOEXEC
-    if ((fd = open(statfile, O_RDONLY | O_CLOEXEC)) < 0)
-#else
-    if ((fd = open(statfile, O_RDONLY)) < 0)
-#endif
-    {
+    if ((buffer = read_line_from_file(statfile)) == NULL) {
         return (pid_t)-1;
     }
-    if ((buffer = (char *)malloc(buff_size)) == NULL) {
-        fprintf(stderr, "Memory allocation failed for the buffer\n");
-        close(fd);
-        exit(EXIT_FAILURE);
-    }
-    nread = read(fd, buffer, buff_size - 1);
-    close(fd);
-    if (nread <= 0) {
-        free(buffer);
-        return (pid_t)-1;
-    }
-    buffer[nread] = '\0';
     ptr_start = strrchr(buffer, ')');
     if (ptr_start == NULL) {
         free(buffer);
