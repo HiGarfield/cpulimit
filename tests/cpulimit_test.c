@@ -124,7 +124,7 @@ static void test_single_process(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
-    int count;
+    size_t count;
 
     /* Allocate memory for process structure */
     if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
@@ -176,7 +176,7 @@ static void test_multiple_process(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
-    int count = 0;
+    size_t count = 0;
 
     /* Create a child process for testing */
     pid_t child_pid = fork();
@@ -232,7 +232,7 @@ static void test_all_processes(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
-    int count = 0;
+    size_t count = 0;
 
     /* Set up filter to get all processes */
     filter.pid = 0;
@@ -270,7 +270,7 @@ static void test_all_processes(void) {
 static void test_process_group_all(void) {
     struct process_group pgroup;
     const struct list_node *node = NULL;
-    int count = 0;
+    size_t count = 0;
 
     /* Initialize process group with all processes */
     assert(init_process_group(&pgroup, 0, 0) == 0);
@@ -281,7 +281,7 @@ static void test_process_group_all(void) {
         count++;
     }
     assert(count > 10);
-    assert((size_t)count == get_list_count(pgroup.proclist));
+    assert(count == get_list_count(pgroup.proclist));
 
     /* Update and verify again */
     update_process_group(&pgroup);
@@ -316,7 +316,7 @@ static void test_proc_group_single(int include_children) {
     /* Update process group 100 times and verify consistency */
     for (i = 0; i < 100; i++) {
         const struct list_node *node = NULL;
-        int count = 0;
+        size_t count = 0;
 
         update_process_group(&pgroup);
         assert(get_list_count(pgroup.proclist) == 1);
@@ -557,7 +557,8 @@ static void test_limit_process(void) {
 
         if (limiter_pid > 0) {
             /* Monitor process: track CPU usage */
-            int i, count = 0;
+            int i;
+            size_t count = 0;
             double cpu_usage = 0;
             struct process_group pgroup;
             const struct timespec sleep_time = {0, 500000000L};
@@ -590,7 +591,7 @@ static void test_limit_process(void) {
             kill_and_wait(-child_pid, SIGKILL);
 
             /* Calculate and display average CPU usage */
-            cpu_usage /= count;
+            cpu_usage /= (double)count;
             printf("CPU usage limit: %.3f, CPU usage: %.3f\n", cpu_usage_limit,
                    cpu_usage);
 
