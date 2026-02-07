@@ -145,128 +145,58 @@ void increase_priority(void) {
 /**
  * @brief Parse a CPU range string and return the number of CPUs specified.
  * @param str: String containing CPU range specification
- * @return >0: Number of CPUs, -1: Invalid format, -2: Memory allocation error
+ * @return >0: Number of CPUs, -1: Invalid format
  */
 static int parse_cpu_range(const char *str) {
-    char *str_copy, *token, *saveptr, *dash, *endptr;
-    const char *range_start, *range_end;
-    int cpu_count = 0, result = 0;
-    long start, end;
-    size_t str_len = 0;
+    const char *p = str;
+    char *endptr;
+    int cpu_count = 0;
 
     if (str == NULL) {
         return -1;
     }
 
-    str_len = strlen(str);
-    if (str_len == 0) {
-        return 0;
-    }
+    while (*p != '\0') {
+        long start;
+        /* read number (strtol skips leading spaces) */
+        errno = 0;
+        start = strtol(p, &endptr, 10);
+        if (endptr == p || errno != 0 || start < 0) {
+            return -1;
+        }
+        p = endptr;
 
-    /* Make a copy of the string for tokenization */
-    str_copy = (char *)malloc(str_len + 1);
-    if (str_copy == NULL) {
-        return -2; /* Memory allocation error */
-    }
-
-    strcpy(str_copy, str);
-
-    /* Remove trailing newline if present */
-    if (str_copy[str_len - 1] == '\n') {
-        str_copy[str_len - 1] = '\0';
-    }
-
-    /* First token (comma separated) */
-    token = strtok_r(str_copy, ",", &saveptr);
-
-    while (token != NULL) {
-        /* Skip leading whitespace */
-        while (isspace(*token)) {
-            token++;
+        /* skip trailing spaces after number */
+        while (isspace(*p)) {
+            p++;
         }
 
-        /* Remove trailing whitespace */
-        if (*token != '\0') {
-            char *end_ptr = token + strlen(token) - 1;
-            while (end_ptr > token && isspace(*end_ptr)) {
-                *end_ptr = '\0';
-                end_ptr--;
+        if (*p == '-') {
+            long end;
+
+            p++;
+
+            errno = 0;
+            end = strtol(p, &endptr, 10);
+            if (endptr == p || errno != 0 || start > end || end < 0) {
+                return -1;
             }
-        }
 
-        /* Check if token is empty after trimming */
-        if (token[0] != '\0') {
-            /* Check for range format (contains dash) */
-            dash = strchr(token, '-');
-            if (dash != NULL) {
-                /* Range format: "start-end" */
-                *dash = '\0'; /* Split at dash position */
+            cpu_count += (int)(end - start + 1);
+            p = endptr;
 
-                range_start = token;
-                range_end = dash + 1;
-
-                /* Skip whitespace in start string */
-                while (isspace(*range_start)) {
-                    range_start++;
-                }
-
-                /* Skip whitespace in end string */
-                while (isspace(*range_end)) {
-                    range_end++;
-                }
-
-                /* Convert start to integer */
-                errno = 0;
-                start = strtol(range_start, &endptr, 10);
-                if (endptr == range_start || *endptr != '\0' || errno != 0 ||
-                    start < 0) {
-                    result = -1; /* Invalid format */
-                    break;
-                }
-
-                /* Convert end to integer */
-                errno = 0;
-                end = strtol(range_end, &endptr, 10);
-                if (endptr == range_end || *endptr != '\0' || errno != 0 ||
-                    end < 0) {
-                    result = -1; /* Invalid format */
-                    break;
-                }
-
-                /* Calculate number of CPUs in this range */
-                if (start <= end) {
-                    cpu_count += (int)(end - start + 1);
-                } else {
-                    result = -1; /* Invalid range: start > end */
-                    break;
-                }
-            } else {
-                /* Single CPU number */
-                errno = 0;
-                start = strtol(token, &endptr, 10);
-                if (endptr == token || *endptr != '\0' || errno != 0 ||
-                    start < 0) {
-                    result = -1; /* Invalid format */
-                    break;
-                }
-
-                cpu_count++;
+            while (isspace(*p)) {
+                p++;
             }
+        } else {
+            cpu_count++;
         }
 
-        /* Get next token */
-        token = strtok_r(NULL, ",", &saveptr);
-    }
-
-    free(str_copy);
-
-    /* Return result */
-    if (result < 0) {
-        return result; /* Error occurred during parsing */
-    }
-
-    if (cpu_count <= 0) {
-        return 0; /* No CPUs found */
+        if (*p == ',') {
+            p++;
+        } else if (*p != '\0') {
+            return -1;
+        }
     }
 
     return cpu_count;
