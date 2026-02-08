@@ -220,6 +220,9 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
             }
         }
         child_pid = getppid_of(child_pid);
+        if (child_pid < 0) {
+            return 0;
+        }
         if (child_pid == parent_pid) {
             return 1;
         }
