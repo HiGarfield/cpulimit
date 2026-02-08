@@ -123,6 +123,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         return -1;
     }
     strncpy(p->command, buffer, sizeof(p->command) - 1);
+    p->command[sizeof(p->command) - 1] = '\0';
     free(buffer);
     return 0;
 }
