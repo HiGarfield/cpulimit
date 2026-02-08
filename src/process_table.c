@@ -101,7 +101,10 @@ void process_table_add(struct process_table *pt, struct process *p) {
         }
         init_list(pt->table[idx]);
     }
-    add_elem(pt->table[idx], p);
+    if (locate_elem(pt->table[idx], &p->pid, offsetof(struct process, pid),
+                    sizeof(pid_t)) == NULL) {
+        add_elem(pt->table[idx], p);
+    }
 }
 
 /**
