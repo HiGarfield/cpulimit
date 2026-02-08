@@ -66,6 +66,12 @@ static double get_dynamic_time_slot(void) {
     struct timespec now;
     double load, new_time_slot;
 
+    if (last_update.tv_sec == 0 && last_update.tv_nsec == 0) {
+        if (get_current_time(&last_update) == 0) {
+            return time_slot;
+        }
+    }
+
     /* Skip updates if the last check was less than 1000 ms ago */
     if (get_current_time(&now) == 0 &&
         timediff_in_ms(&now, &last_update) < 1000.0) {
