@@ -244,6 +244,12 @@ void update_process_group(struct process_group *pgroup) {
         } else {
             double sample;
             add_elem(pgroup->proclist, p);
+            if (tmp_process->cputime < p->cputime) {
+                /* PID reused, reset history */
+                tmp_process->cpu_usage = -1;
+                memcpy(p, tmp_process, sizeof(struct process));
+                continue;
+            }
             if (dt < MIN_DT) {
                 continue;
             }
