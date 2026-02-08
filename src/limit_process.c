@@ -204,7 +204,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
             }
         }
 
-        if (work_time.tv_nsec > 0 || work_time.tv_sec > 0) {
+        if (work_ratio > 0.02) {
             if (is_suspended) {
                 /* Resume suspended processes */
                 send_signal_to_processes(&proc_group, SIGCONT, verbose);
@@ -218,7 +218,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
             break;
         }
 
-        if (sleep_time.tv_nsec > 0 || sleep_time.tv_sec > 0) {
+        if (work_ratio < 0.98) {
             if (!is_suspended) {
                 /* Suspend processes during sleep interval */
                 send_signal_to_processes(&proc_group, SIGSTOP, verbose);
