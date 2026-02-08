@@ -25,6 +25,7 @@
 
 #include "util.h" /* Must be included at first!!! */
 
+#include <errno.h>
 #include <string.h>
 #include <sys/resource.h>
 #if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
@@ -135,7 +136,11 @@ void increase_priority(void) {
     int old_priority, priority;
     old_priority = getpriority(PRIO_PROCESS, 0);
     for (priority = MAX_PRIORITY; priority < old_priority; priority++) {
+        errno = 0;
         if (setpriority(PRIO_PROCESS, 0, priority) == 0) {
+            break;
+        }
+        if (errno == EPERM) {
             break;
         }
     }
