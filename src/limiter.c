@@ -171,6 +171,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
             printf("Process cannot be found\n");
         } else if (found_pid < 0) {
             printf("No permission to control process\n");
+            break;
         } else {
             /* Prevent limiting cpulimit itself */
             if (found_pid == getpid()) {
