@@ -37,7 +37,6 @@
  */
 static void *busy_loop(void *arg) {
     (void)arg;
-    pthread_detach(pthread_self());
     while (1) {
         ;
     }
@@ -55,16 +54,22 @@ static void *busy_loop(void *arg) {
  */
 int main(int argc, const char *argv[]) {
     int i, num_threads;
+    pthread_attr_t attr;
+
     num_threads = argc == 2 ? atoi(argv[1]) : get_ncpu();
     num_threads = MAX(num_threads, 1);
 
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
     for (i = 1; i < num_threads; i++) {
         pthread_t tid;
-        if (pthread_create(&tid, NULL, busy_loop, NULL) != 0) {
-            fprintf(stderr, "Failed to create thread %d\n", i);
+        if (pthread_create(&tid, &attr, busy_loop, NULL) != 0) {
+            perror("pthread_create");
             exit(EXIT_FAILURE);
         }
     }
+    pthread_attr_destroy(&attr);
 
     busy_loop(NULL);
 
