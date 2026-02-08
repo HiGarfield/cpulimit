@@ -47,7 +47,7 @@ static void sig_handler(int sig) {
     int saved_errno = errno;
 
     /* Handle the Ctrl+C or Ctrl+\ issue */
-    ssize_t ret = write(STDOUT_FILENO, "\n", 1);
+    ssize_t ret = write(STDERR_FILENO, "\n", 1);
 
     limiter_quit_flag = 1;
 
