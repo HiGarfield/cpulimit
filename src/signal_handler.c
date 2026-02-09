@@ -30,6 +30,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -78,6 +79,7 @@ void configure_signal_handlers(void) {
     const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
     /* Initialize and configure sigaction structure */
+    memset(&sa, 0, sizeof(sa));
     /* Block all signals during handler execution to avoid reentrancy issues */
     sigfillset(&sa.sa_mask);
     sa.sa_handler = sig_handler; /* Use unified signal handler */
