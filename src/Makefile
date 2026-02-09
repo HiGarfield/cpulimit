@@ -1,61 +1,6 @@
 # Compiler configuration
 CC ?= gcc
 
-# Force 64-bit time_t and file offsets to prevent Y2038 issue
-override CFLAGS += -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64
-
-# Compiler flags
-override CFLAGS := $(filter-out -Wno%,$(CFLAGS)) \
-                   $(if $(filter -O%,$(CFLAGS)),,-O2) \
-                   $(if $(filter -ansi -std=%,$(CFLAGS)),,-std=c89) \
-                   -pedantic \
-                   -Wall \
-                   -Wextra \
-                   -Wold-style-definition \
-                   -Wmissing-prototypes \
-                   -Wstrict-prototypes \
-                   -Werror \
-                   -pipe
-
-# If CHECK is set to 1, add stricter flags
-ifeq ($(CHECK),1)
-override CFLAGS += -Wshadow \
-                   -Wcast-qual \
-                   -Wconversion \
-                   -Wformat=2 \
-                   -Wstrict-overflow=5 \
-                   -Wundef \
-                   -Wswitch-default \
-                   -Wswitch-enum \
-                   -Wunreachable-code \
-                   -Wfloat-equal \
-                   -Wpointer-arith \
-                   -Wwrite-strings \
-                   -Wredundant-decls \
-                   -Wmissing-declarations \
-                   -Winline \
-                   -Wcast-align \
-                   -Wstrict-aliasing=2 \
-                   -Wsign-conversion \
-                   -Wmissing-include-dirs \
-                   -Wunused \
-                   -Wbad-function-cast \
-                   -Waggregate-return \
-                   -Wmissing-format-attribute \
-                   -Wlarger-than=256 \
-                   -Wdisabled-optimization \
-                   -Wc++-compat
-endif # CHECK = 1
-
-# Set NOFLAGS to 1 for C++ compilers
-NOFLAGS ?= $(if $(findstring ++,$(notdir $(CC))),1)
-
-# If NOFLAGS is set to 1, set CFLAGS and LDFLAGS to empty
-ifeq ($(NOFLAGS),1)
-override CFLAGS :=
-override LDFLAGS :=
-endif # NOFLAGS = 1
-
 # Target binary
 TARGET := cpulimit
 
@@ -65,17 +10,90 @@ DESTDIR := /usr/local/bin
 # Detect operating system
 UNAME ?= $(shell uname -s)
 
+CFLAGS ?=
+LDFLAGS ?=
+PROJECT_CFLAGS :=
+PROJECT_LDFLAGS :=
+
+# Force 64-bit time_t and file offsets to prevent Y2038 issue
+PROJECT_CFLAGS += -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64
+
+# Compiler flags
+ifeq ($(filter -std=% -ansi,$(CFLAGS)),)
+PROJECT_CFLAGS += -std=c89
+endif
+
+ifeq ($(filter -O%,$(CFLAGS)),)
+PROJECT_CFLAGS += -O2
+endif
+
+PROJECT_CFLAGS += \
+    -pedantic \
+    -Wall \
+    -Wextra \
+    -Wold-style-definition \
+    -Wmissing-prototypes \
+    -Wstrict-prototypes \
+    -Werror \
+    -pipe
+
+# If CHECK is set to 1, add stricter flags
+ifeq ($(CHECK),1)
+PROJECT_CFLAGS += \
+    -Wshadow \
+    -Wcast-qual \
+    -Wconversion \
+    -Wformat=2 \
+    -Wstrict-overflow=5 \
+    -Wundef \
+    -Wswitch-default \
+    -Wswitch-enum \
+    -Wunreachable-code \
+    -Wfloat-equal \
+    -Wpointer-arith \
+    -Wwrite-strings \
+    -Wredundant-decls \
+    -Wmissing-declarations \
+    -Winline \
+    -Wcast-align \
+    -Wstrict-aliasing=2 \
+    -Wsign-conversion \
+    -Wmissing-include-dirs \
+    -Wunused \
+    -Wbad-function-cast \
+    -Waggregate-return \
+    -Wmissing-format-attribute \
+    -Wlarger-than=256 \
+    -Wdisabled-optimization \
+    -Wc++-compat
+endif # CHECK = 1
+
+# Set NOFLAGS to 1 for C++ compilers
+NOFLAGS ?= $(if $(findstring ++,$(notdir $(CC))),1)
+
+# If NOFLAGS is set to 1, set CFLAGS and LDFLAGS to empty
+ifeq ($(NOFLAGS),1)
+override CFLAGS :=
+override LDFLAGS :=
+PROJECT_CFLAGS :=
+PROJECT_LDFLAGS :=
+endif # NOFLAGS = 1
+
 # Platform-specific linker flags
-override LDFLAGS += $(if $(findstring Linux,$(UNAME)),-lrt) \
-                    $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
-                    $(if $(findstring Darwin,$(UNAME)),-lproc)
+PROJECT_LDFLAGS += \
+    $(if $(findstring Linux,$(UNAME)),-lrt) \
+    $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
+    $(if $(findstring Darwin,$(UNAME)),-lproc)
+
+ALL_CFLAGS := $(filter-out -Wno%,$(PROJECT_CFLAGS) $(CFLAGS))
+ALL_LDFLAGS := $(PROJECT_LDFLAGS) $(LDFLAGS)
 
 # cppcheck options
 CPPCHECK_OPTS := $(shell \
     echo | $(CC) -E -x c -v - 2>&1 | \
     grep "^[[:space:]]*/[[:graph:]]*/include[[:graph:]]*$$" | \
     sed 's/^/-I /' \
-)
+    )
 CPPCHECK_OPTS += --enable=all \
                  --inconclusive \
                  --check-level=exhaustive \
@@ -101,7 +119,7 @@ all: $(TARGET)
 
 # Build target
 $(TARGET): $(wildcard *.c *.h)
-	$(CC) $(CFLAGS) $(filter-out process_iterator_%.c %.h,$^) $(LDFLAGS) -o $@
+	$(CC) $(ALL_CFLAGS) $(filter-out process_iterator_%.c %.h,$^) $(ALL_LDFLAGS) -o $@
 
 # Clean target
 clean:
@@ -110,22 +128,22 @@ clean:
 # Format source files with clang-format
 format: $(wildcard *.c *.h)
 	@command -v clang-format >/dev/null 2>&1 || { \
-        echo "clang-format is not installed. Please install it to format the code."; \
-        exit 1; \
-    }
+	echo "clang-format is not installed. Please install it to format the code."; \
+	exit 1; \
+	}
 	clang-format -i $^
 	@echo "Source files formatted successfully."
 
 # Check source files with cppcheck
 check: $(wildcard *.c *.h) clean
 	@command -v bear >/dev/null 2>&1 || { \
-        echo "bear is not installed. Please install it to check the code."; \
-        exit 1; \
-    }
+	echo "bear is not installed. Please install it to check the code."; \
+	exit 1; \
+	}
 	@command -v cppcheck >/dev/null 2>&1 || { \
-        echo "cppcheck is not installed. Please install it to check the code."; \
-        exit 1; \
-    }
+	echo "cppcheck is not installed. Please install it to check the code."; \
+	exit 1; \
+	}
 	bear -- $(MAKE) all CHECK=1
 	cppcheck $(CPPCHECK_OPTS) 2>"$(CHECK_REPORT)"
 	@echo "See $(shell pwd)/$(CHECK_REPORT) for cppcheck report."
