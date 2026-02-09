@@ -268,20 +268,20 @@ int get_next_process(struct process_iterator *it, struct process *p) {
 
     /* Read in from /proc and seek for process directories */
     while ((dit = readdir(it->dip)) != NULL) {
+        pid_t pid;
 #ifdef _DIRENT_HAVE_D_TYPE
         if (dit->d_type != DT_DIR && dit->d_type != DT_UNKNOWN) {
             continue;
         }
 #endif
-        if (!is_numeric(dit->d_name) ||
-            (p->pid = (pid_t)atol(dit->d_name)) <= 0) {
+        if (!is_numeric(dit->d_name) || (pid = (pid_t)atol(dit->d_name)) <= 0) {
             continue;
         }
-        if (it->filter->pid != 0 && it->filter->pid != p->pid &&
-            !is_child_of(p->pid, it->filter->pid)) {
+        if (it->filter->pid != 0 && it->filter->pid != pid &&
+            !is_child_of(pid, it->filter->pid)) {
             continue;
         }
-        if (read_process_info(p->pid, p, it->filter->read_cmd) != 0) {
+        if (read_process_info(pid, p, it->filter->read_cmd) != 0) {
             continue;
         }
         return 0;
