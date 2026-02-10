@@ -233,8 +233,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         cycle_counter = (cycle_counter + 1) % 200;
     }
 
-    /* If quit_flag is set, resume suspended processes before exiting */
-    if (is_quit_flag_set() && is_suspended) {
+    /* Always resume suspended processes before exiting */
+    if (is_suspended) {
         send_signal_to_processes(&proc_group, SIGCONT, 0);
     }
 
