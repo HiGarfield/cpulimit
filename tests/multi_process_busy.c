@@ -40,6 +40,7 @@
  */
 int main(int argc, const char *argv[]) {
     int i, num_procs;
+    volatile int keep_running = 1;
     num_procs = argc == 2 ? atoi(argv[1]) : get_ncpu();
     num_procs = MAX(num_procs, 1);
 
@@ -58,9 +59,12 @@ int main(int argc, const char *argv[]) {
         }
     }
 
-    /* All processes (parent and 3 children) enter infinite loop */
-    while (1) {
-        ; /* Busy loop consuming CPU */
+    /* All processes (parent and children) enter infinite loop */
+    while (keep_running) {
+        volatile int dummy_var;
+        for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+            ;
+        }
     }
 
     /* Unreachable code */

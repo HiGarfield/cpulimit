@@ -36,9 +36,13 @@
  * @note This function runs an infinite busy loop to consume CPU cycles
  */
 static void *busy_loop(void *arg) {
+    volatile int keep_running = 1;
     (void)arg;
-    while (1) {
-        ;
+    while (keep_running) {
+        volatile int dummy_var;
+        for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+            ;
+        }
     }
     return NULL;
 }

@@ -304,8 +304,12 @@ static void test_proc_group_single(int include_children) {
 
     if (child_pid == 0) {
         /* Child process: busy loop until killed */
-        while (!is_quit_flag_set()) {
-            ;
+        volatile int keep_running = 1;
+        while (keep_running && !is_quit_flag_set()) {
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
         }
         exit(EXIT_SUCCESS);
     }
@@ -606,6 +610,7 @@ static void test_limit_process(void) {
     } else {
         /* child_pid == 0: Target process group */
         int i;
+        volatile int keep_running = 1;
 
         /* Create new process group */
         setpgid(0, 0);
@@ -628,8 +633,11 @@ static void test_limit_process(void) {
         assert(close(sync_pipe[1]) == 0);
 
         /* Keep processes running until terminated */
-        while (!is_quit_flag_set()) {
-            ;
+        while (keep_running && !is_quit_flag_set()) {
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
         }
         exit(EXIT_SUCCESS);
     }
