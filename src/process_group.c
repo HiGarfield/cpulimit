@@ -242,8 +242,9 @@ void update_process_group(struct process_group *pgroup) {
             process_table_find(pgroup->proctable, tmp_process->pid);
         if (p == NULL) {
             /* Process is new. Add it to the table and list */
-            tmp_process->cpu_usage = -1;
             p = process_dup(tmp_process);
+            /* Mark CPU usage as unknown for new processes */
+            p->cpu_usage = -1;
             process_table_add(pgroup->proctable, p);
             add_elem(pgroup->proclist, p);
         } else {
@@ -251,8 +252,9 @@ void update_process_group(struct process_group *pgroup) {
             add_elem(pgroup->proclist, p);
             if (tmp_process->cputime < p->cputime) {
                 /* PID reused, reset history */
-                tmp_process->cpu_usage = -1;
                 memcpy(p, tmp_process, sizeof(struct process));
+                /* Mark CPU usage as unknown for reused PIDs */
+                p->cpu_usage = -1;
                 continue;
             }
             if (dt < MIN_DT) {
