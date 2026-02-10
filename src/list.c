@@ -157,6 +157,9 @@ struct list_node *locate_node(const struct list *l, const void *elem,
     }
 
     for (cur = l->first; cur != NULL; cur = cur->next) {
+        if (cur->data == NULL) {
+            continue;
+        }
         if (memcmp((const char *)cur->data + offset, elem, length) == 0) {
             return cur;
         }
