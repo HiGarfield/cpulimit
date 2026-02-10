@@ -515,7 +515,7 @@ static void test_getppid_of(void) {
 
 /**
  * @brief Test limit_process function
- * @note Creates a process group with 4 processes and applies CPU limiting
+ * @note Creates a process group with multi processes and applies CPU limiting
  *       to verify that the CPU usage stays within the specified limit
  */
 static void test_limit_process(void) {
@@ -523,7 +523,8 @@ static void test_limit_process(void) {
     pid_t child_pid;
     int sync_pipe[2], num_procs;
     num_procs = get_ncpu();
-    num_procs = MAX(num_procs, 1);
+    /* Ensure at least 2 processes to validate include_children option */
+    num_procs = MAX(num_procs, 2);
 
     /* Create pipe for synchronization */
     assert(pipe(sync_pipe) == 0);
