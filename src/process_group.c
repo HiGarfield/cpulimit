@@ -76,16 +76,21 @@ pid_t find_process_by_name(const char *process_name) {
     struct process_iterator it;
     struct process_filter filter;
     struct process *proc;
-
-    /**
+    /*
      * Flag for full path comparison:
      * - True (1) if process_name is an absolute path (starts with '/').
      * - False (0) if process_name is a relative path (does not start with '/').
-     *
      * This determines whether to compare full paths or just basenames.
      */
-    int full_path_cmp = process_name[0] == '/';
-    const char *process_cmp_name =
+    int full_path_cmp;
+    const char *process_cmp_name;
+
+    if (process_name == NULL) {
+        return 0;
+    }
+
+    full_path_cmp = process_name[0] == '/';
+    process_cmp_name =
         full_path_cmp ? process_name : file_basename(process_name);
     if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process\n");
