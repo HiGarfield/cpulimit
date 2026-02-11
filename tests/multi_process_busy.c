@@ -21,6 +21,7 @@
 
 #include "../src/util.h"
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,16 +48,16 @@ int main(int argc, const char *argv[]) {
 
     /* Create num_procs-1 child processes (total num_procs processes) */
     for (i = 1; i < num_procs; i++) {
-        pid_t pid = fork();
+        pid_t pid;
+        do {
+            pid = fork();
+        } while (pid < 0 && errno == EINTR);
         if (pid < 0) { /* fork failed */
             fprintf(stderr, "fork failed\n");
             kill(0, SIGKILL); /* Kill all created children */
             exit(EXIT_FAILURE);
-        } else if (pid > 0) { /* Parent process */
-            /* Continue creating more children */
-        } else { /* Child process (pid == 0) */
-            /* Child should not create more processes */
-            break;
+        } else if (pid == 0) { /* Child process (pid == 0) */
+            break;             /* Child should not create more processes */
         }
     }
 
