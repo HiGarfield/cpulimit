@@ -19,6 +19,7 @@
  * <https://www.gnu.org/licenses/>.
  */
 
+#include "../src/signal_handler.h"
 #include "../src/util.h"
 
 #include <errno.h>
@@ -41,7 +42,7 @@
  */
 int main(int argc, const char *argv[]) {
     int i, num_procs;
-    volatile int keep_running = 1;
+    configure_signal_handlers();
     num_procs = argc == 2 ? atoi(argv[1]) : get_ncpu();
     /* Ensure at least 2 processes to validate -i option in cpulimit */
     num_procs = MAX(num_procs, 2);
@@ -62,7 +63,7 @@ int main(int argc, const char *argv[]) {
     }
 
     /* All processes (parent and children) enter infinite loop */
-    while (keep_running) {
+    while (!is_quit_flag_set()) {
         volatile int dummy_var;
         for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
             ;

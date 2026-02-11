@@ -23,6 +23,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include "../src/signal_handler.h"
 #include "../src/util.h"
 
 #include <pthread.h>
@@ -36,9 +37,8 @@
  * @note This function runs an infinite busy loop to consume CPU cycles
  */
 static void *busy_loop(void *arg) {
-    volatile int keep_running = 1;
     (void)arg;
-    while (keep_running) {
+    while (!is_quit_flag_set()) {
         volatile int dummy_var;
         for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
             ;
@@ -59,6 +59,8 @@ static void *busy_loop(void *arg) {
 int main(int argc, const char *argv[]) {
     int i, num_threads;
     pthread_attr_t attr;
+
+    configure_signal_handlers();
 
     num_threads = argc == 2 ? atoi(argv[1]) : get_ncpu();
     num_threads = MAX(num_threads, 1);
