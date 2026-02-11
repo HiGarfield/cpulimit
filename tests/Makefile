@@ -111,7 +111,8 @@ CPPCHECK_OPTS += --enable=all \
                  --suppress=checkersReport
 
 # Check report file
-CHECK_REPORT := check-report.txt
+CPPCHECK_REPORT := cppcheck-report.txt
+CLANG_TIDY_REPORT := clang-tidy-report.txt
 
 # Phony targets
 .PHONY: all clean format check
@@ -133,7 +134,7 @@ cpulimit_test: cpulimit_test.c \
 
 # Clean target
 clean:
-	rm -f *~ *.o *.json $(TARGETS) $(CHECK_REPORT)
+	rm -f *~ *.o *.json $(TARGETS) $(CPPCHECK_REPORT) $(CLANG_TIDY_REPORT)
 
 # Format source files with clang-format
 format: $(wildcard *.c *.h)
@@ -154,6 +155,12 @@ check: $(wildcard *.c *.h) clean
 	echo "cppcheck is not installed. Please install it to check the code."; \
 	exit 1; \
 	}
+	@command -v clang-tidy >/dev/null 2>&1 || { \
+	echo "clang-tidy is not installed. Please install it to check the code."; \
+	exit 1; \
+	}
 	bear -- $(MAKE) all CHECK=1
-	cppcheck $(CPPCHECK_OPTS) 2>"$(CHECK_REPORT)"
-	@echo "See $(shell pwd)/$(CHECK_REPORT) for cppcheck report."
+	cppcheck $(CPPCHECK_OPTS) 2>"$(CPPCHECK_REPORT)"
+	@echo "See $(shell pwd)/$(CPPCHECK_REPORT) for cppcheck report."
+	clang-tidy *.c >"$(CLANG_TIDY_REPORT)"
+	@echo "See $(shell pwd)/$(CLANG_TIDY_REPORT) for clang-tidy report."

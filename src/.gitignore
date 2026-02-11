@@ -2,4 +2,4 @@
 *~
 *.json
 cpulimit
-check-report.txt
+*-report.txt

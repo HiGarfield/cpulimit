@@ -1,7 +1,7 @@
 *.o
 *~
 *.json
-check-report.txt
 busy
 multi_process_busy
 cpulimit_test
+*-report.txt
