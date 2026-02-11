@@ -132,19 +132,13 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
  *       it to enforce the CPU usage limit.
  */
 void limit_process(pid_t pid, double limit, int include_children, int verbose) {
-    /* Process group to manage */
     struct process_group proc_group;
-    /* Cycle counter for periodic verbose output */
     int cycle_counter = 0;
     /* Work ratio: fraction of time slot the process should run */
     double work_ratio = limit / get_ncpu();
-    /* Flag indicating if the process group is currently suspended */
-    int is_suspended = 0;
 
-    /* Increase priority of the current process to reduce overhead */
     increase_priority();
 
-    /* Initialize the process group (including children if needed) */
     if (init_process_group(&proc_group, pid, include_children) != 0) {
         fprintf(stderr, "Failed to initialize process group for PID %ld\n",
                 (long)pid);
@@ -162,7 +156,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         double cpu_usage, work_time_ns, sleep_time_ns, time_slot;
         struct timespec work_time, sleep_time;
 
-        /* Update process group status and remove terminated processes */
+        /* Update process group status (refresh cpu usage) */
         update_process_group(&proc_group);
 
         /* Exit if no more target processes are running */
@@ -206,13 +200,9 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
             }
         }
 
-        if (work_ratio > 0.02) {
-            if (is_suspended) {
-                /* Resume suspended processes */
-                send_signal_to_processes(&proc_group, SIGCONT, verbose);
-                is_suspended = 0;
-            }
-            /* Allow processes to run during work interval */
+        /* Working */
+        if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
+            send_signal_to_processes(&proc_group, SIGCONT, verbose);
             sleep_timespec(&work_time);
         }
 
@@ -220,13 +210,9 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
             break;
         }
 
-        if (work_ratio < 0.98) {
-            if (!is_suspended) {
-                /* Suspend processes during sleep interval */
-                send_signal_to_processes(&proc_group, SIGSTOP, verbose);
-                is_suspended = 1;
-            }
-            /* Wait during sleep interval */
+        /* Sleeping */
+        if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
+            send_signal_to_processes(&proc_group, SIGSTOP, verbose);
             sleep_timespec(&sleep_time);
         }
 
@@ -234,9 +220,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     }
 
     /* Always resume suspended processes before exiting */
-    if (is_suspended) {
-        send_signal_to_processes(&proc_group, SIGCONT, 0);
-    }
+    send_signal_to_processes(&proc_group, SIGCONT, 0);
 
     /* Clean up process group resources */
     close_process_group(&proc_group);
