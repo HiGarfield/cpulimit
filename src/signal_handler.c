@@ -34,8 +34,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-/* Limiter quit flag */
+/* Limiter quit flag indicating program termination request */
 static volatile sig_atomic_t limiter_quit_flag = 0;
+
+/* Flag indicating program terminated by terminal key input */
+static volatile sig_atomic_t terminated_by_tty = 0;
 
 /**
  * @brief Signal handler for termination signals
@@ -45,45 +48,34 @@ static volatile sig_atomic_t limiter_quit_flag = 0;
  *       SIGQUIT signals.
  */
 static void sig_handler(int sig) {
-    int saved_errno = errno;
-
-    /* Handle the Ctrl+C or Ctrl+\ issue */
-    ssize_t ret = write(STDERR_FILENO, "\n", 1);
-
+    switch (sig) {
+    case SIGINT:
+    case SIGQUIT:
+        terminated_by_tty = 1;
+        break;
+    default:
+        break;
+    }
     limiter_quit_flag = 1;
-
-    /* Suppress unused parameter or return value warnings */
-    (void)sig;
-    (void)ret;
-
-    errno = saved_errno;
 }
 
 /**
- * @brief Configure signal handlers for graceful termination
- * @note This function sets up signal handlers for termination signals
- *       (SIGINT, SIGTERM, SIGHUP, SIGQUIT) to allow the program to
- *       exit gracefully. The handler blocks all other signals to avoid
- *       reentrancy issues.
+ * @brief Configure signal handler for graceful termination
+ * @note This function sets up signal handler for termination signals
+ *       to allow the program to exit gracefully.
  */
-void configure_signal_handlers(void) {
+void configure_signal_handler(void) {
     struct sigaction sa;
     size_t i;
     /* Signals that trigger application termination */
-    static const int term_sigs[] = {
-        SIGINT,  /* Terminal interrupt (Ctrl+C) */
-        SIGTERM, /* Termination request (default kill) */
-        SIGHUP,  /* Hangup on controlling terminal */
-        SIGQUIT  /* Terminal quit (Ctrl+\) with core dump */
-    };
-    const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
+    static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP};
+    static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
     /* Initialize and configure sigaction structure */
     memset(&sa, 0, sizeof(sa));
-    /* Block all signals during handler execution to avoid reentrancy issues */
-    sigfillset(&sa.sa_mask);
     sa.sa_handler = sig_handler; /* Use unified signal handler */
     sa.sa_flags = SA_RESTART;    /* Restart interrupted system calls */
+    sigemptyset(&sa.sa_mask);    /* No extra signals blocked */
 
     /* Register handler for each termination signal */
     for (i = 0; i < num_sigs; i++) {
@@ -100,4 +92,13 @@ void configure_signal_handlers(void) {
  */
 int is_quit_flag_set(void) {
     return !!limiter_quit_flag;
+}
+
+/**
+ * @brief Check if the program was terminated via terminal input
+ * @return 1 if  termination was caused by terminal key (Ctrl+C, Ctrl+\),
+ *         0 otherwise
+ */
+int is_terminated_by_tty(void) {
+    return !!terminated_by_tty;
 }

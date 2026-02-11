@@ -39,6 +39,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <time.h>
+#include <unistd.h>
 
 /* Define a very small value to avoid division by zero */
 #ifndef EPSILON
@@ -217,6 +218,12 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         }
 
         cycle_counter = (cycle_counter + 1) % 200;
+    }
+
+    if (is_quit_flag_set() && is_terminated_by_tty() && isatty(STDIN_FILENO) &&
+        isatty(STDOUT_FILENO)) {
+        fputc('\n', stdout);
+        fflush(stdout);
     }
 
     /* Always resume suspended processes before exiting */

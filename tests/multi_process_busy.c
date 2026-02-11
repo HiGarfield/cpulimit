@@ -42,14 +42,14 @@
  */
 int main(int argc, const char *argv[]) {
     int i, num_procs;
-    configure_signal_handlers();
+    pid_t pid;
+    configure_signal_handler();
     num_procs = argc == 2 ? atoi(argv[1]) : get_ncpu();
     /* Ensure at least 2 processes to validate -i option in cpulimit */
     num_procs = MAX(num_procs, 2);
 
     /* Create num_procs-1 child processes (total num_procs processes) */
     for (i = 1; i < num_procs; i++) {
-        pid_t pid;
         do {
             pid = fork();
         } while (pid < 0 && errno == EINTR);
@@ -70,6 +70,10 @@ int main(int argc, const char *argv[]) {
         }
     }
 
-    /* Unreachable code */
+    if (pid > 0 && is_quit_flag_set() && is_terminated_by_tty() &&
+        isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
+        ssize_t ret = write(STDOUT_FILENO, "\n", 1);
+        (void)ret;
+    }
     return 0;
 }

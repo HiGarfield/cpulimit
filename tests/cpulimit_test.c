@@ -667,7 +667,7 @@ int main(int argc, char *argv[]) {
     assert(argc >= 1);
     command = argv[0];
 
-    configure_signal_handlers();
+    configure_signal_handler();
     printf("Starting tests...\n");
     RUN_TEST(test_single_process);
     RUN_TEST(test_multiple_process);

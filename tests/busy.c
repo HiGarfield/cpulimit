@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 /**
  * @brief Busy loop thread function
@@ -60,7 +61,7 @@ int main(int argc, const char *argv[]) {
     int i, num_threads;
     pthread_attr_t attr;
 
-    configure_signal_handlers();
+    configure_signal_handler();
 
     num_threads = argc == 2 ? atoi(argv[1]) : get_ncpu();
     num_threads = MAX(num_threads, 1);
@@ -78,6 +79,12 @@ int main(int argc, const char *argv[]) {
     pthread_attr_destroy(&attr);
 
     busy_loop(NULL);
+
+    if (is_quit_flag_set() && is_terminated_by_tty() && isatty(STDIN_FILENO) &&
+        isatty(STDOUT_FILENO)) {
+        ssize_t ret = write(STDOUT_FILENO, "\n", 1);
+        (void)ret;
+    }
 
     return 0;
 }

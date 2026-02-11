@@ -34,8 +34,8 @@ int main(int argc, char *argv[]) {
     /* Parse command line arguments into configuration structure */
     parse_arguments(argc, argv, &cfg);
 
-    /* Set up signal handlers for SIGINT and SIGTERM */
-    configure_signal_handlers();
+    /* Set up signal handler for termination signals */
+    configure_signal_handler();
 
     /* Determine execution mode based on configuration */
     if (cfg.command_mode) {

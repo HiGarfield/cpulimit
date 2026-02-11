@@ -27,18 +27,23 @@
 #endif
 
 /**
- * @brief Configure signal handlers for graceful termination
- * @note This function sets up signal handlers for termination signals
- *       (SIGINT, SIGTERM, SIGHUP, SIGQUIT) to allow the program to
- *       exit gracefully. The handler blocks all other signals to avoid
- *       reentrancy issues.
+ * @brief Configure signal handler for graceful termination
+ * @note This function sets up signal handler for termination signals
+ *       to allow the program to exit gracefully.
  */
-void configure_signal_handlers(void);
+void configure_signal_handler(void);
 
 /**
  * @brief Check if the quit flag is set
  * @return 1 if the quit flag is set, 0 otherwise
  */
 int is_quit_flag_set(void);
+
+/**
+ * @brief Check if the program was terminated via terminal input
+ * @return 1 if  termination was caused by terminal key (Ctrl+C, Ctrl+\),
+ *         0 otherwise
+ */
+int is_terminated_by_tty(void);
 
 #endif
