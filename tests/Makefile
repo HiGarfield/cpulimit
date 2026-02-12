@@ -91,24 +91,20 @@ ALL_CFLAGS := $(filter-out -Wno%,$(PROJECT_CFLAGS) $(CFLAGS))
 ALL_LDFLAGS := $(PROJECT_LDFLAGS) $(LDFLAGS)
 
 # cppcheck options
-CPPCHECK_OPTS := $(shell \
-    echo | $(CC) -E -x c -v - 2>&1 | \
-    grep "^[[:space:]]*/[[:graph:]]*/include[[:graph:]]*$$" | \
-    sed 's/^/-I /' \
-    )
-CPPCHECK_OPTS += --enable=all \
-                 --inconclusive \
-                 --check-level=exhaustive \
-                 --max-ctu-depth=10 \
-                 --library=gnu \
-                 --force \
-                 --std=c89 \
-                 --project=compile_commands.json \
-                 --suppress=missingIncludeSystem \
-                 --suppress=ConfigurationNotChecked \
-                 --suppress=unmatchedSuppression \
-                 --suppress=*:/*/include/* \
-                 --suppress=checkersReport
+CPPCHECK_OPTS := \
+    --enable=all \
+    --language=c \
+    --inconclusive \
+    --check-level=exhaustive \
+    --max-ctu-depth=10 \
+    --library=gnu \
+    --force \
+    --std=c89 \
+    --project=compile_commands.json \
+    --suppress=missingIncludeSystem \
+    --suppress=ConfigurationNotChecked \
+    --suppress=unmatchedSuppression \
+    --suppress=checkersReport
 
 # Check report file
 CPPCHECK_REPORT := cppcheck-report.txt
@@ -147,6 +143,10 @@ format: $(wildcard *.c *.h)
 
 # Check source files with cppcheck
 check: $(wildcard *.c *.h) clean
+	@command -v gcc >/dev/null 2>&1 || { \
+	echo "gcc is not installed. Please install it to check the code."; \
+	exit 1; \
+	}
 	@command -v bear >/dev/null 2>&1 || { \
 	echo "bear is not installed. Please install it to check the code."; \
 	exit 1; \
@@ -159,7 +159,7 @@ check: $(wildcard *.c *.h) clean
 	echo "clang-tidy is not installed. Please install it to check the code."; \
 	exit 1; \
 	}
-	bear -- $(MAKE) all CHECK=1
+	bear -- $(MAKE) all CHECK=1 CC=gcc
 	cppcheck $(CPPCHECK_OPTS) 2>"$(CPPCHECK_REPORT)"
 	@echo "See $(shell pwd)/$(CPPCHECK_REPORT) for cppcheck report."
 	clang-tidy *.c >"$(CLANG_TIDY_REPORT)"
