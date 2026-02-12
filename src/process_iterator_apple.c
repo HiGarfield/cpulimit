@@ -136,8 +136,8 @@ static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
                     int read_cmd) {
     process->pid = (pid_t)ti->pbsd.pbi_pid;
     process->ppid = (pid_t)ti->pbsd.pbi_ppid;
-    process->cputime = platform_time_to_ms(ti->ptinfo.pti_total_user) +
-                       platform_time_to_ms(ti->ptinfo.pti_total_system);
+    process->cputime = platform_time_to_ms((double)ti->ptinfo.pti_total_user) +
+                       platform_time_to_ms((double)ti->ptinfo.pti_total_system);
     if (!read_cmd) {
         return 0;
     }
