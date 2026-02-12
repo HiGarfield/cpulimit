@@ -36,7 +36,9 @@ Checks: >
   -clang-diagnostic-empty-translation-unit,
   -readability-identifier-length,
   -readability-isolate-declaration,
-  -readability-function-cognitive-complexity
+  -readability-math-missing-parentheses,
+  -readability-function-cognitive-complexity,
+  -readability-use-concise-preprocessor-directives
 
 WarningsAsErrors: ''
 
