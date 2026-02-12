@@ -22,6 +22,10 @@
 #ifndef __LIMITER_H
 #define __LIMITER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -43,5 +47,9 @@ void run_command_mode(const struct cpulimitcfg *cfg);
  *       executable name) and applies CPU limiting when found.
  */
 void run_pid_or_exe_mode(const struct cpulimitcfg *cfg);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

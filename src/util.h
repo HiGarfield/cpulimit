@@ -22,6 +22,10 @@
 #ifndef __UTIL_H
 #define __UTIL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -151,6 +155,10 @@ int __getloadavg(double *loadavg, int nelem);
  * @note The caller is responsible for freeing the returned buffer
  */
 char *read_line_from_file(const char *file_name);
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

@@ -22,6 +22,10 @@
 #ifndef __CLI_H
 #define __CLI_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -60,5 +64,9 @@ struct cpulimitcfg {
  * @param cfg Pointer to the configuration structure to populate
  */
 void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

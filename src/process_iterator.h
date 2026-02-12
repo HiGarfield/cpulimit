@@ -22,6 +22,10 @@
 #ifndef __PROCESS_ITERATOR_H
 #define __PROCESS_ITERATOR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -152,5 +156,9 @@ int is_child_of(pid_t child_pid, pid_t parent_pid);
  * @return Parent process ID, or -1 on error
  */
 pid_t getppid_of(pid_t pid);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

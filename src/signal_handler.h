@@ -22,6 +22,10 @@
 #ifndef __SIGNAL_HANDLER_H
 #define __SIGNAL_HANDLER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -45,5 +49,9 @@ int is_quit_flag_set(void);
  *         0 otherwise
  */
 int is_terminated_by_tty(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -22,6 +22,10 @@
 #ifndef __PROCESS_TABLE_H
 #define __PROCESS_TABLE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -77,5 +81,9 @@ int process_table_del(struct process_table *pt, pid_t pid);
  * @param pt Pointer to the process table to destroy
  */
 void process_table_destroy(struct process_table *pt);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

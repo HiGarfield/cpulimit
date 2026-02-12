@@ -22,6 +22,10 @@
 #ifndef __PROCESS_GROUP_H
 #define __PROCESS_GROUP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -95,5 +99,9 @@ void update_process_group(struct process_group *pgroup);
  * @return Total CPU usage of all processes in the group, or -1 if unknown
  */
 double get_process_group_cpu_usage(const struct process_group *pgroup);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

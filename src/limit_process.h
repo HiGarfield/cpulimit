@@ -22,6 +22,10 @@
 #ifndef __LIMIT_PROCESS_H
 #define __LIMIT_PROCESS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -39,5 +43,9 @@
  *       it to enforce the CPU usage limit.
  */
 void limit_process(pid_t pid, double limit, int include_children, int verbose);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
