@@ -259,6 +259,12 @@ void update_process_group(struct process_group *pgroup) {
                 memcpy(p, tmp_process, sizeof(struct process));
                 /* Mark CPU usage as unknown for reused PIDs */
                 p->cpu_usage = -1;
+                if (add_elem(pgroup->proclist, p) == NULL) {
+                    fprintf(stderr,
+                            "Failed to add process with PID %ld to the list\n",
+                            (long)p->pid);
+                    exit(EXIT_FAILURE);
+                }
                 continue;
             }
             if (add_elem(pgroup->proclist, p) == NULL) {
