@@ -35,7 +35,7 @@ extern "C" {
 /**
  * @brief Apply CPU usage limiting to a process or process group
  * @param pid Process ID of the target process
- * @param limit CPU usage limit (0.0 to N_CPU)
+ * @param limit CPU usage limit, range (0, N_CPU]
  * @param include_children Flag to include child processes
  * @param verbose Verbose output flag
  * @note This function implements the main CPU limiting algorithm that

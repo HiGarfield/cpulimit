@@ -125,7 +125,7 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
 /**
  * @brief Apply CPU usage limiting to a process or process group
  * @param pid Process ID of the target process
- * @param limit CPU usage limit (0.0 to N_CPU)
+ * @param limit CPU usage limit, range (0, N_CPU]
  * @param include_children Flag to include child processes
  * @param verbose Verbose output flag
  * @note This function implements the main CPU limiting algorithm that
@@ -134,9 +134,10 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
  */
 void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     struct process_group proc_group;
-    int cycle_counter = 0;
-    /* Work ratio: fraction of time slot the process should run */
-    double work_ratio = limit / get_ncpu();
+    int cycle_counter = 0, ncpu = get_ncpu();
+    double work_ratio; /* Ratio of work time to total time slot */
+    limit = CLAMP(limit, EPSILON, ncpu);
+    work_ratio = limit / ncpu;
 
     increase_priority();
 
