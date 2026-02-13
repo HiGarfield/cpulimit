@@ -209,6 +209,9 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         /* Working */
         if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
             send_signal_to_processes(&proc_group, SIGCONT, verbose);
+            if (is_empty_list(proc_group.proclist)) {
+                break;
+            }
             sleep_timespec(&work_time);
         }
 
@@ -219,6 +222,9 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         /* Sleeping */
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
             send_signal_to_processes(&proc_group, SIGSTOP, verbose);
+            if (is_empty_list(proc_group.proclist)) {
+                break;
+            }
             sleep_timespec(&sleep_time);
         }
 
