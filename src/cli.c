@@ -86,6 +86,10 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
         fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
+    if ((long)((pid_t)pid) != pid) {
+        fprintf(stderr, "Error: PID out of range: %s\n\n", pid_str);
+        print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+    }
     cfg->target_pid = (pid_t)pid;
     cfg->lazy_mode = 1; /* PID mode implies lazy mode */
 }
