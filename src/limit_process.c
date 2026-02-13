@@ -176,8 +176,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
 
         /* Estimate CPU usage of all processes in the group */
         cpu_usage = get_process_group_cpu_usage(&proc_group);
-        /* If CPU usage cannot be estimated, set it to the limit */
-        cpu_usage = cpu_usage < 0 ? limit : cpu_usage;
+        /* If CPU usage cannot be estimated, set it to ncpu */
+        cpu_usage = cpu_usage < 0 ? ncpu : cpu_usage;
 
         /* Adjust work ratio based on current CPU usage vs. limit */
         work_ratio = work_ratio * limit / MAX(cpu_usage, EPSILON);
