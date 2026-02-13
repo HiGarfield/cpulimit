@@ -104,11 +104,15 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         char ack;                   /* Buffer for sync byte from child */
         char found_cmd_runner = 0;  /* Flag: 1 if child reaped successfully*/
         struct timespec start_time; /* Timestamp for timeout calculation */
+        ssize_t n_read;             /* Number of bytes read */
 
         /* Close write end of pipe (parent only reads from child) */
         close(sync_pipe[1]);
         /* Wait for child to be ready: read the synchronization byte */
-        if (read(sync_pipe[0], &ack, 1) != 1 || ack != 'A') {
+        do {
+            n_read = read(sync_pipe[0], &ack, 1);
+        } while (n_read < 0 && errno == EINTR);
+        if (n_read != 1 || ack != 'A') {
             perror("read sync");
             close(sync_pipe[0]);
             /* Clean up the child process that may be running */
