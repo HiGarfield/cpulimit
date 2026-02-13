@@ -246,7 +246,12 @@ void update_process_group(struct process_group *pgroup) {
             /* Mark CPU usage as unknown for new processes */
             p->cpu_usage = -1;
             process_table_add(pgroup->proctable, p);
-            add_elem(pgroup->proclist, p);
+            if (add_elem(pgroup->proclist, p) == NULL) {
+                fprintf(stderr,
+                        "Failed to add process with PID %ld to the list\n",
+                        (long)p->pid);
+                exit(EXIT_FAILURE);
+            }
         } else {
             double sample;
             if (tmp_process->cputime < p->cputime) {
@@ -256,7 +261,12 @@ void update_process_group(struct process_group *pgroup) {
                 p->cpu_usage = -1;
                 continue;
             }
-            add_elem(pgroup->proclist, p);
+            if (add_elem(pgroup->proclist, p) == NULL) {
+                fprintf(stderr,
+                        "Failed to add process with PID %ld to the list\n",
+                        (long)p->pid);
+                exit(EXIT_FAILURE);
+            }
             if (dt < 0) {
                 /* Time went backwards, reset history */
                 p->cputime = tmp_process->cputime;
