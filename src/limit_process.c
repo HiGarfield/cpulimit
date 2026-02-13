@@ -140,6 +140,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     struct process_group proc_group;
     int cycle_counter = 0, ncpu = get_ncpu();
     double work_ratio; /* Ratio of work time to total time slot */
+    int stopped = 0;
     limit = CLAMP(limit, EPSILON, ncpu);
     work_ratio = limit / ncpu;
 
@@ -208,9 +209,12 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
 
         /* Working */
         if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
-            send_signal_to_processes(&proc_group, SIGCONT, verbose);
-            if (is_empty_list(proc_group.proclist)) {
-                break;
+            if (stopped) {
+                send_signal_to_processes(&proc_group, SIGCONT, verbose);
+                stopped = 0;
+                if (is_empty_list(proc_group.proclist)) {
+                    break;
+                }
             }
             sleep_timespec(&work_time);
         }
@@ -221,9 +225,12 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
 
         /* Sleeping */
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
-            send_signal_to_processes(&proc_group, SIGSTOP, verbose);
-            if (is_empty_list(proc_group.proclist)) {
-                break;
+            if (!stopped) {
+                send_signal_to_processes(&proc_group, SIGSTOP, verbose);
+                stopped = 1;
+                if (is_empty_list(proc_group.proclist)) {
+                    break;
+                }
             }
             sleep_timespec(&sleep_time);
         }
