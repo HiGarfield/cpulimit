@@ -246,10 +246,20 @@ void update_process_group(struct process_group *pgroup) {
             /* Mark CPU usage as unknown for new processes */
             p->cpu_usage = -1;
             process_table_add(pgroup->proctable, p);
-            add_elem(pgroup->proclist, p);
+            if (add_elem(pgroup->proclist, p) == NULL) {
+                fprintf(stderr,
+                        "Failed to add process with PID %d to the list\n",
+                        p->pid);
+                exit(EXIT_FAILURE);
+            }
         } else {
             double sample;
-            add_elem(pgroup->proclist, p);
+            if (add_elem(pgroup->proclist, p) == NULL) {
+                fprintf(stderr,
+                        "Failed to add process with PID %d to the list\n",
+                        p->pid);
+                exit(EXIT_FAILURE);
+            }
             if (tmp_process->cputime < p->cputime) {
                 /* PID reused, reset history */
                 memcpy(p, tmp_process, sizeof(struct process));
