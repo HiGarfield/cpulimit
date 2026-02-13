@@ -257,6 +257,12 @@ void update_process_group(struct process_group *pgroup) {
                 continue;
             }
             add_elem(pgroup->proclist, p);
+            if (dt < 0) {
+                /* Time went backwards, reset history */
+                p->cputime = tmp_process->cputime;
+                p->cpu_usage = -1;
+                continue;
+            }
             if (dt < MIN_DT) {
                 continue;
             }
@@ -276,11 +282,11 @@ void update_process_group(struct process_group *pgroup) {
     free(tmp_process);
     close_process_iterator(&it);
 
-    /* Update last update time if enough time has passed */
-    if (dt < MIN_DT) {
-        return;
+    /* Update the last update time if enough time has passed or if time went
+     * backwards */
+    if (dt < 0 || dt >= MIN_DT) {
+        pgroup->last_update = now;
     }
-    pgroup->last_update = now;
 }
 
 /**
