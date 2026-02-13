@@ -74,9 +74,13 @@ static double get_dynamic_time_slot(void) {
         }
     }
 
+    /* Skip updates if failed to get current time */
+    if (get_current_time(&now) != 0) {
+        goto out;
+    }
+
     /* Skip updates if the last check was less than 1000 ms ago */
-    if (get_current_time(&now) == 0 &&
-        timediff_in_ms(&now, &last_update) < 1000.0) {
+    if (timediff_in_ms(&now, &last_update) < 1000.0) {
         goto out;
     }
 
