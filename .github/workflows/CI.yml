@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   workflow_dispatch:
 
 permissions: {}
@@ -33,7 +33,7 @@ jobs:
           make_latest: true
 
   build-Linux-macOS:
-    needs: [ create-release ]
+    needs: [create-release]
     name: Build on ${{ matrix.os }}
     permissions:
       contents: write
@@ -88,14 +88,14 @@ jobs:
           overwrite_files: true
 
   build-FreeBSD:
-    needs: [ create-release ]
+    needs: [create-release]
     name: Build on FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
     permissions:
       contents: write
     strategy:
       matrix:
-        osver: ['13.5', '14.3']
-        arch: ['x86_64', 'aarch64']
+        osver: ["13.5", "14.3"]
+        arch: ["x86_64", "aarch64"]
     runs-on: ubuntu-24.04
 
     steps:
@@ -139,7 +139,7 @@ jobs:
           overwrite_files: true
 
   cleanup-releases:
-    needs: [ build-Linux-macOS, build-FreeBSD ]
+    needs: [build-Linux-macOS, build-FreeBSD]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -157,3 +157,19 @@ jobs:
           draft-drop-count: -1
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+  sync-branch:
+    needs: [cleanup-releases]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@main
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: HiGarfield/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: develop
+          force: true
