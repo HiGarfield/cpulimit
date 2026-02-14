@@ -96,10 +96,9 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
 }
 
 /**
- * @brief Parse the CPU limit option from command line argument.
- * @param limit_str String containing the CPU limit percentage
- * @param cfg Pointer to the configuration structure to update
- * @param n_cpu Number of CPUs in the system
+ * @brief Check if the given string represents a NaN value, ignoring leading whitespace.
+ * @param str Input string to check
+ * @return 1 if the string is "nan", "+nan", or "-nan" (case-insensitive), 0 otherwise
  */
 static int starts_with_nan(const char *str) {
     if (str == NULL) {
@@ -108,11 +107,16 @@ static int starts_with_nan(const char *str) {
     while (isspace((unsigned char)*str)) {
         str++;
     }
-    return strcmp(str, "nan") == 0 || strcmp(str, "+nan") == 0 ||
-           strcmp(str, "-nan") == 0;
+    return strcasecmp(str, "nan") == 0 || strcasecmp(str, "+nan") == 0 ||
+           strcasecmp(str, "-nan") == 0;
 }
 
-
+/**
+ * @brief Parse the CPU limit option from command line argument.
+ * @param limit_str String containing the CPU limit percentage
+ * @param cfg Pointer to the configuration structure to update
+ * @param n_cpu Number of CPUs in the system
+ */
 static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
                                int n_cpu) {
     char *endptr;
