@@ -27,6 +27,7 @@
 
 #include "util.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
@@ -100,10 +101,28 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
  * @param cfg Pointer to the configuration structure to update
  * @param n_cpu Number of CPUs in the system
  */
+static int starts_with_nan(const char *str) {
+    if (str == NULL) {
+        return 0;
+    }
+    while (isspace((unsigned char)*str)) {
+        str++;
+    }
+    return strcmp(str, "nan") == 0 || strcmp(str, "+nan") == 0 ||
+           strcmp(str, "-nan") == 0;
+}
+
+
 static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
                                int n_cpu) {
     char *endptr;
     double percent_limit;
+
+    if (starts_with_nan(limit_str)) {
+        fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
+        print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+    }
+
     errno = 0;
     percent_limit = strtod(limit_str, &endptr);
     /* Validate the limit value range and conversion */
