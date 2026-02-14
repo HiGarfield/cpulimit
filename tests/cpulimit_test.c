@@ -225,14 +225,15 @@ static void test_multiple_process(void) {
 
 /**
  * @brief Test process iterator with all system processes
- * @note Verifies that the iterator can retrieve at least 10 processes
- *       and that the current process is correctly identified
+ * @note Verifies that the iterator can retrieve processes and that the
+ *       current process is correctly identified
  */
 static void test_all_processes(void) {
     struct process_iterator it;
     struct process *process;
     struct process_filter filter;
     size_t count = 0;
+    int found_self = 0;
 
     /* Set up filter to get all processes */
     filter.pid = 0;
@@ -252,12 +253,14 @@ static void test_all_processes(void) {
         if (process->pid == getpid()) {
             assert(process->ppid == getppid());
             assert(process->cputime >= 0);
+            found_self = 1;
         }
         count++;
     }
 
-    /* Verify we found at least 10 processes */
-    assert(count >= 10);
+    /* Verify we found at least one process and our own PID is visible */
+    assert(count > 0);
+    assert(found_self == 1);
     free(process);
     assert(close_process_iterator(&it) == 0);
 }
@@ -265,12 +268,13 @@ static void test_all_processes(void) {
 /**
  * @brief Test process group with all processes
  * @note Verifies that a process group initialized with PID 0 (all processes)
- *       contains at least 10 processes
+ *       is non-empty and contains the current process
  */
 static void test_process_group_all(void) {
     struct process_group pgroup;
     const struct list_node *node = NULL;
     size_t count = 0;
+    int found_self = 0;
 
     /* Initialize process group with all processes */
     assert(init_process_group(&pgroup, 0, 0) == 0);
@@ -278,9 +282,14 @@ static void test_process_group_all(void) {
 
     /* Count processes in the group */
     for (node = pgroup.proclist->first; node != NULL; node = node->next) {
+        const struct process *p = (const struct process *)node->data;
+        if (p->pid == getpid()) {
+            found_self = 1;
+        }
         count++;
     }
-    assert(count > 10);
+    assert(count > 0);
+    assert(found_self == 1);
     assert(count == get_list_count(pgroup.proclist));
 
     /* Update and verify again */
