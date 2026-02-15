@@ -56,10 +56,13 @@
 #endif
 
 /**
- * @brief Convert nanoseconds to a timespec structure
- * @param nsec Number of nanoseconds to convert
- * @param t Pointer to a timespec structure where the converted time
- *          will be stored
+ * @brief Convert nanoseconds to timespec structure
+ * @param nsec Number of nanoseconds (can be >= 1 billion)
+ * @param t Pointer to timespec structure to populate
+ *
+ * Splits the nanosecond value into seconds and nanoseconds components.
+ * The seconds component is the integer division by 1 billion, and the
+ * nanoseconds component is the remainder.
  */
 void nsec2timespec(double nsec, struct timespec *t) {
     t->tv_sec = (time_t)(nsec / 1e9);
@@ -67,16 +70,24 @@ void nsec2timespec(double nsec, struct timespec *t) {
 }
 
 /**
- * @brief Get the current time
- * @param ts Pointer to timespec structure to store the current time
+ * @brief Get a high-resolution timestamp, preferring a monotonic clock
+ * @param ts Pointer to timespec structure to receive current time
  * @return 0 on success, -1 on failure
+ *
+ * Uses CLOCK_MONOTONIC if available (unaffected by system time changes) to
+ * return a monotonic timestamp, otherwise falls back to CLOCK_REALTIME, or
+ * gettimeofday() as a final fallback. Provides at least microsecond
+ * resolution on all supported platforms.
  */
 int get_current_time(struct timespec *ts) {
 #if defined(CLOCK_MONOTONIC)
+    /* Prefer monotonic clock: immune to system time adjustments */
     return clock_gettime(CLOCK_MONOTONIC, ts);
 #elif defined(CLOCK_REALTIME)
+    /* Fall back to real-time clock if monotonic unavailable */
     return clock_gettime(CLOCK_REALTIME, ts);
 #else
+    /* Final fallback: use gettimeofday and convert to timespec */
     struct timeval tv;
     if (gettimeofday(&tv, NULL)) {
         return -1;
@@ -88,26 +99,37 @@ int get_current_time(struct timespec *ts) {
 }
 
 /**
- * @brief Sleep for a specified timespec duration
- * @param t Pointer to a timespec structure that specifies the duration
- *          to sleep
- * @return 0 for success, or -1 for failure
+ * @brief Sleep for a specified duration
+ * @param t Pointer to timespec specifying sleep duration
+ * @return 0 on success, -1 on error (errno set by underlying call)
+ *
+ * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
+ * durations that are unaffected by system time changes, otherwise falls back
+ * to nanosleep(). The underlying call may return early (for example, with
+ * errno set to EINTR if interrupted by a signal); this function does not
+ * automatically resume sleeping in that case.
  */
 int sleep_timespec(const struct timespec *t) {
 #if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
     defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(CLOCK_MONOTONIC)
+    /* Use monotonic clock sleep if available */
     return clock_nanosleep(CLOCK_MONOTONIC, 0, t, NULL);
 #else
+    /* Fall back to standard nanosleep */
     return nanosleep(t, NULL);
 #endif
 }
 
 /**
- * @brief Compute the difference between two timespec structures in milliseconds
- * @param later Pointer to the timespec for the later time
- * @param earlier Pointer to the timespec for the earlier time
- * @return The difference in milliseconds (later - earlier)
+ * @brief Calculate elapsed time between two timestamps in milliseconds
+ * @param later Pointer to the more recent timestamp
+ * @param earlier Pointer to the older timestamp
+ * @return Time difference in milliseconds (later - earlier)
+ *
+ * Computes the difference accounting for both seconds and nanoseconds fields.
+ * Returns a positive value when later > earlier. Precision is microseconds
+ * due to nanosecond conversion to milliseconds.
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier) {
@@ -116,11 +138,15 @@ double timediff_in_ms(const struct timespec *later,
 }
 
 /**
- * @brief Get the basename of a file from the full path
- * @param path Pointer to a string containing the full path of the file
- * @return A pointer to the basename of the file
- * @note Returns a pointer to the substring after the last '/', or the
- *       original string if no '/' is found
+ * @brief Extract filename from a full path
+ * @param path Full file path (may contain directory separators)
+ * @return Pointer to the filename portion within the path string
+ *
+ * Returns a pointer to the substring after the last '/' character, or the
+ * original string if no '/' is found. Does not allocate memory; the returned
+ * pointer references part of the input string.
+ *
+ * @note The caller must pass a non-NULL path; behavior is undefined for NULL.
  */
 const char *file_basename(const char *path) {
     const char *p = strrchr(path, '/');
@@ -128,29 +154,44 @@ const char *file_basename(const char *path) {
 }
 
 /**
- * @brief Increase the priority of the current process
- * @note Attempts to set the process priority to the maximum
+ * @brief Attempt to increase the scheduling priority of the current process
+ *
+ * Tries to set the process nice value to -20 (highest priority) to minimize
+ * scheduling latency when controlling target processes. Iterates through
+ * priority values from -20 upward until one succeeds or permission is denied.
+ * Silently continues if permission is denied; cpulimit can function at normal
+ * priority, just with potentially higher latency.
  */
 void increase_priority(void) {
     static const int MAX_PRIORITY = -20;
     int old_priority, priority;
     old_priority = getpriority(PRIO_PROCESS, 0);
+    /* Try to set highest priority, working upward if denied */
     for (priority = MAX_PRIORITY; priority < old_priority; priority++) {
         errno = 0;
         if (setpriority(PRIO_PROCESS, 0, priority) == 0) {
-            break;
+            break; /* Successfully set priority */
         }
         if (errno == EPERM) {
-            break;
+            break; /* Permission denied; stop trying */
         }
     }
 }
 
 #if defined(__linux__) && defined(__UCLIBC__)
 /**
- * @brief Parse a CPU range string and return the number of CPUs specified.
- * @param str: String containing CPU range specification
- * @return >0: Number of CPUs, -1: Invalid format
+ * @brief Parse CPU range string from sysfs format to count
+ * @param str CPU range specification string (e.g., "0-3", "0,2,4", "0-1,4-7")
+ * @return Number of CPUs specified in the range, or -1 on parse error
+ *
+ * Parses CPU range strings in the format used by Linux sysfs. Supports:
+ * - Single CPUs: "0", "2"
+ * - Ranges: "0-3" (inclusive, counts as 4 CPUs)
+ * - Combinations: "0-3,8-11,15" (separated by commas)
+ * - Spaces around numbers are tolerated
+ *
+ * Returns -1 if the string contains invalid syntax, negative numbers,
+ * or reversed ranges (end < start).
  */
 static int parse_cpu_range(const char *str) {
     const char *p = str;
@@ -163,44 +204,49 @@ static int parse_cpu_range(const char *str) {
 
     while (*p != '\0') {
         long start;
-        /* read number (strtol skips leading spaces) */
+        /* Parse first number (strtol automatically skips leading whitespace) */
         errno = 0;
         start = strtol(p, &endptr, 10);
         if (endptr == p || errno != 0 || start < 0) {
-            return -1;
+            return -1; /* Parse error or invalid value */
         }
         p = endptr;
 
-        /* skip trailing spaces after number */
+        /* Skip trailing whitespace after number */
         while (isspace(*p)) {
             p++;
         }
 
         if (*p == '-') {
+            /* Range format: start-end */
             long end;
 
-            p++;
+            p++; /* Skip the dash */
 
+            /* Parse end of range */
             errno = 0;
             end = strtol(p, &endptr, 10);
             if (endptr == p || errno != 0 || start > end || end < 0) {
-                return -1;
+                return -1; /* Parse error or invalid range */
             }
 
             cpu_count += (int)(end - start + 1);
             p = endptr;
 
+            /* Skip trailing whitespace */
             while (isspace(*p)) {
                 p++;
             }
         } else {
+            /* Single CPU number */
             cpu_count++;
         }
 
+        /* Expect comma or end of string */
         if (*p == ',') {
-            p++;
+            p++; /* Move past comma to parse next segment */
         } else if (*p != '\0') {
-            return -1;
+            return -1; /* Unexpected character */
         }
     }
 
@@ -208,19 +254,18 @@ static int parse_cpu_range(const char *str) {
 }
 
 /**
- * @brief Get the number of online CPUs from the sysfs file.
- * @return >0: Number of online CPUs, 0: No online CPUs,
- *         -1: Cannot open/read file,
- *         -2: Invalid format,
- *         -3: Memory allocation error
- * @note This function reads from /sys/devices/system/cpu/online
- *       and parses the CPU range string to determine the count.
- *       The file format can be:
- *         "0"                - Only CPU 0 is online
- *         "0-3"              - CPUs 0-3 are online (continuous range)
- *         "0,2,4,6"          - Discontinuous individual CPUs
- *         "0-2,8-10,15-17"   - Multiple ranges
- *         "0-3,5,7-9"        - Mixed format
+ * @brief Get online CPU count by reading sysfs
+ * @return Number of online CPUs on success, or negative on error: -1: cannot
+ *  open/read /sys/devices/system/cpu/online -2: invalid format in the file
+ *
+ * Reads /sys/devices/system/cpu/online and parses the CPU range string.
+ * This file uses the same format as parse_cpu_range() supports:
+ * - "0" for single CPU
+ * - "0-3" for range (4 CPUs)
+ * - "0,2-4,7" for complex patterns
+ *
+ * Used as a workaround for older uClibc versions where sysconf() or
+ * get_nprocs() may return incorrect values.
  */
 static int get_online_cpu_count(void) {
     char *line;
@@ -228,7 +273,7 @@ static int get_online_cpu_count(void) {
 
     line = read_line_from_file("/sys/devices/system/cpu/online");
     if (line == NULL) {
-        return -1; /* Cannot open/read file */
+        return -1; /* Failed to read file */
     }
     cpu_count = parse_cpu_range(line);
     free(line);
@@ -237,63 +282,72 @@ static int get_online_cpu_count(void) {
 #endif
 
 /**
- * @brief Get the number of available CPUs
- * @return The number of available CPUs, or 1 if the count could not be
- *         obtained
- * @note The result is cached after the first call
+ * @brief Get the number of online/available CPU cores
+ * @return Number of CPUs available to the process (>= 1)
+ *
+ * Queries the system for the number of online CPUs using platform-specific
+ * methods (sysconf on Linux/POSIX, sysctl on macOS/FreeBSD). The result is
+ * cached after the first call for efficiency. On Linux with uClibc, performs
+ * additional validation by reading /sys/devices/system/cpu/online to work
+ * around older library bugs. Returns 1 if count cannot be determined.
+ *
+ * @note Result is cached and never recalculated even if CPU hotplugging occurs
  */
 int get_ncpu(void) {
-    /* Static cache: -1 means uninitialized */
+    /* Static cache: -1 indicates not yet initialized */
     static int cached_ncpu = -1;
 
-    /* Only compute if not cached yet */
+    /* Return cached value if already computed */
     if (cached_ncpu < 0) {
 #if defined(_SC_NPROCESSORS_ONLN)
-        /* POSIX systems using sysconf */
+        /* POSIX-compliant systems: use sysconf */
         long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
 #if defined(__linux__) && defined(__UCLIBC__)
-        /* Workaround: sysconf may return 1 with older uClibc even if more
-         * CPUs are online, so we double-check by reading from sysfs */
+        /*
+         * Workaround for older uClibc bug: sysconf may incorrectly return 1
+         * even when multiple CPUs are online. Verify by reading sysfs.
+         */
         if (ncpu <= 1) {
-            /* Fallback to reading from sysfs */
+            /* Cross-check with sysfs; use sysfs value if valid */
             ncpu = get_online_cpu_count();
         }
 #endif
         cached_ncpu = (ncpu > 0) ? (int)ncpu : 1;
 
 #elif defined(__APPLE__) || defined(__FreeBSD__)
-        /* macOS / FreeBSD using sysctl */
-        int ncpu = 0; /* CPU count */
-        size_t len;   /* Length of value for sysctl */
-        int mib[2];   /* Management Information Base array */
+        /* macOS and FreeBSD: use sysctl interface */
+        int ncpu = 0;
+        size_t len = sizeof(ncpu);
+        int mib[2];
 
-        len = sizeof(ncpu);
-
-        /* Try to get available CPUs first */
         mib[0] = CTL_HW;
 #if defined(HW_AVAILCPU)
+        /* Try HW_AVAILCPU first (available CPUs) */
         mib[1] = HW_AVAILCPU;
 #else
+        /* Fall back to HW_NCPU if HW_AVAILCPU unavailable */
         mib[1] = HW_NCPU;
 #endif
         if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1) {
-            /* Fallback to total CPUs */
+            /* Fallback: try HW_NCPU directly */
             mib[1] = HW_NCPU;
             if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1) {
-                ncpu = 1; /* Complete failure fallback */
+                ncpu = 1; /* Complete failure; assume 1 CPU */
             }
         }
         cached_ncpu = ncpu;
 
 #elif defined(__linux__)
-        /* Linux using get_nprocs */
+        /* Linux without _SC_NPROCESSORS_ONLN: use get_nprocs */
         int ncpu;
         ncpu = get_nprocs();
 #if defined(__UCLIBC__)
-        /* Workaround: get_nprocs may return 1 with older uClibc even if more
-         * CPUs are online, so we double-check by reading from sysfs */
+        /*
+         * Workaround for older uClibc bug: get_nprocs may incorrectly return 1.
+         * Verify by reading sysfs.
+         */
         if (ncpu <= 1) {
-            /* Fallback to reading from sysfs */
+            /* Cross-check with sysfs; use sysfs value if valid */
             ncpu = get_online_cpu_count();
         }
 #endif
@@ -309,13 +363,14 @@ int get_ncpu(void) {
 
 #ifdef __IMPL_GETLOADAVG
 /**
- * @brief Get up to nelem load averages for system processes
- * @param loadavg Pointer to an array for storing the load averages
- *                It must have enough space for nelem samples
- * @param nelem Number of samples to retrieve (1 to 3)
- * @return The number of samples retrieved, or -1 if the load
- *         average could not be obtained
- * @note Only available on uClibc/uClibc-ng below version 1.0.42
+ * @brief Get system load averages (custom implementation for old uClibc)
+ * @param loadavg Array to receive load average values
+ * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
+ * @return Number of samples retrieved (nelem), or -1 on error
+ *
+ * Retrieves system load averages using the sysinfo() syscall and converts
+ * the fixed-point values to floating-point. This implementation is used
+ * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
  */
 int __getloadavg(double *loadavg, int nelem) {
     struct sysinfo si;
@@ -332,8 +387,10 @@ int __getloadavg(double *loadavg, int nelem) {
         return -1;
     }
 
+    /* Retrieve at most 3 load averages */
     nelem = (nelem > 3) ? 3 : nelem;
 
+    /* Convert fixed-point to floating-point using SI_LOAD_SHIFT */
     for (i = 0; i < nelem; i++) {
         loadavg[i] = (double)si.loads[i] / (1 << SI_LOAD_SHIFT);
     }
@@ -346,9 +403,12 @@ int __getloadavg(double *loadavg, int nelem) {
 /**
  * @brief Read the first line from a text file
  * @param file_name Path to the file to read
- * @return Pointer to the allocated line buffer on success,
- *         or NULL on failure or if no characters are read
- * @note The caller is responsible for freeing the returned buffer
+ * @return Newly allocated string containing the first line (no newline), or
+ *  NULL on error or if file is empty
+ *
+ * Opens the specified file, reads the first line using getline(), strips
+ * trailing newlines, and returns the result. The caller must free() the
+ * returned string. Used primarily for reading single-line sysfs files.
  */
 char *read_line_from_file(const char *file_name) {
     FILE *fp;
@@ -363,6 +423,7 @@ char *read_line_from_file(const char *file_name) {
         return NULL;
     }
     fclose(fp);
+    /* Strip trailing newline characters */
     line[strcspn(line, "\r\n")] = '\0';
     return line;
 }

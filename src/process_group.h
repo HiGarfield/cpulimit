@@ -35,68 +35,159 @@ extern "C" {
 
 /**
  * @struct process_group
- * @brief Structure representing a group of processes for tracking
+ * @brief Represents a monitored process and optionally its descendant tree
+ *
+ * This structure tracks a target process and optionally all its descendants
+ * for CPU usage monitoring and limiting. It maintains a hashtable for fast
+ * lookups and a list for iteration, along with timing information for
+ * calculating CPU usage deltas.
  */
 struct process_group {
-    /** Pointer to the process table for storing process information */
+    /**
+     * Hashtable mapping PIDs to process structures for O(1) lookup.
+     * Used to detect new processes, reused PIDs, and track historical data.
+     */
     struct process_table *proctable;
-    /** Pointer to the list of processes in this group */
+
+    /**
+     * Linked list of currently active processes in this group.
+     * Rebuilt on each update by scanning /proc (or equivalent).
+     * Contains pointers to process structures stored in proctable.
+     */
     struct list *proclist;
-    /** PID of the target process to monitor */
+
+    /**
+     * PID of the primary target process.
+     * This is the root of the process tree being monitored.
+     */
     pid_t target_pid;
-    /** Flag indicating whether to include child processes (1 for yes, 0 for no)
+
+    /**
+     * Flag controlling descendant tracking:
+     * - Non-zero: monitor target and all descendant processes (recursive)
+     * - Zero: monitor only the target process itself
      */
     int include_children;
-    /** Timestamp of the last update for this process group */
+
+    /**
+     * Timestamp of the most recent update operation.
+     * Used to calculate time deltas (dt) for CPU usage computation.
+     * Measured via clock_gettime() or equivalent high-resolution timer.
+     */
     struct timespec last_update;
 };
 
 /**
- * @brief Find a process by its process ID
+ * @brief Check if a process exists and can be controlled by cpulimit
  * @param pid Process ID to search for
- * @return The PID if process exists and can be controlled, -PID if exists
- *         but no permission, 0 if process does not exist
+ * @return Positive PID if process exists and can be signaled
+ *  (kill(pid,0)==0), negative -PID if process exists but permission denied
+ *  (errno==EPERM), 0 if process does not exist (errno==ESRCH or invalid PID)
+ *
+ * Uses kill(pid, 0) as a lightweight probe to test process existence and
+ * signal permission without actually sending a signal. This is the standard
+ * POSIX method for checking process liveness and accessibility.
  */
 pid_t find_process_by_pid(pid_t pid);
 
 /**
- * @brief Find a process by its executable name
- * @param process_name Name or path of the executable to search for
- * @return Process ID if found, 0 if not found, or -PID for permission error
- * @note If process_name starts with '/', full path comparison is used;
- *       otherwise, only the basename is compared.
+ * @brief Find a running process by its executable name or path
+ * @param process_name Name or absolute path of the executable to search for
+ * @return Positive PID if found and accessible, negative -PID if found but
+ *  permission denied, 0 if not found or invalid name
+ *
+ * Behavior depends on whether process_name is an absolute path:
+ * - If process_name starts with '/': compares full absolute paths
+ * - Otherwise: compares only the basename (executable name without directory)
+ *
+ * When multiple matches exist, selects the newest process, or if one is a
+ * descendant of another, prefers the descendant. This heuristic helps find
+ * the most recently started instance of the executable.
+ *
+ * @note Iterates through all processes in the system, which may be slow on
+ *  systems with many processes. For known PIDs, use find_process_by_pid().
  */
 pid_t find_process_by_name(const char *process_name);
 
 /**
- * @brief Initialize a process group structure
- * @param pgroup Pointer to the process group structure to initialize
- * @param target_pid PID of the target process
- * @param include_children Flag to include child processes in the group
- * @return 0 on success
+ * @brief Initialize a process group for monitoring and CPU limiting
+ * @param pgroup Pointer to uninitialized process_group structure to set up
+ * @param target_pid PID of the primary process to monitor
+ * @param include_children Non-zero to monitor descendants, zero for target only
+ * @return 0 on success (always succeeds or exits the program)
+ *
+ * This function:
+ * 1. Allocates and initializes the process hashtable (2048 buckets)
+ * 2. Allocates and initializes the process list
+ * 3. Records the current time as baseline for CPU calculations
+ * 4. Performs initial update to populate the process list
+ *
+ * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
+ * @note After return, pgroup is fully initialized and ready for use
  */
 int init_process_group(struct process_group *pgroup, pid_t target_pid,
                        int include_children);
 
 /**
- * @brief Clean up and close a process group
- * @param pgroup Pointer to the process group structure to close
- * @return 0 on success
+ * @brief Release all resources associated with a process group
+ * @param pgroup Pointer to the process_group structure to clean up
+ * @return 0 on success (always succeeds)
+ *
+ * This function:
+ * 1. Clears and frees the process list
+ * 2. Destroys and frees the process hashtable
+ * 3. Sets both pointers to NULL for safety
+ *
+ * @note Safe to call even if pgroup is partially initialized (NULLs are
+ *  handled)
+ * @note Does not send any signals to processes; they continue running
+ * @note After return, pgroup fields should not be accessed without
+ *  re-initialization
  */
 int close_process_group(struct process_group *pgroup);
 
 /**
- * @brief Update the process group with current process information
- * @param pgroup Pointer to the process group structure to update
- * @note This function refreshes the process list, calculates CPU usage,
- *       and removes terminated processes from the group.
+ * @brief Refresh process group state and recalculate CPU usage
+ * @param pgroup Pointer to the process_group structure to update
+ *
+ * This function performs a complete refresh of the process group:
+ * 1. Scans /proc (or platform equivalent) for current target and descendants
+ * 2. Updates the process list, removing terminated processes from tracking
+ * 3. Calculates CPU usage for each process using exponential moving average
+ * 4. Handles edge cases: PID reuse, clock skew, insufficient time delta
+ * 5. Updates last_update timestamp if sufficient time has elapsed
+ *
+ * CPU usage calculation:
+ * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
+ * - Uses exponential smoothing: cpu = (1-α)*old + α*sample, α=0.08
+ * - Detects PID reuse when cputime decreases (resets history)
+ * - Handles backward time jumps (system clock adjustment)
+ * - New processes have cpu_usage=-1 until first valid measurement
+ *
+ * @note Should be called periodically (e.g., every 100ms) during CPU limiting
+ * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
+ *  retrieval)
  */
 void update_process_group(struct process_group *pgroup);
 
 /**
- * @brief Calculate the total CPU usage of the process group
- * @param pgroup Pointer to the process group structure
- * @return Total CPU usage of all processes in the group, or -1 if unknown
+ * @brief Calculate aggregate CPU usage across all processes in the group
+ * @param pgroup Pointer to the process_group structure to query
+ * @return Sum of CPU usage values for all processes with known usage, or
+ *  -1.0 if no processes have valid CPU measurements yet
+ *
+ * CPU usage is expressed as a fraction of total system CPU capacity:
+ * - 0.0 = idle
+ * - 1.0 = fully utilizing one CPU core
+ * - N = fully utilizing N CPU cores (on multi-core systems)
+ *
+ * The function:
+ * 1. Iterates through all processes in proclist
+ * 2. Sums cpu_usage for processes with valid measurements (cpu_usage >= 0)
+ * 3. Returns -1 if all processes have unknown usage (first update cycle)
+ *
+ * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
+ * @note Thread-safe if pgroup is not being modified concurrently
  */
 double get_process_group_cpu_usage(const struct process_group *pgroup);
 
