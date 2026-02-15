@@ -70,13 +70,15 @@ void nsec2timespec(double nsec, struct timespec *t) {
 }
 
 /**
- * @brief Get current wall-clock time with high resolution
+ * @brief Get current high-resolution timestamp (monotonic preferred)
  * @param ts Pointer to timespec structure to receive current time
  * @return 0 on success, -1 on failure
  *
- * Uses CLOCK_MONOTONIC if available (unaffected by system time changes),
- * otherwise CLOCK_REALTIME, or gettimeofday() as final fallback. Provides
- * at least microsecond resolution on all supported platforms.
+ * Uses CLOCK_MONOTONIC if available to provide a monotonic timestamp that is
+ * unaffected by system time changes. If CLOCK_MONOTONIC is unavailable, falls
+ * back to CLOCK_REALTIME, or gettimeofday() as a final fallback, returning a
+ * high-resolution realtime timestamp with at least microsecond resolution on
+ * all supported platforms.
  */
 int get_current_time(struct timespec *ts) {
 #if defined(CLOCK_MONOTONIC)
@@ -102,9 +104,11 @@ int get_current_time(struct timespec *ts) {
  * @param t Pointer to timespec specifying sleep duration
  * @return 0 on success, -1 on error (errno set by underlying call)
  *
- * Uses clock_nanosleep() with CLOCK_MONOTONIC if available for uninterruptible
- * sleep unaffected by system time changes, otherwise falls back to nanosleep().
- * Provides nanosecond-precision sleep duration on all platforms.
+ * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
+ * durations that are unaffected by system time changes, otherwise falls back
+ * to nanosleep(). The underlying call may return early (for example, with
+ * errno set to EINTR if interrupted by a signal); this function does not
+ * automatically resume sleeping in that case.
  */
 int sleep_timespec(const struct timespec *t) {
 #if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
@@ -143,7 +147,7 @@ double timediff_in_ms(const struct timespec *later,
  * original string if no '/' is found. Does not allocate memory; the returned
  * pointer references part of the input string.
  *
- * @note Safe with NULL input (returns NULL), but typically expects valid path
+ * @note The caller must pass a non-NULL path; behavior is undefined for NULL.
  */
 const char *file_basename(const char *path) {
     const char *p = strrchr(path, '/');

@@ -179,8 +179,10 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         get_current_time(&start_time);
 
         /*
-         * Cleanup loop: wait for all child processes to terminate.
-         * We wait for the entire process group to ensure no zombies remain.
+         * Cleanup loop: reap all child processes whose process group matches
+         * the command's process group. This waits only on our own children;
+         * descendants further down the tree are reparented (typically to init)
+         * when their direct parent exits and are reaped by that ancestor.
          */
         while (1) {
             int status;

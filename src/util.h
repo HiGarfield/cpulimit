@@ -86,13 +86,14 @@ extern "C" {
 void nsec2timespec(double nsec, struct timespec *t);
 
 /**
- * @brief Get current wall-clock time with high resolution
+ * @brief Get a high-resolution timestamp, preferring a monotonic clock
  * @param ts Pointer to timespec structure to receive current time
  * @return 0 on success, -1 on failure
  *
- * Uses CLOCK_MONOTONIC if available (unaffected by system time changes),
- * otherwise CLOCK_REALTIME, or gettimeofday() as final fallback. Provides
- * at least microsecond resolution on all supported platforms.
+ * Uses CLOCK_MONOTONIC if available (unaffected by system time changes) to
+ * return a monotonic timestamp, otherwise falls back to CLOCK_REALTIME, or
+ * gettimeofday() as a final fallback. Provides at least microsecond
+ * resolution on all supported platforms.
  */
 int get_current_time(struct timespec *ts);
 
@@ -101,9 +102,10 @@ int get_current_time(struct timespec *ts);
  * @param t Pointer to timespec specifying sleep duration
  * @return 0 on success, -1 on error (errno set by underlying call)
  *
- * Uses clock_nanosleep() with CLOCK_MONOTONIC if available for uninterruptible
- * sleep unaffected by system time changes, otherwise falls back to nanosleep().
- * Provides nanosecond-precision sleep duration on all platforms.
+ * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
+ * that is unaffected by system time changes, otherwise falls back to
+ * nanosleep(). The sleep may be interrupted by signals (EINTR) and is not
+ * automatically retried.
  */
 int sleep_timespec(const struct timespec *t);
 
@@ -129,7 +131,7 @@ double timediff_in_ms(const struct timespec *later,
  * original string if no '/' is found. Does not allocate memory; the returned
  * pointer references part of the input string.
  *
- * @note Safe with NULL input (returns NULL), but typically expects valid path
+ * @note The caller must pass a non-NULL path; behavior is undefined for NULL.
  */
 const char *file_basename(const char *path);
 

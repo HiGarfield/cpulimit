@@ -49,12 +49,13 @@ void init_list(struct list *l) {
  * @brief Append an element to the end of the list
  * @param l Pointer to the list
  * @param elem Pointer to the data element to add
- * @return Pointer to the newly created node, or NULL on failure
+ * @return Pointer to the newly created node, or NULL if @p l is NULL
  *
  * Creates a new node containing the data pointer and appends it to the end
  * of the list in O(1) time. The list stores only the pointer; ownership of
- * the data remains with the caller. Exits with error if memory allocation
- * for the node fails.
+ * the data remains with the caller. On memory allocation failure this
+ * function prints an error message to stderr and terminates the process
+ * with exit(EXIT_FAILURE); it does not return NULL in that case.
  */
 struct list_node *add_elem(struct list *l, void *elem) {
     struct list_node *newnode;
