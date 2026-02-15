@@ -41,29 +41,57 @@ extern "C" {
  * the program's execution mode and behavior.
  */
 struct cpulimitcfg {
-    /** Program name (basename of argv[0]) used in usage messages */
+    /**
+     * Program name (basename of argv[0]) used in usage messages.
+     */
     const char *program_name;
-    /** Target process ID when using -p/--pid option (0 if not specified) */
+
+    /**
+     * Target process ID when using -p/--pid option.
+     * 0 if not specified.
+     */
     pid_t target_pid;
-    /** Executable name/path when using -e/--exe option (NULL if not specified)
+
+    /**
+     * Executable name/path when using -e/--exe option.
+     * NULL if not specified.
      */
     const char *exe_name;
-    /** CPU usage limit as a fraction (percentage/100), range (0, N_CPU] */
+
+    /**
+     * CPU usage limit as a fraction (percentage/100).
+     * Range: (0, N_CPU].
+     */
     double limit;
-    /** If 1, limit applies to target and all descendant processes; if 0, target
-     * only */
+
+    /**
+     * If 1, limit applies to target and all descendant processes.
+     * If 0, target only.
+     */
     int include_children;
-    /** If 1, exit when target process terminates or cannot be found; if 0, keep
-     * searching */
+
+    /**
+     * If 1, exit when target process terminates or cannot be found.
+     * If 0, keep searching.
+     */
     int lazy_mode;
-    /** If 1, print CPU usage statistics and control information; if 0, silent
-     * operation */
+
+    /**
+     * If 1, print CPU usage statistics and control information.
+     * If 0, silent operation.
+     */
     int verbose;
-    /** If 1, fork and execute command in command_args; if 0, search for
-     * existing process */
+
+    /**
+     * If 1, fork and execute command in command_args.
+     * If 0, search for existing process.
+     */
     int command_mode;
-    /** Array of command-line arguments to execute (NULL-terminated) in command
-     * mode */
+
+    /**
+     * Array of command-line arguments to execute (NULL-terminated) in command
+     * mode.
+     */
     char *const *command_args;
 };
 

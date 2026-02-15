@@ -34,16 +34,18 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-/*
- * Global quit flag indicating a termination signal was received.
+/**
+ * @brief Global quit flag indicating a termination signal was received
+ *
  * Type sig_atomic_t ensures atomic access in signal handlers.
  * Volatile qualifier prevents compiler optimizations that could cache the
  * value.
  */
 static volatile sig_atomic_t limiter_quit_flag = 0;
 
-/*
- * Flag indicating termination originated from terminal keyboard input.
+/**
+ * @brief Flag indicating termination originated from terminal keyboard input
+ *
  * Set to 1 for SIGINT (Ctrl+C) and SIGQUIT (Ctrl+\), remains 0 for
  * other termination signals like SIGTERM or SIGHUP.
  */

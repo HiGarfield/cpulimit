@@ -243,8 +243,10 @@ static struct process *process_dup(const struct process *proc) {
     return (struct process *)memcpy(p, proc, sizeof(struct process));
 }
 
-/*
- * Smoothing factor for exponential moving average of CPU usage.
+/**
+ * @def ALPHA
+ * @brief Smoothing factor for exponential moving average of CPU usage
+ *
  * Value range: (0, 1)
  * - Lower values (e.g., 0.05): more smoothing, slower response to changes
  * - Higher values (e.g., 0.2): less smoothing, faster response to changes
@@ -252,8 +254,11 @@ static struct process *process_dup(const struct process *proc) {
  */
 #define ALPHA 0.08
 
-/*
- * Minimum time delta (milliseconds) required for valid CPU usage calculation.
+/**
+ * @def MIN_DT
+ * @brief Minimum time delta (milliseconds) required for valid CPU usage
+ * calculation
+ *
  * Updates with smaller time differences are skipped to avoid:
  * - Division by very small numbers (numerical instability)
  * - Amplification of measurement noise
