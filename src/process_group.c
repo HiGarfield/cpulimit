@@ -42,8 +42,9 @@
  * @brief Check if a process exists and can be controlled by cpulimit
  * @param pid Process ID to search for
  * @return Positive PID if process exists and can be signaled
- *         (kill(pid,0)==0), negative -PID if process exists but permission denied
- *         (errno==EPERM), 0 if process does not exist (errno==ESRCH or invalid PID)
+ *         (kill(pid,0)==0), negative -PID if process exists but permission
+ * denied (errno==EPERM), 0 if process does not exist (errno==ESRCH or invalid
+ * PID)
  *
  * Uses kill(pid, 0) as a lightweight probe to test process existence and
  * signal permission without actually sending a signal. This is the standard

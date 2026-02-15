@@ -256,7 +256,8 @@ static int parse_cpu_range(const char *str) {
 /**
  * @brief Get online CPU count by reading sysfs
  * @return Number of online CPUs on success, or negative on error: -1: cannot
- *         open/read /sys/devices/system/cpu/online -2: invalid format in the file
+ *         open/read /sys/devices/system/cpu/online -2: invalid format in the
+ * file
  *
  * Reads /sys/devices/system/cpu/online and parses the CPU range string.
  * This file uses the same format as parse_cpu_range() supports:
