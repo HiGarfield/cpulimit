@@ -49,11 +49,10 @@
  * @brief Terminate a child process or process group and wait for it to exit
  * @param pid Process ID (positive) or negative process group ID
  * @param kill_signal Signal to send (SIGTERM or SIGKILL)
- * @note If pid > 0, treats pid as a single process. If pid < 0, treats
- *  -pid as a process group ID. Sends the given signal and waits up
- *  to 5 seconds. If SIGTERM times out, escalates to SIGKILL and
- *  waits an additional 5 seconds. If processes are not reaped after
- *  5 + 5 seconds, function exits.
+ * @note If pid > 0, treats pid as a single process. If pid < 0, treats -pid
+ *  as a process group ID. Sends the given signal and waits up to 5 seconds.
+ *  If SIGTERM times out, escalates to SIGKILL and waits an additional 5
+ *  seconds. If processes are not reaped after 5 + 5 seconds, function exits.
  */
 static void kill_and_wait(pid_t pid, int kill_signal) {
     struct timespec now, end_time;
@@ -169,8 +168,8 @@ static void test_single_process(void) {
 
 /**
  * @brief Test process iterator with multiple processes
- * @note Creates a child process and verifies that the iterator can
- *  retrieve both parent and child process information
+ * @note Creates a child process and verifies that the iterator can retrieve
+ *  both parent and child process information
  */
 static void test_multiple_process(void) {
     struct process_iterator it;
@@ -300,8 +299,8 @@ static void test_process_group_all(void) {
 /**
  * @brief Test process group with a single process
  * @param include_children Flag indicating whether to include child processes
- * @note Creates a child process and verifies that the process group correctly
- *  tracks it, with or without child process inclusion
+ * @note Creates a child process and verifies that the process group
+ *  correctly tracks it, with or without child process inclusion
  */
 static void test_proc_group_single(int include_children) {
     struct process_group pgroup;
@@ -410,8 +409,8 @@ static void test_process_name(void) {
 
 /**
  * @brief Test process group initialization with invalid PIDs
- * @note Verifies that process group initialization with invalid PIDs
- *  (-1 and INT_MAX) results in empty process lists
+ * @note Verifies that process group initialization with invalid PIDs (-1 and
+ *  INT_MAX) results in empty process lists
  */
 static void test_process_group_wrong_pid(void) {
     struct process_group pgroup;
@@ -441,8 +440,8 @@ static void test_find_process_by_pid(void) {
 
 /**
  * @brief Test find_process_by_name function
- * @note Tests various cases: correct process name, empty string,
- *  modified process names that should not match
+ * @note Tests various cases: correct process name, empty string, modified
+ *  process names that should not match
  */
 static void test_find_process_by_name(void) {
     char *wrong_name;
@@ -492,8 +491,8 @@ static void test_find_process_by_name(void) {
 
 /**
  * @brief Test getppid_of function
- * @note Verifies that getppid_of returns the correct parent PID for
- *  multiple processes, including the current process
+ * @note Verifies that getppid_of returns the correct parent PID for multiple
+ *  processes, including the current process
  */
 static void test_getppid_of(void) {
     struct process_iterator it;
@@ -524,8 +523,8 @@ static void test_getppid_of(void) {
 
 /**
  * @brief Test limit_process function
- * @note Creates a process group with multi processes and applies CPU limiting
- *  to verify that the CPU usage stays within the specified limit
+ * @note Creates a process group with multi processes and applies CPU
+ *  limiting to verify that the CPU usage stays within the specified limit
  */
 static void test_limit_process(void) {
     const double cpu_usage_limit = 0.5;
@@ -669,8 +668,8 @@ static void test_limit_process(void) {
  * @param argc Argument count
  * @param argv Argument vector
  * @return 0 on success
- * @note Runs all test functions and prints their results. Ignores SIGINT
- *  and SIGTERM during testing to prevent interruption.
+ * @note Runs all test functions and prints their results. Ignores SIGINT and
+ *  SIGTERM during testing to prevent interruption.
  */
 int main(int argc, char *argv[]) {
     assert(argc >= 1);

@@ -35,10 +35,10 @@
  * @param argv Command line arguments (optional: number of processes)
  * @return Always returns 0 (unreachable)
  * @note This program creates a specified number of processes (default: CPU
- *  core count) that each run an infinite busy loop, consuming CPU cycles
- *  for testing purposes. If a command line argument is provided, it
- *  specifies the number of processes to create. Otherwise, the number of
- *  CPU cores is used.
+ *  core count) that each run an infinite busy loop, consuming CPU cycles for
+ *  testing purposes. If a command line argument is provided, it specifies
+ *  the number of processes to create. Otherwise, the number of CPU cores is
+ *  used.
  */
 int main(int argc, const char *argv[]) {
     int i, num_procs;

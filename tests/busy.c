@@ -54,8 +54,8 @@ static void *busy_loop(void *arg) {
  * @param argv Argument vector
  * @return 0 on success, exits with failure on error
  * @note This program creates multiple threads to generate CPU load for
- *  testing cpulimit functionality. Number of threads can be specified
- *  via command line argument.
+ *  testing cpulimit functionality. Number of threads can be specified via
+ *  command line argument.
  */
 int main(int argc, const char *argv[]) {
     int i, num_threads;

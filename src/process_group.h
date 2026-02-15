@@ -80,9 +80,9 @@ struct process_group {
 /**
  * @brief Check if a process exists and can be controlled by cpulimit
  * @param pid Process ID to search for
- * @return Positive PID if process exists and can be signaled (kill(pid,0)==0),
- *  negative -PID if process exists but permission denied (errno==EPERM),
- *  0 if process does not exist (errno==ESRCH or invalid PID)
+ * @return Positive PID if process exists and can be signaled
+ *  (kill(pid,0)==0), negative -PID if process exists but permission denied
+ *  (errno==EPERM), 0 if process does not exist (errno==ESRCH or invalid PID)
  *
  * Uses kill(pid, 0) as a lightweight probe to test process existence and
  * signal permission without actually sending a signal. This is the standard
@@ -93,9 +93,8 @@ pid_t find_process_by_pid(pid_t pid);
 /**
  * @brief Find a running process by its executable name or path
  * @param process_name Name or absolute path of the executable to search for
- * @return Positive PID if found and accessible,
- *  negative -PID if found but permission denied,
- *  0 if not found or invalid name
+ * @return Positive PID if found and accessible, negative -PID if found but
+ *  permission denied, 0 if not found or invalid name
  *
  * Behavior depends on whether process_name is an absolute path:
  * - If process_name starts with '/': compares full absolute paths
@@ -105,9 +104,8 @@ pid_t find_process_by_pid(pid_t pid);
  * descendant of another, prefers the descendant. This heuristic helps find
  * the most recently started instance of the executable.
  *
- * @note Iterates through all processes in the system, which may be slow
- *  on systems with many processes. For known PIDs, use
- *  find_process_by_pid().
+ * @note Iterates through all processes in the system, which may be slow on
+ *  systems with many processes. For known PIDs, use find_process_by_pid().
  */
 pid_t find_process_by_name(const char *process_name);
 
@@ -175,8 +173,8 @@ void update_process_group(struct process_group *pgroup);
 /**
  * @brief Calculate aggregate CPU usage across all processes in the group
  * @param pgroup Pointer to the process_group structure to query
- * @return Sum of CPU usage values for all processes with known usage,
- *  or -1.0 if no processes have valid CPU measurements yet
+ * @return Sum of CPU usage values for all processes with known usage, or
+ *  -1.0 if no processes have valid CPU measurements yet
  *
  * CPU usage is expressed as a fraction of total system CPU capacity:
  * - 0.0 = idle

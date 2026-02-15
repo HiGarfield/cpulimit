@@ -174,13 +174,12 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
 /**
  * @brief Enforce CPU usage limit on a process or process group
  * @param pid Process ID of the target process to limit
- * @param limit CPU usage limit expressed in CPU cores (core equivalents),
- *  in the range (0, N_CPU]. Example: on a 4-core system, limit=0.5
- *  means 50% of one core (12.5% of total capacity), and limit=2.0
- *  means two full cores (50% of total capacity).
+ * @param limit CPU usage limit expressed in CPU cores (core equivalents), in
+ *  the range (0, N_CPU]. Example: on a 4-core system, limit=0.5 means 50% of
+ *  one core (12.5% of total capacity), and limit=2.0 means two full cores
+ *  (50% of total capacity).
  * @param include_children If non-zero, limit applies to target and all
- *  descendants; if zero, limit applies only to target
- *  process
+ *  descendants; if zero, limit applies only to target process
  * @param verbose If non-zero, print periodic statistics about CPU usage and
  *  control; if zero, operate silently
  *

@@ -93,9 +93,9 @@ struct process *process_table_find(const struct process_table *pt, pid_t pid);
  * If the bucket doesn't exist, creates a new linked list for it.
  * Exits with an error if memory allocation fails.
  *
- * @note If a process with the same PID is already present in the table,
- *  the existing entry is left unchanged and the new process is not
- *  inserted (duplicate PIDs are ignored).
+ * @note If a process with the same PID is already present in the table, the
+ *  existing entry is left unchanged and the new process is not inserted
+ *  (duplicate PIDs are ignored).
  */
 void process_table_add(struct process_table *pt, struct process *p);
 
