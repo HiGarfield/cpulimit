@@ -77,7 +77,6 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         close(sync_pipe[1]);
         exit(EXIT_FAILURE);
     } else if (cmd_runner_pid == 0) {
-        /* ========== CHILD PROCESS ========== */
         /*
          * This block executes in the child process.
          * The child will become the command specified by the user.
@@ -117,7 +116,6 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         perror("execvp");
         exit(EXIT_FAILURE);
     } else {
-        /* ========== PARENT PROCESS ========== */
         /*
          * This block executes in the parent process.
          * Parent is responsible for:

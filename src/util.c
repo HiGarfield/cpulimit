@@ -70,15 +70,14 @@ void nsec2timespec(double nsec, struct timespec *t) {
 }
 
 /**
- * @brief Get current high-resolution timestamp (monotonic preferred)
+ * @brief Get a high-resolution timestamp, preferring a monotonic clock
  * @param ts Pointer to timespec structure to receive current time
  * @return 0 on success, -1 on failure
  *
- * Uses CLOCK_MONOTONIC if available to provide a monotonic timestamp that is
- * unaffected by system time changes. If CLOCK_MONOTONIC is unavailable, falls
- * back to CLOCK_REALTIME, or gettimeofday() as a final fallback, returning a
- * high-resolution realtime timestamp with at least microsecond resolution on
- * all supported platforms.
+ * Uses CLOCK_MONOTONIC if available (unaffected by system time changes) to
+ * return a monotonic timestamp, otherwise falls back to CLOCK_REALTIME, or
+ * gettimeofday() as a final fallback. Provides at least microsecond
+ * resolution on all supported platforms.
  */
 int get_current_time(struct timespec *ts) {
 #if defined(CLOCK_MONOTONIC)
