@@ -189,7 +189,7 @@ int __getloadavg(double *loadavg, int nelem);
  * @brief Read the first line from a text file
  * @param file_name Path to the file to read
  * @return Newly allocated string containing the first line (no newline), or
- *  NULL on error or if file is empty
+ *         NULL on error or if file is empty
  *
  * Opens the specified file, reads the first line using getline(), strips
  * trailing newlines, and returns the result. The caller must free() the

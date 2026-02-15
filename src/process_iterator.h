@@ -46,7 +46,7 @@ extern "C" {
  * @brief Maximum size for command path buffer, platform-dependent
  *
  * On Linux: Uses PATH_MAX (4096 bytes default) to accommodate full paths
- *  via /proc filesystem
+ *           via /proc filesystem
  * On FreeBSD: Uses MAXPATHLEN from system headers
  * On macOS: Uses PROC_PIDPATHINFO_MAXSIZE from libproc
  */
@@ -205,7 +205,7 @@ struct process_iterator {
  * - Linux: Opens /proc directory, may skip if filtering single process
  * - FreeBSD: Opens kvm descriptor, retrieves process snapshot if needed
  * - macOS: Retrieves process ID list snapshot, may skip if filtering single
- *  process
+ *          process
  *
  * The filter pointer is stored and must remain valid until
  * close_process_iterator() is called.

@@ -35,7 +35,7 @@ extern "C" {
 /**
  * @struct cpulimitcfg
  * @brief Configuration structure containing all runtime parameters for CPU
- *  limiting
+ *        limiting
  *
  * This structure stores the parsed command-line options and determines
  * the program's execution mode and behavior.
