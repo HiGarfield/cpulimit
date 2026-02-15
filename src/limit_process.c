@@ -181,7 +181,7 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
  *              (50% of total capacity).
  * @param include_children If non-zero, limit applies to target and all
  *                         descendants; if zero, limit applies only to target
- * process
+ *                         process
  * @param verbose If non-zero, print periodic statistics about CPU usage and
  *                control; if zero, operate silently
  *
