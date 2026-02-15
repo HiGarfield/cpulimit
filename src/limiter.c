@@ -41,22 +41,35 @@
 #include <unistd.h>
 
 /**
- * @brief Run the program in command execution mode
- * @param cfg Pointer to the configuration structure
- * @note This function forks a child process to execute a command and then
- *       limits the CPU usage of that command and its children.
+ * @brief Execute and monitor a user-specified command with CPU limiting
+ * @param cfg Pointer to configuration structure containing command and options
+ *
+ * This function implements command execution mode (-COMMAND):
+ * 1. Forks a child process to execute the specified command
+ * 2. Creates a new process group for the child
+ * 3. Applies CPU limiting to the command and optionally its descendants
+ * 4. Waits for command completion and returns its exit status
+ *
+ * The parent process monitors the child and handles:
+ * - Normal exit (returns child's exit code)
+ * - Signal termination (returns 128 + signal number)
+ * - Timeout after termination request (sends SIGKILL)
+ *
+ * @note This function calls exit() and does not return
  */
 void run_command_mode(const struct cpulimitcfg *cfg) {
-    pid_t cmd_runner_pid; /* PID of child process that runs the command */
-    int sync_pipe[2];     /* Pipe for parent-child sync: [0]=read, [1]=write*/
+    pid_t
+        cmd_runner_pid; /* PID of forked child that will execute the command */
+    int sync_pipe[2];   /* Pipe for parent-child synchronization */
 
-    /* Create a pipe for synchronization between parent and child */
+    /* Create pipe for synchronization: parent waits for child setup completion
+     */
     if (pipe(sync_pipe) < 0) {
         perror("pipe");
         exit(EXIT_FAILURE);
     }
 
-    /* Fork a child process to run the command */
+    /* Fork to create child process that will execute user command */
     cmd_runner_pid = fork();
     if (cmd_runner_pid < 0) {
         perror("fork");
@@ -64,12 +77,15 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         close(sync_pipe[1]);
         exit(EXIT_FAILURE);
     } else if (cmd_runner_pid == 0) {
-        /* ========== CHILD PROCESS: COMMAND RUNNER ========== */
-        /* This code runs in the child process that executes the user command */
+        /*
+         * This block executes in the child process.
+         * The child will become the command specified by the user.
+         */
 
         /*
-         * Create a new process group with the child as leader.
-         * This allows us to control all related processes together.
+         * Create new process group with child as leader.
+         * This allows limiting the entire process tree (child + descendants)
+         * and enables sending signals to all related processes via -PGID.
          */
         if (setpgid(0, 0) < 0) {
             perror("setpgid");
@@ -78,52 +94,66 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
             exit(EXIT_FAILURE);
         }
 
-        /* Close read end of pipe (child only writes to parent) */
+        /* Close unused read end of pipe */
         close(sync_pipe[0]);
-        /* Send sync signal to parent: single byte 'A' indicates child ready */
+        /*
+         * Signal parent that child initialization is complete.
+         * Parent blocks until receiving this byte.
+         */
         if (write(sync_pipe[1], "A", 1) != 1) {
             perror("write sync");
         }
-        /* Close write end after sending signal */
         close(sync_pipe[1]);
 
         /*
-         * Replace child process with user's command.
-         * execvp searches PATH for executable in cfg->command_args[0].
-         * Only returns on error.
+         * Replace child process image with the user command.
+         * execvp() searches PATH for the executable and transfers control.
+         * If successful, this function never returns.
          */
         execvp(cfg->command_args[0], cfg->command_args);
 
-        /* execvp failed - only reached if execvp() returns (error case) */
+        /* Execution reaches here only if execvp() failed */
         perror("execvp");
         exit(EXIT_FAILURE);
     } else {
-        /* ========== PARENT PROCESS: CPU LIMITER CONTROLLER ========== */
-        /* This code runs in parent process that monitors and limits child */
-        int child_exit_status = EXIT_FAILURE; /* Default exit status */
-        char ack;                   /* Buffer for sync byte from child */
-        char found_cmd_runner = 0;  /* Flag: 1 if child reaped successfully*/
-        struct timespec start_time; /* Timestamp for timeout calculation */
-        ssize_t n_read;             /* Number of bytes read */
+        /*
+         * This block executes in the parent process.
+         * Parent is responsible for:
+         * 1. Waiting for child initialization
+         * 2. Applying CPU limiting to child
+         * 3. Monitoring child termination
+         * 4. Cleaning up and returning child's exit status
+         */
+        int child_exit_status =
+            EXIT_FAILURE;           /* Default if child not properly reaped */
+        char ack;                   /* Synchronization byte from child */
+        char found_cmd_runner = 0;  /* 1 if successfully reaped child PID */
+        struct timespec start_time; /* Timestamp when termination starts */
+        ssize_t n_read;             /* Bytes read from pipe */
 
-        /* Close write end of pipe (parent only reads from child) */
+        /* Close unused write end of pipe */
         close(sync_pipe[1]);
-        /* Wait for child to be ready: read the synchronization byte */
+        /*
+         * Block until child signals readiness by writing to pipe.
+         * This ensures child has completed setpgid() before parent continues.
+         */
         do {
             n_read = read(sync_pipe[0], &ack, 1);
         } while (n_read < 0 && errno == EINTR);
         if (n_read != 1 || ack != 'A') {
             perror("read sync");
             close(sync_pipe[0]);
-            /* Clean up the child process that may be running */
+            /* Reap child to prevent zombie */
             waitpid(cmd_runner_pid, NULL, 0);
             exit(EXIT_FAILURE);
         }
         close(sync_pipe[0]);
 
         /*
-         * Apply CPU usage limits to child process and optionally its children.
-         * limit_process() runs in separate monitoring thread/process.
+         * Apply CPU limiting to child process.
+         * If include_children is set, limit_process() also tracks and limits
+         * all descendant processes. This call blocks until child terminates
+         * or a quit signal is received.
          */
         if (cfg->verbose) {
             printf("Limiting process %ld\n", (long)cmd_runner_pid);
@@ -132,49 +162,60 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                       cfg->verbose);
 
         /*
-         * Check if quit flag was set (e.g., via signal handler).
-         * If so, gracefully terminate entire process group.
+         * Check if user requested termination via signal (Ctrl+C, SIGTERM,
+         * etc). If so, gracefully terminate the entire process group.
          */
         if (is_quit_flag_set()) {
-            /* Send SIGTERM to entire process group (negative PID) */
+            /*
+             * Send SIGTERM to all processes in child's process group.
+             * Negative PID targets the process group: -PGID
+             */
             kill(-cmd_runner_pid, SIGTERM);
         }
 
-        /* Record start time for timeout monitoring */
+        /* Record time for timeout monitoring during cleanup */
         get_current_time(&start_time);
 
         /*
-         * Monitoring loop: wait for child process(es) to terminate.
-         * We wait for any process in child's process group (-cmd_runner_pid).
-         * WNOHANG prevents blocking if processes are still running.
+         * Cleanup loop: reap all child processes whose process group matches
+         * the command's process group. This waits only on our own children;
+         * descendants further down the tree are reparented (typically to init)
+         * when their direct parent exits and are reaped by that ancestor.
          */
         while (1) {
-            int status; /* Child exit status */
-            /* Wait for any process in child's process group without blocking */
+            int status;
+            /*
+             * Wait for any process in child's group without blocking.
+             * WNOHANG allows checking timeout and other conditions.
+             */
             pid_t wpid = waitpid(-cmd_runner_pid, &status, WNOHANG);
 
             if (wpid == cmd_runner_pid) {
-                /* Main child process we spawned has terminated */
-                found_cmd_runner = 1; /* Mark that we found and reaped child */
+                /* Primary child process has terminated */
+                found_cmd_runner = 1;
 
                 if (WIFEXITED(status)) {
-                    /* Child exited normally with an exit code */
+                    /* Child exited normally via exit() or return from main() */
                     child_exit_status = WEXITSTATUS(status);
                     if (cfg->verbose) {
                         printf("Process %ld exited with status %d\n",
                                (long)cmd_runner_pid, child_exit_status);
                     }
                 } else if (WIFSIGNALED(status)) {
-                    /* Child was terminated by a signal */
+                    /* Child was terminated by a signal (SIGTERM, SIGKILL, etc)
+                     */
                     int signal_number = WTERMSIG(status);
-                    /* Convention: exit code = 128 + signal number */
+                    /*
+                     * Shell convention: exit status = 128 + signal number
+                     * Example: SIGTERM (15) → exit status 143
+                     */
                     child_exit_status = 128 + signal_number;
                     if (cfg->verbose) {
                         printf("Process %ld terminated by signal %d\n",
                                (long)cmd_runner_pid, signal_number);
                     }
                 } else {
-                    /* Child terminated abnormally (not by exit or signal) */
+                    /* Abnormal termination (neither exit nor signal) */
                     printf("Process %ld terminated abnormally\n",
                            (long)cmd_runner_pid);
                     child_exit_status = EXIT_FAILURE;
@@ -182,57 +223,68 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
 
             } else if (wpid == 0) {
                 /*
-                 * No child changed state yet (WNOHANG returned 0).
-                 * Check if timeout exceeded.
+                 * No state changes yet (WNOHANG returned immediately).
+                 * Check if we've exceeded timeout for graceful termination.
                  */
-                const struct timespec sleep_time = {0, 50000000L}; /* 50ms */
+                const struct timespec sleep_time = {
+                    0, 50000000L}; /* 50 milliseconds */
                 struct timespec current_time;
                 get_current_time(&current_time);
 
-                /* 5s timeout: if more than 5000ms passed since start */
+                /*
+                 * After 5 seconds, forcefully kill any remaining processes.
+                 * This handles cases where processes ignore SIGTERM.
+                 */
                 if (timediff_in_ms(&current_time, &start_time) > 5000.0) {
                     if (cfg->verbose) {
                         printf("Process %ld timed out, sending SIGKILL\n",
                                (long)cmd_runner_pid);
                     }
-                    /* Forcefully kill entire process group after timeout */
+                    /* SIGKILL cannot be caught or ignored */
                     kill(-cmd_runner_pid, SIGKILL);
                 }
-                /* Sleep briefly to avoid busy-waiting, then check again */
+                /* Brief sleep to avoid busy-waiting */
                 sleep_timespec(&sleep_time);
 
             } else if (wpid < 0) {
-                /* waitpid returned an error */
+                /* waitpid() encountered an error */
                 if (errno == EINTR) {
-                    /* waitpid interrupted by signal, try again */
+                    /* Interrupted by signal, retry immediately */
                     continue;
                 }
                 if (errno != ECHILD) {
-                    /* Real error (not "no child processes") */
+                    /* Real error (not just "no children") */
                     perror("waitpid");
                 }
-                /* No more child processes or unrecoverable error */
+                /* ECHILD means no more children, exit loop */
                 break;
             }
         }
 
         /*
-         * Exit with child's exit status if successfully reaped,
-         * otherwise exit with failure status
+         * Exit with child's exit status if we successfully reaped it,
+         * otherwise exit with failure status.
          */
         exit(found_cmd_runner ? child_exit_status : EXIT_FAILURE);
     }
 }
 
 /**
- * @brief Run the program in PID or executable name mode
- * @param cfg Pointer to the configuration structure
- * @note This function continuously searches for the target process (by PID or
- *       executable name) and applies CPU limiting when found.
+ * @brief Search for and limit an existing process by PID or executable name
+ * @param cfg Pointer to configuration structure containing target specification
+ *
+ * This function implements PID/exe search mode (-p PID or -e EXE):
+ * 1. Continuously searches for the target process
+ * 2. When found, applies CPU limiting
+ * 3. Behavior depends on lazy_mode flag:
+ *    - lazy_mode=1: Exit when target terminates or cannot be found
+ *    - lazy_mode=0: Keep searching and re-attach if target restarts
+ *
+ * @note This function calls exit() and does not return
  */
 void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
-    /* Set waiting time between process searches */
-    const struct timespec wait_time = {2, 0};
+    /* Wait interval between search attempts when target not found */
+    const struct timespec wait_time = {2, 0}; /* 2 seconds */
     int pid_mode = cfg->target_pid > 0;
 
     while (!is_quit_flag_set()) {
@@ -240,29 +292,48 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
                                    : find_process_by_name(cfg->exe_name);
 
         if (found_pid == 0) {
+            /* Process does not exist */
             printf("Process cannot be found\n");
         } else if (found_pid < 0) {
+            /*
+             * Process exists but cannot be controlled (permission denied).
+             * Negative PID indicates EPERM error. No point retrying.
+             */
             printf("No permission to control process\n");
             break;
         } else {
-            /* Prevent limiting cpulimit itself */
+            /*
+             * Sanity check: prevent cpulimit from limiting itself.
+             * This could cause system instability or deadlock.
+             */
             if (found_pid == getpid()) {
                 printf("Target process %ld is cpulimit itself! Aborting\n",
                        (long)found_pid);
                 exit(EXIT_FAILURE);
             }
             printf("Process %ld found\n", (long)found_pid);
-            /* Apply CPU limiting to the found process */
+            /*
+             * Apply CPU limiting to the target process.
+             * This call blocks until the process terminates or quit flag is
+             * set.
+             */
             limit_process(found_pid, cfg->limit, cfg->include_children,
                           cfg->verbose);
         }
 
-        /* Exit if in lazy mode or quit flag is set */
+        /*
+         * Exit conditions:
+         * - lazy_mode: Exit after first attempt (regardless of success)
+         * - quit_flag: User requested termination via signal
+         */
         if (cfg->lazy_mode || is_quit_flag_set()) {
             break;
         }
 
-        /* Wait before searching again */
+        /*
+         * In non-lazy mode, wait before retrying.
+         * This prevents excessive CPU usage when target is not running.
+         */
         sleep_timespec(&wait_time);
     }
     exit(EXIT_SUCCESS);

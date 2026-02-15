@@ -39,49 +39,56 @@
 #include <time.h>
 
 /**
- * @brief Find a process by its process ID
+ * @brief Check if a process exists and can be controlled by cpulimit
  * @param pid Process ID to search for
- * @return The PID if process exists and can be controlled, -PID if exists
- *         but no permission, 0 if process does not exist
+ * @return Positive PID if process exists and can be signaled
+ *         (kill(pid,0)==0), negative -PID if process exists but permission denied
+ *         (errno==EPERM), 0 if process does not exist (errno==ESRCH or invalid PID)
+ *
+ * Uses kill(pid, 0) as a lightweight probe to test process existence and
+ * signal permission without actually sending a signal. This is the standard
+ * POSIX method for checking process liveness and accessibility.
  */
 pid_t find_process_by_pid(pid_t pid) {
-    /* Invalid PID check */
+    /* Reject invalid PIDs (must be positive) */
     if (pid <= 0) {
         return 0;
     }
-    /* Process exists and can be signaled */
+    /* Attempt to send null signal (doesn't actually signal, just checks
+     * permission) */
     if (kill(pid, 0) == 0) {
         return pid;
     }
-    /* Process exists but cannot be signaled (permission error) */
+    /* Process exists but we lack permission to signal it */
     if (errno == EPERM) {
         return -pid;
     }
-    /* Process does not exist */
+    /* Process does not exist (errno is ESRCH or other error) */
     return 0;
 }
 
 /**
- * @brief Find a process by its executable name
- * @param process_name Name or path of the executable to search for
- * @return Process ID if found, 0 if not found, or -PID for permission error
- * @note If process_name starts with '/', full path comparison is used;
- *       otherwise, only the basename is compared.
+ * @brief Find a running process by its executable name or path
+ * @param process_name Name or absolute path of the executable to search for
+ * @return Positive PID if found and accessible, negative -PID if found but
+ *         permission denied, 0 if not found or invalid name
+ *
+ * Behavior depends on whether process_name is an absolute path:
+ * - If process_name starts with '/': compares full absolute paths
+ * - Otherwise: compares only the basename (executable name without directory)
+ *
+ * When multiple matches exist, selects the newest process, or if one is a
+ * descendant of another, prefers the descendant. This heuristic helps find
+ * the most recently started instance of the executable.
+ *
+ * @note Iterates through all processes in the system, which may be slow on
+ *       systems with many processes. For known PIDs, use find_process_by_pid().
  */
 pid_t find_process_by_name(const char *process_name) {
-    /* PID of the target process */
     pid_t pid = -1;
-
-    /* Process iterator and filter */
     struct process_iterator it;
     struct process_filter filter;
     struct process *proc;
-    /*
-     * Flag for full path comparison:
-     * - True (1) if process_name is an absolute path (starts with '/').
-     * - False (0) if process_name is a relative path (does not start with '/').
-     * This determines whether to compare full paths or just basenames.
-     */
     int full_path_cmp;
     const char *process_cmp_name;
 
@@ -89,6 +96,11 @@ pid_t find_process_by_name(const char *process_name) {
         return 0;
     }
 
+    /*
+     * Determine comparison mode:
+     * - Absolute path (starts with '/'): compare full paths
+     * - Relative path/name: compare basenames only
+     */
     full_path_cmp = process_name[0] == '/';
     process_cmp_name =
         full_path_cmp ? process_name : file_basename(process_name);
@@ -97,6 +109,7 @@ pid_t find_process_by_name(const char *process_name) {
         exit(EXIT_FAILURE);
     }
 
+    /* Configure iterator to scan all processes and read command names */
     filter.pid = 0;
     filter.include_children = 0;
     filter.read_cmd = 1;
@@ -105,13 +118,19 @@ pid_t find_process_by_name(const char *process_name) {
         exit(EXIT_FAILURE);
     }
 
-    /* Iterate through all processes to find a match */
+    /* Scan all processes to find matching executable */
     while (get_next_process(&it, proc) != -1) {
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : file_basename(proc->command);
-        /* Process found */
+        /* Check if this process matches the target name */
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
-            /* Select the newest or child process if multiple matches found */
+            /*
+             * Select this PID if:
+             * - No match found yet (pid < 0), OR
+             * - This process is a descendant of the previous match
+             * This heuristic prefers newer/child processes over older/parent
+             * ones
+             */
             if (pid < 0 || is_child_of(pid, proc->pid)) {
                 pid = proc->pid;
             }
@@ -122,19 +141,29 @@ pid_t find_process_by_name(const char *process_name) {
         exit(EXIT_FAILURE);
     }
 
+    /* Verify the found process still exists and is accessible */
     return (pid > 0) ? find_process_by_pid(pid) : 0;
 }
 
 /**
- * @brief Initialize a process group structure
- * @param pgroup Pointer to the process group structure to initialize
- * @param target_pid PID of the target process
- * @param include_children Flag to include child processes in the group
- * @return 0 on success
+ * @brief Initialize a process group for monitoring and CPU limiting
+ * @param pgroup Pointer to uninitialized process_group structure to set up
+ * @param target_pid PID of the primary process to monitor
+ * @param include_children Non-zero to monitor descendants, zero for target only
+ * @return 0 on success (always succeeds or exits the program)
+ *
+ * This function:
+ * 1. Allocates and initializes the process hashtable (2048 buckets)
+ * 2. Allocates and initializes the process list
+ * 3. Records the current time as baseline for CPU calculations
+ * 4. Performs initial update to populate the process list
+ *
+ * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
+ * @note After return, pgroup is fully initialized and ready for use
  */
 int init_process_group(struct process_group *pgroup, pid_t target_pid,
                        int include_children) {
-    /* Hashtable initialization for process table */
+    /* Allocate and initialize hashtable for fast process lookup by PID */
     if ((pgroup->proctable = (struct process_table *)malloc(
              sizeof(struct process_table))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
@@ -144,7 +173,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
     pgroup->target_pid = target_pid;
     pgroup->include_children = include_children;
 
-    /* List initialization for process tracking */
+    /* Allocate and initialize linked list for process iteration */
     if ((pgroup->proclist = (struct list *)malloc(sizeof(struct list))) ==
         NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
@@ -152,18 +181,30 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
     }
     init_list(pgroup->proclist);
 
-    /* Record current time for first update */
+    /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&pgroup->last_update) != 0) {
         exit(EXIT_FAILURE);
     }
+    /* Perform initial scan to populate process list */
     update_process_group(pgroup);
     return 0;
 }
 
 /**
- * @brief Clean up and close a process group
- * @param pgroup Pointer to the process group structure to close
- * @return 0 on success
+ * @brief Release all resources associated with a process group
+ * @param pgroup Pointer to the process_group structure to clean up
+ * @return 0 on success (always succeeds)
+ *
+ * This function:
+ * 1. Clears and frees the process list
+ * 2. Destroys and frees the process hashtable
+ * 3. Sets both pointers to NULL for safety
+ *
+ * @note Safe to call even if pgroup is partially initialized (NULLs are
+ *       handled)
+ * @note Does not send any signals to processes; they continue running
+ * @note After return, pgroup fields should not be accessed without
+ *       re-initialization
  */
 int close_process_group(struct process_group *pgroup) {
     if (pgroup->proclist != NULL) {
@@ -182,10 +223,14 @@ int close_process_group(struct process_group *pgroup) {
 }
 
 /**
- * @brief Duplicate a process structure
- * @param proc Pointer to the source process structure
- * @return Pointer to the duplicated process structure
- * @note The caller is responsible for freeing the returned structure
+ * @brief Create a deep copy of a process structure
+ * @param proc Pointer to the source process structure to duplicate
+ * @return Pointer to newly allocated process structure containing copied data
+ *
+ * Allocates memory for a new process structure and copies all fields from
+ * the source. The caller is responsible for freeing the returned pointer.
+ *
+ * @note Calls exit(EXIT_FAILURE) if memory allocation fails
  */
 static struct process *process_dup(const struct process *proc) {
     struct process *p;
@@ -196,16 +241,50 @@ static struct process *process_dup(const struct process *proc) {
     return (struct process *)memcpy(p, proc, sizeof(struct process));
 }
 
-/* Parameter in range 0-1 for exponential moving average */
+/**
+ * @def ALPHA
+ * @brief Smoothing factor for exponential moving average of CPU usage
+ *
+ * Value range: (0, 1)
+ * - Lower values (e.g., 0.05): more smoothing, slower response to changes
+ * - Higher values (e.g., 0.2): less smoothing, faster response to changes
+ * Formula: new_value = (1-ALPHA) * old_value + ALPHA * sample
+ */
 #define ALPHA 0.08
-/* Minimum time difference (ms) for CPU usage calculation */
+
+/**
+ * @def MIN_DT
+ * @brief Minimum time delta (milliseconds) required for valid CPU usage
+ *        calculation
+ *
+ * Updates with smaller time differences are skipped to avoid:
+ * - Division by very small numbers (numerical instability)
+ * - Amplification of measurement noise
+ * - Excessive sensitivity to timer resolution
+ */
 #define MIN_DT 20
 
 /**
- * @brief Update the process group with current process information
- * @param pgroup Pointer to the process group structure to update
- * @note This function refreshes the process list, calculates CPU usage,
- *       and removes terminated processes from the group.
+ * @brief Refresh process group state and recalculate CPU usage
+ * @param pgroup Pointer to the process_group structure to update
+ *
+ * This function performs a complete refresh of the process group:
+ * 1. Scans /proc (or platform equivalent) for current target and descendants
+ * 2. Updates the process list, removing terminated processes from tracking
+ * 3. Calculates CPU usage for each process using exponential moving average
+ * 4. Handles edge cases: PID reuse, clock skew, insufficient time delta
+ * 5. Updates last_update timestamp if sufficient time has elapsed
+ *
+ * CPU usage calculation:
+ * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
+ * - Uses exponential smoothing: cpu = (1-α)*old + α*sample, α=0.08
+ * - Detects PID reuse when cputime decreases (resets history)
+ * - Handles backward time jumps (system clock adjustment)
+ * - New processes have cpu_usage=-1 until first valid measurement
+ *
+ * @note Should be called periodically (e.g., every 100ms) during CPU limiting
+ * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
+ *       retrieval)
  */
 void update_process_group(struct process_group *pgroup) {
     struct process_iterator it;
@@ -214,7 +293,7 @@ void update_process_group(struct process_group *pgroup) {
     struct timespec now;
     double dt;
 
-    /* Get current time for delta calculation */
+    /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
         exit(EXIT_FAILURE);
     }
@@ -223,8 +302,10 @@ void update_process_group(struct process_group *pgroup) {
         fprintf(stderr, "Memory allocation failed for tmp_process\n");
         exit(EXIT_FAILURE);
     }
-    /* Time elapsed from previous sample (in ms) */
+    /* Calculate elapsed time since last update (milliseconds) */
     dt = timediff_in_ms(&now, &pgroup->last_update);
+
+    /* Configure iterator to scan target process and optionally descendants */
     filter.pid = pgroup->target_pid;
     filter.include_children = pgroup->include_children;
     filter.read_cmd = 0;
@@ -233,17 +314,17 @@ void update_process_group(struct process_group *pgroup) {
         exit(EXIT_FAILURE);
     }
 
-    /* Clear the process list for rebuilding */
+    /* Clear process list (will be rebuilt from scratch) */
     clear_list(pgroup->proclist);
 
-    /* Iterate through processes and update the process group */
+    /* Scan currently running processes and update tracking data */
     while (get_next_process(&it, tmp_process) != -1) {
         struct process *p =
             process_table_find(pgroup->proctable, tmp_process->pid);
         if (p == NULL) {
-            /* Process is new. Add it to the table and list */
+            /* New process detected: add to hashtable and list */
             p = process_dup(tmp_process);
-            /* Mark CPU usage as unknown for new processes */
+            /* Mark CPU usage as unknown until we have a time delta */
             p->cpu_usage = -1;
             process_table_add(pgroup->proctable, p);
             if (add_elem(pgroup->proclist, p) == NULL) {
@@ -254,6 +335,7 @@ void update_process_group(struct process_group *pgroup) {
             }
         } else {
             double sample;
+            /* Existing process: re-add to list for this cycle */
             if (add_elem(pgroup->proclist, p) == NULL) {
                 fprintf(stderr,
                         "Failed to add process with PID %d to the list\n",
@@ -261,57 +343,94 @@ void update_process_group(struct process_group *pgroup) {
                 exit(EXIT_FAILURE);
             }
             if (tmp_process->cputime < p->cputime) {
-                /* PID reused, reset history */
+                /*
+                 * CPU time decreased: PID has been reused for a new process.
+                 * Reset all historical data.
+                 */
                 memcpy(p, tmp_process, sizeof(struct process));
-                /* Mark CPU usage as unknown for reused PIDs */
+                /* Mark CPU usage as unknown for new process */
                 p->cpu_usage = -1;
                 continue;
             }
             if (dt < 0) {
-                /* Time went backwards, reset history */
+                /*
+                 * Time moved backwards (system clock adjustment, NTP
+                 * correction). Update cputime but don't calculate usage this
+                 * cycle.
+                 */
                 p->cputime = tmp_process->cputime;
                 p->cpu_usage = -1;
                 continue;
             }
             if (dt < MIN_DT) {
+                /* Time delta too small for accurate measurement, skip this
+                 * update */
                 continue;
             }
-            /* Process exists. Update CPU usage */
+            /*
+             * Calculate CPU usage sample:
+             * sample = (delta_cputime / delta_walltime)
+             * This represents the fraction of one CPU core used.
+             */
             sample = (tmp_process->cputime - p->cputime) / dt;
+            /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
             sample = MIN(sample, 1.0 * get_ncpu());
             if (p->cpu_usage < 0) {
-                /* First time initialization */
+                /* First valid measurement: initialize directly */
                 p->cpu_usage = sample;
             } else {
-                /* CPU usage adjustment with exponential smoothing */
+                /*
+                 * Apply exponential moving average for smooth tracking:
+                 * new = (1-α)*old + α*sample
+                 * This reduces noise while remaining responsive to changes.
+                 */
                 p->cpu_usage = (1.0 - ALPHA) * p->cpu_usage + ALPHA * sample;
             }
+            /* Update stored CPU time for next delta calculation */
             p->cputime = tmp_process->cputime;
         }
     }
     free(tmp_process);
     close_process_iterator(&it);
 
-    /* Update last update time if enough time has passed for CPU usage
-     * calculation or if time went backwards */
+    /*
+     * Update timestamp only if sufficient time passed for CPU calculation
+     * or if time moved backwards (to establish new baseline).
+     */
     if (dt < 0 || dt >= MIN_DT) {
         pgroup->last_update = now;
     }
 }
 
 /**
- * @brief Calculate the total CPU usage of the process group
- * @param pgroup Pointer to the process group structure
- * @return Total CPU usage of all processes in the group, or -1 if unknown
+ * @brief Calculate aggregate CPU usage across all processes in the group
+ * @param pgroup Pointer to the process_group structure to query
+ * @return Sum of CPU usage values for all processes with known usage, or
+ *         -1.0 if no processes have valid CPU measurements yet
+ *
+ * CPU usage is expressed as a fraction of total system CPU capacity:
+ * - 0.0 = idle
+ * - 1.0 = fully utilizing one CPU core
+ * - N = fully utilizing N CPU cores (on multi-core systems)
+ *
+ * The function:
+ * 1. Iterates through all processes in proclist
+ * 2. Sums cpu_usage for processes with valid measurements (cpu_usage >= 0)
+ * 3. Returns -1 if all processes have unknown usage (first update cycle)
+ *
+ * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
+ * @note Thread-safe if pgroup is not being modified concurrently
  */
 double get_process_group_cpu_usage(const struct process_group *pgroup) {
     const struct list_node *node;
     double cpu_usage = -1;
     for (node = first_node(pgroup->proclist); node != NULL; node = node->next) {
         const struct process *p = (struct process *)node->data;
+        /* Skip processes without valid CPU measurements yet */
         if (p->cpu_usage < 0) {
             continue;
         }
+        /* Initialize sum on first valid process */
         if (cpu_usage < 0) {
             cpu_usage = 0;
         }

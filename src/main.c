@@ -28,21 +28,33 @@
 #include "signal_handler.h"
 
 int main(int argc, char *argv[]) {
-    /* Configuration structure for CPU limiting */
+    /*
+     * Configuration structure to store parsed command line arguments
+     * including target specification, CPU limit, and behavior flags
+     */
     struct cpulimitcfg cfg;
 
-    /* Parse command line arguments into configuration structure */
+    /*
+     * Parse and validate command line arguments.
+     * This function exits the program if arguments are invalid.
+     */
     parse_arguments(argc, argv, &cfg);
 
-    /* Set up signal handler for termination signals */
+    /*
+     * Install signal handlers for SIGTERM, SIGINT, SIGQUIT, and SIGHUP
+     * to ensure graceful cleanup when the program is interrupted
+     */
     configure_signal_handler();
 
-    /* Determine execution mode based on configuration */
+    /*
+     * Dispatch to the appropriate execution mode:
+     * - Command mode: fork and execute a user-specified command,
+     *   then limit its CPU usage
+     * - PID/exe mode: search for an existing process and limit its CPU usage
+     */
     if (cfg.command_mode) {
-        /* Run in command execution mode */
         run_command_mode(&cfg);
     } else {
-        /* Run in PID or executable name search mode */
         run_pid_or_exe_mode(&cfg);
     }
 
