@@ -277,8 +277,8 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
  * 1. Continuously searches for the target process
  * 2. When found, applies CPU limiting
  * 3. Behavior depends on lazy_mode flag:
- *  - lazy_mode=1: Exit when target terminates or cannot be found
- *  - lazy_mode=0: Keep searching and re-attach if target restarts
+ *    - lazy_mode=1: Exit when target terminates or cannot be found
+ *    - lazy_mode=0: Keep searching and re-attach if target restarts
  *
  * @note This function calls exit() and does not return
  */

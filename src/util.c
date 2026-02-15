@@ -256,7 +256,7 @@ static int parse_cpu_range(const char *str) {
 /**
  * @brief Get online CPU count by reading sysfs
  * @return Number of online CPUs on success, or negative on error: -1: cannot
- *  open/read /sys/devices/system/cpu/online -2: invalid format in the file
+ *         open/read /sys/devices/system/cpu/online -2: invalid format in the file
  *
  * Reads /sys/devices/system/cpu/online and parses the CPU range string.
  * This file uses the same format as parse_cpu_range() supports:
@@ -404,7 +404,7 @@ int __getloadavg(double *loadavg, int nelem) {
  * @brief Read the first line from a text file
  * @param file_name Path to the file to read
  * @return Newly allocated string containing the first line (no newline), or
- *  NULL on error or if file is empty
+ *         NULL on error or if file is empty
  *
  * Opens the specified file, reads the first line using getline(), strips
  * trailing newlines, and returns the result. The caller must free() the

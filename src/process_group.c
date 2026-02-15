@@ -42,8 +42,8 @@
  * @brief Check if a process exists and can be controlled by cpulimit
  * @param pid Process ID to search for
  * @return Positive PID if process exists and can be signaled
- *  (kill(pid,0)==0), negative -PID if process exists but permission denied
- *  (errno==EPERM), 0 if process does not exist (errno==ESRCH or invalid PID)
+ *         (kill(pid,0)==0), negative -PID if process exists but permission denied
+ *         (errno==EPERM), 0 if process does not exist (errno==ESRCH or invalid PID)
  *
  * Uses kill(pid, 0) as a lightweight probe to test process existence and
  * signal permission without actually sending a signal. This is the standard
@@ -71,7 +71,7 @@ pid_t find_process_by_pid(pid_t pid) {
  * @brief Find a running process by its executable name or path
  * @param process_name Name or absolute path of the executable to search for
  * @return Positive PID if found and accessible, negative -PID if found but
- *  permission denied, 0 if not found or invalid name
+ *         permission denied, 0 if not found or invalid name
  *
  * Behavior depends on whether process_name is an absolute path:
  * - If process_name starts with '/': compares full absolute paths
@@ -82,7 +82,7 @@ pid_t find_process_by_pid(pid_t pid) {
  * the most recently started instance of the executable.
  *
  * @note Iterates through all processes in the system, which may be slow on
- *  systems with many processes. For known PIDs, use find_process_by_pid().
+ *       systems with many processes. For known PIDs, use find_process_by_pid().
  */
 pid_t find_process_by_name(const char *process_name) {
     pid_t pid = -1;
@@ -201,10 +201,10 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * 3. Sets both pointers to NULL for safety
  *
  * @note Safe to call even if pgroup is partially initialized (NULLs are
- *  handled)
+ *       handled)
  * @note Does not send any signals to processes; they continue running
  * @note After return, pgroup fields should not be accessed without
- *  re-initialization
+ *       re-initialization
  */
 int close_process_group(struct process_group *pgroup) {
     if (pgroup->proclist != NULL) {
@@ -255,7 +255,7 @@ static struct process *process_dup(const struct process *proc) {
 /**
  * @def MIN_DT
  * @brief Minimum time delta (milliseconds) required for valid CPU usage
- *  calculation
+ *        calculation
  *
  * Updates with smaller time differences are skipped to avoid:
  * - Division by very small numbers (numerical instability)
@@ -284,7 +284,7 @@ static struct process *process_dup(const struct process *proc) {
  *
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
- *  retrieval)
+ *       retrieval)
  */
 void update_process_group(struct process_group *pgroup) {
     struct process_iterator it;
@@ -406,7 +406,7 @@ void update_process_group(struct process_group *pgroup) {
  * @brief Calculate aggregate CPU usage across all processes in the group
  * @param pgroup Pointer to the process_group structure to query
  * @return Sum of CPU usage values for all processes with known usage, or
- *  -1.0 if no processes have valid CPU measurements yet
+ *         -1.0 if no processes have valid CPU measurements yet
  *
  * CPU usage is expressed as a fraction of total system CPU capacity:
  * - 0.0 = idle
