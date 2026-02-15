@@ -39,48 +39,59 @@
 #include <time.h>
 
 /**
- * @brief Find a process by its process ID
+ * @brief Find a process by its process ID and check accessibility
  * @param pid Process ID to search for
- * @return The PID if process exists and can be controlled, -PID if exists
- *         but no permission, 0 if process does not exist
+ * @return The PID if process exists and is controllable (kill(pid, 0) succeeds),
+ *         -PID if process exists but lacks permission (EPERM),
+ *         0 if process does not exist (ESRCH or other errors)
+ * @note Uses kill(pid, 0) as a lightweight existence/permission check:
+ *       - Returns immediately without sending actual signal
+ *       - Checks both existence and permission in one system call
+ *       - Avoids expensive /proc filesystem access
  */
 pid_t find_process_by_pid(pid_t pid) {
-    /* Invalid PID check */
+    /* Reject invalid PIDs */
     if (pid <= 0) {
         return 0;
     }
-    /* Process exists and can be signaled */
+    /* Check if process exists and can be signaled */
     if (kill(pid, 0) == 0) {
         return pid;
     }
-    /* Process exists but cannot be signaled (permission error) */
+    /* Process exists but permission denied (e.g., root-owned process) */
     if (errno == EPERM) {
         return -pid;
     }
-    /* Process does not exist */
+    /* Process does not exist or other error occurred */
     return 0;
 }
 
 /**
- * @brief Find a process by its executable name
+ * @brief Find a process by its executable name or path
  * @param process_name Name or path of the executable to search for
- * @return Process ID if found, 0 if not found, or -PID for permission error
- * @note If process_name starts with '/', full path comparison is used;
- *       otherwise, only the basename is compared.
+ * @return Process ID if found and accessible,
+ *         0 if not found,
+ *         -PID if found but lacks permission (EPERM)
+ * @note Matching behavior depends on process_name format:
+ *       - Absolute path ("/path/to/prog"): compares full paths
+ *       - Relative name ("prog"): compares basenames only
+ *       If multiple matches exist, selects newest or child process:
+ *       - Prefers descendants of previously matched PIDs
+ *       - Uses is_child_of() to detect parent-child relationships
+ *       Always loads command path from process iterator (expensive operation)
  */
 pid_t find_process_by_name(const char *process_name) {
-    /* PID of the target process */
+    /* PID of matching process (-1 = not found yet) */
     pid_t pid = -1;
 
-    /* Process iterator and filter */
+    /* Process iterator and filter for enumerating all processes */
     struct process_iterator it;
     struct process_filter filter;
     struct process *proc;
     /*
-     * Flag for full path comparison:
-     * - True (1) if process_name is an absolute path (starts with '/').
-     * - False (0) if process_name is a relative path (does not start with '/').
-     * This determines whether to compare full paths or just basenames.
+     * Comparison mode flag:
+     * - 1: Full path comparison (process_name starts with '/')
+     * - 0: Basename-only comparison (process_name is relative)
      */
     int full_path_cmp;
     const char *process_cmp_name;
@@ -89,29 +100,39 @@ pid_t find_process_by_name(const char *process_name) {
         return 0;
     }
 
+    /* Determine comparison mode based on leading '/' */
     full_path_cmp = process_name[0] == '/';
+    /* Extract basename if doing basename comparison */
     process_cmp_name =
         full_path_cmp ? process_name : file_basename(process_name);
+    /* Allocate temporary storage for process info during iteration */
     if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process\n");
         exit(EXIT_FAILURE);
     }
 
-    filter.pid = 0;
-    filter.include_children = 0;
-    filter.read_cmd = 1;
+    /* Configure iterator to scan all processes and read command paths */
+    filter.pid = 0;              /* 0 = iterate all processes */
+    filter.include_children = 0; /* No child filtering */
+    filter.read_cmd = 1;         /* Must read command to compare names */
     if (init_process_iterator(&it, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         exit(EXIT_FAILURE);
     }
 
-    /* Iterate through all processes to find a match */
+    /* Iterate through all processes searching for name match */
     while (get_next_process(&it, proc) != -1) {
+        /* Extract comparison string from process command */
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : file_basename(proc->command);
-        /* Process found */
+        /* Check if name matches */
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
-            /* Select the newest or child process if multiple matches found */
+            /*
+             * Multiple matches possible: select based on priority:
+             * 1. First match (pid < 0)
+             * 2. Child of previous match (maintains parent-child relationship)
+             * This helps select the "main" process in a process family
+             */
             if (pid < 0 || is_child_of(pid, proc->pid)) {
                 pid = proc->pid;
             }
@@ -122,29 +143,36 @@ pid_t find_process_by_name(const char *process_name) {
         exit(EXIT_FAILURE);
     }
 
+    /* Verify found process still exists and check permissions */
     return (pid > 0) ? find_process_by_pid(pid) : 0;
 }
 
 /**
- * @brief Initialize a process group structure
+ * @brief Initialize a process group structure for tracking a target process
  * @param pgroup Pointer to the process group structure to initialize
- * @param target_pid PID of the target process
- * @param include_children Flag to include child processes in the group
- * @return 0 on success
+ * @param target_pid PID of the target (root) process
+ * @param include_children If non-zero, track all descendant processes too
+ * @return 0 on success (always succeeds or exits on error)
+ * @note Allocates and initializes:
+ *       - Hash table (size 2048) for O(1) PID lookups
+ *       - Linked list for maintaining process group membership
+ *       Performs initial population via update_process_group()
+ *       Records timestamp for CPU usage calculation baseline
  */
 int init_process_group(struct process_group *pgroup, pid_t target_pid,
                        int include_children) {
-    /* Hashtable initialization for process table */
+    /* Allocate hash table for efficient PID-based lookups */
     if ((pgroup->proctable = (struct process_table *)malloc(
              sizeof(struct process_table))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
+    /* Initialize hash table with 2048 buckets */
     process_table_init(pgroup->proctable, 2048);
     pgroup->target_pid = target_pid;
     pgroup->include_children = include_children;
 
-    /* List initialization for process tracking */
+    /* Allocate linked list for maintaining group membership order */
     if ((pgroup->proclist = (struct list *)malloc(sizeof(struct list))) ==
         NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
@@ -152,27 +180,35 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
     }
     init_list(pgroup->proclist);
 
-    /* Record current time for first update */
+    /* Record baseline time for CPU usage calculations */
     if (get_current_time(&pgroup->last_update) != 0) {
         exit(EXIT_FAILURE);
     }
+    /* Populate group with current processes */
     update_process_group(pgroup);
     return 0;
 }
 
 /**
- * @brief Clean up and close a process group
+ * @brief Clean up and free all resources associated with a process group
  * @param pgroup Pointer to the process group structure to close
- * @return 0 on success
+ * @return 0 on success (always succeeds)
+ * @note Frees:
+ *       - All process list nodes (but NOT process data - owned by hash table)
+ *       - All hash table buckets and process data
+ *       - Process list and hash table structures themselves
+ *       Safe to call multiple times (NULL-checks all pointers)
  */
 int close_process_group(struct process_group *pgroup) {
     if (pgroup->proclist != NULL) {
+        /* Clear list nodes without freeing data (data owned by proctable) */
         clear_list(pgroup->proclist);
         free(pgroup->proclist);
         pgroup->proclist = NULL;
     }
 
     if (pgroup->proctable != NULL) {
+        /* Free all process data and hash table structure */
         process_table_destroy(pgroup->proctable);
         free(pgroup->proctable);
         pgroup->proctable = NULL;
@@ -182,10 +218,15 @@ int close_process_group(struct process_group *pgroup) {
 }
 
 /**
- * @brief Duplicate a process structure
- * @param proc Pointer to the source process structure
- * @return Pointer to the duplicated process structure
- * @note The caller is responsible for freeing the returned structure
+ * @brief Duplicate a process structure by deep copy
+ * @param proc Pointer to the source process structure to duplicate
+ * @return Pointer to newly allocated process copy (never returns NULL)
+ * @note Exits on allocation failure (no error return)
+ *       Performs full memcpy of entire structure including:
+ *       - PID, PPID
+ *       - CPU time and usage statistics
+ *       - Command path string
+ *       Caller must free() returned pointer when done
  */
 static struct process *process_dup(const struct process *proc) {
     struct process *p;
@@ -196,9 +237,19 @@ static struct process *process_dup(const struct process *proc) {
     return (struct process *)memcpy(p, proc, sizeof(struct process));
 }
 
-/* Parameter in range 0-1 for exponential moving average */
+/*
+ * Smoothing factor for exponential moving average of CPU usage
+ * Formula: new_cpu = (1-ALPHA)*old_cpu + ALPHA*sample
+ * ALPHA=0.08 means: 92% old value, 8% new sample
+ * - Balances responsiveness vs. noise filtering
+ * - Time constant ≈ 12.5 samples for 63% convergence
+ */
 #define ALPHA 0.08
-/* Minimum time difference (ms) for CPU usage calculation */
+/*
+ * Minimum time delta (milliseconds) between CPU usage measurements
+ * Prevents noisy/invalid readings from short time intervals
+ * 20ms chosen as reasonable minimum for stable measurements
+ */
 #define MIN_DT 20
 
 /**
