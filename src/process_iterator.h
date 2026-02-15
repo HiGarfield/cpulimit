@@ -69,21 +69,29 @@ extern "C" {
  * including its identity, resource usage, and executable path.
  */
 struct process {
-    /** Process ID */
+    /**
+     * Process ID.
+     */
     pid_t pid;
-    /** Parent process ID */
+
+    /**
+     * Parent process ID.
+     */
     pid_t ppid;
+
     /**
      * Cumulative CPU time consumed by the process in milliseconds.
      * Includes both user and system time.
      */
     double cputime;
+
     /**
      * Estimated current CPU usage as a multiplier of one CPU core.
      * Range: 0.0 to number_of_cpus. For example, 0.5 means using
      * 50% of one core, while 2.0 means using two full cores.
      */
     double cpu_usage;
+
     /**
      * Absolute path to the process executable or command.
      * Size is platform-dependent (see CMD_BUFF_SIZE).
