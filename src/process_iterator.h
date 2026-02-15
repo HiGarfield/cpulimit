@@ -41,7 +41,15 @@ extern "C" {
 #include <libproc.h>
 #endif
 
-/* CMD_BUFF_SIZE */
+/**
+ * @def CMD_BUFF_SIZE
+ * @brief Maximum size for command path buffer, platform-dependent
+ *
+ * On Linux: Uses PATH_MAX (4096 bytes default) to accommodate full paths
+ *           via /proc filesystem
+ * On FreeBSD: Uses MAXPATHLEN from system headers
+ * On macOS: Uses PROC_PIDPATHINFO_MAXSIZE from libproc
+ */
 #if defined(__linux__)
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -51,109 +59,215 @@ extern "C" {
 #define CMD_BUFF_SIZE MAXPATHLEN
 #elif defined(__APPLE__)
 #define CMD_BUFF_SIZE PROC_PIDPATHINFO_MAXSIZE
-#endif /* CMD_BUFF_SIZE */
+#endif
 
 /**
  * @struct process
- * @brief Structure representing a process descriptor
+ * @brief Represents a snapshot of process information
+ *
+ * This structure contains essential information about a process,
+ * including its identity, resource usage, and executable path.
  */
 struct process {
-    /** Process ID of the process */
+    /** Process ID */
     pid_t pid;
-    /** Parent Process ID of the process */
+    /** Parent process ID */
     pid_t ppid;
-    /** CPU time used by the process (in milliseconds) */
+    /**
+     * Cumulative CPU time consumed by the process in milliseconds.
+     * Includes both user and system time.
+     */
     double cputime;
-    /** Actual CPU usage estimation (value in range 0-NCPU) */
+    /**
+     * Estimated current CPU usage as a multiplier of one CPU core.
+     * Range: 0.0 to number_of_cpus. For example, 0.5 means using
+     * 50% of one core, while 2.0 means using two full cores.
+     */
     double cpu_usage;
-    /** Absolute path of the executable file */
+    /**
+     * Absolute path to the process executable or command.
+     * Size is platform-dependent (see CMD_BUFF_SIZE).
+     */
     char command[CMD_BUFF_SIZE];
 };
 
 /**
  * @struct process_filter
- * @brief Structure representing a filter for processes
+ * @brief Defines criteria for filtering processes during iteration
+ *
+ * This structure controls which processes are returned by the iterator
+ * and what information is retrieved for each process.
  */
 struct process_filter {
-    /** Process ID to filter */
+    /**
+     * Target process ID to filter by, or 0 to iterate all processes.
+     * When non-zero, only this process (and optionally its descendants)
+     * will be returned.
+     */
     pid_t pid;
-    /** Flag indicating whether to include child processes (1 for yes, 0 for no)
+    /**
+     * Whether to include child processes of the target PID.
+     * Only meaningful when pid is non-zero.
+     * 0: Return only the specified process
+     * 1: Return the process and all its descendants
      */
     int include_children;
-    /** Flag indicating whether to read command of process */
+    /**
+     * Whether to read the command path for each process.
+     * 0: Skip reading command path (faster, process.command is empty)
+     * 1: Read full executable path (slower, populates process.command)
+     */
     int read_cmd;
 };
 
 /**
  * @struct process_iterator
- * @brief Structure representing an iterator for processes
- * @note This structure provides a way to iterate over processes
- *       in different operating systems with their specific implementations
+ * @brief Platform-specific iterator for enumerating processes
+ *
+ * This structure maintains the state needed to iterate over system
+ * processes. The internal members vary by platform to leverage
+ * platform-specific APIs efficiently.
+ *
+ * Platform implementations:
+ * - Linux: Reads /proc filesystem entries sequentially
+ * - FreeBSD: Uses kvm(3) interface with snapshot approach
+ * - macOS: Uses libproc with snapshot approach
  */
 struct process_iterator {
 #if defined(__linux__)
-    /** Directory stream for accessing the /proc filesystem on Linux */
+    /**
+     * Directory stream for /proc filesystem.
+     * Each entry corresponds to a process directory (e.g., /proc/1234).
+     */
     DIR *dip;
-    /** Indicator for the end of processes */
+    /**
+     * Flag indicating iteration is complete.
+     * Set to 1 when readdir() returns NULL or single-process mode completes.
+     */
     int end_of_processes;
 #elif defined(__FreeBSD__)
-    /** Kernel virtual memory descriptor for accessing process information on
-     * FreeBSD */
+    /**
+     * Kernel virtual memory descriptor for accessing process information.
+     * Opened via kvm_openfiles() and used for all process queries.
+     */
     kvm_t *kd;
-    /** Array of process information structures */
+    /**
+     * Snapshot of all process information structures.
+     * Populated by kvm_getprocs() at initialization.
+     */
     struct kinfo_proc *procs;
-    /** Total number of processes retrieved */
+    /**
+     * Total number of processes in the snapshot.
+     */
     int count;
-    /** Current index in the process array */
+    /**
+     * Current iteration index into the procs array.
+     */
     int i;
 #elif defined(__APPLE__)
-    /** Current index in the process list */
+    /**
+     * Current iteration index into the pidlist array.
+     */
     int i;
-    /** Total number of processes retrieved */
+    /**
+     * Total number of process IDs in the list.
+     */
     int count;
-    /** List of process IDs */
+    /**
+     * Snapshot of all process IDs in the system.
+     * Populated by proc_listpids() at initialization.
+     */
     pid_t *pidlist;
 #endif
-    /** Pointer to a process filter to apply during iteration */
+    /**
+     * Filter criteria to apply during iteration.
+     * Determines which processes to return and what information to retrieve.
+     */
     const struct process_filter *filter;
 };
 
 /**
- * @brief Initialize a process iterator
- * @param it Pointer to the process_iterator structure
- * @param filter Pointer to the process_filter structure
- * @return 0 on success, -1 on failure
+ * @brief Initialize a process iterator with specified filter criteria
+ * @param it Pointer to the process_iterator structure to initialize
+ * @param filter Pointer to filter criteria, must remain valid during iteration
+ * @return 0 on success, -1 on failure (Linux/FreeBSD), exits on failure (macOS)
+ *
+ * This function prepares the iterator for process enumeration. The behavior
+ * varies by platform:
+ * - Linux: Opens /proc directory, may skip if filtering single process
+ * - FreeBSD: Opens kvm descriptor, retrieves process snapshot if needed
+ * - macOS: Retrieves process ID list snapshot, may skip if filtering single
+ *          process
+ *
+ * The filter pointer is stored and must remain valid until
+ * close_process_iterator() is called.
  */
 int init_process_iterator(struct process_iterator *it,
                           const struct process_filter *filter);
 
 /**
- * @brief Get the next process matching the filter criteria
+ * @brief Retrieve the next process matching the filter criteria
  * @param it Pointer to the process_iterator structure
- * @param p Pointer to the process structure to store process information
- * @return 0 on success, -1 if no more processes are available
+ * @param p Pointer to process structure to populate with process information
+ * @return 0 on success with process data in p, -1 if no more processes
+ *
+ * Advances the iterator to the next process that satisfies the filter
+ * criteria. The process structure is populated with information based on
+ * the filter's read_cmd flag:
+ * - Always populated: pid, ppid, cputime
+ * - Conditionally populated: command (only if filter->read_cmd is set)
+ *
+ * This function skips zombie processes, system processes (on FreeBSD/macOS),
+ * and processes not matching the PID filter criteria.
  */
 int get_next_process(struct process_iterator *it, struct process *p);
 
 /**
- * @brief Close the process iterator and free resources
- * @param it Pointer to the process_iterator structure
+ * @brief Close the process iterator and release allocated resources
+ * @param it Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
+ *
+ * Releases platform-specific resources allocated during initialization:
+ * - Linux: Closes /proc directory stream
+ * - FreeBSD: Frees process array and closes kvm descriptor
+ * - macOS: Frees process ID list
+ *
+ * After this call, the iterator must not be used until re-initialized.
  */
 int close_process_iterator(struct process_iterator *it);
 
 /**
- * @brief Check if a process is a child of another process
- * @param child_pid Potential child process ID
- * @param parent_pid Potential parent process ID
- * @return 1 if child_pid is a child of parent_pid, 0 otherwise
+ * @brief Determine if one process is a descendant of another
+ * @param child_pid Process ID to check for descendant relationship
+ * @param parent_pid Process ID of the potential ancestor
+ * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ *
+ * Traverses the parent chain from child_pid up to the init process (PID 1),
+ * checking if parent_pid is encountered. Returns 1 if parent_pid is found
+ * in the ancestry chain, indicating child_pid is a descendant (child,
+ * grandchild, etc.) of parent_pid.
+ *
+ * Special cases:
+ * - Returns 0 if child_pid <= 0, parent_pid <= 0, or child_pid == parent_pid
+ * - Returns 1 if parent_pid == 1 (all processes descend from init)
+ * - Linux: Uses process start times to handle PID reuse
+ * - FreeBSD/macOS: Relies on current process hierarchy only
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid);
 
 /**
- * @brief Get the parent process ID (PPID) of a given PID
- * @param pid The given PID
- * @return Parent process ID, or -1 on error
+ * @brief Retrieve the parent process ID for a given process
+ * @param pid Process ID to query
+ * @return Parent process ID on success, -1 on error
+ *
+ * Queries the system to determine the parent process ID of the specified
+ * process. Implementation varies by platform:
+ * - Linux: Parses /proc/[pid]/stat for PPID field
+ * - FreeBSD: Uses kvm_getprocs() with KERN_PROC_PID
+ * - macOS: Uses proc_pidinfo() with PROC_PIDTASKALLINFO
+ *
+ * Returns -1 if the process does not exist, is a zombie, or if system
+ * call fails.
  */
 pid_t getppid_of(pid_t pid);
 
