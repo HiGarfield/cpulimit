@@ -36,10 +36,13 @@
 #include <unistd.h>
 
 /**
- * @brief Print usage information and exit the program.
- * @param stream Output stream (stdout or stderr)
- * @param cfg Pointer to the configuration structure
- * @param exit_code Exit code (0 for success, non-zero for error)
+ * @brief Display usage information and terminate the program
+ * @param stream Output stream (stdout for normal help, stderr for errors)
+ * @param cfg Pointer to configuration structure (used for program_name display)
+ * @param exit_code Exit status code (0 for success, non-zero for error)
+ *
+ * Prints formatted usage message showing all available options and targets,
+ * then exits the program with the specified exit code.
  */
 static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
                                  int exit_code) {
@@ -72,26 +75,38 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
 }
 
 /**
- * @brief Parse the PID option from command line argument.
- * @param pid_str String containing the PID value
- * @param cfg Pointer to the configuration structure to update
+ * @brief Parse and validate the PID option from command-line argument
+ * @param pid_str String representation of the process ID
+ * @param cfg Pointer to configuration structure to update
+ *
+ * Converts the PID string to a numeric value using strtol, validates the range,
+ * and stores it in cfg->target_pid. Automatically enables lazy mode since
+ * monitoring a specific PID implies lazy behavior (exit when process
+ * terminates).
+ *
+ * @note Exits the program with error message if PID is invalid or out of range
  */
 static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
     char *endptr;
     long pid;
     errno = 0;
     pid = strtol(pid_str, &endptr, 10);
-    /* Check for conversion errors or invalid PID values */
+    /*
+     * Validate conversion: check for errors, empty strings, trailing
+     * characters, and ensure PID is greater than 1 (PIDs 0 and 1 are reserved)
+     */
     if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid <= 1) {
         fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
+    /* Verify PID fits within pid_t range (catch overflow on 32-bit systems) */
     if ((long)((pid_t)pid) != pid) {
         fprintf(stderr, "Error: PID out of range: %s\n\n", pid_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
     cfg->target_pid = (pid_t)pid;
-    cfg->lazy_mode = 1; /* PID mode implies lazy mode */
+    /* PID targeting mode implies lazy behavior */
+    cfg->lazy_mode = 1;
 }
 
 #if defined(__GNUC__)
@@ -99,9 +114,12 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
 #pragma GCC diagnostic ignored "-Wfloat-equal"
 #endif
 /**
- * @brief Check if a double value is NaN (Not a Number).
- * @param x The double value to check
+ * @brief Test if a double-precision value is NaN (Not-a-Number)
+ * @param x Value to test
  * @return 1 if x is NaN, 0 otherwise
+ *
+ * Uses the IEEE 754 property that NaN != NaN. The volatile qualifier
+ * prevents compiler optimizations that might eliminate the comparison.
  */
 static int is_nan(double x) {
     volatile double y = x;
@@ -112,10 +130,17 @@ static int is_nan(double x) {
 #endif
 
 /**
- * @brief Parse the CPU limit option from command line argument.
- * @param limit_str String containing the CPU limit percentage
- * @param cfg Pointer to the configuration structure to update
- * @param n_cpu Number of CPUs in the system
+ * @brief Parse and validate the CPU limit percentage from command-line argument
+ * @param limit_str String representation of the CPU limit percentage
+ * @param cfg Pointer to configuration structure to update
+ * @param n_cpu Number of CPU cores in the system
+ *
+ * Converts limit string to a double-precision percentage value, validates
+ * it is within the acceptable range (0, n_cpu*100], and stores the
+ * normalized fraction (percentage/100) in cfg->limit.
+ *
+ * @note Exits the program with error message if limit is invalid or out of
+ *       range
  */
 static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
                                int n_cpu) {
@@ -123,26 +148,40 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
     double percent_limit;
     errno = 0;
     percent_limit = strtod(limit_str, &endptr);
-    /* Validate the limit value range and conversion */
+    /*
+     * Validate the conversion and value:
+     * - No conversion errors
+     * - String was not empty
+     * - No trailing characters
+     * - Not NaN
+     * - Within valid range: (0, n_cpu * 100]
+     */
     if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
         is_nan(percent_limit) || percent_limit <= 0 ||
         percent_limit > 100 * n_cpu) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
-    cfg->limit = percent_limit / 100.0; /* Convert percentage to fraction */
+    /* Store as fraction (0.0 to n_cpu) for internal calculations */
+    cfg->limit = percent_limit / 100.0;
 }
 
 /**
- * @brief Validate that exactly one target option is specified.
- * @param cfg Pointer to the configuration structure
+ * @brief Ensure exactly one target specification method is provided
+ * @param cfg Pointer to configuration structure to validate
+ *
+ * Verifies that the user specified exactly one way to identify the target:
+ * either -p (PID), -e (executable name), or COMMAND. Having zero or multiple
+ * specifications is an error.
+ *
+ * @note Exits the program with error message if validation fails
  */
 static void validate_target_options(const struct cpulimitcfg *cfg) {
     int pid_mode = cfg->target_pid > 0;
     int exe_mode = cfg->exe_name != NULL;
     int command_mode = !!cfg->command_mode;
 
-    /* Ensure exactly one target specification method is used */
+    /* Verify exactly one target method is specified */
     if (pid_mode + exe_mode + command_mode != 1) {
         fprintf(stderr,
                 "Error: specify exactly one target: -p, -e, or COMMAND\n\n");
@@ -151,10 +190,16 @@ static void validate_target_options(const struct cpulimitcfg *cfg) {
 }
 
 /**
- * @brief Parse command line arguments and populate configuration.
- * @param argc Argument count from main()
- * @param argv Argument vector from main()
- * @param cfg Pointer to the configuration structure to populate
+ * @brief Parse command line arguments and populate configuration structure
+ * @param argc Number of command-line arguments (from main)
+ * @param argv Array of command-line argument strings (from main)
+ * @param cfg Pointer to configuration structure to be filled with parsed values
+ *
+ * This function processes all command-line options, validates the input,
+ * and exits the program (via exit()) if any errors are encountered or if
+ * help is requested. Upon successful return, cfg contains valid configuration.
+ *
+ * @note This function calls exit() and does not return on error or help request
  */
 void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
     int opt, n_cpu;
@@ -168,24 +213,24 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}};
 
-    /* Get number of CPUs */
+    /* Determine available CPU count for limit validation */
     n_cpu = get_ncpu();
 
-    /* Initialize configuration structure with default values */
+    /* Initialize configuration with default values */
     memset(cfg, 0, sizeof(struct cpulimitcfg));
     cfg->program_name = file_basename(argv[0]);
-    cfg->limit = -1.0; /* Default limit is -1 (unset) */
+    cfg->limit = -1.0; /* Negative value indicates limit not yet specified */
 
-    opterr = 0;
-    /* Parse command line options using getopt_long */
+    opterr = 0; /* Suppress getopt's built-in error messages */
+    /* Process all options using getopt_long */
     while ((opt = getopt_long(argc, argv, ":p:e:l:vzih", long_options, NULL)) !=
            -1) {
         switch (opt) {
-        case 'p': /* Process ID */
+        case 'p': /* Process ID target */
             parse_pid_option(optarg, cfg);
             break;
 
-        case 'e': /* Executable name */
+        case 'e': /* Executable name target */
             if (optarg == NULL || *optarg == '\0') {
                 fprintf(stderr, "Error: invalid executable name\n\n");
                 print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
@@ -193,27 +238,27 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
             cfg->exe_name = optarg;
             break;
 
-        case 'l': /* CPU limit */
+        case 'l': /* CPU percentage limit */
             parse_limit_option(optarg, cfg, n_cpu);
             break;
 
-        case 'v': /* Verbose mode */
+        case 'v': /* Verbose statistics output */
             cfg->verbose = 1;
             break;
 
-        case 'z': /* Lazy mode */
+        case 'z': /* Lazy mode (exit when target stops) */
             cfg->lazy_mode = 1;
             break;
 
-        case 'i': /* Include children */
+        case 'i': /* Include child processes in limiting */
             cfg->include_children = 1;
             break;
 
-        case 'h': /* Help */
+        case 'h': /* Display help and exit successfully */
             print_usage_and_exit(stdout, cfg, EXIT_SUCCESS);
             break;
 
-        case '?': /* Invalid option */
+        case '?': /* Unknown option */
             if (optopt) {
                 fprintf(stderr, "Error: invalid option '-%c'\n\n", optopt);
             } else {
@@ -223,7 +268,7 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
             print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
             break;
 
-        case ':':
+        case ':': /* Option missing required argument */
             fprintf(stderr, "Error: option '%s' requires an argument\n\n",
                     argv[optind - 1]);
             print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
@@ -236,23 +281,26 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
         }
     }
 
-    /* Handle command mode (non-option arguments) */
+    /*
+     * Process any remaining non-option arguments as command to execute.
+     * Command mode automatically enables lazy behavior.
+     */
     if (optind < argc) {
         cfg->command_mode = 1;
         cfg->command_args = argv + optind;
-        cfg->lazy_mode = 1; /* Command mode implies lazy mode */
+        cfg->lazy_mode = 1;
     }
 
-    /* Validate target specification */
+    /* Ensure exactly one target specification (PID, exe, or command) */
     validate_target_options(cfg);
 
-    /* Limit was not set */
+    /* Verify CPU limit was specified (required parameter) */
     if (cfg->limit < 0) {
         fprintf(stderr, "CPU limit (-l/--limit) is required\n\n");
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
 
-    /* Print number of CPUs if in verbose mode */
+    /* Display CPU count in verbose mode */
     if (cfg->verbose) {
         printf("%d CPU%s detected\n", n_cpu, n_cpu > 1 ? "s" : "");
     }

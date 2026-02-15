@@ -31,22 +31,36 @@ extern "C" {
 #endif
 
 /**
- * @brief Configure signal handler for graceful termination
- * @note This function sets up signal handler for termination signals
- *       to allow the program to exit gracefully.
+ * @brief Set up signal handlers for graceful program termination
+ *
+ * Registers a unified signal handler for SIGINT (Ctrl+C), SIGQUIT (Ctrl+\),
+ * SIGTERM, and SIGHUP signals. When any of these signals are received, the
+ * handler sets a quit flag that can be checked via is_quit_flag_set().
+ * For terminal-originated signals (SIGINT, SIGQUIT), also sets a flag
+ * indicating TTY termination. The handler uses SA_RESTART to automatically
+ * restart interrupted system calls.
+ *
+ * @note Exits with error if signal registration fails
  */
 void configure_signal_handler(void);
 
 /**
- * @brief Check if the quit flag is set
- * @return 1 if the quit flag is set, 0 otherwise
+ * @brief Check if a termination signal has been received
+ * @return 1 if a termination signal was caught, 0 otherwise
+ *
+ * Returns the state of the quit flag, which is set by the signal handler
+ * when SIGINT, SIGQUIT, SIGTERM, or SIGHUP is received. The main program
+ * loop should periodically check this flag to initiate graceful shutdown.
  */
 int is_quit_flag_set(void);
 
 /**
- * @brief Check if the program was terminated via terminal input
- * @return 1 if  termination was caused by terminal key (Ctrl+C, Ctrl+\),
- *         0 otherwise
+ * @brief Check if termination was triggered by terminal keyboard input
+ * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
+ *
+ * Distinguishes between terminal-originated termination (Ctrl+C or Ctrl+\)
+ * and other termination signals (SIGTERM, SIGHUP). This can be used to
+ * customize shutdown behavior or messages based on how termination occurred.
  */
 int is_terminated_by_tty(void);
 
