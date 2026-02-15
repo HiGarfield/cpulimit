@@ -107,7 +107,7 @@ pid_t find_process_by_pid(pid_t pid);
  *
  * @note Iterates through all processes in the system, which may be slow
  *       on systems with many processes. For known PIDs, use
- * find_process_by_pid().
+ *       find_process_by_pid().
  */
 pid_t find_process_by_name(const char *process_name);
 
@@ -141,10 +141,10 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * 3. Sets both pointers to NULL for safety
  *
  * @note Safe to call even if pgroup is partially initialized (NULLs are
- * handled)
+ *       handled)
  * @note Does not send any signals to processes; they continue running
  * @note After return, pgroup fields should not be accessed without
- * re-initialization
+ *       re-initialization
  */
 int close_process_group(struct process_group *pgroup);
 
@@ -168,7 +168,7 @@ int close_process_group(struct process_group *pgroup);
  *
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
- * retrieval)
+ *       retrieval)
  */
 void update_process_group(struct process_group *pgroup);
 
