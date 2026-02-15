@@ -115,7 +115,6 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         perror("execvp");
         exit(EXIT_FAILURE);
     } else {
-    } else {
         /* ========== PARENT PROCESS ========== */
         /*
          * This block executes in the parent process.

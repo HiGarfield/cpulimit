@@ -34,50 +34,69 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-/* Limiter quit flag indicating program termination request */
+/*
+ * Global quit flag indicating a termination signal was received.
+ * Type sig_atomic_t ensures atomic access in signal handlers.
+ * Volatile qualifier prevents compiler optimizations that could cache the value.
+ */
 static volatile sig_atomic_t limiter_quit_flag = 0;
 
-/* Flag indicating program terminated by terminal key input */
+/*
+ * Flag indicating termination originated from terminal keyboard input.
+ * Set to 1 for SIGINT (Ctrl+C) and SIGQUIT (Ctrl+\), remains 0 for
+ * other termination signals like SIGTERM or SIGHUP.
+ */
 static volatile sig_atomic_t terminated_by_tty = 0;
 
 /**
- * @brief Signal handler for termination signals
- * @param sig The signal number
- * @note This handler sets the quit flag to indicate the program should
- *       terminate gracefully. It handles SIGINT, SIGTERM, SIGHUP, and
- *       SIGQUIT signals.
+ * @brief Unified signal handler for termination signals
+ * @param sig Signal number that triggered this handler
+ *
+ * Handles SIGINT, SIGQUIT, SIGTERM, and SIGHUP by setting the quit flag.
+ * For terminal-originated signals (SIGINT from Ctrl+C, SIGQUIT from Ctrl+\),
+ * also sets the TTY termination flag to distinguish these from other
+ * termination requests. Uses only async-signal-safe operations.
  */
 static void sig_handler(int sig) {
+    /* Mark TTY-originated signals for special handling */
     switch (sig) {
-    case SIGINT:
-    case SIGQUIT:
+    case SIGINT:  /* Ctrl+C */
+    case SIGQUIT: /* Ctrl+\ */
         terminated_by_tty = 1;
         break;
     default:
         break;
     }
+    /* Set global quit flag to initiate graceful shutdown */
     limiter_quit_flag = 1;
 }
 
 /**
- * @brief Configure signal handler for graceful termination
- * @note This function sets up signal handler for termination signals
- *       to allow the program to exit gracefully.
+ * @brief Set up signal handlers for graceful program termination
+ *
+ * Registers a unified signal handler for SIGINT (Ctrl+C), SIGQUIT (Ctrl+\),
+ * SIGTERM, and SIGHUP signals. When any of these signals are received, the
+ * handler sets a quit flag that can be checked via is_quit_flag_set().
+ * For terminal-originated signals (SIGINT, SIGQUIT), also sets a flag
+ * indicating TTY termination. The handler uses SA_RESTART to automatically
+ * restart interrupted system calls.
+ *
+ * @note Exits with error if signal registration fails
  */
 void configure_signal_handler(void) {
     struct sigaction sa;
     size_t i;
-    /* Signals that trigger application termination */
+    /* Array of signals that should trigger graceful termination */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
-    /* Initialize and configure sigaction structure */
+    /* Configure sigaction structure with unified handler */
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = sig_handler; /* Use unified signal handler */
-    sa.sa_flags = SA_RESTART;    /* Restart interrupted system calls */
-    sigemptyset(&sa.sa_mask);    /* No extra signals blocked */
+    sa.sa_handler = sig_handler; /* Unified handler for all termination signals */
+    sa.sa_flags = SA_RESTART;    /* Automatically restart interrupted syscalls */
+    sigemptyset(&sa.sa_mask);    /* Don't block additional signals during handler */
 
-    /* Register handler for each termination signal */
+    /* Register the same handler for all termination signals */
     for (i = 0; i < num_sigs; i++) {
         if (sigaction(term_sigs[i], &sa, NULL) != 0) {
             perror("Failed to set signal handler");
@@ -87,17 +106,24 @@ void configure_signal_handler(void) {
 }
 
 /**
- * @brief Check if the quit flag is set
- * @return 1 if the quit flag is set, 0 otherwise
+ * @brief Check if a termination signal has been received
+ * @return 1 if a termination signal was caught, 0 otherwise
+ *
+ * Returns the state of the quit flag, which is set by the signal handler
+ * when SIGINT, SIGQUIT, SIGTERM, or SIGHUP is received. The main program
+ * loop should periodically check this flag to initiate graceful shutdown.
  */
 int is_quit_flag_set(void) {
     return !!limiter_quit_flag;
 }
 
 /**
- * @brief Check if the program was terminated via terminal input
- * @return 1 if  termination was caused by terminal key (Ctrl+C, Ctrl+\),
- *         0 otherwise
+ * @brief Check if termination was triggered by terminal keyboard input
+ * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
+ *
+ * Distinguishes between terminal-originated termination (Ctrl+C or Ctrl+\)
+ * and other termination signals (SIGTERM, SIGHUP). This can be used to
+ * customize shutdown behavior or messages based on how termination occurred.
  */
 int is_terminated_by_tty(void) {
     return !!terminated_by_tty;
