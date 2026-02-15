@@ -37,7 +37,8 @@
 /*
  * Global quit flag indicating a termination signal was received.
  * Type sig_atomic_t ensures atomic access in signal handlers.
- * Volatile qualifier prevents compiler optimizations that could cache the value.
+ * Volatile qualifier prevents compiler optimizations that could cache the
+ * value.
  */
 static volatile sig_atomic_t limiter_quit_flag = 0;
 
@@ -92,9 +93,11 @@ void configure_signal_handler(void) {
 
     /* Configure sigaction structure with unified handler */
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = sig_handler; /* Unified handler for all termination signals */
-    sa.sa_flags = SA_RESTART;    /* Automatically restart interrupted syscalls */
-    sigemptyset(&sa.sa_mask);    /* Don't block additional signals during handler */
+    sa.sa_handler =
+        sig_handler;          /* Unified handler for all termination signals */
+    sa.sa_flags = SA_RESTART; /* Automatically restart interrupted syscalls */
+    sigemptyset(
+        &sa.sa_mask); /* Don't block additional signals during handler */
 
     /* Register the same handler for all termination signals */
     for (i = 0; i < num_sigs; i++) {

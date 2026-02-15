@@ -81,7 +81,8 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
  *
  * Converts the PID string to a numeric value using strtol, validates the range,
  * and stores it in cfg->target_pid. Automatically enables lazy mode since
- * monitoring a specific PID implies lazy behavior (exit when process terminates).
+ * monitoring a specific PID implies lazy behavior (exit when process
+ * terminates).
  *
  * @note Exits the program with error message if PID is invalid or out of range
  */
@@ -91,8 +92,8 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
     errno = 0;
     pid = strtol(pid_str, &endptr, 10);
     /*
-     * Validate conversion: check for errors, empty strings, trailing characters,
-     * and ensure PID is greater than 1 (PIDs 0 and 1 are reserved)
+     * Validate conversion: check for errors, empty strings, trailing
+     * characters, and ensure PID is greater than 1 (PIDs 0 and 1 are reserved)
      */
     if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid <= 1) {
         fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
@@ -138,7 +139,8 @@ static int is_nan(double x) {
  * it is within the acceptable range (0, n_cpu*100], and stores the
  * normalized fraction (percentage/100) in cfg->limit.
  *
- * @note Exits the program with error message if limit is invalid or out of range
+ * @note Exits the program with error message if limit is invalid or out of
+ * range
  */
 static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
                                int n_cpu) {

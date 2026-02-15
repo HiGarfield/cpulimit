@@ -50,7 +50,7 @@ struct process_table {
      * Processes are stored in separate chaining lists to handle collisions.
      */
     struct list **table;
-    
+
     /**
      * Number of buckets in the hash table.
      * PIDs are hashed modulo this value to determine bucket placement.

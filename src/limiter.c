@@ -58,10 +58,12 @@
  * @note This function calls exit() and does not return
  */
 void run_command_mode(const struct cpulimitcfg *cfg) {
-    pid_t cmd_runner_pid; /* PID of forked child that will execute the command */
-    int sync_pipe[2];     /* Pipe for parent-child synchronization */
+    pid_t
+        cmd_runner_pid; /* PID of forked child that will execute the command */
+    int sync_pipe[2];   /* Pipe for parent-child synchronization */
 
-    /* Create pipe for synchronization: parent waits for child setup completion */
+    /* Create pipe for synchronization: parent waits for child setup completion
+     */
     if (pipe(sync_pipe) < 0) {
         perror("pipe");
         exit(EXIT_FAILURE);
@@ -124,11 +126,12 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
          * 3. Monitoring child termination
          * 4. Cleaning up and returning child's exit status
          */
-        int child_exit_status = EXIT_FAILURE; /* Default if child not properly reaped */
-        char ack;                             /* Synchronization byte from child */
-        char found_cmd_runner = 0;            /* 1 if successfully reaped child PID */
-        struct timespec start_time;           /* Timestamp when termination starts */
-        ssize_t n_read;                       /* Bytes read from pipe */
+        int child_exit_status =
+            EXIT_FAILURE;           /* Default if child not properly reaped */
+        char ack;                   /* Synchronization byte from child */
+        char found_cmd_runner = 0;  /* 1 if successfully reaped child PID */
+        struct timespec start_time; /* Timestamp when termination starts */
+        ssize_t n_read;             /* Bytes read from pipe */
 
         /* Close unused write end of pipe */
         close(sync_pipe[1]);
@@ -161,8 +164,8 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                       cfg->verbose);
 
         /*
-         * Check if user requested termination via signal (Ctrl+C, SIGTERM, etc).
-         * If so, gracefully terminate the entire process group.
+         * Check if user requested termination via signal (Ctrl+C, SIGTERM,
+         * etc). If so, gracefully terminate the entire process group.
          */
         if (is_quit_flag_set()) {
             /*
@@ -199,7 +202,8 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                                (long)cmd_runner_pid, child_exit_status);
                     }
                 } else if (WIFSIGNALED(status)) {
-                    /* Child was terminated by a signal (SIGTERM, SIGKILL, etc) */
+                    /* Child was terminated by a signal (SIGTERM, SIGKILL, etc)
+                     */
                     int signal_number = WTERMSIG(status);
                     /*
                      * Shell convention: exit status = 128 + signal number
@@ -222,7 +226,8 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                  * No state changes yet (WNOHANG returned immediately).
                  * Check if we've exceeded timeout for graceful termination.
                  */
-                const struct timespec sleep_time = {0, 50000000L}; /* 50 milliseconds */
+                const struct timespec sleep_time = {
+                    0, 50000000L}; /* 50 milliseconds */
                 struct timespec current_time;
                 get_current_time(&current_time);
 
@@ -309,7 +314,8 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
             printf("Process %ld found\n", (long)found_pid);
             /*
              * Apply CPU limiting to the target process.
-             * This call blocks until the process terminates or quit flag is set.
+             * This call blocks until the process terminates or quit flag is
+             * set.
              */
             limit_process(found_pid, cfg->limit, cfg->include_children,
                           cfg->verbose);

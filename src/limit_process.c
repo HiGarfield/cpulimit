@@ -75,8 +75,8 @@
 static double get_dynamic_time_slot(void) {
     static double time_slot = TIME_SLOT;
     static const double MIN_TIME_SLOT =
-                            TIME_SLOT,      /* Minimum: 100ms for precision */
-        MAX_TIME_SLOT = TIME_SLOT * 5;      /* Maximum: 500ms to reduce overhead */
+                            TIME_SLOT, /* Minimum: 100ms for precision */
+        MAX_TIME_SLOT = TIME_SLOT * 5; /* Maximum: 500ms to reduce overhead */
     static struct timespec last_update = {0, 0};
     struct timespec now;
     double load, new_time_slot;
@@ -125,15 +125,16 @@ static double get_dynamic_time_slot(void) {
 
 out:
     /*
-     * Add 5-10% random jitter to prevent synchronization with system timer ticks.
-     * This improves accuracy by avoiding systematic bias.
+     * Add 5-10% random jitter to prevent synchronization with system timer
+     * ticks. This improves accuracy by avoiding systematic bias.
      */
     return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
 }
 
 /**
  * @brief Send a signal to all processes in a process group
- * @param procgroup Pointer to process group structure containing target processes
+ * @param procgroup Pointer to process group structure containing target
+ * processes
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
  * @param verbose If non-zero, print errors when signal delivery fails
  *
@@ -147,7 +148,8 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
                                      int verbose) {
     struct list_node *node = first_node(procgroup->proclist);
     while (node != NULL) {
-        struct list_node *next_node = node->next; /* Save before potential deletion */
+        struct list_node *next_node =
+            node->next; /* Save before potential deletion */
         pid_t pid = ((struct process *)node->data)->pid;
         if (kill(pid, sig) != 0) {
             /*
@@ -170,30 +172,34 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
 /**
  * @brief Enforce CPU usage limit on a process or process group
  * @param pid Process ID of the target process to limit
- * @param limit CPU usage limit as fraction of total CPU capacity, range (0, N_CPU]
- *              Example: limit=0.5 on 4-core system means 50% of one core
- *                       limit=2.0 on 4-core system means 200% (two full cores)
- * @param include_children If non-zero, limit applies to target and all descendants;
- *                         if zero, limit applies only to target process
- * @param verbose If non-zero, print periodic statistics about CPU usage and control;
- *                if zero, operate silently
+ * @param limit CPU usage limit as fraction of total CPU capacity, range (0,
+ * N_CPU] Example: limit=0.5 on 4-core system means 50% of one core limit=2.0 on
+ * 4-core system means 200% (two full cores)
+ * @param include_children If non-zero, limit applies to target and all
+ * descendants; if zero, limit applies only to target process
+ * @param verbose If non-zero, print periodic statistics about CPU usage and
+ * control; if zero, operate silently
  *
- * This function implements the core CPU limiting algorithm using SIGSTOP/SIGCONT:
+ * This function implements the core CPU limiting algorithm using
+ * SIGSTOP/SIGCONT:
  * 1. Monitors the process group's actual CPU usage
  * 2. Calculates appropriate work/sleep intervals to achieve the target limit
- * 3. Alternately sends SIGCONT (allow execution) and SIGSTOP (suspend execution)
+ * 3. Alternately sends SIGCONT (allow execution) and SIGSTOP (suspend
+ * execution)
  * 4. Dynamically adjusts timing based on measured CPU usage
  * 5. Continues until the target terminates or quit signal received
  *
- * @note This function blocks until target terminates or is_quit_flag_set() returns true
+ * @note This function blocks until target terminates or is_quit_flag_set()
+ * returns true
  * @note Always resumes suspended processes (sends SIGCONT) before returning
  */
 void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     struct process_group proc_group;
     int cycle_counter = 0, ncpu = get_ncpu();
-    double work_ratio;  /* Fraction of time processes should be running */
-    int stopped = 0;    /* Current state: 1 if processes are stopped, 0 if running */
-    
+    double work_ratio; /* Fraction of time processes should be running */
+    int stopped =
+        0; /* Current state: 1 if processes are stopped, 0 if running */
+
     /* Clamp limit to valid range and calculate initial work ratio */
     limit = CLAMP(limit, EPSILON, ncpu);
     work_ratio = limit / ncpu;

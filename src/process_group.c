@@ -54,7 +54,8 @@ pid_t find_process_by_pid(pid_t pid) {
     if (pid <= 0) {
         return 0;
     }
-    /* Attempt to send null signal (doesn't actually signal, just checks permission) */
+    /* Attempt to send null signal (doesn't actually signal, just checks
+     * permission) */
     if (kill(pid, 0) == 0) {
         return pid;
     }
@@ -82,7 +83,8 @@ pid_t find_process_by_pid(pid_t pid) {
  * the most recently started instance of the executable.
  *
  * @note Iterates through all processes in the system, which may be slow
- *       on systems with many processes. For known PIDs, use find_process_by_pid().
+ *       on systems with many processes. For known PIDs, use
+ * find_process_by_pid().
  */
 pid_t find_process_by_name(const char *process_name) {
     pid_t pid = -1;
@@ -128,7 +130,8 @@ pid_t find_process_by_name(const char *process_name) {
              * Select this PID if:
              * - No match found yet (pid < 0), OR
              * - This process is a descendant of the previous match
-             * This heuristic prefers newer/child processes over older/parent ones
+             * This heuristic prefers newer/child processes over older/parent
+             * ones
              */
             if (pid < 0 || is_child_of(pid, proc->pid)) {
                 pid = proc->pid;
@@ -199,9 +202,11 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * 2. Destroys and frees the process hashtable
  * 3. Sets both pointers to NULL for safety
  *
- * @note Safe to call even if pgroup is partially initialized (NULLs are handled)
+ * @note Safe to call even if pgroup is partially initialized (NULLs are
+ * handled)
  * @note Does not send any signals to processes; they continue running
- * @note After return, pgroup fields should not be accessed without re-initialization
+ * @note After return, pgroup fields should not be accessed without
+ * re-initialization
  */
 int close_process_group(struct process_group *pgroup) {
     if (pgroup->proclist != NULL) {
@@ -275,7 +280,8 @@ static struct process *process_dup(const struct process *proc) {
  * - New processes have cpu_usage=-1 until first valid measurement
  *
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
- * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time retrieval)
+ * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
+ * retrieval)
  */
 void update_process_group(struct process_group *pgroup) {
     struct process_iterator it;
@@ -295,7 +301,7 @@ void update_process_group(struct process_group *pgroup) {
     }
     /* Calculate elapsed time since last update (milliseconds) */
     dt = timediff_in_ms(&now, &pgroup->last_update);
-    
+
     /* Configure iterator to scan target process and optionally descendants */
     filter.pid = pgroup->target_pid;
     filter.include_children = pgroup->include_children;
@@ -345,15 +351,17 @@ void update_process_group(struct process_group *pgroup) {
             }
             if (dt < 0) {
                 /*
-                 * Time moved backwards (system clock adjustment, NTP correction).
-                 * Update cputime but don't calculate usage this cycle.
+                 * Time moved backwards (system clock adjustment, NTP
+                 * correction). Update cputime but don't calculate usage this
+                 * cycle.
                  */
                 p->cputime = tmp_process->cputime;
                 p->cpu_usage = -1;
                 continue;
             }
             if (dt < MIN_DT) {
-                /* Time delta too small for accurate measurement, skip this update */
+                /* Time delta too small for accurate measurement, skip this
+                 * update */
                 continue;
             }
             /*

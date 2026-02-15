@@ -358,7 +358,8 @@ int get_next_process(struct process_iterator *it, struct process *p) {
 #ifdef _DIRENT_HAVE_D_TYPE
         /*
          * Optimization: skip non-directories if d_type is available.
-         * DT_UNKNOWN must be checked because not all filesystems support d_type.
+         * DT_UNKNOWN must be checked because not all filesystems support
+         * d_type.
          */
         if (dit->d_type != DT_DIR && dit->d_type != DT_UNKNOWN) {
             continue;

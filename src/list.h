@@ -47,13 +47,13 @@ struct list_node {
      * is the caller's responsibility unless using destroy operations.
      */
     void *data;
-    
+
     /**
      * Pointer to the previous node in the list.
      * NULL if this is the first node.
      */
     struct list_node *previous;
-    
+
     /**
      * Pointer to the next node in the list.
      * NULL if this is the last node.
@@ -75,13 +75,13 @@ struct list {
      * NULL if the list is empty.
      */
     struct list_node *first;
-    
+
     /**
      * Pointer to the last node in the list.
      * NULL if the list is empty.
      */
     struct list_node *last;
-    
+
     /**
      * Number of elements currently in the list.
      * Maintained automatically during add and delete operations.

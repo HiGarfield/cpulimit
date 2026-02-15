@@ -48,27 +48,27 @@ struct process_group {
      * Used to detect new processes, reused PIDs, and track historical data.
      */
     struct process_table *proctable;
-    
+
     /**
      * Linked list of currently active processes in this group.
      * Rebuilt on each update by scanning /proc (or equivalent).
      * Contains pointers to process structures stored in proctable.
      */
     struct list *proclist;
-    
+
     /**
      * PID of the primary target process.
      * This is the root of the process tree being monitored.
      */
     pid_t target_pid;
-    
+
     /**
      * Flag controlling descendant tracking:
      * - Non-zero: monitor target and all descendant processes (recursive)
      * - Zero: monitor only the target process itself
      */
     int include_children;
-    
+
     /**
      * Timestamp of the most recent update operation.
      * Used to calculate time deltas (dt) for CPU usage computation.
@@ -106,7 +106,8 @@ pid_t find_process_by_pid(pid_t pid);
  * the most recently started instance of the executable.
  *
  * @note Iterates through all processes in the system, which may be slow
- *       on systems with many processes. For known PIDs, use find_process_by_pid().
+ *       on systems with many processes. For known PIDs, use
+ * find_process_by_pid().
  */
 pid_t find_process_by_name(const char *process_name);
 
@@ -139,9 +140,11 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * 2. Destroys and frees the process hashtable
  * 3. Sets both pointers to NULL for safety
  *
- * @note Safe to call even if pgroup is partially initialized (NULLs are handled)
+ * @note Safe to call even if pgroup is partially initialized (NULLs are
+ * handled)
  * @note Does not send any signals to processes; they continue running
- * @note After return, pgroup fields should not be accessed without re-initialization
+ * @note After return, pgroup fields should not be accessed without
+ * re-initialization
  */
 int close_process_group(struct process_group *pgroup);
 
@@ -164,7 +167,8 @@ int close_process_group(struct process_group *pgroup);
  * - New processes have cpu_usage=-1 until first valid measurement
  *
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
- * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time retrieval)
+ * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
+ * retrieval)
  */
 void update_process_group(struct process_group *pgroup);
 
