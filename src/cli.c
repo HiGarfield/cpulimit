@@ -140,7 +140,7 @@ static int is_nan(double x) {
  * normalized fraction (percentage/100) in cfg->limit.
  *
  * @note Exits the program with error message if limit is invalid or out of
- *       range
+ *  range
  */
 static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
                                int n_cpu) {

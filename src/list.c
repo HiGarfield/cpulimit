@@ -224,7 +224,7 @@ void *locate_elem(const struct list *l, const void *elem, size_t offset,
  * @brief Helper to remove all nodes, optionally freeing data
  * @param l Pointer to the list
  * @param free_data If non-zero, frees each node's data pointer; otherwise
- *                  preserves data
+ *  preserves data
  *
  * Traverses the list and frees all nodes. If free_data is non-zero, also
  * calls free() on each data pointer before freeing the node. Resets the
