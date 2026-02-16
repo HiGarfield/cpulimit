@@ -209,6 +209,13 @@ char *read_line_from_file(const char *file_name);
  * result in data loss due to pid_t having a smaller range than long on the
  * platform. This prevents incorrect PID values on systems where pid_t is
  * smaller than long (e.g., 32-bit pid_t with 64-bit long).
+ *
+ * @note The conversion uses implementation-defined behavior when the value
+ *       cannot be represented in pid_t (C89 section 3.2.1.2). However, the
+ *       round-trip check correctly detects overflow on all common platforms
+ *       (Linux, macOS, FreeBSD) where pid_t is a signed integer type. This
+ *       approach is preferred over no overflow checking, as there is no
+ *       portable way to check pid_t limits at compile time in C89/POSIX.1-2001.
  */
 pid_t long2pid_t(long long_pid);
 
