@@ -318,7 +318,7 @@ static int is_numeric(const char *str) {
         return 0;
     }
     for (; *str != '\0'; str++) {
-        if (!isdigit(*str)) {
+        if (!isdigit((unsigned char)*str)) {
             return 0;
         }
     }
