@@ -25,6 +25,7 @@
 
 #include "util.h" /* Must be included at first!!! */
 
+#include <ctype.h>
 #include <errno.h>
 #include <string.h>
 #include <sys/resource.h>
