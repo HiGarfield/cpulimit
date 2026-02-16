@@ -101,10 +101,11 @@
  * @def APPLY_JITTER(value)
  * @brief Apply random jitter to a time slot value
  * @param value The base time slot value to add jitter to
- * @return The value with random jitter applied
+ * @return The value with random jitter applied (95% to 105% of original)
  *
- * Adds approximately -5% to +5% random variation to prevent synchronization
- * with system timer ticks, improving measurement accuracy.
+ * Multiplies the value by a random factor between 0.95 and 1.05, providing
+ * approximately ±5% variation to prevent synchronization with system timer
+ * ticks, improving measurement accuracy.
  */
 #define APPLY_JITTER(value)                                                    \
     ((value) * (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0))
@@ -183,7 +184,7 @@ static double get_dynamic_time_slot(void) {
         time_slot * SMOOTHING_WEIGHT_OLD + new_time_slot * SMOOTHING_WEIGHT_NEW;
 
     /*
-     * Add approximately -5% to +5% random jitter to prevent synchronization
+     * Apply random jitter (95% to 105% of value) to prevent synchronization
      * with system timer ticks. This improves accuracy by avoiding systematic
      * bias.
      */
