@@ -87,23 +87,24 @@ static double get_dynamic_time_slot(void) {
         if (get_current_time(&last_update) == 0) {
             /* Seed PRNG with current time for randomization */
             srandom((unsigned int)(last_update.tv_nsec ^ last_update.tv_sec));
-            goto out;
         }
+        /* Apply jitter and return */
+        return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
     }
 
     /* Skip update if time retrieval fails */
     if (get_current_time(&now) != 0) {
-        goto out;
+        return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
     }
 
     /* Update at most once per second */
     if (timediff_in_ms(&now, &last_update) < 1000.0) {
-        goto out;
+        return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
     }
 
     /* Get 1-minute load average */
     if (getloadavg(&load, 1) != 1) {
-        goto out;
+        return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
     }
 
     last_update = now;
@@ -124,7 +125,6 @@ static double get_dynamic_time_slot(void) {
      */
     time_slot = time_slot * 0.6 + new_time_slot * 0.4;
 
-out:
     /*
      * Add approximately -5% to +5% random jitter to prevent synchronization
      * with system timer ticks. This improves accuracy by avoiding systematic

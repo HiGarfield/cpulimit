@@ -235,9 +235,9 @@ int close_process_group(struct process_group *pgroup) {
  */
 static struct process *process_dup(const struct process *proc) {
     struct process *p;
-    if ((p = (struct process *)malloc(sizeof(struct process))) == NULL) {
-        fprintf(stderr, "Memory allocation failed for duplicated process\n");
-        exit(EXIT_FAILURE);
+    p = (struct process *)malloc(sizeof(struct process));
+    if (p == NULL) {
+        return NULL;
     }
     return (struct process *)memcpy(p, proc, sizeof(struct process));
 }
@@ -325,6 +325,12 @@ void update_process_group(struct process_group *pgroup) {
         if (p == NULL) {
             /* New process detected: add to hashtable and list */
             p = process_dup(tmp_process);
+            if (p == NULL) {
+                fprintf(stderr,
+                        "Failed to allocate memory for process with PID %ld\n",
+                        (long)tmp_process->pid);
+                exit(EXIT_FAILURE);
+            }
             /* Mark CPU usage as unknown until we have a time delta */
             p->cpu_usage = -1;
             process_table_add(pgroup->proctable, p);
