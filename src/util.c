@@ -55,6 +55,14 @@
 #endif
 
 /**
+ * @def NS_PER_SEC
+ * @brief Number of nanoseconds in one second
+ *
+ * Used for conversions between seconds and nanoseconds in timespec operations.
+ */
+#define NS_PER_SEC 1000000000.0
+
+/**
  * @brief Convert nanoseconds to timespec structure
  * @param nsec Number of nanoseconds (can be >= 1 billion)
  * @param t Pointer to timespec structure to populate
@@ -64,8 +72,8 @@
  * nanoseconds component is the remainder.
  */
 void nsec2timespec(double nsec, struct timespec *t) {
-    t->tv_sec = (time_t)(nsec / 1e9);
-    t->tv_nsec = (long)(nsec - (double)t->tv_sec * 1e9);
+    t->tv_sec = (time_t)(nsec / NS_PER_SEC);
+    t->tv_nsec = (long)(nsec - (double)t->tv_sec * NS_PER_SEC);
 }
 
 /**

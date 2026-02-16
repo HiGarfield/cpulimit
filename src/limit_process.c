@@ -98,6 +98,18 @@
 #define JITTER_RANGE 0.10
 
 /**
+ * @def APPLY_JITTER(value)
+ * @brief Apply random jitter to a time slot value
+ * @param value The base time slot value to add jitter to
+ * @return The value with random jitter applied
+ *
+ * Adds approximately -5% to +5% random variation to prevent synchronization
+ * with system timer ticks, improving measurement accuracy.
+ */
+#define APPLY_JITTER(value)                                                    \
+    ((value) * (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0))
+
+/**
  * @brief Calculate dynamic time slot duration based on system load
  * @return Time slot duration in microseconds
  *
@@ -133,26 +145,22 @@ static double get_dynamic_time_slot(void) {
             srandom((unsigned int)(last_update.tv_nsec ^ last_update.tv_sec));
         }
         /* Apply jitter and return */
-        return time_slot *
-               (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
+        return APPLY_JITTER(time_slot);
     }
 
     /* Skip update if time retrieval fails */
     if (get_current_time(&now) != 0) {
-        return time_slot *
-               (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
+        return APPLY_JITTER(time_slot);
     }
 
     /* Update at most once per second */
     if (timediff_in_ms(&now, &last_update) < 1000.0) {
-        return time_slot *
-               (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
+        return APPLY_JITTER(time_slot);
     }
 
     /* Get 1-minute load average */
     if (getloadavg(&load, 1) != 1) {
-        return time_slot *
-               (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
+        return APPLY_JITTER(time_slot);
     }
 
     last_update = now;
@@ -179,8 +187,7 @@ static double get_dynamic_time_slot(void) {
      * with system timer ticks. This improves accuracy by avoiding systematic
      * bias.
      */
-    return time_slot *
-           (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
+    return APPLY_JITTER(time_slot);
 }
 
 /**
