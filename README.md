@@ -13,26 +13,26 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 ## Usage
 
   ```sh
-  cpulimit [OPTIONS...] TARGET
+  cpulimit OPTION... TARGET
   ```
 
-- `OPTIONS`:
+- Options:
 
- | Option                  | Description                                      |
- | ----------------------- | ------------------------------------------------ |
- | -l LIMIT, --limit=LIMIT | CPU percentage limit, range (`0`, `N_CPU*100`]   |
- | -v, --verbose           | show control statistics                          |
- | -z, --lazy              | exit if the target process is missing or stopped |
- | -i, --include-children  | limit total CPU usage of target and descendants  |
- | -h, --help              | display this help message and exit               |
+ | Option                  | Description                                     |
+ | ----------------------- | ----------------------------------------------- |
+ | -l LIMIT, --limit=LIMIT | CPU percentage limit, range (0, N_CPU*100]      |
+ | -v, --verbose           | show control statistics                         |
+ | -z, --lazy              | exit if the target process is not running       |
+ | -i, --include-children  | limit total CPU usage of target and descendants |
+ | -h, --help              | display the help message and exit               |
 
-- `TARGET`: **must be exactly one of**:
+- TARGET **must be exactly one of**:
 
  | Target              | Description                                      |
  | ------------------- | ------------------------------------------------ |
  | -p PID, --pid=PID   | PID of the target process (implies -z)           |
  | -e FILE, --exe=FILE | name or path of the executable                   |
- | COMMAND [ARGS]      | run the command and limit CPU usage (implies -z) |
+ | COMMAND [ARG]...    | run the command and limit CPU usage (implies -z) |
 
 > **Note:** The input syntax for the `-e` option determines how cpulimit selects processes using pattern matching rules:
 >
@@ -56,6 +56,33 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 >        - Is an ancestor of the current candidate in the process hierarchy.
 >   3. **Final Selection**  
 >      - After scanning all processes, the last valid candidate becomes the selected process.
+
+## Examples
+
+- For the process with PID 1234, limit its CPU usage to 50% of one CPU core:
+
+  ```sh
+  cpulimit -l 50 -p 1234
+  ```
+
+- For the process named `myapp`, limit its CPU usage to 50% of one CPU core:
+
+  ```sh
+  cpulimit -l 50 -e myapp
+  ```
+
+- Run the command `myapp --option` and limit its CPU usage to 50% of one CPU core:
+
+  ```sh
+  cpulimit -l 50 -- myapp --option
+  ```
+
+- For the process named `myapp` and its child processes, limit their total CPU usage to 50% of one CPU core:
+
+  ```sh
+  cpulimit -l 50 -i -e myapp
+  ```
+
 ## Get the Latest Source Code
 
 This repository is a fork of:
@@ -122,13 +149,13 @@ The latest version of the code is available here:
 - **Test cpulimit with a single process:**
 
   ```sh
-  ./src/cpulimit -l 40 -v ./tests/busy
+  ./src/cpulimit -l 50 -v -- ./tests/busy
   ```
 
 - **Test cpulimit with child processes:**
 
   ```sh
-  ./src/cpulimit -l 40 -i -v ./tests/multi_process_busy
+  ./src/cpulimit -l 50 -i -v -- ./tests/multi_process_busy
   ```
 
 ## Contributions
