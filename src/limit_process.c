@@ -108,9 +108,8 @@
  * ticks, improving measurement accuracy.
  */
 #define APPLY_JITTER(value)                                                    \
-    ((value) *                                                                 \
-     (JITTER_MIN_FACTOR +                                                      \
-      ((double)(random() % 1000) * JITTER_RANGE / 1000.0)))
+    ((value) * (JITTER_MIN_FACTOR +                                            \
+                ((double)(random() % 1000) * JITTER_RANGE / 1000.0)))
 
 /**
  * @brief Calculate dynamic time slot duration based on system load
