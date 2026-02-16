@@ -102,6 +102,7 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
          */
         if (write(sync_pipe[1], "A", 1) != 1) {
             perror("write sync");
+            exit(EXIT_FAILURE);
         }
         close(sync_pipe[1]);
 
