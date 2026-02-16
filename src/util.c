@@ -165,7 +165,12 @@ const char *file_basename(const char *path) {
 void increase_priority(void) {
     static const int MAX_PRIORITY = -20;
     int old_priority, priority;
+    errno = 0;
     old_priority = getpriority(PRIO_PROCESS, 0);
+    if (old_priority == -1 && errno != 0) {
+        /* Error getting current priority, assume default priority */
+        old_priority = 0;
+    }
     /* Try to set highest priority, working upward if denied */
     for (priority = MAX_PRIORITY; priority < old_priority; priority++) {
         errno = 0;
