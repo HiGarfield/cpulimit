@@ -40,6 +40,7 @@ See `/README.md`.
 - The program MUST build on macOS.
 - The program MUST build on FreeBSD.
 - The program MUST run correctly on all supported platforms.
+- The program's behavior MUST be consistent across all supported platforms.
 
 ### Platform-Specific Code
 
@@ -53,10 +54,10 @@ See `/README.md`.
 - Every macro MUST have a documentation comment.
 - Every function MUST have a documentation comment.
 - Non-trivial logic inside functions SHOULD be commented.
-- Comments MUST use C-style block syntax (`/* ... */`).
+- Comments MUST use C89-style block syntax (`/* ... */`).
 - Comment style MUST be consistent across the codebase.
 - If a function is declared in a header and defined in a source file, the documentation comments MUST be identical.
-- In a multi-line tagged documentation comment, continuation lines MUST align with the start of the description text.
+- In a multi-line tagged documentation comment, each tag's continuation lines MUST align with the first character of its description, independently for each tag.
 
 ### Linkage
 
