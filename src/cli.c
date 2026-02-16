@@ -46,31 +46,34 @@
  */
 static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
                                  int exit_code) {
-    fprintf(stream, "Usage: %s [OPTIONS...] TARGET\n", cfg->program_name);
-    fprintf(stream, "  OPTIONS:\n");
-    fprintf(
-        stream,
-        "    -l LIMIT, --limit=LIMIT  CPU percentage limit, range (0, %d] (required)\n",
-        100 * get_ncpu());
-    fprintf(stream, "    -v, --verbose            show control statistics\n");
-    fprintf(
-        stream,
-        "    -z, --lazy               exit if the target process is missing or stopped\n");
-    fprintf(
-        stream,
-        "    -i, --include-children   limit total CPU usage of target and descendants\n");
-    fprintf(
-        stream,
-        "    -h, --help               display this help message and exit\n");
-    fprintf(stream, "  TARGET must be exactly one of:\n");
-    fprintf(
-        stream,
-        "    -p PID, --pid=PID        PID of the target process (implies -z)\n");
+    fprintf(stream, "Usage: %s OPTION... TARGET\n", cfg->program_name);
     fprintf(stream,
-            "    -e FILE, --exe=FILE      name or path of the executable\n");
+            "Limit the CPU usage of a process to a specified percentage.\n");
+    fprintf(stream, "Example: %s -l 25 -e myapp\n\n", cfg->program_name);
+    fprintf(stream, "Options:\n");
     fprintf(
         stream,
-        "    COMMAND [ARGS]           run the command and limit CPU usage (implies -z)\n");
+        "  -l LIMIT, --limit=LIMIT  CPU percentage limit, range (0, %d] (required)\n",
+        100 * get_ncpu());
+    fprintf(stream, "  -v, --verbose            show control statistics\n");
+    fprintf(
+        stream,
+        "  -z, --lazy               exit if the target process is not running\n");
+    fprintf(
+        stream,
+        "  -i, --include-children   limit total CPU usage of target and descendants\n");
+    fprintf(
+        stream,
+        "  -h, --help               display this help message and exit\n\n");
+    fprintf(stream, "TARGET must be exactly one of:\n");
+    fprintf(
+        stream,
+        "  -p PID, --pid=PID        PID of the target process (implies -z)\n");
+    fprintf(stream,
+            "  -e FILE, --exe=FILE      name or path of the executable\n");
+    fprintf(
+        stream,
+        "  COMMAND [ARG]...         run the command and limit CPU usage (implies -z)\n");
     exit(exit_code);
 }
 
