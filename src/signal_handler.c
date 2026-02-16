@@ -25,14 +25,11 @@
 
 #include "signal_handler.h"
 
-#include <errno.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 /**
  * @brief Global quit flag indicating a termination signal was received

@@ -38,10 +38,6 @@
 #include <sys/sysctl.h>
 #endif
 #if defined(__linux__)
-#if defined(__UCLIBC__)
-#include <ctype.h>
-#include <errno.h>
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #endif
