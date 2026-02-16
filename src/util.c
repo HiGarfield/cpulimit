@@ -136,16 +136,21 @@ double timediff_in_ms(const struct timespec *later,
 /**
  * @brief Extract filename from a full path
  * @param path Full file path (may contain directory separators)
- * @return Pointer to the filename portion within the path string
+ * @return Pointer to the filename portion within the path string, or NULL if
+ *         path is NULL
  *
  * Returns a pointer to the substring after the last '/' character, or the
  * original string if no '/' is found. Does not allocate memory; the returned
  * pointer references part of the input string.
  *
- * @note The caller must pass a non-NULL path; behavior is undefined for NULL.
+ * @note Returns NULL if path is NULL.
  */
 const char *file_basename(const char *path) {
-    const char *p = strrchr(path, '/');
+    const char *p;
+    if (path == NULL) {
+        return NULL;
+    }
+    p = strrchr(path, '/');
     return p != NULL ? p + 1 : path;
 }
 
