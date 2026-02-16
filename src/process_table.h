@@ -33,6 +33,7 @@ extern "C" {
 #include "process_iterator.h"
 
 #include <stddef.h>
+#include <sys/types.h>
 
 /**
  * @struct process_table
