@@ -105,9 +105,6 @@ pid_t find_process_by_name(const char *process_name) {
     full_path_cmp = process_name[0] == '/';
     process_cmp_name =
         full_path_cmp ? process_name : file_basename(process_name);
-    if (process_cmp_name == NULL) {
-        return -1; /* file_basename() failed: process_name was NULL */
-    }
     if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process\n");
         exit(EXIT_FAILURE);
@@ -126,10 +123,6 @@ pid_t find_process_by_name(const char *process_name) {
     while (get_next_process(&it, proc) != -1) {
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : file_basename(proc->command);
-        /* Skip if basename extraction failed */
-        if (cmd_cmp_name == NULL) {
-            continue;
-        }
         /* Check if this process matches the target name */
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
             /*

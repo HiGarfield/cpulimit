@@ -371,12 +371,21 @@ int get_next_process(struct process_iterator *it, struct process *p) {
         }
         {
             char *endptr;
+            long pid_val;
             errno = 0;
-            pid = (pid_t)strtol(dit->d_name, &endptr, 10);
+            pid_val = strtol(dit->d_name, &endptr, 10);
             /* Verify entire string was consumed and conversion succeeded */
-            if (errno != 0 || pid <= 0 || *endptr != '\0') {
+            if (errno != 0 || pid_val <= 0 || *endptr != '\0') {
                 continue;
             }
+            /*
+             * Ensure pid_val fits in pid_t to avoid silent truncation
+             * on systems where pid_t is narrower than long.
+             */
+            if ((long)((pid_t)pid_val) != pid_val) {
+                continue;
+            }
+            pid = (pid_t)pid_val;
         }
         /* Apply PID filter: match target PID or its descendants */
         if (it->filter->pid != 0 && it->filter->pid != pid &&
