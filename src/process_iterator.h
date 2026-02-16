@@ -113,6 +113,7 @@ struct process_filter {
      * will be returned.
      */
     pid_t pid;
+
     /**
      * Whether to include child processes of the target PID.
      * Only meaningful when pid is non-zero.
@@ -120,6 +121,7 @@ struct process_filter {
      * 1: Return the process and all its descendants
      */
     int include_children;
+
     /**
      * Whether to read the command path for each process.
      * 0: Skip reading command path (faster, process.command is empty)
@@ -148,6 +150,7 @@ struct process_iterator {
      * Each entry corresponds to a process directory (e.g., /proc/1234).
      */
     DIR *dip;
+
     /**
      * Flag indicating iteration is complete.
      * Set to 1 when readdir() returns NULL or single-process mode completes.
@@ -159,15 +162,18 @@ struct process_iterator {
      * Opened via kvm_openfiles() and used for all process queries.
      */
     kvm_t *kd;
+
     /**
      * Snapshot of all process information structures.
      * Populated by kvm_getprocs() at initialization.
      */
     struct kinfo_proc *procs;
+
     /**
      * Total number of processes in the snapshot.
      */
     int count;
+
     /**
      * Current iteration index into the procs array.
      */
@@ -177,16 +183,19 @@ struct process_iterator {
      * Current iteration index into the pidlist array.
      */
     int i;
+
     /**
      * Total number of process IDs in the list.
      */
     int count;
+
     /**
      * Snapshot of all process IDs in the system.
      * Populated by proc_listpids() at initialization.
      */
     pid_t *pidlist;
 #endif
+
     /**
      * Filter criteria to apply during iteration.
      * Determines which processes to return and what information to retrieve.
