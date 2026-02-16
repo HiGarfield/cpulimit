@@ -92,6 +92,7 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
 static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
     char *endptr;
     long pid;
+    pid_t pid_result;
     errno = 0;
     pid = strtol(pid_str, &endptr, 10);
     /*
@@ -103,11 +104,12 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
     /* Verify PID fits within pid_t range (catch overflow on 32-bit systems) */
-    if ((long)((pid_t)pid) != pid) {
+    pid_result = long2pid_t(pid);
+    if (pid_result < 0) {
         fprintf(stderr, "Error: PID out of range: %s\n\n", pid_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
-    cfg->target_pid = (pid_t)pid;
+    cfg->target_pid = pid_result;
     /* PID targeting mode implies lazy behavior */
     cfg->lazy_mode = 1;
 }
