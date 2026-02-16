@@ -31,6 +31,7 @@ extern "C" {
 #endif
 
 #include <sys/param.h>
+#include <sys/types.h>
 #include <time.h>
 
 #ifndef MAX
@@ -197,6 +198,19 @@ int __getloadavg(double *loadavg, int nelem);
  */
 char *read_line_from_file(const char *file_name);
 #endif
+
+/**
+ * @brief Safely convert long to pid_t with overflow detection
+ * @param long_pid Long value to convert to pid_t
+ * @return The pid_t value on success, or -1 if long_pid < 0 or overflow occurs
+ *
+ * Validates that the long value can be safely converted to pid_t without
+ * overflow. Returns -1 if the input is negative or if the conversion would
+ * result in data loss due to pid_t having a smaller range than long on the
+ * platform. This prevents incorrect PID values on systems where pid_t is
+ * smaller than long (e.g., 32-bit pid_t with 64-bit long).
+ */
+pid_t long2pid_t(long long_pid);
 
 #ifdef __cplusplus
 }
