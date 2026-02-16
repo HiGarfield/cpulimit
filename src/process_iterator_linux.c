@@ -369,10 +369,14 @@ int get_next_process(struct process_iterator *it, struct process *p) {
         if (!is_numeric(dit->d_name)) {
             continue;
         }
-        errno = 0;
-        pid = (pid_t)strtol(dit->d_name, NULL, 10);
-        if (errno != 0 || pid <= 0) {
-            continue;
+        {
+            char *endptr;
+            errno = 0;
+            pid = (pid_t)strtol(dit->d_name, &endptr, 10);
+            /* Verify entire string was consumed and conversion succeeded */
+            if (errno != 0 || pid <= 0 || *endptr != '\0') {
+                continue;
+            }
         }
         /* Apply PID filter: match target PID or its descendants */
         if (it->filter->pid != 0 && it->filter->pid != pid &&
