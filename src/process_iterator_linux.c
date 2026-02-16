@@ -109,7 +109,10 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     p->pid = pid;
 
     /* Parse /proc/[pid]/stat for process state and timing information */
-    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)p->pid);
+    if (snprintf(statfile, sizeof(statfile), "/proc/%ld/stat",
+                 (long)p->pid) >= (int)sizeof(statfile)) {
+        return -1; /* Path truncated */
+    }
     if ((buffer = read_line_from_file(statfile)) == NULL) {
         return -1;
     }
@@ -150,7 +153,10 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         return 0;
     }
     /* Read command path from /proc/[pid]/cmdline */
-    snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)p->pid);
+    if (snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline",
+                 (long)p->pid) >= (int)sizeof(exefile)) {
+        return -1; /* Path truncated */
+    }
     if ((buffer = read_line_from_file(exefile)) == NULL) {
         return -1;
     }
@@ -181,7 +187,10 @@ pid_t getppid_of(pid_t pid) {
     long ppid;
 
     /* Parse /proc/[pid]/stat for parent process ID */
-    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
+    if (snprintf(statfile, sizeof(statfile), "/proc/%ld/stat",
+                 (long)pid) >= (int)sizeof(statfile)) {
+        return (pid_t)-1; /* Path truncated */
+    }
     if ((buffer = read_line_from_file(statfile)) == NULL) {
         return (pid_t)-1;
     }
