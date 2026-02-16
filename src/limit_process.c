@@ -54,6 +54,50 @@
 #define TIME_SLOT 100000
 
 /**
+ * @def LOAD_FACTOR
+ * @brief Target normalized load per CPU for time slot scaling
+ *
+ * Used in dynamic time slot calculation: higher values result in smaller time
+ * slots at the same load level, providing finer control at the cost of more
+ * overhead.
+ */
+#define LOAD_FACTOR 0.3
+
+/**
+ * @def SMOOTHING_WEIGHT_OLD
+ * @brief Weight given to previous time slot value in exponential smoothing
+ *
+ * Range: (0, 1). Higher values provide more stability but slower adaptation.
+ */
+#define SMOOTHING_WEIGHT_OLD 0.6
+
+/**
+ * @def SMOOTHING_WEIGHT_NEW
+ * @brief Weight given to new time slot measurement in exponential smoothing
+ *
+ * Range: (0, 1). Should equal (1.0 - SMOOTHING_WEIGHT_OLD) for proper
+ * averaging.
+ */
+#define SMOOTHING_WEIGHT_NEW 0.4
+
+/**
+ * @def JITTER_MIN_FACTOR
+ * @brief Minimum multiplier for randomized time slot jitter
+ *
+ * Jitter range is [JITTER_MIN_FACTOR, JITTER_MIN_FACTOR + JITTER_RANGE] to
+ * prevent synchronization with system timer ticks.
+ */
+#define JITTER_MIN_FACTOR 0.95
+
+/**
+ * @def JITTER_RANGE
+ * @brief Range of random variation added to time slot (as multiplier)
+ *
+ * Adds approximately ±5% randomization to prevent systematic measurement bias.
+ */
+#define JITTER_RANGE 0.10
+
+/**
  * @brief Calculate dynamic time slot duration based on system load
  * @return Time slot duration in microseconds
  *
@@ -89,22 +133,26 @@ static double get_dynamic_time_slot(void) {
             srandom((unsigned int)(last_update.tv_nsec ^ last_update.tv_sec));
         }
         /* Apply jitter and return */
-        return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
+        return time_slot *
+               (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
     }
 
     /* Skip update if time retrieval fails */
     if (get_current_time(&now) != 0) {
-        return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
+        return time_slot *
+               (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
     }
 
     /* Update at most once per second */
     if (timediff_in_ms(&now, &last_update) < 1000.0) {
-        return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
+        return time_slot *
+               (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
     }
 
     /* Get 1-minute load average */
     if (getloadavg(&load, 1) != 1) {
-        return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
+        return time_slot *
+               (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
     }
 
     last_update = now;
@@ -112,25 +160,27 @@ static double get_dynamic_time_slot(void) {
     /*
      * Calculate new time slot based on load:
      * - load / ncpu = normalized load per CPU
-     * - Divide by 0.3 to scale: target is 30% baseline load
+     * - Divide by LOAD_FACTOR to scale: target is 30% baseline load
      * - Higher load → larger time slot → less frequent adjustments
      */
-    new_time_slot = time_slot * load / get_ncpu() / 0.3;
+    new_time_slot = time_slot * load / get_ncpu() / LOAD_FACTOR;
     new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);
 
     /*
      * Smooth adaptation using exponential moving average:
-     * new_value = 0.6 * old_value + 0.4 * measured_value
-     * This prevents rapid oscillation in time slot size.
+     * new_value = SMOOTHING_WEIGHT_OLD * old_value + SMOOTHING_WEIGHT_NEW *
+     * measured_value This prevents rapid oscillation in time slot size.
      */
-    time_slot = time_slot * 0.6 + new_time_slot * 0.4;
+    time_slot =
+        time_slot * SMOOTHING_WEIGHT_OLD + new_time_slot * SMOOTHING_WEIGHT_NEW;
 
     /*
      * Add approximately -5% to +5% random jitter to prevent synchronization
      * with system timer ticks. This improves accuracy by avoiding systematic
      * bias.
      */
-    return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
+    return time_slot *
+           (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0);
 }
 
 /**
