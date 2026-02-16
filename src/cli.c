@@ -222,6 +222,9 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
     /* Initialize configuration with default values */
     memset(cfg, 0, sizeof(struct cpulimitcfg));
     cfg->program_name = file_basename(argv[0]);
+    if (cfg->program_name == NULL) {
+        cfg->program_name = "cpulimit"; /* Fallback if basename fails */
+    }
     cfg->limit = -1.0; /* Negative value indicates limit not yet specified */
 
     opterr = 0; /* Suppress getopt's built-in error messages */

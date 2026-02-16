@@ -112,6 +112,10 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
          * execvp() searches PATH for the executable and transfers control.
          * If successful, this function never returns.
          */
+        if (cfg->command_args == NULL || cfg->command_args[0] == NULL) {
+            fprintf(stderr, "No command specified\n");
+            exit(EXIT_FAILURE);
+        }
         execvp(cfg->command_args[0], cfg->command_args);
 
         /* Execution reaches here only if execvp() failed */
