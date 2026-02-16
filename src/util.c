@@ -214,7 +214,7 @@ static int parse_cpu_range(const char *str) {
         p = endptr;
 
         /* Skip trailing whitespace after number */
-        while (isspace(*p)) {
+        while (isspace((unsigned char)*p)) {
             p++;
         }
 
@@ -235,7 +235,7 @@ static int parse_cpu_range(const char *str) {
             p = endptr;
 
             /* Skip trailing whitespace */
-            while (isspace(*p)) {
+            while (isspace((unsigned char)*p)) {
                 p++;
             }
         } else {
