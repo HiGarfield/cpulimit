@@ -110,7 +110,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     p->pid = pid;
 
     /* Parse /proc/[pid]/stat for process state and timing information */
-    sprintf(statfile, "/proc/%ld/stat", (long)p->pid);
+    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)p->pid);
     if ((buffer = read_line_from_file(statfile)) == NULL) {
         return -1;
     }
@@ -148,7 +148,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         return 0;
     }
     /* Read command path from /proc/[pid]/cmdline */
-    sprintf(exefile, "/proc/%ld/cmdline", (long)p->pid);
+    snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)p->pid);
     if ((buffer = read_line_from_file(exefile)) == NULL) {
         return -1;
     }
@@ -179,7 +179,7 @@ pid_t getppid_of(pid_t pid) {
     long ppid;
 
     /* Parse /proc/[pid]/stat for parent process ID */
-    sprintf(statfile, "/proc/%ld/stat", (long)pid);
+    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
     if ((buffer = read_line_from_file(statfile)) == NULL) {
         return (pid_t)-1;
     }
@@ -221,7 +221,7 @@ static int get_start_time(pid_t pid, struct timespec *start_time) {
     if (start_time == NULL) {
         return -1;
     }
-    sprintf(procfs_path, "/proc/%ld", (long)pid);
+    snprintf(procfs_path, sizeof(procfs_path), "/proc/%ld", (long)pid);
     if ((ret = stat(procfs_path, &procfs_stat)) == 0) {
 #if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200809L) ||                \
     (defined(_XOPEN_SOURCE) && _XOPEN_SOURCE >= 700)
