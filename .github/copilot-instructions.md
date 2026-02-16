@@ -24,7 +24,7 @@ See `/README.md`.
 
 - Code MUST be written in C programming language.
 - Code MUST conform to C89 standard.
-- Features introduced after C89 MUST NOT be required.
+- Implementations MUST use only C89 language features and library functions. Language features and library functions from later standards SHALL be used only if they are specified in POSIX.1-2001 and are available on all supported operating systems.
 - Code MUST compile under C89 and all later C standards.
 - Code MUST compile under C++98 and all later C++ standards.
 - Undefined behavior and implementation-defined behavior MUST be avoided.
@@ -40,6 +40,7 @@ See `/README.md`.
 - The program MUST build on macOS.
 - The program MUST build on FreeBSD.
 - The program MUST run correctly on all supported platforms.
+- The program's behavior MUST be consistent across all supported platforms.
 
 ### Platform-Specific Code
 
@@ -53,10 +54,10 @@ See `/README.md`.
 - Every macro MUST have a documentation comment.
 - Every function MUST have a documentation comment.
 - Non-trivial logic inside functions SHOULD be commented.
-- Comments MUST use C-style block syntax (`/* ... */`).
+- Comments MUST use C89-style block syntax (`/* ... */`).
 - Comment style MUST be consistent across the codebase.
 - If a function is declared in a header and defined in a source file, the documentation comments MUST be identical.
-- In a multi-line tagged documentation comment, continuation lines MUST align with the start of the description text.
+- In a multi-line tagged documentation comment, each tag's continuation lines MUST align with the first character of its description, independently for each tag.
 
 ### Linkage
 
