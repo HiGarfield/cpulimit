@@ -330,8 +330,8 @@ void update_process_group(struct process_group *pgroup) {
             process_table_add(pgroup->proctable, p);
             if (add_elem(pgroup->proclist, p) == NULL) {
                 fprintf(stderr,
-                        "Failed to add process with PID %d to the list\n",
-                        p->pid);
+                        "Failed to add process with PID %ld to the list\n",
+                        (long)p->pid);
                 exit(EXIT_FAILURE);
             }
         } else {
@@ -339,8 +339,8 @@ void update_process_group(struct process_group *pgroup) {
             /* Existing process: re-add to list for this cycle */
             if (add_elem(pgroup->proclist, p) == NULL) {
                 fprintf(stderr,
-                        "Failed to add process with PID %d to the list\n",
-                        p->pid);
+                        "Failed to add process with PID %ld to the list\n",
+                        (long)p->pid);
                 exit(EXIT_FAILURE);
             }
             if (tmp_process->cputime < p->cputime) {
