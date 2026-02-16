@@ -108,7 +108,9 @@
  * ticks, improving measurement accuracy.
  */
 #define APPLY_JITTER(value)                                                    \
-    ((value) * (JITTER_MIN_FACTOR + (double)(random() % 1000) / 10000.0))
+    ((value) *                                                                 \
+     (JITTER_MIN_FACTOR +                                                      \
+      ((double)(random() % 1000) * JITTER_RANGE / 1000.0)))
 
 /**
  * @brief Calculate dynamic time slot duration based on system load
@@ -178,7 +180,8 @@ static double get_dynamic_time_slot(void) {
     /*
      * Smooth adaptation using exponential moving average:
      * new_value = SMOOTHING_WEIGHT_OLD * old_value + SMOOTHING_WEIGHT_NEW *
-     * measured_value This prevents rapid oscillation in time slot size.
+     *             measured_value.
+     * This prevents rapid oscillation in time slot size.
      */
     time_slot =
         time_slot * SMOOTHING_WEIGHT_OLD + new_time_slot * SMOOTHING_WEIGHT_NEW;

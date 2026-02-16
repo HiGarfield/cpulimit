@@ -226,12 +226,12 @@ int close_process_group(struct process_group *pgroup) {
 /**
  * @brief Create a deep copy of a process structure
  * @param proc Pointer to the source process structure to duplicate
- * @return Pointer to newly allocated process structure containing copied data
+ * @return Pointer to newly allocated process structure containing copied data,
+ *         or NULL if memory allocation fails
  *
  * Allocates memory for a new process structure and copies all fields from
- * the source. The caller is responsible for freeing the returned pointer.
- *
- * @note Calls exit(EXIT_FAILURE) if memory allocation fails
+ * the source. The caller is responsible for freeing the returned pointer and
+ * checking for NULL return value.
  */
 static struct process *process_dup(const struct process *proc) {
     struct process *p;
