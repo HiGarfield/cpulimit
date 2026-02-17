@@ -233,28 +233,31 @@ int close_process_group(struct process_group *pgroup) {
  *
  * @note Calls exit(EXIT_FAILURE) if memory allocation fails
  */
-static struct process *process_dup(const struct process *proc) {
-    struct process *p;
-    if ((p = (struct process *)malloc(sizeof(struct process))) == NULL) {
+static struct process *duplicate_process(const struct process *proc) {
+    struct process *duplicated_process;
+    if ((duplicated_process =
+             (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "Memory allocation failed for duplicated process\n");
         exit(EXIT_FAILURE);
     }
-    return (struct process *)memcpy(p, proc, sizeof(struct process));
+    return (struct process *)memcpy(duplicated_process, proc,
+                                    sizeof(struct process));
 }
 
 /**
- * @def ALPHA
+ * @def CPU_USAGE_SMOOTHING_FACTOR
  * @brief Smoothing factor for exponential moving average of CPU usage
  *
  * Value range: (0, 1)
  * - Lower values (e.g., 0.05): more smoothing, slower response to changes
  * - Higher values (e.g., 0.2): less smoothing, faster response to changes
- * Formula: new_value = (1-ALPHA) * old_value + ALPHA * sample
+ * Formula: new_value = (1-CPU_USAGE_SMOOTHING_FACTOR) * old_value +
+ *                      CPU_USAGE_SMOOTHING_FACTOR * sample
  */
-#define ALPHA 0.08
+#define CPU_USAGE_SMOOTHING_FACTOR 0.08
 
 /**
- * @def MIN_DT
+ * @def MIN_TIME_DELTA_MS
  * @brief Minimum time delta (milliseconds) required for valid CPU usage
  *        calculation
  *
@@ -263,7 +266,7 @@ static struct process *process_dup(const struct process *proc) {
  * - Amplification of measurement noise
  * - Excessive sensitivity to timer resolution
  */
-#define MIN_DT 20
+#define MIN_TIME_DELTA_MS 20
 
 /**
  * @brief Refresh process group state and recalculate CPU usage
@@ -277,7 +280,7 @@ static struct process *process_dup(const struct process *proc) {
  * 5. Updates last_update timestamp if sufficient time has elapsed
  *
  * CPU usage calculation:
- * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
+ * - Requires minimum time delta (MIN_TIME_DELTA_MS = 20ms) for accuracy
  * - Uses exponential smoothing: cpu = (1-α)*old + α*sample, α=0.08
  * - Detects PID reuse when cputime decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
@@ -289,22 +292,22 @@ static struct process *process_dup(const struct process *proc) {
  */
 void update_process_group(struct process_group *pgroup) {
     struct process_iterator it;
-    struct process *tmp_process;
+    struct process *current_process;
     struct process_filter filter;
     struct timespec now;
-    double dt;
+    double time_delta_ms;
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
         exit(EXIT_FAILURE);
     }
-    if ((tmp_process = (struct process *)malloc(sizeof(struct process))) ==
+    if ((current_process = (struct process *)malloc(sizeof(struct process))) ==
         NULL) {
-        fprintf(stderr, "Memory allocation failed for tmp_process\n");
+        fprintf(stderr, "Memory allocation failed for current_process\n");
         exit(EXIT_FAILURE);
     }
     /* Calculate elapsed time since last update (milliseconds) */
-    dt = timediff_in_ms(&now, &pgroup->last_update);
+    time_delta_ms = timediff_in_ms(&now, &pgroup->last_update);
 
     /* Configure iterator to scan target process and optionally descendants */
     filter.pid = pgroup->target_pid;
@@ -319,12 +322,12 @@ void update_process_group(struct process_group *pgroup) {
     clear_list(pgroup->proclist);
 
     /* Scan currently running processes and update tracking data */
-    while (get_next_process(&it, tmp_process) != -1) {
+    while (get_next_process(&it, current_process) != -1) {
         struct process *p =
-            process_table_find(pgroup->proctable, tmp_process->pid);
+            process_table_find(pgroup->proctable, current_process->pid);
         if (p == NULL) {
             /* New process detected: add to hashtable and list */
-            p = process_dup(tmp_process);
+            p = duplicate_process(current_process);
             /* Mark CPU usage as unknown until we have a time delta */
             p->cpu_usage = -1;
             process_table_add(pgroup->proctable, p);
@@ -343,27 +346,27 @@ void update_process_group(struct process_group *pgroup) {
                         (long)p->pid);
                 exit(EXIT_FAILURE);
             }
-            if (tmp_process->cputime < p->cputime) {
+            if (current_process->cputime < p->cputime) {
                 /*
                  * CPU time decreased: PID has been reused for a new process.
                  * Reset all historical data.
                  */
-                memcpy(p, tmp_process, sizeof(struct process));
+                memcpy(p, current_process, sizeof(struct process));
                 /* Mark CPU usage as unknown for new process */
                 p->cpu_usage = -1;
                 continue;
             }
-            if (dt < 0) {
+            if (time_delta_ms < 0) {
                 /*
                  * Time moved backwards (system clock adjustment, NTP
                  * correction). Update cputime but don't calculate usage this
                  * cycle.
                  */
-                p->cputime = tmp_process->cputime;
+                p->cputime = current_process->cputime;
                 p->cpu_usage = -1;
                 continue;
             }
-            if (dt < MIN_DT) {
+            if (time_delta_ms < MIN_TIME_DELTA_MS) {
                 /* Time delta too small for accurate measurement, skip this
                  * update */
                 continue;
@@ -373,7 +376,7 @@ void update_process_group(struct process_group *pgroup) {
              * sample = (delta_cputime / delta_walltime)
              * This represents the fraction of one CPU core used.
              */
-            sample = (tmp_process->cputime - p->cputime) / dt;
+            sample = (current_process->cputime - p->cputime) / time_delta_ms;
             /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
             sample = MIN(sample, 1.0 * get_ncpu());
             if (p->cpu_usage < 0) {
@@ -385,20 +388,22 @@ void update_process_group(struct process_group *pgroup) {
                  * new = (1-α)*old + α*sample
                  * This reduces noise while remaining responsive to changes.
                  */
-                p->cpu_usage = (1.0 - ALPHA) * p->cpu_usage + ALPHA * sample;
+                p->cpu_usage =
+                    (1.0 - CPU_USAGE_SMOOTHING_FACTOR) * p->cpu_usage +
+                    CPU_USAGE_SMOOTHING_FACTOR * sample;
             }
             /* Update stored CPU time for next delta calculation */
-            p->cputime = tmp_process->cputime;
+            p->cputime = current_process->cputime;
         }
     }
-    free(tmp_process);
+    free(current_process);
     close_process_iterator(&it);
 
     /*
      * Update timestamp only if sufficient time passed for CPU calculation
      * or if time moved backwards (to establish new baseline).
      */
-    if (dt < 0 || dt >= MIN_DT) {
+    if (time_delta_ms < 0 || time_delta_ms >= MIN_TIME_DELTA_MS) {
         pgroup->last_update = now;
     }
 }

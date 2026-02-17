@@ -159,7 +159,7 @@ int close_process_group(struct process_group *pgroup);
  * 5. Updates last_update timestamp if sufficient time has elapsed
  *
  * CPU usage calculation:
- * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
+ * - Requires minimum time delta (MIN_TIME_DELTA_MS = 20ms) for accuracy
  * - Uses exponential smoothing: cpu = (1-α)*old + α*sample, α=0.08
  * - Detects PID reuse when cputime decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
