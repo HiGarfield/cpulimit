@@ -132,7 +132,7 @@ pid_t find_process_by_name(const char *process_name) {
              * This heuristic prefers newer/child processes over older/parent
              * ones
              */
-            if (pid < 0 || is_child_of(pid, proc->pid)) {
+            if (pid < 0 || is_child_of(proc->pid, pid)) {
                 pid = proc->pid;
             }
         }
