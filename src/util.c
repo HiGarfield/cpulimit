@@ -112,8 +112,18 @@ int sleep_timespec(const struct timespec *t) {
 #if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
     defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(CLOCK_MONOTONIC)
-    /* Use monotonic clock sleep if available */
-    return clock_nanosleep(CLOCK_MONOTONIC, 0, t, NULL);
+    /*
+     * Use monotonic clock sleep if available.
+     * clock_nanosleep returns 0 on success or a positive error number
+     * on failure. Convert to -1/errno convention for consistency with
+     * nanosleep and the documented return value contract.
+     */
+    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, t, NULL);
+    if (ret != 0) {
+        errno = ret;
+        return -1;
+    }
+    return 0;
 #else
     /* Fall back to standard nanosleep */
     return nanosleep(t, NULL);
