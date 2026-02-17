@@ -245,8 +245,11 @@ pid_t getppid_of(pid_t pid) {
  * avoid repeated open/close overhead.
  */
 static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
-    if (child_pid <= 0 || parent_pid <= 0 || child_pid == parent_pid) {
+    if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
+    }
+    if (parent_pid == 1) {
+        return 1;
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
