@@ -45,16 +45,19 @@ extern "C" {
 struct process_group {
     /**
      * Hashtable mapping PIDs to process structures for O(1) lookup.
-     * Used to detect new processes, reused PIDs, and track historical data.
+     * Contains all processes that have been seen (historical tracking).
+     * Used to detect new processes, reused PIDs, and track historical CPU data
+     * across updates.
      */
-    struct process_table *proctable;
+    struct process_table *process_history;
 
     /**
-     * Linked list of currently active processes in this group.
+     * Linked list of currently active monitored processes.
      * Rebuilt on each update by scanning /proc (or equivalent).
-     * Contains pointers to process structures stored in proctable.
+     * Contains only the processes currently being monitored and limited.
+     * Contains pointers to process structures stored in process_history.
      */
-    struct list *proclist;
+    struct list *monitored_processes;
 
     /**
      * PID of the primary target process.
@@ -183,7 +186,7 @@ void update_process_group(struct process_group *pgroup);
  * - N = fully utilizing N CPU cores (on multi-core systems)
  *
  * The function:
- * 1. Iterates through all processes in proclist
+ * 1. Iterates through all monitored processes
  * 2. Sums cpu_usage for processes with valid measurements (cpu_usage >= 0)
  * 3. Returns -1 if all processes have unknown usage (first update cycle)
  *

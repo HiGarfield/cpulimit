@@ -164,23 +164,25 @@ pid_t find_process_by_name(const char *process_name) {
  */
 int init_process_group(struct process_group *pgroup, pid_t target_pid,
                        int include_children) {
-    /* Allocate and initialize hashtable for fast process lookup by PID */
-    if ((pgroup->proctable = (struct process_table *)malloc(
+    /* Allocate and initialize hashtable for historical process tracking */
+    if ((pgroup->process_history = (struct process_table *)malloc(
              sizeof(struct process_table))) == NULL) {
-        fprintf(stderr, "Memory allocation failed for the process table\n");
+        fprintf(stderr,
+                "Memory allocation failed for the process history table\n");
         exit(EXIT_FAILURE);
     }
-    process_table_init(pgroup->proctable, 2048);
+    process_table_init(pgroup->process_history, 2048);
     pgroup->target_pid = target_pid;
     pgroup->include_children = include_children;
 
-    /* Allocate and initialize linked list for process iteration */
-    if ((pgroup->proclist = (struct list *)malloc(sizeof(struct list))) ==
-        NULL) {
-        fprintf(stderr, "Memory allocation failed for the process list\n");
+    /* Allocate and initialize linked list for monitored processes */
+    if ((pgroup->monitored_processes =
+             (struct list *)malloc(sizeof(struct list))) == NULL) {
+        fprintf(stderr,
+                "Memory allocation failed for the monitored processes list\n");
         exit(EXIT_FAILURE);
     }
-    init_list(pgroup->proclist);
+    init_list(pgroup->monitored_processes);
 
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&pgroup->last_update) != 0) {
@@ -208,16 +210,16 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  *       re-initialization
  */
 int close_process_group(struct process_group *pgroup) {
-    if (pgroup->proclist != NULL) {
-        clear_list(pgroup->proclist);
-        free(pgroup->proclist);
-        pgroup->proclist = NULL;
+    if (pgroup->monitored_processes != NULL) {
+        clear_list(pgroup->monitored_processes);
+        free(pgroup->monitored_processes);
+        pgroup->monitored_processes = NULL;
     }
 
-    if (pgroup->proctable != NULL) {
-        process_table_destroy(pgroup->proctable);
-        free(pgroup->proctable);
-        pgroup->proctable = NULL;
+    if (pgroup->process_history != NULL) {
+        process_table_destroy(pgroup->process_history);
+        free(pgroup->process_history);
+        pgroup->process_history = NULL;
     }
 
     return 0;
@@ -315,31 +317,33 @@ void update_process_group(struct process_group *pgroup) {
         exit(EXIT_FAILURE);
     }
 
-    /* Clear process list (will be rebuilt from scratch) */
-    clear_list(pgroup->proclist);
+    /* Clear monitored process list (will be rebuilt from scratch) */
+    clear_list(pgroup->monitored_processes);
 
     /* Scan currently running processes and update tracking data */
     while (get_next_process(&it, tmp_process) != -1) {
         struct process *p =
-            process_table_find(pgroup->proctable, tmp_process->pid);
+            process_table_find(pgroup->process_history, tmp_process->pid);
         if (p == NULL) {
-            /* New process detected: add to hashtable and list */
+            /* New process detected: add to history table and monitored list */
             p = process_dup(tmp_process);
             /* Mark CPU usage as unknown until we have a time delta */
             p->cpu_usage = -1;
-            process_table_add(pgroup->proctable, p);
-            if (add_elem(pgroup->proclist, p) == NULL) {
+            process_table_add(pgroup->process_history, p);
+            if (add_elem(pgroup->monitored_processes, p) == NULL) {
                 fprintf(stderr,
-                        "Failed to add process with PID %ld to the list\n",
+                        "Failed to add process with PID %ld to the monitored "
+                        "list\n",
                         (long)p->pid);
                 exit(EXIT_FAILURE);
             }
         } else {
             double sample;
-            /* Existing process: re-add to list for this cycle */
-            if (add_elem(pgroup->proclist, p) == NULL) {
+            /* Existing process: re-add to monitored list for this cycle */
+            if (add_elem(pgroup->monitored_processes, p) == NULL) {
                 fprintf(stderr,
-                        "Failed to add process with PID %ld to the list\n",
+                        "Failed to add process with PID %ld to the monitored "
+                        "list\n",
                         (long)p->pid);
                 exit(EXIT_FAILURE);
             }
@@ -415,7 +419,7 @@ void update_process_group(struct process_group *pgroup) {
  * - N = fully utilizing N CPU cores (on multi-core systems)
  *
  * The function:
- * 1. Iterates through all processes in proclist
+ * 1. Iterates through all monitored processes
  * 2. Sums cpu_usage for processes with valid measurements (cpu_usage >= 0)
  * 3. Returns -1 if all processes have unknown usage (first update cycle)
  *
@@ -425,7 +429,8 @@ void update_process_group(struct process_group *pgroup) {
 double get_process_group_cpu_usage(const struct process_group *pgroup) {
     const struct list_node *node;
     double cpu_usage = -1;
-    for (node = first_node(pgroup->proclist); node != NULL; node = node->next) {
+    for (node = first_node(pgroup->monitored_processes); node != NULL;
+         node = node->next) {
         const struct process *p = (struct process *)node->data;
         /* Skip processes without valid CPU measurements yet */
         if (p->cpu_usage < 0) {

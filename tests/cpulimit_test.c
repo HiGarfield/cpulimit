@@ -280,7 +280,8 @@ static void test_process_group_all(void) {
     update_process_group(&pgroup);
 
     /* Count processes in the group */
-    for (node = pgroup.proclist->first; node != NULL; node = node->next) {
+    for (node = pgroup.monitored_processes->first; node != NULL;
+         node = node->next) {
         const struct process *p = (const struct process *)node->data;
         if (p->pid == getpid()) {
             found_self = 1;
@@ -289,7 +290,7 @@ static void test_process_group_all(void) {
     }
     assert(count > 0);
     assert(found_self == 1);
-    assert(count == get_list_count(pgroup.proclist));
+    assert(count == get_list_count(pgroup.monitored_processes));
 
     /* Update and verify again */
     update_process_group(&pgroup);
@@ -331,9 +332,10 @@ static void test_proc_group_single(int include_children) {
         size_t count = 0;
 
         update_process_group(&pgroup);
-        assert(get_list_count(pgroup.proclist) == 1);
+        assert(get_list_count(pgroup.monitored_processes) == 1);
 
-        for (node = pgroup.proclist->first; node != NULL; node = node->next) {
+        for (node = pgroup.monitored_processes->first; node != NULL;
+             node = node->next) {
             const struct process *p = (const struct process *)node->data;
             assert(p->pid == child_pid);
             assert(p->ppid == getpid());
@@ -417,16 +419,16 @@ static void test_process_group_wrong_pid(void) {
 
     /* Test with PID -1 */
     assert(init_process_group(&pgroup, -1, 0) == 0);
-    assert(get_list_count(pgroup.proclist) == 0);
+    assert(get_list_count(pgroup.monitored_processes) == 0);
     update_process_group(&pgroup);
-    assert(get_list_count(pgroup.proclist) == 0);
+    assert(get_list_count(pgroup.monitored_processes) == 0);
     assert(close_process_group(&pgroup) == 0);
 
     /* Test with PID INT_MAX */
     assert(init_process_group(&pgroup, INT_MAX, 0) == 0);
-    assert(get_list_count(pgroup.proclist) == 0);
+    assert(get_list_count(pgroup.monitored_processes) == 0);
     update_process_group(&pgroup);
-    assert(get_list_count(pgroup.proclist) == 0);
+    assert(get_list_count(pgroup.monitored_processes) == 0);
     assert(close_process_group(&pgroup) == 0);
 }
 
@@ -586,7 +588,8 @@ static void test_limit_process(void) {
                 update_process_group(&pgroup);
 
                 /* Verify all num_procs processes are being monitored */
-                assert(get_list_count(pgroup.proclist) == (size_t)num_procs);
+                assert(get_list_count(pgroup.monitored_processes) ==
+                       (size_t)num_procs);
 
                 temp_cpu_usage = get_process_group_cpu_usage(&pgroup);
                 if (temp_cpu_usage > 0) {
