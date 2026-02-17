@@ -32,24 +32,24 @@
 
 /**
  * @brief Initialize an empty doubly linked list
- * @param l Pointer to the list structure to initialize
+ * @param list_ptr Pointer to the list structure to initialize
  *
  * Sets first and last pointers to NULL and count to 0, preparing the list
  * for use. Safe to call with NULL pointer (does nothing).
  */
-void init_list(struct list *l) {
-    if (l == NULL) {
+void init_list(struct list *list_ptr) {
+    if (list_ptr == NULL) {
         return;
     }
-    l->first = l->last = NULL;
-    l->count = 0;
+    list_ptr->first = list_ptr->last = NULL;
+    list_ptr->count = 0;
 }
 
 /**
  * @brief Append an element to the end of the list
- * @param l Pointer to the list
+ * @param list_ptr Pointer to the list
  * @param elem Pointer to the data element to add
- * @return Pointer to the newly created node, or NULL if @p l is NULL
+ * @return Pointer to the newly created node, or NULL if @p list_ptr is NULL
  *
  * Creates a new node containing the data pointer and appends it to the end
  * of the list in O(1) time. The list stores only the pointer; ownership of
@@ -57,9 +57,9 @@ void init_list(struct list *l) {
  * function prints an error message to stderr and terminates the process
  * with exit(EXIT_FAILURE); it does not return NULL in that case.
  */
-struct list_node *add_elem(struct list *l, void *elem) {
+struct list_node *add_elem(struct list *list_ptr, void *elem) {
     struct list_node *newnode;
-    if (l == NULL) {
+    if (list_ptr == NULL) {
         return NULL;
     }
     if ((newnode = (struct list_node *)malloc(sizeof(struct list_node))) ==
@@ -68,23 +68,23 @@ struct list_node *add_elem(struct list *l, void *elem) {
         exit(EXIT_FAILURE);
     }
     newnode->data = elem;
-    newnode->previous = l->last;
+    newnode->previous = list_ptr->last;
     newnode->next = NULL;
-    if (l->count == 0) {
+    if (list_ptr->count == 0) {
         /* Empty list: new node becomes both first and last */
-        l->first = l->last = newnode;
+        list_ptr->first = list_ptr->last = newnode;
     } else {
         /* Non-empty list: append to end */
-        l->last->next = newnode;
-        l->last = newnode;
+        list_ptr->last->next = newnode;
+        list_ptr->last = newnode;
     }
-    l->count++;
+    list_ptr->count++;
     return newnode;
 }
 
 /**
  * @brief Remove a node from the list without freeing its data
- * @param l Pointer to the list
+ * @param list_ptr Pointer to the list
  * @param node Pointer to the node to remove
  *
  * Unlinks the node from the list and frees the node structure itself, but
@@ -93,8 +93,8 @@ struct list_node *add_elem(struct list *l, void *elem) {
  *
  * @note Safe to call with NULL list or node (does nothing)
  */
-void delete_node(struct list *l, struct list_node *node) {
-    if (l == NULL || node == NULL || l->count == 0) {
+void delete_node(struct list *list_ptr, struct list_node *node) {
+    if (list_ptr == NULL || node == NULL || list_ptr->count == 0) {
         return;
     }
 
@@ -102,23 +102,23 @@ void delete_node(struct list *l, struct list_node *node) {
     if (node->previous != NULL) {
         node->previous->next = node->next;
     } else {
-        l->first = node->next;
+        list_ptr->first = node->next;
     }
 
     /* Update next node's previous pointer, or update list tail */
     if (node->next != NULL) {
         node->next->previous = node->previous;
     } else {
-        l->last = node->previous;
+        list_ptr->last = node->previous;
     }
 
-    l->count--;
+    list_ptr->count--;
     free(node);
 }
 
 /**
  * @brief Remove a node from the list and free its data
- * @param l Pointer to the list
+ * @param list_ptr Pointer to the list
  * @param node Pointer to the node to remove
  *
  * Unlinks the node from the list, frees the data pointer using free(),
@@ -127,49 +127,49 @@ void delete_node(struct list *l, struct list_node *node) {
  *
  * @note Safe to call with NULL list or node (does nothing)
  */
-void destroy_node(struct list *l, struct list_node *node) {
+void destroy_node(struct list *list_ptr, struct list_node *node) {
     if (node != NULL && node->data != NULL) {
         free(node->data);
     }
-    delete_node(l, node);
+    delete_node(list_ptr, node);
 }
 
 /**
  * @brief Check if the list is empty
- * @param l Pointer to the list
+ * @param list_ptr Pointer to the list
  * @return 1 if the list is empty or NULL, 0 otherwise
  *
  * Provides O(1) emptiness check by examining the count field.
  */
-int is_empty_list(const struct list *l) {
-    return l == NULL || l->count == 0;
+int is_empty_list(const struct list *list_ptr) {
+    return list_ptr == NULL || list_ptr->count == 0;
 }
 
 /**
  * @brief Get the number of elements in the list
- * @param l Pointer to the list
+ * @param list_ptr Pointer to the list
  * @return Number of elements, or 0 if list is NULL
  *
  * Returns the count in O(1) time as it is maintained during operations.
  */
-size_t get_list_count(const struct list *l) {
-    return l != NULL ? l->count : 0;
+size_t get_list_count(const struct list *list_ptr) {
+    return list_ptr != NULL ? list_ptr->count : 0;
 }
 
 /**
  * @brief Get the first node in the list
- * @param l Pointer to the list
+ * @param list_ptr Pointer to the list
  * @return Pointer to the first node, or NULL if list is empty or NULL
  *
  * Provides O(1) access to the list head. Use for starting forward iteration.
  */
-struct list_node *first_node(const struct list *l) {
-    return l != NULL ? l->first : NULL;
+struct list_node *first_node(const struct list *list_ptr) {
+    return list_ptr != NULL ? list_ptr->first : NULL;
 }
 
 /**
  * @brief Search for a node by comparing a field in its data
- * @param l Pointer to the list to search
+ * @param list_ptr Pointer to the list to search
  * @param elem Pointer to the value to compare against
  * @param offset Byte offset of the field to compare within the data structure
  * @param length Number of bytes to compare
@@ -181,16 +181,16 @@ struct list_node *first_node(const struct list *l) {
  *
  * @note Returns NULL if list is NULL, elem is NULL, or length is 0
  */
-struct list_node *locate_node(const struct list *l, const void *elem,
+struct list_node *locate_node(const struct list *list_ptr, const void *elem,
                               size_t offset, size_t length) {
     struct list_node *cur;
 
-    if (l == NULL || elem == NULL || length == 0) {
+    if (list_ptr == NULL || elem == NULL || length == 0) {
         return NULL;
     }
 
     /* Traverse list and compare specified field in each node's data */
-    for (cur = l->first; cur != NULL; cur = cur->next) {
+    for (cur = list_ptr->first; cur != NULL; cur = cur->next) {
         if (cur->data == NULL) {
             continue;
         }
@@ -204,7 +204,7 @@ struct list_node *locate_node(const struct list *l, const void *elem,
 
 /**
  * @brief Search for an element by comparing a field in its data
- * @param l Pointer to the list to search
+ * @param list_ptr Pointer to the list to search
  * @param elem Pointer to the value to compare against
  * @param offset Byte offset of the field to compare within the data structure
  * @param length Number of bytes to compare
@@ -214,15 +214,15 @@ struct list_node *locate_node(const struct list *l, const void *elem,
  * directly rather than the node. Useful when you need the element itself
  * and don't need to manipulate the node.
  */
-void *locate_elem(const struct list *l, const void *elem, size_t offset,
+void *locate_elem(const struct list *list_ptr, const void *elem, size_t offset,
                   size_t length) {
-    struct list_node *node = locate_node(l, elem, offset, length);
+    struct list_node *node = locate_node(list_ptr, elem, offset, length);
     return node != NULL ? node->data : NULL;
 }
 
 /**
  * @brief Helper to remove all nodes, optionally freeing data
- * @param l Pointer to the list
+ * @param list_ptr Pointer to the list
  * @param free_data If non-zero, frees each node's data pointer; otherwise
  *                  preserves data
  *
@@ -230,13 +230,13 @@ void *locate_elem(const struct list *l, const void *elem, size_t offset,
  * calls free() on each data pointer before freeing the node. Resets the
  * list to empty state (first=NULL, last=NULL, count=0).
  */
-static void clear_all_list_nodes(struct list *l, int free_data) {
+static void clear_all_list_nodes(struct list *list_ptr, int free_data) {
     struct list_node *current, *next;
-    if (l == NULL || l->count == 0) {
+    if (list_ptr == NULL || list_ptr->count == 0) {
         return;
     }
     /* Traverse and free all nodes */
-    for (current = l->first; current != NULL; current = next) {
+    for (current = list_ptr->first; current != NULL; current = next) {
         next = current->next;
         if (free_data && current->data != NULL) {
             free(current->data);
@@ -244,13 +244,13 @@ static void clear_all_list_nodes(struct list *l, int free_data) {
         free(current);
     }
     /* Reset list to empty state */
-    l->first = l->last = NULL;
-    l->count = 0;
+    list_ptr->first = list_ptr->last = NULL;
+    list_ptr->count = 0;
 }
 
 /**
  * @brief Remove all nodes from the list without freeing node data
- * @param l Pointer to the list to clear
+ * @param list_ptr Pointer to the list to clear
  *
  * Frees all node structures but leaves the data pointers intact. Use this
  * when the data is managed externally or when you need to preserve the data
@@ -259,13 +259,13 @@ static void clear_all_list_nodes(struct list *l, int free_data) {
  *
  * @note Safe to call with NULL list (does nothing)
  */
-void clear_list(struct list *l) {
-    clear_all_list_nodes(l, 0);
+void clear_list(struct list *list_ptr) {
+    clear_all_list_nodes(list_ptr, 0);
 }
 
 /**
  * @brief Remove all nodes from the list and free their data
- * @param l Pointer to the list to destroy
+ * @param list_ptr Pointer to the list to destroy
  *
  * Frees all node structures and their associated data pointers using free().
  * Use this only when all data was allocated with malloc() and has no other
@@ -273,6 +273,6 @@ void clear_list(struct list *l) {
  *
  * @note Safe to call with NULL list (does nothing)
  */
-void destroy_list(struct list *l) {
-    clear_all_list_nodes(l, 1);
+void destroy_list(struct list *list_ptr) {
+    clear_all_list_nodes(list_ptr, 1);
 }
