@@ -170,6 +170,47 @@ int process_table_del(struct process_table *pt, pid_t pid) {
 }
 
 /**
+ * @brief Remove stale entries from the hash table
+ * @param pt Pointer to the process table to clean up
+ * @param active_list Pointer to the list of currently active processes
+ *
+ * Iterates through all buckets in the hash table and removes any process
+ * entries whose PIDs are not present in the active_list. This prevents
+ * unbounded growth of the hash table when tracked processes terminate.
+ * The process data for removed entries is freed.
+ *
+ * @note Safe to call with NULL pointer (does nothing)
+ */
+void process_table_remove_stale(struct process_table *pt,
+                                const struct list *active_list) {
+    size_t idx;
+    if (pt == NULL) {
+        return;
+    }
+    for (idx = 0; idx < pt->hashsize; idx++) {
+        struct list_node *node, *next_node;
+        if (pt->table[idx] == NULL) {
+            continue;
+        }
+        for (node = pt->table[idx]->first; node != NULL; node = next_node) {
+            next_node = node->next;
+            if (node->data != NULL) {
+                pid_t pid = ((struct process *)node->data)->pid;
+                if (locate_elem(active_list, &pid,
+                                offsetof(struct process, pid),
+                                sizeof(pid_t)) == NULL) {
+                    destroy_node(pt->table[idx], node);
+                }
+            }
+        }
+        if (is_empty_list(pt->table[idx])) {
+            free(pt->table[idx]);
+            pt->table[idx] = NULL;
+        }
+    }
+}
+
+/**
  * @brief Destroy the hash table and free all associated memory
  * @param pt Pointer to the process table to destroy
  *
