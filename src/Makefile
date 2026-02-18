@@ -140,10 +140,6 @@ format: $(wildcard *.c *.h)
 
 # Check source files with cppcheck
 check: $(wildcard *.c *.h) clean
-	@command -v gcc >/dev/null 2>&1 || { \
-	echo "gcc is not installed. Please install it to check the code."; \
-	exit 1; \
-	}
 	@command -v bear >/dev/null 2>&1 || { \
 	echo "bear is not installed. Please install it to check the code."; \
 	exit 1; \
@@ -156,7 +152,7 @@ check: $(wildcard *.c *.h) clean
 	echo "clang-tidy is not installed. Please install it to check the code."; \
 	exit 1; \
 	}
-	bear -- $(MAKE) all CHECK=1 CC=gcc
+	bear --force-wrapper -- $(MAKE) all CHECK=1
 	cppcheck $(CPPCHECK_OPTS) 2>"$(CPPCHECK_REPORT)"
 	@echo "See $(shell pwd)/$(CPPCHECK_REPORT) for cppcheck report."
 	clang-tidy $(CLANG_TIDY_OPTS) *.h *.c >"$(CLANG_TIDY_REPORT)"
