@@ -24,8 +24,11 @@
 #endif
 
 #include "util.h" /* Must be included at first!!! */
+#include "process_iterator.h"
 
 #include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
 #if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
@@ -38,8 +41,6 @@
 #include <sys/sysctl.h>
 #endif
 #if defined(__linux__)
-#include <stdio.h>
-#include <stdlib.h>
 #if defined(__UCLIBC__)
 #include <ctype.h>
 #endif
@@ -160,6 +161,15 @@ double timediff_in_ms(const struct timespec *later,
 const char *file_basename(const char *path) {
     const char *p = strrchr(path, '/');
     return p != NULL ? p + 1 : path;
+}
+
+struct process *process_dup(const struct process *proc) {
+    struct process *p;
+    if ((p = (struct process *)malloc(sizeof(struct process))) == NULL) {
+        fprintf(stderr, "Memory allocation failed for duplicated process\n");
+        exit(EXIT_FAILURE);
+    }
+    return (struct process *)memcpy(p, proc, sizeof(struct process));
 }
 
 /**

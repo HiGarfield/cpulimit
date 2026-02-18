@@ -34,6 +34,7 @@ extern "C" {
 #include <sys/types.h>
 #include <time.h>
 
+struct process;
 #ifndef MAX
 /**
  * @def MAX(a, b)
@@ -135,6 +136,13 @@ double timediff_in_ms(const struct timespec *later,
  * @note The caller must pass a non-NULL path; behavior is undefined for NULL.
  */
 const char *file_basename(const char *path);
+
+/**
+ * @brief Duplicate a process structure
+ * @param proc Pointer to source process data
+ * @return Newly allocated copy of proc, or exits on allocation failure
+ */
+struct process *process_dup(const struct process *proc);
 
 /**
  * @brief Attempt to increase the scheduling priority of the current process

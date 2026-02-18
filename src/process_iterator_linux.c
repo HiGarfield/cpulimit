@@ -29,6 +29,7 @@
 #endif
 
 #include "process_iterator.h"
+#include "process_table.h"
 #include "util.h"
 
 #include <ctype.h>
@@ -41,6 +42,13 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+
+#define PPID_CACHE_HASH_SIZE 4096
+#define PPID_CACHE_TTL_MS 200
+
+static struct process_table g_ppid_cache;
+static int g_ppid_cache_initialized = 0;
+static struct timespec g_ppid_cache_timestamp;
 
 /**
  * @brief Initialize a process iterator with specified filter criteria
@@ -160,6 +168,58 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     return 0;
 }
 
+static void ensure_ppid_cache_init(void) {
+    if (!g_ppid_cache_initialized) {
+        process_table_init(&g_ppid_cache, PPID_CACHE_HASH_SIZE);
+        g_ppid_cache_timestamp.tv_sec = 0;
+        g_ppid_cache_timestamp.tv_nsec = 0;
+        g_ppid_cache_initialized = 1;
+    }
+}
+
+static void rebuild_ppid_cache(void) {
+    struct process_iterator it;
+    struct process_filter filter;
+    struct process proc;
+
+    ensure_ppid_cache_init();
+    process_table_destroy(&g_ppid_cache);
+    process_table_init(&g_ppid_cache, PPID_CACHE_HASH_SIZE);
+
+    filter.pid = 0;
+    filter.include_children = 0;
+    filter.read_cmd = 0;
+    if (init_process_iterator(&it, &filter) != 0) {
+        return;
+    }
+
+    while (get_next_process(&it, &proc) == 0) {
+        process_table_add(&g_ppid_cache, process_dup(&proc));
+    }
+
+    close_process_iterator(&it);
+    if (get_current_time(&g_ppid_cache_timestamp) != 0) {
+        g_ppid_cache_timestamp.tv_sec = 0;
+        g_ppid_cache_timestamp.tv_nsec = 0;
+    }
+}
+
+static int ppid_cache_is_stale(void) {
+    struct timespec now;
+
+    if (!g_ppid_cache_initialized) {
+        return 1;
+    }
+    if (g_ppid_cache_timestamp.tv_sec == 0 &&
+        g_ppid_cache_timestamp.tv_nsec == 0) {
+        return 1;
+    }
+    if (get_current_time(&now) != 0) {
+        return 1;
+    }
+    return timediff_in_ms(&now, &g_ppid_cache_timestamp) > PPID_CACHE_TTL_MS;
+}
+
 /**
  * @brief Retrieve the parent process ID for a given process
  * @param pid Process ID to query
@@ -175,31 +235,25 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
  * call fails.
  */
 pid_t getppid_of(pid_t pid) {
-    char statfile[64], state;
-    char *buffer;
-    const char *ptr_start;
-    long ppid;
+    struct process *cached;
 
-    /* Parse /proc/[pid]/stat for parent process ID */
-    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
-    if ((buffer = read_line_from_file(statfile)) == NULL) {
+    if (ppid_cache_is_stale()) {
+        rebuild_ppid_cache();
+    }
+    ensure_ppid_cache_init();
+
+    cached = process_table_find(&g_ppid_cache, pid);
+    if (cached != NULL) {
+        return cached->ppid;
+    }
+
+    /* Refresh once on miss to catch recent process tree changes. */
+    rebuild_ppid_cache();
+    cached = process_table_find(&g_ppid_cache, pid);
+    if (cached == NULL) {
         return (pid_t)-1;
     }
-    /* Find last ')' to handle process names with parentheses */
-    ptr_start = strrchr(buffer, ')');
-    if (ptr_start == NULL) {
-        free(buffer);
-        return (pid_t)-1;
-    }
-    /* Extract state and PPID, reject zombies and invalid PPIDs */
-    if (sscanf(ptr_start, ") %c %ld", &state, &ppid) != 2 ||
-        !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0) {
-        free(buffer);
-        return (pid_t)-1;
-    }
-    free(buffer);
-    return long2pid_t(ppid);
+    return cached->ppid;
 }
 
 /**

@@ -224,25 +224,6 @@ int close_process_group(struct process_group *pgroup) {
 }
 
 /**
- * @brief Create a deep copy of a process structure
- * @param proc Pointer to the source process structure to duplicate
- * @return Pointer to newly allocated process structure containing copied data
- *
- * Allocates memory for a new process structure and copies all fields from
- * the source. The caller is responsible for freeing the returned pointer.
- *
- * @note Calls exit(EXIT_FAILURE) if memory allocation fails
- */
-static struct process *process_dup(const struct process *proc) {
-    struct process *p;
-    if ((p = (struct process *)malloc(sizeof(struct process))) == NULL) {
-        fprintf(stderr, "Memory allocation failed for duplicated process\n");
-        exit(EXIT_FAILURE);
-    }
-    return (struct process *)memcpy(p, proc, sizeof(struct process));
-}
-
-/**
  * @def ALPHA
  * @brief Smoothing factor for exponential moving average of CPU usage
  *
