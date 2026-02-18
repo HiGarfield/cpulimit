@@ -662,8 +662,8 @@ static void test_cli_parse_reentrant(void) {
     struct cpulimitcfg cfg1;
     struct cpulimitcfg cfg2;
 
-    char *argv1[] = {"cpulimit", "-p", "123", "-l", "50", NULL};
-    char *argv2[] = {"cpulimit", "-e", "busy", "-l", "25", NULL};
+    const char *argv1[] = {"cpulimit", "-p", "123", "-l", "50", NULL};
+    const char *argv2[] = {"cpulimit", "-e", "busy", "-l", "25", NULL};
 
     parse_arguments(5, argv1, &cfg1);
     assert(cfg1.target_pid == 123);
