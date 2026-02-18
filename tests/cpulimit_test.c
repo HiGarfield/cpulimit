@@ -939,6 +939,297 @@ static void test_process_group_cpu_usage(void) {
     kill_and_wait(child_pid, SIGKILL);
 }
 
+/**
+ * @brief Test list operations with edge cases
+ * @note Tests list behavior with various edge cases like reversing order
+ */
+static void test_list_edge_cases(void) {
+    struct list l;
+    int data[10];
+    struct list_node *node;
+    int i, count;
+    
+    init_list(&l);
+    
+    /* Test adding many elements */
+    for (i = 0; i < 10; i++) {
+        data[i] = i;
+        add_elem(&l, &data[i]);
+    }
+    assert(get_list_count(&l) == 10);
+    
+    /* Verify forward traversal */
+    count = 0;
+    for (node = l.first; node != NULL; node = node->next) {
+        assert(*(int *)node->data == count);
+        count++;
+    }
+    assert(count == 10);
+    
+    /* Verify backward traversal */
+    count = 9;
+    for (node = l.last; node != NULL; node = node->previous) {
+        assert(*(int *)node->data == count);
+        count--;
+    }
+    assert(count == -1);
+    
+    /* Delete all nodes from back to front */
+    while (!is_empty_list(&l)) {
+        delete_node(&l, l.last);
+    }
+    assert(get_list_count(&l) == 0);
+    
+    /* Test deleting nodes in middle repeatedly */
+    for (i = 0; i < 5; i++) {
+        data[i] = i;
+        add_elem(&l, &data[i]);
+    }
+    
+    /* Delete middle elements */
+    node = l.first->next; /* Second element */
+    delete_node(&l, node);
+    assert(get_list_count(&l) == 4);
+    
+    node = l.first->next; /* New second element (was third) */
+    delete_node(&l, node);
+    assert(get_list_count(&l) == 3);
+    
+    /* Verify remaining elements */
+    assert(*(int *)l.first->data == 0);
+    assert(*(int *)l.first->next->data == 3);
+    assert(*(int *)l.last->data == 4);
+    
+    clear_list(&l);
+}
+
+/**
+ * @brief Test util edge cases for time operations
+ * @note Tests boundary conditions and special values
+ */
+static void test_util_time_edge_cases(void) {
+    struct timespec ts;
+    double diff_ms;
+    struct timespec t1, t2;
+    
+    /* Test nsec2timespec with very large value */
+    nsec2timespec(10000000000.0, &ts); /* 10 seconds */
+    assert(ts.tv_sec == 10);
+    assert(ts.tv_nsec == 0);
+    
+    /* Test timediff_in_ms with same time */
+    t1.tv_sec = 1000;
+    t1.tv_nsec = 500000000L;
+    t2.tv_sec = 1000;
+    t2.tv_nsec = 500000000L;
+    diff_ms = timediff_in_ms(&t2, &t1);
+    assert(diff_ms >= -0.001 && diff_ms <= 0.001);
+    
+    /* Test timediff_in_ms with very small difference */
+    t1.tv_sec = 1000;
+    t1.tv_nsec = 0;
+    t2.tv_sec = 1000;
+    t2.tv_nsec = 1000000L; /* 1 millisecond */
+    diff_ms = timediff_in_ms(&t2, &t1);
+    assert(diff_ms >= 0.999 && diff_ms <= 1.001);
+    
+    /* Test timediff_in_ms with large difference */
+    t1.tv_sec = 1000;
+    t1.tv_nsec = 0;
+    t2.tv_sec = 2000;
+    t2.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&t2, &t1);
+    assert(diff_ms >= 999999.0 && diff_ms <= 1000001.0);
+}
+
+/**
+ * @brief Test file_basename with edge cases
+ * @note Tests various path formats
+ */
+static void test_util_file_basename_edge_cases(void) {
+    const char *result;
+    
+    /* Test multiple consecutive slashes */
+    result = file_basename("//usr//bin//test");
+    assert(strcmp(result, "test") == 0);
+    
+    /* Test path with no directory separator */
+    result = file_basename("filename");
+    assert(strcmp(result, "filename") == 0);
+    
+    /* Test path with dot directory */
+    result = file_basename("../test");
+    assert(strcmp(result, "test") == 0);
+    
+    /* Test just a slash */
+    result = file_basename("/");
+    assert(strcmp(result, "") == 0);
+}
+
+/**
+ * @brief Test long2pid_t with boundary values
+ * @note Tests conversion edge cases
+ */
+static void test_util_long2pid_t_edge_cases(void) {
+    pid_t result;
+    
+    /* Test maximum reasonable PID */
+    result = long2pid_t(65535L);
+    assert(result == 65535);
+    
+    /* Test with large positive value */
+    result = long2pid_t(1000000L);
+    /* Result depends on pid_t size - just verify it doesn't crash */
+    (void)result;
+}
+
+/**
+ * @brief Test process table with hash collisions
+ * @note Tests behavior when multiple PIDs hash to same bucket
+ */
+static void test_process_table_collisions(void) {
+    struct process_table pt;
+    struct process *p[20];
+    struct process *found;
+    int i;
+    
+    /* Use small hash size to force collisions */
+    process_table_init(&pt, 4);
+    
+    /* Add many processes */
+    for (i = 0; i < 20; i++) {
+        p[i] = (struct process *)malloc(sizeof(struct process));
+        assert(p[i] != NULL);
+        p[i]->pid = 100 + i * 10;
+        p[i]->ppid = 1;
+        process_table_add(&pt, p[i]);
+    }
+    
+    /* Verify all processes can be found */
+    for (i = 0; i < 20; i++) {
+        found = process_table_find(&pt, 100 + i * 10);
+        assert(found == p[i]);
+        assert(found->pid == 100 + i * 10);
+    }
+    
+    /* Delete some processes */
+    for (i = 0; i < 20; i += 3) {
+        assert(process_table_del(&pt, 100 + i * 10) == 0);
+    }
+    
+    /* Verify deleted processes are gone */
+    for (i = 0; i < 20; i++) {
+        found = process_table_find(&pt, 100 + i * 10);
+        if (i % 3 == 0) {
+            assert(found == NULL);
+        } else {
+            assert(found == p[i]);
+        }
+    }
+    
+    process_table_destroy(&pt);
+}
+
+/**
+ * @brief Test process table with empty buckets
+ * @note Tests operations when some buckets are empty
+ */
+static void test_process_table_empty_buckets(void) {
+    struct process_table pt;
+    struct list active_list;
+    struct process *p1, *p2;
+    
+    process_table_init(&pt, 256);
+    init_list(&active_list);
+    
+    /* Add sparse processes */
+    p1 = (struct process *)malloc(sizeof(struct process));
+    p2 = (struct process *)malloc(sizeof(struct process));
+    assert(p1 != NULL && p2 != NULL);
+    
+    p1->pid = 10;
+    p2->pid = 1000;
+    
+    process_table_add(&pt, p1);
+    process_table_add(&pt, p2);
+    
+    /* Remove stale with empty active list */
+    process_table_remove_stale(&pt, &active_list);
+    
+    /* All processes should be removed */
+    assert(process_table_find(&pt, 10) == NULL);
+    assert(process_table_find(&pt, 1000) == NULL);
+    
+    clear_list(&active_list);
+    process_table_destroy(&pt);
+}
+
+/**
+ * @brief Test process iterator filter edge cases
+ * @note Tests various filter configurations
+ */
+static void test_process_iterator_filter_edge_cases(void) {
+    struct process_iterator it;
+    struct process *process;
+    struct process_filter filter;
+    int count;
+    
+    process = (struct process *)malloc(sizeof(struct process));
+    assert(process != NULL);
+    
+    /* Test with PID 0 (all processes) and read_cmd enabled */
+    filter.pid = 0;
+    filter.include_children = 0;
+    filter.read_cmd = 1;
+    
+    count = 0;
+    assert(init_process_iterator(&it, &filter) == 0);
+    while (get_next_process(&it, process) == 0 && count < 10) {
+        /* Just iterate a few processes to verify it works */
+        count++;
+    }
+    assert(count > 0);
+    assert(close_process_iterator(&it) == 0);
+    
+    free(process);
+}
+
+/**
+ * @brief Test process group with rapid updates
+ * @note Tests update_process_group called in quick succession
+ */
+static void test_process_group_rapid_updates(void) {
+    struct process_group pgroup;
+    pid_t child_pid;
+    int i;
+    
+    child_pid = fork();
+    assert(child_pid >= 0);
+    
+    if (child_pid == 0) {
+        /* Child process */
+        volatile int keep_running = 1;
+        while (keep_running && !is_quit_flag_set()) {
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
+        }
+        exit(EXIT_SUCCESS);
+    }
+    
+    /* Initialize and update rapidly */
+    assert(init_process_group(&pgroup, child_pid, 0) == 0);
+    
+    for (i = 0; i < 20; i++) {
+        update_process_group(&pgroup);
+        assert(get_list_count(pgroup.proclist) == 1);
+    }
+    
+    assert(close_process_group(&pgroup) == 0);
+    kill_and_wait(child_pid, SIGKILL);
+}
+
 /***************************************************************************
  * EXISTING TESTS (RENAMED FOR CONSISTENCY)
  ***************************************************************************/
@@ -1515,6 +1806,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_list_destroy_node);
     RUN_TEST(test_list_locate);
     RUN_TEST(test_list_clear_and_destroy);
+    RUN_TEST(test_list_edge_cases);
     
     /* Util module tests */
     printf("\n=== UTIL MODULE TESTS ===\n");
@@ -1525,6 +1817,9 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_get_ncpu);
     RUN_TEST(test_util_increase_priority);
     RUN_TEST(test_util_long2pid_t);
+    RUN_TEST(test_util_time_edge_cases);
+    RUN_TEST(test_util_file_basename_edge_cases);
+    RUN_TEST(test_util_long2pid_t_edge_cases);
     
     /* Process table module tests */
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
@@ -1532,6 +1827,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_table_add_find);
     RUN_TEST(test_process_table_del);
     RUN_TEST(test_process_table_remove_stale);
+    RUN_TEST(test_process_table_collisions);
+    RUN_TEST(test_process_table_empty_buckets);
     
     /* Signal handler module tests */
     printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
@@ -1545,6 +1842,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_read_command);
     RUN_TEST(test_process_iterator_getppid_of);
     RUN_TEST(test_process_iterator_is_child_of);
+    RUN_TEST(test_process_iterator_filter_edge_cases);
     
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
@@ -1554,6 +1852,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_find_by_pid);
     RUN_TEST(test_process_group_find_by_name);
     RUN_TEST(test_process_group_cpu_usage);
+    RUN_TEST(test_process_group_rapid_updates);
     
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
