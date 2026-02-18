@@ -635,6 +635,12 @@ static void test_process_table_init_destroy(void) {
     assert(pt.hashsize == 256);
     process_table_destroy(&pt);
 
+    /* Test zero hashsize fallback (must avoid division by zero in hashing) */
+    process_table_init(&pt, 0);
+    assert(pt.table != NULL);
+    assert(pt.hashsize == 1);
+    process_table_destroy(&pt);
+
     /* Test destroy with NULL (should not crash) */
     process_table_destroy(NULL);
 }

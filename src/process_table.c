@@ -48,6 +48,14 @@ void process_table_init(struct process_table *pt, size_t hashsize) {
     if (pt == NULL) {
         return;
     }
+    if (hashsize == 0) {
+        /*
+         * Avoid zero-sized tables because pid_hash() uses modulo hashsize.
+         * A single bucket still provides valid behavior for callers that
+         * accidentally request size 0.
+         */
+        hashsize = 1;
+    }
     pt->hashsize = hashsize;
     /* Allocate bucket array; calloc initializes all pointers to NULL */
     if ((pt->table = (struct list **)calloc(pt->hashsize,
