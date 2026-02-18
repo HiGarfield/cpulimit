@@ -434,8 +434,8 @@ static void test_process_group_wrong_pid(void) {
 /**
  * @brief Test process group removes exited processes from hash table
  * @note Validates that update_process_group() prunes stale process entries,
- *  preventing unbounded growth of process_table when short-lived processes
- *  are monitored.
+ *       preventing unbounded growth of process_table when short-lived processes
+ *       are monitored.
  */
 static void test_process_group_prune_stale_entries(void) {
     struct process_group pgroup;
