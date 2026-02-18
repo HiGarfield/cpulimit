@@ -226,6 +226,14 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
     cfg->program_name = file_basename(argv[0]);
     cfg->limit = -1.0; /* Negative value indicates limit not yet specified */
 
+    /*
+     * Reset getopt() global state so parse_arguments() remains re-entrant
+     * across multiple invocations in the same process (e.g. unit tests).
+     */
+#if defined(__APPLE__) || defined(__FreeBSD__)
+    optreset = 1;
+#endif
+    optind = 1;
     opterr = 0; /* Suppress getopt's built-in error messages */
     /* Process all options using getopt_long */
     while ((opt = getopt_long(argc, argv, ":p:e:l:vzih", long_options, NULL)) !=
