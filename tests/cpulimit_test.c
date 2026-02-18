@@ -447,8 +447,9 @@ static void test_util_time_functions(void) {
     /* Test get_current_time */
     ret = get_current_time(&ts1);
     assert(ret == 0);
-    assert(ts1.tv_sec > 0);
+    assert(ts1.tv_sec >= 0);
     assert(ts1.tv_nsec >= 0 && ts1.tv_nsec < 1000000000L);
+    assert(ts1.tv_sec > 0 || ts1.tv_nsec > 0);
 
     /* Test sleep_timespec with 50ms */
     sleep_time.tv_sec = 0;
@@ -804,18 +805,57 @@ static void test_process_table_remove_stale(void) {
 
 /**
  * @brief Test signal handler flags
- * @note Tests is_quit_flag_set and is_terminated_by_tty
+ * @note Installs handlers in a child, raises signals, and checks flags
  */
 static void test_signal_handler_flags(void) {
-    /* Test initial state (should not be quit) */
-    /* Note: configure_signal_handler is called in main */
-    /* We can only test that the functions return valid values */
-    int quit_flag = is_quit_flag_set();
-    int tty_flag = is_terminated_by_tty();
+    pid_t pid;
+    int status;
 
-    /* Flags should be 0 or 1 */
-    assert(quit_flag == 0 || quit_flag == 1);
-    assert(tty_flag == 0 || tty_flag == 1);
+    /* Test behavior on SIGTERM: quit flag set, not terminated by tty */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /* Child process: install handlers and raise SIGTERM */
+        configure_signal_handler();
+        if (raise(SIGTERM) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (is_terminated_by_tty()) {
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    /* Parent: verify child exited successfully */
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+
+    /* Test behavior on SIGINT: quit flag set, terminated by tty */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /* Child process: install handlers and raise SIGINT */
+        configure_signal_handler();
+        if (raise(SIGINT) != 0) {
+            _exit(4);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(5);
+        }
+        if (!is_terminated_by_tty()) {
+            _exit(6);
+        }
+        _exit(0);
+    }
+
+    /* Parent: verify child exited successfully */
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
 }
 
 /***************************************************************************
@@ -1787,7 +1827,8 @@ static void test_limit_process_basic(void) {
  * @param argv Argument vector
  * @return 0 on success
  * @note Runs all test functions organized by module and prints their results.
- *  Ignores SIGINT and SIGTERM during testing to prevent interruption.
+ *  Installs signal handlers for SIGINT and SIGTERM to request graceful
+ *  shutdown of the test run instead of abrupt termination.
  */
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
