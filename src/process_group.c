@@ -394,6 +394,9 @@ void update_process_group(struct process_group *pgroup) {
     free(tmp_process);
     close_process_iterator(&it);
 
+    /* Remove hash table entries for processes that are no longer running */
+    process_table_remove_stale(pgroup->proctable, pgroup->proclist);
+
     /*
      * Update timestamp only if sufficient time passed for CPU calculation
      * or if time moved backwards (to establish new baseline).
