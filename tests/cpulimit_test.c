@@ -286,24 +286,32 @@ static void test_list_destroy_node(void) {
  */
 static void test_list_locate(void) {
     struct list l;
-    struct process p1, p2, p3;
+    struct process *p1, *p2, *p3;
     struct list_node *found_node;
     struct process *found_elem;
     pid_t search_pid;
 
     init_list(&l);
 
-    /* Initialize processes with different PIDs */
-    p1.pid = 100;
-    p1.ppid = 1;
-    p2.pid = 200;
-    p2.ppid = 1;
-    p3.pid = 300;
-    p3.ppid = 1;
+    /* Allocate processes on heap to avoid stack size warnings */
+    p1 = (struct process *)malloc(sizeof(struct process));
+    p2 = (struct process *)malloc(sizeof(struct process));
+    p3 = (struct process *)malloc(sizeof(struct process));
+    assert(p1 != NULL);
+    assert(p2 != NULL);
+    assert(p3 != NULL);
 
-    add_elem(&l, &p1);
-    add_elem(&l, &p2);
-    add_elem(&l, &p3);
+    /* Initialize processes with different PIDs */
+    p1->pid = 100;
+    p1->ppid = 1;
+    p2->pid = 200;
+    p2->ppid = 1;
+    p3->pid = 300;
+    p3->ppid = 1;
+
+    add_elem(&l, p1);
+    add_elem(&l, p2);
+    add_elem(&l, p3);
 
     /* Test locate_node - find by PID */
     search_pid = 200;
@@ -322,7 +330,7 @@ static void test_list_locate(void) {
     search_pid = 100;
     found_elem = (struct process *)locate_elem(
         &l, &search_pid, offsetof(struct process, pid), sizeof(pid_t));
-    assert(found_elem == &p1);
+    assert(found_elem == p1);
     assert(found_elem->pid == 100);
 
     /* Test locate_elem - not found */
@@ -344,6 +352,11 @@ static void test_list_locate(void) {
     assert(locate_elem(&l, &search_pid, 0, 0) == NULL);
 
     clear_list(&l);
+
+    /* Free allocated memory */
+    free(p1);
+    free(p2);
+    free(p3);
 }
 
 /**
@@ -971,7 +984,10 @@ static void test_process_group_cpu_usage(void) {
     /* Should now have valid CPU usage */
     cpu_usage = get_process_group_cpu_usage(&pgroup);
     /* CPU usage should be between 0 and ncpu */
-    assert(cpu_usage >= 0.0 && cpu_usage <= (double)get_ncpu());
+    {
+        int ncpu = get_ncpu();
+        assert(cpu_usage >= 0.0 && cpu_usage <= (double)ncpu);
+    }
 
     assert(close_process_group(&pgroup) == 0);
     kill_and_wait(child_pid, SIGKILL);
