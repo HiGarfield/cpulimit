@@ -25,6 +25,7 @@
 
 #undef NDEBUG
 
+#include "../src/cli.h"
 #include "../src/limit_process.h"
 #include "../src/list.h"
 #include "../src/process_group.h"
@@ -652,6 +653,31 @@ static void test_limit_process(void) {
     }
 }
 
+
+
+/**
+ * @brief Regression test: parse_arguments should work across repeated calls
+ */
+static void test_cli_parse_reentrant(void) {
+    struct cpulimitcfg cfg1;
+    struct cpulimitcfg cfg2;
+
+    char *argv1[] = {"cpulimit", "-p", "123", "-l", "50", NULL};
+    char *argv2[] = {"cpulimit", "-e", "busy", "-l", "25", NULL};
+
+    parse_arguments(5, argv1, &cfg1);
+    assert(cfg1.target_pid == 123);
+    assert(cfg1.exe_name == NULL);
+    assert(cfg1.command_mode == 0);
+    assert(cfg1.limit > 0.49 && cfg1.limit < 0.51);
+
+    parse_arguments(5, argv2, &cfg2);
+    assert(cfg2.target_pid == 0);
+    assert(cfg2.exe_name != NULL);
+    assert(cfg2.command_mode == 0);
+    assert(cfg2.limit > 0.24 && cfg2.limit < 0.26);
+}
+
 /** @def RUN_TEST(test_func)
  *  @brief Macro to run a test function and print its status
  *  @param test_func Name of the test function to run
@@ -687,6 +713,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_find_process_by_pid);
     RUN_TEST(test_find_process_by_name);
     RUN_TEST(test_getppid_of);
+    RUN_TEST(test_cli_parse_reentrant);
     RUN_TEST(test_limit_process);
     printf("All tests passed.\n");
 
