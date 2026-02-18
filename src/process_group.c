@@ -243,6 +243,53 @@ static struct process *process_dup(const struct process *proc) {
 }
 
 /**
+ * @brief Check whether a list contains a specific data pointer
+ * @param l Pointer to list to scan
+ * @param data Data pointer to search for
+ * @return 1 if found, 0 otherwise
+ */
+static int list_contains_data_ptr(const struct list *l, const void *data) {
+    const struct list_node *node;
+    for (node = first_node(l); node != NULL; node = node->next) {
+        if (node->data == data) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief Remove stale process entries no longer present in current scan
+ * @param pgroup Process group whose hash table should be pruned
+ *
+ * The process table persists historical process structures across updates so
+ * CPU deltas can be computed. Once a process exits, its entry must be removed
+ * from the table to avoid unbounded memory growth.
+ */
+static void prune_stale_processes(struct process_group *pgroup) {
+    size_t idx;
+    for (idx = 0; idx < pgroup->proctable->hashsize; idx++) {
+        struct list *bucket = pgroup->proctable->table[idx];
+        struct list_node *node;
+        if (bucket == NULL) {
+            continue;
+        }
+        node = first_node(bucket);
+        while (node != NULL) {
+            struct list_node *next = node->next;
+            if (!list_contains_data_ptr(pgroup->proclist, node->data)) {
+                destroy_node(bucket, node);
+            }
+            node = next;
+        }
+        if (is_empty_list(bucket)) {
+            free(bucket);
+            pgroup->proctable->table[idx] = NULL;
+        }
+    }
+}
+
+/**
  * @def ALPHA
  * @brief Smoothing factor for exponential moving average of CPU usage
  *
@@ -393,6 +440,9 @@ void update_process_group(struct process_group *pgroup) {
     }
     free(tmp_process);
     close_process_iterator(&it);
+
+    /* Remove processes that disappeared since previous update. */
+    prune_stale_processes(pgroup);
 
     /*
      * Update timestamp only if sufficient time passed for CPU calculation

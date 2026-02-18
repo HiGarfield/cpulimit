@@ -29,6 +29,7 @@
 #include "../src/list.h"
 #include "../src/process_group.h"
 #include "../src/process_iterator.h"
+#include "../src/process_table.h"
 #include "../src/signal_handler.h"
 #include "../src/util.h"
 
@@ -431,6 +432,46 @@ static void test_process_group_wrong_pid(void) {
 }
 
 /**
+ * @brief Test process group removes exited processes from hash table
+ * @note Validates that update_process_group() prunes stale process entries,
+ *  preventing unbounded growth of process_table when short-lived processes
+ *  are monitored.
+ */
+static void test_process_group_prune_stale_entries(void) {
+    struct process_group pgroup;
+    pid_t child_pid = fork();
+    struct timespec sleep_time;
+
+    if (child_pid < 0) {
+        fprintf(stderr, "fork failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
+
+    if (child_pid == 0) {
+        while (!is_quit_flag_set()) {
+            ;
+        }
+        exit(EXIT_SUCCESS);
+    }
+
+    assert(init_process_group(&pgroup, child_pid, 0) == 0);
+    assert(get_list_count(pgroup.proclist) == 1);
+    assert(process_table_find(pgroup.proctable, child_pid) != NULL);
+
+    kill_and_wait(child_pid, SIGTERM);
+
+    sleep_time.tv_sec = 0;
+    sleep_time.tv_nsec = 30000000L; /* 30ms */
+    sleep_timespec(&sleep_time);
+
+    update_process_group(&pgroup);
+    assert(get_list_count(pgroup.proclist) == 0);
+    assert(process_table_find(pgroup.proctable, child_pid) == NULL);
+
+    assert(close_process_group(&pgroup) == 0);
+}
+
+/**
  * @brief Test find_process_by_pid function
  * @note Verifies that the current process can be found by its PID
  */
@@ -683,6 +724,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_all);
     RUN_TEST(test_process_group_single);
     RUN_TEST(test_process_group_wrong_pid);
+    RUN_TEST(test_process_group_prune_stale_entries);
     RUN_TEST(test_process_name);
     RUN_TEST(test_find_process_by_pid);
     RUN_TEST(test_find_process_by_name);
