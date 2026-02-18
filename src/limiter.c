@@ -176,7 +176,9 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         }
 
         /* Record time for timeout monitoring during cleanup */
-        get_current_time(&start_time);
+        if (get_current_time(&start_time) != 0) {
+            exit(EXIT_FAILURE);
+        }
 
         /*
          * Cleanup loop: reap all child processes whose process group matches
@@ -231,7 +233,9 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                 const struct timespec sleep_time = {
                     0, 50000000L}; /* 50 milliseconds */
                 struct timespec current_time;
-                get_current_time(&current_time);
+                if (get_current_time(&current_time) != 0) {
+                    exit(EXIT_FAILURE);
+                }
 
                 /*
                  * After 5 seconds, forcefully kill any remaining processes.
