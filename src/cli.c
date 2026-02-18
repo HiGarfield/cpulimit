@@ -114,26 +114,6 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
     cfg->lazy_mode = 1;
 }
 
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
-#endif
-/**
- * @brief Test if a double-precision value is NaN (Not-a-Number)
- * @param x Value to test
- * @return 1 if x is NaN, 0 otherwise
- *
- * Uses the IEEE 754 property that NaN != NaN. The volatile qualifier
- * prevents compiler optimizations that might eliminate the comparison.
- */
-static int is_nan(double x) {
-    volatile double y = x;
-    return y != y;
-}
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
-
 /**
  * @brief Parse and validate the CPU limit percentage from command-line argument
  * @param limit_str String representation of the CPU limit percentage
@@ -158,12 +138,10 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
      * - No conversion errors
      * - String was not empty
      * - No trailing characters
-     * - Not NaN
      * - Within valid range: (0, n_cpu * 100]
      */
     if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
-        is_nan(percent_limit) || percent_limit <= 0 ||
-        percent_limit > 100 * n_cpu) {
+        percent_limit <= 0 || percent_limit > 100 * n_cpu) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }

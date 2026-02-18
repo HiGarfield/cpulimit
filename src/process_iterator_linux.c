@@ -272,7 +272,7 @@ static int earlier_than(const struct timespec *t1, const struct timespec *t2) {
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret_child, ret_parent;
-    struct timespec child_start_time, parent_start_time;
+    struct timespec child_start_time = {0, 0}, parent_start_time = {0, 0};
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }

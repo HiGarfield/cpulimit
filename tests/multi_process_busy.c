@@ -42,7 +42,7 @@
  */
 int main(int argc, const char *argv[]) {
     int i, num_procs;
-    pid_t pid;
+    pid_t pid = -1;
     configure_signal_handler();
     num_procs = argc == 2 ? atoi(argv[1]) : get_ncpu();
     /* Ensure at least 2 processes to validate -i option in cpulimit */
