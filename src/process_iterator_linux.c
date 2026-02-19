@@ -265,7 +265,7 @@ static int earlier_than(const struct timespec *t1, const struct timespec *t2) {
  * grandchild, etc.) of parent_pid.
  *
  * Special cases:
- * - Returns 0 if child_pid <= 0, parent_pid <= 0, or child_pid == parent_pid
+ * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
  * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
  * - Linux: Uses process start times to handle PID reuse
  * - FreeBSD/macOS: Relies on current process hierarchy only
