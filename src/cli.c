@@ -173,6 +173,44 @@ static void validate_target_options(const struct cpulimitcfg *cfg) {
 }
 
 /**
+ * @brief Check whether getopt consumed an option token as a required argument
+ * @param optarg Argument string returned by getopt_long for current option
+ * @param argv Full command-line argument vector
+ * @param optind_value Current getopt global index (optind)
+ * @return 1 if optarg appears to be another cpulimit option token, 0 otherwise
+ *
+ * For required-argument options, getopt_long accepts the next argv element even
+ * when it starts with '-'. This helper detects the specific case where that
+ * consumed token is actually one of cpulimit's own option names, so callers can
+ * report a missing argument instead of an "invalid value" error.
+ */
+static int is_missing_optarg(const char *optarg, char *const *argv,
+                             int optind_value) {
+    int i;
+    const char *const option_tokens[] = {
+        "-p", "--pid",     "-e", "--exe",  "-l", "--limit",
+        "-v", "--verbose", "-z", "--lazy", "-i", "--include-children",
+        "-h", "--help",    NULL};
+
+    if (optarg == NULL || argv == NULL || optind_value <= 0) {
+        return 0;
+    }
+    /*
+     * Only treat it as missing when getopt consumed a separate argv element,
+     * not when the value was attached to the option itself (e.g. -l-5).
+     */
+    if (argv[optind_value - 1] != optarg) {
+        return 0;
+    }
+    for (i = 0; option_tokens[i] != NULL; i++) {
+        if (strcmp(optarg, option_tokens[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/**
  * @brief Parse command line arguments and populate configuration structure
  * @param argc Number of command-line arguments (from main)
  * @param argv Array of command-line argument strings (from main)
@@ -213,15 +251,27 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
 #endif
     optind = 1;
     opterr = 0; /* Suppress getopt's built-in error messages */
-    /* Process all options using getopt_long */
-    while ((opt = getopt_long(argc, argv, ":p:e:l:vzih", long_options, NULL)) !=
-           -1) {
+    /*
+     * Process all options using getopt_long.
+     * Leading '+' stops parsing at first non-option (for COMMAND mode),
+     * and leading ':' keeps explicit missing-argument handling via case ':'.
+     */
+    while ((opt = getopt_long(argc, argv, "+:p:e:l:vzih", long_options,
+                              NULL)) != -1) {
         switch (opt) {
         case 'p': /* Process ID target */
+            if (is_missing_optarg(optarg, argv, optind)) {
+                fprintf(stderr, "Error: option '-p' requires an argument\n\n");
+                print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+            }
             parse_pid_option(optarg, cfg);
             break;
 
         case 'e': /* Executable name target */
+            if (is_missing_optarg(optarg, argv, optind)) {
+                fprintf(stderr, "Error: option '-e' requires an argument\n\n");
+                print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+            }
             if (optarg == NULL || *optarg == '\0') {
                 fprintf(stderr, "Error: invalid executable name\n\n");
                 print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
@@ -230,6 +280,10 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
             break;
 
         case 'l': /* CPU percentage limit */
+            if (is_missing_optarg(optarg, argv, optind)) {
+                fprintf(stderr, "Error: option '-l' requires an argument\n\n");
+                print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+            }
             parse_limit_option(optarg, cfg, n_cpu);
             break;
 
