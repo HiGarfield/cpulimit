@@ -266,7 +266,7 @@ static int earlier_than(const struct timespec *t1, const struct timespec *t2) {
  *
  * Special cases:
  * - Returns 0 if child_pid <= 0, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 1 if parent_pid == 1 (all processes descend from init)
+ * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
  * - Linux: Uses process start times to handle PID reuse
  * - FreeBSD/macOS: Relies on current process hierarchy only
  */
@@ -275,9 +275,6 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     struct timespec child_start_time = {0, 0}, parent_start_time = {0, 0};
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
-    }
-    if (parent_pid == 1) {
-        return 1;
     }
     /*
      * Get parent's start time to detect PID reuse.

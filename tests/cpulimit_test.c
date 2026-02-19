@@ -922,9 +922,27 @@ static void test_process_iterator_is_child_of(void) {
     result = is_child_of(parent_pid, parent_pid);
     assert(result == 0);
 
-    /* All processes are children of init (PID 1) */
-    result = is_child_of(parent_pid, 1);
-    assert(result == 1);
+    /* Validate behavior for init (PID 1) against observable parent chain */
+    {
+        pid_t walk_pid;
+        int expected_is_descendant_of_init;
+
+        walk_pid = parent_pid;
+        expected_is_descendant_of_init = 0;
+        while (walk_pid > 1) {
+            walk_pid = getppid_of(walk_pid);
+            if (walk_pid < 0) {
+                break;
+            }
+            if (walk_pid == 1) {
+                expected_is_descendant_of_init = 1;
+                break;
+            }
+        }
+
+        result = is_child_of(parent_pid, 1);
+        assert(result == expected_is_descendant_of_init);
+    }
 
     /* Test with invalid PIDs */
     result = is_child_of(0, parent_pid);
@@ -941,6 +959,10 @@ static void test_process_iterator_is_child_of(void) {
 
     /* Test with non-existent PID */
     result = is_child_of(99999, parent_pid);
+    assert(result == 0);
+
+    /* Non-existent process must not be treated as child of init */
+    result = is_child_of(99999, 1);
     assert(result == 0);
 
     /* Clean up child */
