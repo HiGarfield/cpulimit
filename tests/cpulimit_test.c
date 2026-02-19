@@ -532,30 +532,37 @@ static void test_util_timediff_in_ms(void) {
  */
 static void test_util_file_basename(void) {
     const char *result;
+    int cmp_result;
 
     /* Test simple filename */
     result = file_basename("test.txt");
-    assert(strcmp(result, "test.txt") == 0);
+    cmp_result = strcmp(result, "test.txt");
+    assert(cmp_result == 0);
 
     /* Test path with directory */
     result = file_basename("/usr/bin/test");
-    assert(strcmp(result, "test") == 0);
+    cmp_result = strcmp(result, "test");
+    assert(cmp_result == 0);
 
     /* Test path with multiple directories */
     result = file_basename("/home/user/documents/file.txt");
-    assert(strcmp(result, "file.txt") == 0);
+    cmp_result = strcmp(result, "file.txt");
+    assert(cmp_result == 0);
 
     /* Test path ending with slash */
     result = file_basename("/home/user/");
-    assert(strcmp(result, "") == 0);
+    cmp_result = strcmp(result, "");
+    assert(cmp_result == 0);
 
     /* Test root directory */
     result = file_basename("/");
-    assert(strcmp(result, "") == 0);
+    cmp_result = strcmp(result, "");
+    assert(cmp_result == 0);
 
     /* Test current directory */
     result = file_basename("./file");
-    assert(strcmp(result, "file") == 0);
+    cmp_result = strcmp(result, "file");
+    assert(cmp_result == 0);
 }
 
 /**
@@ -1113,22 +1120,27 @@ static void test_util_time_edge_cases(void) {
  */
 static void test_util_file_basename_edge_cases(void) {
     const char *result;
+    int cmp_result;
 
     /* Test multiple consecutive slashes */
     result = file_basename("//usr//bin//test");
-    assert(strcmp(result, "test") == 0);
+    cmp_result = strcmp(result, "test");
+    assert(cmp_result == 0);
 
     /* Test path with no directory separator */
     result = file_basename("filename");
-    assert(strcmp(result, "filename") == 0);
+    cmp_result = strcmp(result, "filename");
+    assert(cmp_result == 0);
 
     /* Test path with dot directory */
     result = file_basename("../test");
-    assert(strcmp(result, "test") == 0);
+    cmp_result = strcmp(result, "test");
+    assert(cmp_result == 0);
 
     /* Test just a slash */
     result = file_basename("/");
-    assert(strcmp(result, "") == 0);
+    cmp_result = strcmp(result, "");
+    assert(cmp_result == 0);
 }
 
 /**
