@@ -109,8 +109,10 @@ CPPCHECK_OPTS := \
 # clang-tidy options
 CLANG_TIDY_OPTS :=
 ifeq ($(UNAME),Darwin)
-MACOS_SDK := $(shell xcrun --show-sdk-path)
+MACOS_SDK := $(shell xcrun --show-sdk-path 2>/dev/null || true)
+ifneq ($(MACOS_SDK),)
 CLANG_TIDY_OPTS += --extra-arg=-isysroot --extra-arg=$(MACOS_SDK)
+endif
 endif
 
 # Check report file
@@ -154,7 +156,8 @@ check: $(wildcard *.c *.h) clean
 	echo "clang-tidy is not installed. Please install it to check the code."; \
 	exit 1; \
 	}
-	bear --force-wrapper -- $(MAKE) all CHECK=1
+	bear --force-wrapper -- $(MAKE) all 2>/dev/null || \
+	bear -- $(MAKE) all
 	cppcheck $(CPPCHECK_OPTS) 2>"$(CPPCHECK_REPORT)"
 	@echo "See $(shell pwd)/$(CPPCHECK_REPORT) for cppcheck report."
 	clang-tidy $(CLANG_TIDY_OPTS) *.h *.c >"$(CLANG_TIDY_REPORT)"
