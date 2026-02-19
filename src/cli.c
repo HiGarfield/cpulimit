@@ -213,9 +213,12 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
 #endif
     optind = 1;
     opterr = 0; /* Suppress getopt's built-in error messages */
-    /* Process all options using getopt_long */
-    while ((opt = getopt_long(argc, argv, ":p:e:l:vzih", long_options, NULL)) !=
-           -1) {
+    /*
+     * Process all options using getopt_long.
+     * Leading '+' stops parsing at first non-option (for COMMAND mode)
+     */
+    while ((opt = getopt_long(argc, argv, "+:p:e:l:vzih", long_options,
+                              NULL)) != -1) {
         switch (opt) {
         case 'p': /* Process ID target */
             parse_pid_option(optarg, cfg);
@@ -256,12 +259,6 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
                 fprintf(stderr, "Error: invalid option '%s'\n\n",
                         argv[optind - 1]);
             }
-            print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
-            break;
-
-        case ':': /* Option missing required argument */
-            fprintf(stderr, "Error: option '%s' requires an argument\n\n",
-                    argv[optind - 1]);
             print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
             break;
 
