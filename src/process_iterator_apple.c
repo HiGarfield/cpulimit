@@ -264,6 +264,10 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
+    /* Fast-path: any existing non-init process is ultimately a child of init (PID 1) */
+    if (parent_pid == 1) {
+        return getppid_of(child_pid) != (pid_t)(-1);
+    }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
         child_pid = getppid_of(child_pid);
