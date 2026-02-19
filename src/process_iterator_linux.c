@@ -33,6 +33,7 @@
 
 #include <ctype.h>
 #include <dirent.h>
+#include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -363,6 +364,8 @@ int get_next_process(struct process_iterator *it, struct process *p) {
     /* Iterate through /proc entries to find matching processes */
     while ((dit = readdir(it->dip)) != NULL) {
         pid_t pid;
+        char *endptr;
+        long tmp_pid;
 #ifdef _DIRENT_HAVE_D_TYPE
         /*
          * Optimization: skip non-directories if d_type is available.
@@ -377,7 +380,12 @@ int get_next_process(struct process_iterator *it, struct process *p) {
         if (!is_numeric(dit->d_name)) {
             continue;
         }
-        pid = long2pid_t(atol(dit->d_name));
+        errno = 0;
+        tmp_pid = strtol(dit->d_name, &endptr, 10);
+        if (errno != 0 || endptr == dit->d_name || *endptr != '\0') {
+            continue;
+        }
+        pid = long2pid_t(tmp_pid);
         if (pid <= 0) {
             continue;
         }
