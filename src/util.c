@@ -158,10 +158,9 @@ double timediff_in_ms(const struct timespec *later,
  * If path is NULL, returns an empty string.
  */
 const char *file_basename(const char *path) {
-    static const char empty[] = "";
     const char *p;
     if (path == NULL) {
-        return empty;
+        return "";
     }
     p = strrchr(path, '/');
     return p != NULL ? p + 1 : path;
