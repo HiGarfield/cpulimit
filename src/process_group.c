@@ -129,7 +129,7 @@ pid_t find_process_by_name(const char *process_name) {
              * Select this PID if:
              * - No match found yet (pid < 0), OR
              * - This process is an ancestor of the previous match
-             * This heuristic prefers newer/child processes over older/parent
+             * This heuristic prefers older/parent processes over newer/child
              * ones
              */
             if (pid < 0 || is_child_of(pid, proc->pid)) {
@@ -392,7 +392,9 @@ void update_process_group(struct process_group *pgroup) {
         }
     }
     free(tmp_process);
-    close_process_iterator(&it);
+    if (close_process_iterator(&it) != 0) {
+        exit(EXIT_FAILURE);
+    }
 
     /* Remove hash table entries for processes that are no longer running */
     process_table_remove_stale(pgroup->proctable, pgroup->proclist);
