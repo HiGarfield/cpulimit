@@ -26,6 +26,7 @@
 #undef NDEBUG
 
 #include "../src/limit_process.h"
+#include "../src/limiter.h"
 #include "../src/list.h"
 #include "../src/process_group.h"
 #include "../src/process_iterator.h"
@@ -1725,6 +1726,33 @@ static void test_process_iterator_getppid_of(void) {
  * @note Creates a process group with multi processes and applies CPU
  *  limiting to verify that the CPU usage stays within the specified limit
  */
+/**
+ * @brief Test lazy PID mode returns failure when target process is missing
+ * @note Verifies run_pid_or_exe_mode exits with EXIT_FAILURE for -p/-z mode
+ */
+static void test_limiter_lazy_pid_missing_returns_failure(void) {
+    struct cpulimitcfg cfg;
+    pid_t child;
+    int status;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.target_pid = (pid_t)999999;
+    cfg.limit = 0.1;
+    cfg.lazy_mode = 1;
+
+    child = fork();
+    assert(child >= 0);
+
+    if (child == 0) {
+        run_pid_or_exe_mode(&cfg);
+        exit(EXIT_SUCCESS);
+    }
+
+    assert(waitpid(child, &status, 0) == child);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+}
+
 static void test_limit_process_basic(void) {
     const double cpu_usage_limit = 0.5;
     pid_t child_pid;
@@ -1933,6 +1961,10 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_find_by_name);
     RUN_TEST(test_process_group_cpu_usage);
     RUN_TEST(test_process_group_rapid_updates);
+
+    /* Limiter module tests */
+    printf("\n=== LIMITER MODULE TESTS ===\n");
+    RUN_TEST(test_limiter_lazy_pid_missing_returns_failure);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");

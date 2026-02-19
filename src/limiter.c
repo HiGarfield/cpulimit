@@ -292,6 +292,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
     /* Wait interval between search attempts when target not found */
     const struct timespec wait_time = {2, 0}; /* 2 seconds */
     int pid_mode = cfg->target_pid > 0;
+    int exit_status = EXIT_SUCCESS;
 
     while (!is_quit_flag_set()) {
         pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
@@ -300,12 +301,17 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
         if (found_pid == 0) {
             /* Process does not exist */
             printf("Process cannot be found\n");
+            if (cfg->lazy_mode) {
+                /* In lazy mode, missing target is an error condition. */
+                exit_status = EXIT_FAILURE;
+            }
         } else if (found_pid < 0) {
             /*
              * Process exists but cannot be controlled (permission denied).
              * Negative PID indicates EPERM error. No point retrying.
              */
             printf("No permission to control process\n");
+            exit_status = EXIT_FAILURE;
             break;
         } else {
             /*
@@ -342,5 +348,5 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
          */
         sleep_timespec(&wait_time);
     }
-    exit(EXIT_SUCCESS);
+    exit(exit_status);
 }
