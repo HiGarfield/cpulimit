@@ -10,6 +10,18 @@ DESTDIR := /usr/local/bin
 # Detect operating system
 UNAME ?= $(shell uname -s)
 
+# Detect compiler type
+CC_IS_GCC   := $(shell $(CC) -v 2>&1 | grep -q '^gcc version' && echo 1)
+CC_IS_CLANG := $(shell $(CC) --version 2>&1 | grep -qi 'clang' && echo 1)
+
+# Compiler major version number (works for both GCC and Clang)
+CC_VERSION_MAJOR := $(shell $(CC) -dumpversion 2>/dev/null | cut -d. -f1)
+
+# Test if CC accepts FLAG without error; returns FLAG if yes, empty string if no.
+# Usage: $(call cc_supports_flag,FLAG)
+cc_supports_flag = $(shell printf 'int x;\n' | \
+    $(CC) -x c -std=c89 -Werror $(1) -c -o /dev/null - >/dev/null 2>&1 && echo $(1))
+
 CFLAGS ?=
 LDFLAGS ?=
 PROJECT_CFLAGS :=
@@ -30,42 +42,53 @@ endif
 PROJECT_CFLAGS += \
     -pedantic \
     -Wall \
-    -Wextra \
-    -Wold-style-definition \
-    -Wmissing-prototypes \
-    -Wstrict-prototypes \
+    $(call cc_supports_flag,-Wextra) \
+    $(call cc_supports_flag,-Wold-style-definition) \
+    $(call cc_supports_flag,-Wmissing-prototypes) \
+    $(call cc_supports_flag,-Wstrict-prototypes) \
     -Werror \
-    -pipe
+    $(call cc_supports_flag,-pipe)
 
 # If CHECK is set to 1, add stricter flags
 ifeq ($(CHECK),1)
 PROJECT_CFLAGS += \
-    -Wshadow \
-    -Wcast-qual \
-    -Wconversion \
-    -Wformat=2 \
-    -Wstrict-overflow=5 \
-    -Wundef \
-    -Wswitch-default \
-    -Wswitch-enum \
-    -Wunreachable-code \
-    -Wfloat-equal \
-    -Wpointer-arith \
-    -Wwrite-strings \
-    -Wredundant-decls \
-    -Wmissing-declarations \
-    -Winline \
-    -Wcast-align \
-    -Wstrict-aliasing=2 \
-    -Wsign-conversion \
-    -Wmissing-include-dirs \
-    -Wunused \
-    -Wbad-function-cast \
-    -Waggregate-return \
-    -Wmissing-format-attribute \
-    -Wlarger-than=256 \
-    -Wdisabled-optimization \
-    -Wc++-compat
+    $(call cc_supports_flag,-Wshadow) \
+    $(call cc_supports_flag,-Wcast-qual) \
+    $(call cc_supports_flag,-Wconversion) \
+    $(call cc_supports_flag,-Wformat=2) \
+    $(call cc_supports_flag,-Wstrict-overflow=5) \
+    $(call cc_supports_flag,-Wundef) \
+    $(call cc_supports_flag,-Wswitch-default) \
+    $(call cc_supports_flag,-Wswitch-enum) \
+    $(call cc_supports_flag,-Wunreachable-code) \
+    $(call cc_supports_flag,-Wfloat-equal) \
+    $(call cc_supports_flag,-Wpointer-arith) \
+    $(call cc_supports_flag,-Wwrite-strings) \
+    $(call cc_supports_flag,-Wredundant-decls) \
+    $(call cc_supports_flag,-Wmissing-declarations) \
+    $(call cc_supports_flag,-Winline) \
+    $(call cc_supports_flag,-Wcast-align) \
+    $(call cc_supports_flag,-Wstrict-aliasing=2) \
+    $(call cc_supports_flag,-Wsign-conversion) \
+    $(call cc_supports_flag,-Wmissing-include-dirs) \
+    $(call cc_supports_flag,-Wunused) \
+    $(call cc_supports_flag,-Wbad-function-cast) \
+    $(call cc_supports_flag,-Waggregate-return) \
+    $(call cc_supports_flag,-Wmissing-format-attribute) \
+    $(call cc_supports_flag,-Wlarger-than=256) \
+    $(call cc_supports_flag,-Wdisabled-optimization) \
+    $(call cc_supports_flag,-Wc++-compat) \
+    $(call cc_supports_flag,-Wlogical-op) \
+    $(call cc_supports_flag,-Wjump-misses-init) \
+    $(call cc_supports_flag,-Wduplicated-cond) \
+    $(call cc_supports_flag,-Wnull-dereference) \
+    $(call cc_supports_flag,-Wduplicated-branches) \
+    $(call cc_supports_flag,-Walloca) \
+    $(call cc_supports_flag,-Wformat-overflow=2) \
+    $(call cc_supports_flag,-Wformat-truncation=2) \
+    $(call cc_supports_flag,-Wmultistatement-macros) \
+    $(call cc_supports_flag,-Wthread-safety) \
+    $(call cc_supports_flag,-Wdocumentation)
 endif # CHECK = 1
 
 # Set NOFLAGS to 1 for C++ compilers
