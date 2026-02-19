@@ -139,6 +139,9 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
     while (isspace((unsigned char)*trimmed_limit)) {
         trimmed_limit++;
     }
+    if (*trimmed_limit == '+' || *trimmed_limit == '-') {
+        trimmed_limit++;
+    }
     /*
      * Validate the conversion and value:
      * - No conversion errors
