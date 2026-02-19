@@ -29,6 +29,7 @@
 
 #include <errno.h>
 #include <getopt.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -115,6 +116,28 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
 }
 
 /**
+ * @brief Test if a double-precision value is NaN (Not-a-Number)
+ * @param x Value to test
+ * @return 1 if x is NaN, 0 otherwise
+ *
+ * Uses the IEEE 754 property that NaN != NaN. The volatile qualifier
+ * prevents compiler optimizations that might eliminate the comparison.
+ */
+static int is_nan(double value) {
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_isnan(value);
+#elif defined(isnan) || defined(_ISOC99_SOURCE) ||                             \
+    (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) ||              \
+    (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L)
+    return isnan(value);
+#else
+    /* Fallback implementation for platforms without isnan support */
+    volatile double temp = value;
+    return temp != temp;
+#endif
+}
+
+/**
  * @brief Parse and validate the CPU limit percentage from command-line argument
  * @param limit_str String representation of the CPU limit percentage
  * @param cfg Pointer to configuration structure to update
@@ -138,10 +161,12 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
      * - No conversion errors
      * - String was not empty
      * - No trailing characters
+     * - Not NaN
      * - Within valid range: (0, n_cpu * 100]
      */
     if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
-        percent_limit <= 0 || percent_limit > 100 * n_cpu) {
+        is_nan(percent_limit) || percent_limit <= 0 ||
+        percent_limit > 100 * n_cpu) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
