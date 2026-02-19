@@ -276,6 +276,13 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
+    /* Fast path: all non-init processes are descendants of init (PID 1).
+     * Only verify that the child PID currently exists.
+     */
+    if (parent_pid == 1) {
+        ret_child = get_start_time(child_pid, &child_start_time);
+        return (ret_child == 0) ? 1 : 0;
+    }
     /*
      * Get parent's start time to detect PID reuse.
      * If a process in the parent chain started before the supposed parent,
