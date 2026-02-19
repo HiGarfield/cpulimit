@@ -1144,6 +1144,7 @@ static void test_util_file_basename_edge_cases(void) {
 
     /* Test NULL input */
     result = file_basename(NULL);
+    assert(result != NULL);
     cmp_result = strcmp(result, "");
     assert(cmp_result == 0);
 }
