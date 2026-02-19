@@ -943,6 +943,10 @@ static void test_process_iterator_is_child_of(void) {
     result = is_child_of(99999, parent_pid);
     assert(result == 0);
 
+    /* Non-existent process must not be treated as child of init */
+    result = is_child_of(99999, 1);
+    assert(result == 0);
+
     /* Clean up child */
     kill_and_wait(child_pid, SIGKILL);
 }

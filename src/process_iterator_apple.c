@@ -255,8 +255,8 @@ pid_t getppid_of(pid_t pid) {
  * grandchild, etc.) of parent_pid.
  *
  * Special cases:
- * - Returns 0 if child_pid <= 0, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 1 if parent_pid == 1 (all processes descend from init)
+ * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
+ * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
  * - Linux: Uses process start times to handle PID reuse
  * - FreeBSD/macOS: Relies on current process hierarchy only
  */
@@ -264,8 +264,12 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
+    /*
+     * Fast-path: any existing non-init process is ultimately a child of init
+     * (PID 1)
+     */
     if (parent_pid == 1) {
-        return 1;
+        return getppid_of(child_pid) != (pid_t)(-1);
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
