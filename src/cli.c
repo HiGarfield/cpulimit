@@ -27,6 +27,7 @@
 
 #include "util.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
@@ -130,9 +131,14 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
 static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
                                int n_cpu) {
     char *endptr;
+    const char *trimmed_limit;
     double percent_limit;
     errno = 0;
     percent_limit = strtod(limit_str, &endptr);
+    trimmed_limit = limit_str;
+    while (isspace((unsigned char)*trimmed_limit)) {
+        trimmed_limit++;
+    }
     /*
      * Validate the conversion and value:
      * - No conversion errors
@@ -141,7 +147,8 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
      * - Within valid range: (0, n_cpu * 100]
      */
     if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
-        percent_limit <= 0 || percent_limit > 100 * n_cpu) {
+        isalpha((unsigned char)*trimmed_limit) || percent_limit <= 0 ||
+        percent_limit > 100 * n_cpu) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
