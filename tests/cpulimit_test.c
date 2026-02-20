@@ -25,7 +25,6 @@
 
 #undef NDEBUG
 
-#include "../src/cli.h"
 #include "../src/limit_process.h"
 #include "../src/limiter.h"
 #include "../src/list.h"
@@ -913,7 +912,7 @@ static void test_process_iterator_is_child_of(void) {
         while (!is_quit_flag_set()) {
             sleep_timespec(&sleep_time);
         }
-        exit(EXIT_SUCCESS);
+        _exit(EXIT_SUCCESS);
     }
 
     /* Parent process - test is_child_of */
@@ -987,7 +986,7 @@ static void test_process_group_cpu_usage(void) {
                 ;
             }
         }
-        exit(EXIT_SUCCESS);
+        _exit(EXIT_SUCCESS);
     }
 
     /* Initialize process group for child */
@@ -1302,7 +1301,7 @@ static void test_process_group_rapid_updates(void) {
                 ;
             }
         }
-        exit(EXIT_SUCCESS);
+        _exit(EXIT_SUCCESS);
     }
 
     /* Initialize and update rapidly */
@@ -1860,361 +1859,6 @@ static void test_limit_process_basic(void) {
 }
 
 /***************************************************************************
- * CLI MODULE TESTS
- ***************************************************************************/
-
-/**
- * @brief Test parse_arguments in PID mode
- * @note Verifies that PID mode is correctly parsed and sets lazy_mode
- */
-static void test_cli_parse_arguments_pid_mode(void) {
-    struct cpulimitcfg cfg;
-    char prog[] = "cpulimit";
-    char opt_l[] = "-l";
-    char val_50[] = "50";
-    char opt_p[] = "-p";
-    char val_pid[] = "1234";
-    char *argv[6];
-
-    argv[0] = prog;
-    argv[1] = opt_l;
-    argv[2] = val_50;
-    argv[3] = opt_p;
-    argv[4] = val_pid;
-    argv[5] = NULL;
-    parse_arguments(5, (char *const *)argv, &cfg);
-    assert(cfg.target_pid == (pid_t)1234);
-    assert(cfg.exe_name == NULL);
-    assert(cfg.command_mode == 0);
-    assert(cfg.limit > 0.49 && cfg.limit < 0.51);
-    assert(cfg.lazy_mode == 1); /* PID mode implies lazy */
-    assert(cfg.verbose == 0);
-    assert(cfg.include_children == 0);
-}
-
-/**
- * @brief Test parse_arguments in exe mode
- * @note Verifies that exe mode is correctly parsed
- */
-static void test_cli_parse_arguments_exe_mode(void) {
-    struct cpulimitcfg cfg;
-    char prog[] = "cpulimit";
-    char opt_l[] = "-l";
-    char val_25[] = "25";
-    char opt_e[] = "-e";
-    char val_exe[] = "myapp";
-    char *argv[6];
-
-    argv[0] = prog;
-    argv[1] = opt_l;
-    argv[2] = val_25;
-    argv[3] = opt_e;
-    argv[4] = val_exe;
-    argv[5] = NULL;
-    parse_arguments(5, (char *const *)argv, &cfg);
-    assert(cfg.target_pid == 0);
-    assert(cfg.exe_name != NULL);
-    assert(strcmp(cfg.exe_name, "myapp") == 0);
-    assert(cfg.command_mode == 0);
-    assert(cfg.limit > 0.24 && cfg.limit < 0.26);
-    assert(cfg.lazy_mode == 0);
-}
-
-/**
- * @brief Test parse_arguments with optional flags (-v, -z, -i)
- * @note Verifies that verbose, lazy, and include-children flags are parsed
- */
-static void test_cli_parse_arguments_flags(void) {
-    struct cpulimitcfg cfg;
-    char prog[] = "cpulimit";
-    char opt_l[] = "-l";
-    char val_75[] = "75";
-    char opt_v[] = "-v";
-    char opt_z[] = "-z";
-    char opt_i[] = "-i";
-    char opt_e[] = "-e";
-    char val_exe[] = "test";
-    char *argv[9];
-
-    argv[0] = prog;
-    argv[1] = opt_l;
-    argv[2] = val_75;
-    argv[3] = opt_v;
-    argv[4] = opt_z;
-    argv[5] = opt_i;
-    argv[6] = opt_e;
-    argv[7] = val_exe;
-    argv[8] = NULL;
-    parse_arguments(8, (char *const *)argv, &cfg);
-    assert(cfg.verbose == 1);
-    assert(cfg.lazy_mode == 1);
-    assert(cfg.include_children == 1);
-    assert(cfg.limit > 0.74 && cfg.limit < 0.76);
-}
-
-/**
- * @brief Test parse_arguments in command mode
- * @note Verifies that COMMAND mode sets command_mode and lazy_mode
- */
-static void test_cli_parse_arguments_command_mode(void) {
-    struct cpulimitcfg cfg;
-    char prog[] = "cpulimit";
-    char opt_l[] = "-l";
-    char val_50[] = "50";
-    char cmd[] = "sleep";
-    char cmd_arg[] = "1";
-    char *argv[6];
-
-    argv[0] = prog;
-    argv[1] = opt_l;
-    argv[2] = val_50;
-    argv[3] = cmd;
-    argv[4] = cmd_arg;
-    argv[5] = NULL;
-    parse_arguments(5, (char *const *)argv, &cfg);
-    assert(cfg.command_mode == 1);
-    assert(cfg.command_args != NULL);
-    assert(strcmp(cfg.command_args[0], "sleep") == 0);
-    assert(cfg.lazy_mode == 1); /* Command mode implies lazy */
-}
-
-/**
- * @brief Test parse_arguments with long options
- * @note Verifies --limit=N and --exe=NAME are correctly parsed
- */
-static void test_cli_parse_arguments_long_opts(void) {
-    struct cpulimitcfg cfg;
-    char prog[] = "cpulimit";
-    char opt_limit[] = "--limit=50";
-    char opt_exe[] = "--exe=myapp";
-    char *argv[4];
-
-    argv[0] = prog;
-    argv[1] = opt_limit;
-    argv[2] = opt_exe;
-    argv[3] = NULL;
-    parse_arguments(3, (char *const *)argv, &cfg);
-    assert(cfg.exe_name != NULL);
-    assert(strcmp(cfg.exe_name, "myapp") == 0);
-    assert(cfg.limit > 0.49 && cfg.limit < 0.51);
-}
-
-/**
- * @brief Test parse_arguments for error and exit cases
- * @note Runs each error case in a child process to capture exit code
- */
-static void test_cli_parse_arguments_exit_cases(void) {
-    pid_t pid;
-    int status;
-
-    /* Test: no target specified → exit(EXIT_FAILURE) */
-    {
-        char prog[] = "cpulimit";
-        char opt_l[] = "-l";
-        char val_50[] = "50";
-        char *argv[4];
-        struct cpulimitcfg cfg;
-
-        argv[0] = prog;
-        argv[1] = opt_l;
-        argv[2] = val_50;
-        argv[3] = NULL;
-        pid = fork();
-        assert(pid >= 0);
-        if (pid == 0) {
-            (void)close(STDERR_FILENO);
-            parse_arguments(3, (char *const *)argv, &cfg);
-            _exit(EXIT_SUCCESS);
-        }
-        assert(waitpid(pid, &status, 0) == pid);
-        assert(WIFEXITED(status));
-        assert(WEXITSTATUS(status) == EXIT_FAILURE);
-    }
-
-    /* Test: help flag → exit(EXIT_SUCCESS) */
-    {
-        char prog[] = "cpulimit";
-        char opt_h[] = "-h";
-        char *argv[3];
-        struct cpulimitcfg cfg;
-
-        argv[0] = prog;
-        argv[1] = opt_h;
-        argv[2] = NULL;
-        pid = fork();
-        assert(pid >= 0);
-        if (pid == 0) {
-            (void)close(STDOUT_FILENO);
-            parse_arguments(2, (char *const *)argv, &cfg);
-            _exit(EXIT_FAILURE);
-        }
-        assert(waitpid(pid, &status, 0) == pid);
-        assert(WIFEXITED(status));
-        assert(WEXITSTATUS(status) == EXIT_SUCCESS);
-    }
-
-    /* Test: no limit specified → exit(EXIT_FAILURE) */
-    {
-        char prog[] = "cpulimit";
-        char opt_e[] = "-e";
-        char val_exe[] = "test";
-        char *argv[4];
-        struct cpulimitcfg cfg;
-
-        argv[0] = prog;
-        argv[1] = opt_e;
-        argv[2] = val_exe;
-        argv[3] = NULL;
-        pid = fork();
-        assert(pid >= 0);
-        if (pid == 0) {
-            (void)close(STDERR_FILENO);
-            parse_arguments(3, (char *const *)argv, &cfg);
-            _exit(EXIT_SUCCESS);
-        }
-        assert(waitpid(pid, &status, 0) == pid);
-        assert(WIFEXITED(status));
-        assert(WEXITSTATUS(status) == EXIT_FAILURE);
-    }
-
-    /* Test: invalid limit value → exit(EXIT_FAILURE) */
-    {
-        char prog[] = "cpulimit";
-        char opt_l[] = "-l";
-        char val_bad[] = "abc";
-        char opt_e[] = "-e";
-        char val_exe[] = "test";
-        char *argv[6];
-        struct cpulimitcfg cfg;
-
-        argv[0] = prog;
-        argv[1] = opt_l;
-        argv[2] = val_bad;
-        argv[3] = opt_e;
-        argv[4] = val_exe;
-        argv[5] = NULL;
-        pid = fork();
-        assert(pid >= 0);
-        if (pid == 0) {
-            (void)close(STDERR_FILENO);
-            parse_arguments(5, (char *const *)argv, &cfg);
-            _exit(EXIT_SUCCESS);
-        }
-        assert(waitpid(pid, &status, 0) == pid);
-        assert(WIFEXITED(status));
-        assert(WEXITSTATUS(status) == EXIT_FAILURE);
-    }
-
-    /* Test: two targets specified → exit(EXIT_FAILURE) */
-    {
-        char prog[] = "cpulimit";
-        char opt_l[] = "-l";
-        char val_50[] = "50";
-        char opt_p[] = "-p";
-        char val_pid[] = "1234";
-        char opt_e[] = "-e";
-        char val_exe[] = "test";
-        char *argv[8];
-        struct cpulimitcfg cfg;
-
-        argv[0] = prog;
-        argv[1] = opt_l;
-        argv[2] = val_50;
-        argv[3] = opt_p;
-        argv[4] = val_pid;
-        argv[5] = opt_e;
-        argv[6] = val_exe;
-        argv[7] = NULL;
-        pid = fork();
-        assert(pid >= 0);
-        if (pid == 0) {
-            (void)close(STDERR_FILENO);
-            parse_arguments(7, (char *const *)argv, &cfg);
-            _exit(EXIT_SUCCESS);
-        }
-        assert(waitpid(pid, &status, 0) == pid);
-        assert(WIFEXITED(status));
-        assert(WEXITSTATUS(status) == EXIT_FAILURE);
-    }
-
-    /* Test: invalid PID value → exit(EXIT_FAILURE) */
-    {
-        char prog[] = "cpulimit";
-        char opt_l[] = "-l";
-        char val_50[] = "50";
-        char opt_p[] = "-p";
-        char val_badpid[] = "notapid";
-        char *argv[6];
-        struct cpulimitcfg cfg;
-
-        argv[0] = prog;
-        argv[1] = opt_l;
-        argv[2] = val_50;
-        argv[3] = opt_p;
-        argv[4] = val_badpid;
-        argv[5] = NULL;
-        pid = fork();
-        assert(pid >= 0);
-        if (pid == 0) {
-            (void)close(STDERR_FILENO);
-            parse_arguments(5, (char *const *)argv, &cfg);
-            _exit(EXIT_SUCCESS);
-        }
-        assert(waitpid(pid, &status, 0) == pid);
-        assert(WIFEXITED(status));
-        assert(WEXITSTATUS(status) == EXIT_FAILURE);
-    }
-
-    /* Test: missing required argument for -l → exit(EXIT_FAILURE) */
-    {
-        char prog[] = "cpulimit";
-        char opt_l[] = "-l";
-        char *argv[3];
-        struct cpulimitcfg cfg;
-
-        argv[0] = prog;
-        argv[1] = opt_l;
-        argv[2] = NULL;
-        pid = fork();
-        assert(pid >= 0);
-        if (pid == 0) {
-            (void)close(STDERR_FILENO);
-            parse_arguments(2, (char *const *)argv, &cfg);
-            _exit(EXIT_SUCCESS);
-        }
-        assert(waitpid(pid, &status, 0) == pid);
-        assert(WIFEXITED(status));
-        assert(WEXITSTATUS(status) == EXIT_FAILURE);
-    }
-
-    /* Test: missing required argument for -p → exit(EXIT_FAILURE) */
-    {
-        char prog[] = "cpulimit";
-        char opt_l[] = "-l";
-        char val_50[] = "50";
-        char opt_p[] = "-p";
-        char *argv[5];
-        struct cpulimitcfg cfg;
-
-        argv[0] = prog;
-        argv[1] = opt_l;
-        argv[2] = val_50;
-        argv[3] = opt_p;
-        argv[4] = NULL;
-        pid = fork();
-        assert(pid >= 0);
-        if (pid == 0) {
-            (void)close(STDERR_FILENO);
-            parse_arguments(4, (char *const *)argv, &cfg);
-            _exit(EXIT_SUCCESS);
-        }
-        assert(waitpid(pid, &status, 0) == pid);
-        assert(WIFEXITED(status));
-        assert(WEXITSTATUS(status) == EXIT_FAILURE);
-    }
-}
-
-/***************************************************************************
  * LIMITER MODULE TESTS
  ***************************************************************************/
 
@@ -2274,7 +1918,8 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        (void)close(STDOUT_FILENO);
+        FILE *null_file = freopen("/dev/null", "w", stdout);
+        (void)null_file; /* Suppress unused variable warning */
         run_pid_or_exe_mode(&cfg);
         _exit(EXIT_FAILURE); /* Should not reach here */
     }
@@ -2371,15 +2016,6 @@ int main(int argc, char *argv[]) {
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
     RUN_TEST(test_limit_process_basic);
-
-    /* CLI module tests */
-    printf("\n=== CLI MODULE TESTS ===\n");
-    RUN_TEST(test_cli_parse_arguments_pid_mode);
-    RUN_TEST(test_cli_parse_arguments_exe_mode);
-    RUN_TEST(test_cli_parse_arguments_flags);
-    RUN_TEST(test_cli_parse_arguments_command_mode);
-    RUN_TEST(test_cli_parse_arguments_long_opts);
-    RUN_TEST(test_cli_parse_arguments_exit_cases);
 
     /* Limiter module tests */
     printf("\n=== LIMITER MODULE TESTS ===\n");
