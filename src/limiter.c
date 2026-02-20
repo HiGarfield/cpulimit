@@ -304,6 +304,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
             if (cfg->lazy_mode) {
                 /* In lazy mode, missing target is an error condition. */
                 exit_status = EXIT_FAILURE;
+                break;
             }
         } else if (found_pid < 0) {
             /*

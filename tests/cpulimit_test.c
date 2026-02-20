@@ -1745,7 +1745,6 @@ static void test_limiter_lazy_pid_missing_returns_failure(void) {
 
     if (child == 0) {
         run_pid_or_exe_mode(&cfg);
-        exit(EXIT_SUCCESS);
     }
 
     assert(waitpid(child, &status, 0) == child);
