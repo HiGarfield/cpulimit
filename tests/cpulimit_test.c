@@ -2164,6 +2164,54 @@ static void test_cli_parse_arguments_exit_cases(void) {
         assert(WIFEXITED(status));
         assert(WEXITSTATUS(status) == EXIT_FAILURE);
     }
+
+    /* Test: missing required argument for -l → exit(EXIT_FAILURE) */
+    {
+        char prog[] = "cpulimit";
+        char opt_l[] = "-l";
+        char *argv[3];
+        struct cpulimitcfg cfg;
+
+        argv[0] = prog;
+        argv[1] = opt_l;
+        argv[2] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(2, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+
+    /* Test: missing required argument for -p → exit(EXIT_FAILURE) */
+    {
+        char prog[] = "cpulimit";
+        char opt_l[] = "-l";
+        char val_50[] = "50";
+        char opt_p[] = "-p";
+        char *argv[5];
+        struct cpulimitcfg cfg;
+
+        argv[0] = prog;
+        argv[1] = opt_l;
+        argv[2] = val_50;
+        argv[3] = opt_p;
+        argv[4] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(4, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
 }
 
 /***************************************************************************

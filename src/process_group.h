@@ -101,9 +101,10 @@ pid_t find_process_by_pid(pid_t pid);
  * - If process_name starts with '/': compares full absolute paths
  * - Otherwise: compares only the basename (executable name without directory)
  *
- * When multiple matches exist, selects the oldest process, or if one is an
- * ancestor of another, prefers the ancestor. This heuristic helps ensure that
- * if a parent process spawns children with the same name, the parent is chosen.
+ * When multiple matches exist, selects the first process found, or if one is
+ * an ancestor of another, prefers the ancestor. This heuristic helps ensure
+ * that if a parent process spawns children with the same name, the parent is
+ * chosen.
  *
  * @note Iterates through all processes in the system, which may be slow on
  *       systems with many processes. For known PIDs, use find_process_by_pid().

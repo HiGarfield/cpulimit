@@ -289,6 +289,17 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
             print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
             break;
 
+        case ':': /* Missing required argument for an option */
+            if (optopt) {
+                fprintf(stderr, "Error: option '-%c' requires an argument\n\n",
+                        optopt);
+            } else {
+                fprintf(stderr, "Error: option '%s' requires an argument\n\n",
+                        argv[optind - 1]);
+            }
+            print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+            break;
+
         default:
             fprintf(stderr, "Unknown error\n\n");
             print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
