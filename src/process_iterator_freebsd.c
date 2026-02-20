@@ -188,17 +188,22 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
  * @param kd Kernel virtual memory descriptor (must be already open)
  * @param pid Process ID to query
  * @return Parent process ID on success, -1 on error, if process not found,
- *         if the process is a system process (e.g., PID 0 swapper), or if
- *         the process is a zombie
+ *         if pid is invalid (<= 0), if the process is a system process
+ *         (e.g., PID 0 swapper), or if the process is a zombie
  *
  * Uses an existing kvm descriptor to query PPID. This avoids the overhead
  * of repeatedly opening and closing kvm when checking multiple processes.
- * System processes (P_SYSTEM flag) and zombie processes are treated as not
- * found and return -1.
+ * Invalid PIDs (<= 0), system processes (P_SYSTEM flag) and zombie processes
+ * are treated as not found and return -1.
  */
 static pid_t _getppid_of(kvm_t *kd, pid_t pid) {
     int count;
-    struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
+    const struct kinfo_proc *kproc;
+    /* Reject invalid PIDs */
+    if (pid <= 0) {
+        return (pid_t)(-1);
+    }
+    kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
     if (count == 0 || kproc == NULL) {
         return (pid_t)(-1);
     }
@@ -220,13 +225,17 @@ static pid_t _getppid_of(kvm_t *kd, pid_t pid) {
  * - FreeBSD: Uses kvm_getprocs() with KERN_PROC_PID
  * - macOS: Uses proc_pidinfo() with PROC_PIDTASKALLINFO
  *
- * Returns -1 if the process does not exist, is a zombie, or if system
- * call fails.
+ * Returns -1 if pid is invalid (<= 0), the process does not exist, is a
+ * zombie, or if system call fails.
  */
 pid_t getppid_of(pid_t pid) {
     pid_t ppid;
     kvm_t *kd;
     char *errbuf;
+    /* Reject invalid PIDs before opening kvm */
+    if (pid <= 0) {
+        return (pid_t)(-1);
+    }
     /* Allocate error buffer for kvm interface */
     if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
