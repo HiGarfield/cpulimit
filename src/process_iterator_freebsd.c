@@ -376,15 +376,23 @@ int get_next_process(struct process_iterator *it, struct process *p) {
  * After this call, the iterator must not be used until re-initialized.
  */
 int close_process_iterator(struct process_iterator *it) {
+    int ret = 0;
+    if (it == NULL) {
+        return -1;
+    }
     if (it->procs != NULL) {
         free(it->procs);
         it->procs = NULL;
     }
     if (kvm_close(it->kd) != 0) {
         perror("kvm_close");
-        return -1;
+        ret = -1;
     }
-    return 0;
+    it->kd = NULL;
+    it->i = 0;
+    it->count = 0;
+    it->filter = NULL;
+    return ret;
 }
 
 #endif
