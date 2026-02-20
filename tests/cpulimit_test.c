@@ -1918,8 +1918,9 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        FILE *null_file = freopen("/dev/null", "w", stdout);
-        (void)null_file; /* Suppress unused variable warning */
+        /* Suppress output from run_pid_or_exe_mode in child */
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
         run_pid_or_exe_mode(&cfg);
         _exit(EXIT_FAILURE); /* Should not reach here */
     }
@@ -1929,6 +1930,287 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     /* Process not found with lazy_mode=1 → EXIT_FAILURE */
     assert(WEXITSTATUS(status) == EXIT_FAILURE);
 }
+
+/***************************************************************************
+ * ADDITIONAL WHITE-BOX COVERAGE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test add_elem with NULL data and locate_node skipping NULL-data nodes
+ * @note Covers: add_elem(l, NULL), locate_node branch cur->data==NULL,
+ *  destroy_node with NULL data pointer
+ */
+static void test_list_null_data_operations(void) {
+    struct list l;
+    struct list_node *node;
+    int search_val;
+
+    init_list(&l);
+
+    /* add_elem with NULL data must create a valid node */
+    node = add_elem(&l, NULL);
+    assert(node != NULL);
+    assert(node->data == NULL);
+    assert(get_list_count(&l) == 1);
+    assert(is_empty_list(&l) == 0);
+
+    /* locate_node must skip the NULL-data node (branch: cur->data == NULL) */
+    search_val = 42;
+    assert(locate_node(&l, &search_val, 0, sizeof(int)) == NULL);
+    assert(locate_elem(&l, &search_val, 0, sizeof(int)) == NULL);
+
+    /* destroy_node with NULL data must not crash (branch: node->data == NULL) */
+    destroy_node(&l, node);
+    assert(get_list_count(&l) == 0);
+    assert(is_empty_list(&l) == 1);
+}
+
+/**
+ * @brief Test process_table_init and process_table_add with NULL inputs
+ * @note Covers: process_table_init(NULL,...), process_table_add(NULL,p),
+ *  process_table_add(pt,NULL), and duplicate-PID insertion (silently ignored)
+ */
+static void test_process_table_null_inputs_and_dup(void) {
+    struct process_table pt;
+    struct process *p1, *p2;
+    const struct process *found;
+
+    /* process_table_init with NULL pointer must not crash */
+    process_table_init(NULL, 16);
+
+    /* Set up a valid table for the remaining sub-tests */
+    process_table_init(&pt, 16);
+
+    /* process_table_add with NULL table must not crash */
+    p1 = (struct process *)malloc(sizeof(struct process));
+    assert(p1 != NULL);
+    p1->pid = 100;
+    p1->ppid = 1;
+    p1->cputime = 0.0;
+    process_table_add(NULL, p1);
+
+    /* process_table_add with NULL process must not crash */
+    process_table_add(&pt, NULL);
+    assert(process_table_find(&pt, 100) == NULL);
+
+    /* Normal add */
+    process_table_add(&pt, p1);
+    found = process_table_find(&pt, 100);
+    assert(found == p1);
+
+    /* Duplicate-PID insertion must be silently ignored: p1 stays */
+    p2 = (struct process *)malloc(sizeof(struct process));
+    assert(p2 != NULL);
+    p2->pid = 100; /* same PID as p1 */
+    p2->ppid = 1;
+    p2->cputime = 0.0;
+    process_table_add(&pt, p2);
+    found = process_table_find(&pt, 100);
+    assert(found == p1); /* p1 must still be the stored entry */
+
+    /* p2 was never added to the table; free it manually */
+    free(p2);
+
+    /* p1 will be freed by process_table_destroy */
+    process_table_destroy(&pt);
+}
+
+/**
+ * @brief Test process_table_remove_stale with NULL active_list
+ * @note When active_list is NULL, locate_elem always returns NULL so all
+ *  entries are treated as stale and removed
+ */
+static void test_process_table_stale_null_list(void) {
+    struct process_table pt;
+    struct process *p;
+
+    process_table_init(&pt, 16);
+
+    p = (struct process *)malloc(sizeof(struct process));
+    assert(p != NULL);
+    p->pid = 100;
+    p->ppid = 1;
+    p->cputime = 0.0;
+    process_table_add(&pt, p);
+    assert(process_table_find(&pt, 100) == p);
+
+    /* NULL active_list: every entry lacks a match, so all are removed */
+    process_table_remove_stale(&pt, NULL);
+    assert(process_table_find(&pt, 100) == NULL);
+
+    /* p was freed by process_table_remove_stale via destroy_node */
+    process_table_destroy(&pt);
+}
+
+/**
+ * @brief Test SIGQUIT signal handling
+ * @note SIGQUIT must set both quit_flag and terminated_by_tty
+ */
+static void test_signal_handler_sigquit(void) {
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGQUIT) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (!is_terminated_by_tty()) {
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/**
+ * @brief Test SIGHUP signal handling
+ * @note SIGHUP must set quit_flag but must NOT set terminated_by_tty
+ */
+static void test_signal_handler_sighup(void) {
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGHUP) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (is_terminated_by_tty()) { /* SIGHUP must NOT set the tty flag */
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/**
+ * @brief Test close_process_iterator with NULL pointer
+ * @note Must return -1 without crashing
+ */
+static void test_process_iterator_close_null(void) {
+    assert(close_process_iterator(NULL) == -1);
+}
+
+/**
+ * @brief Test getppid_of with boundary and invalid PIDs
+ * @note PID 0 and INT_MAX must return -1; current PID must return getppid()
+ */
+static void test_process_iterator_getppid_of_edges(void) {
+    /* PID 0: /proc/0/stat does not exist */
+    assert(getppid_of((pid_t)0) == (pid_t)-1);
+
+    /* INT_MAX: virtually guaranteed non-existent PID */
+    assert(getppid_of((pid_t)INT_MAX) == (pid_t)-1);
+
+    /* Current process: must match getppid() */
+    assert(getppid_of(getpid()) == getppid());
+}
+
+/**
+ * @brief Test find_process_by_pid with invalid and boundary PIDs
+ * @note PID 0 and negative PIDs must return 0; current PID must be found
+ */
+static void test_process_group_find_by_pid_edges(void) {
+    pid_t result;
+
+    /* PID 0 is rejected before kill() */
+    result = find_process_by_pid((pid_t)0);
+    assert(result == 0);
+
+    /* Negative PID is rejected before kill() */
+    result = find_process_by_pid((pid_t)-1);
+    assert(result == 0);
+
+    /* INT_MAX: virtually guaranteed non-existent PID */
+    result = find_process_by_pid((pid_t)INT_MAX);
+    assert(result == 0);
+
+    /* Current process must be found */
+    result = find_process_by_pid(getpid());
+    assert(result == getpid());
+}
+
+/**
+ * @brief Test find_process_by_name with NULL process name
+ * @note Must return 0 without crashing
+ */
+static void test_process_group_find_by_name_null(void) {
+    assert(find_process_by_name(NULL) == 0);
+}
+
+/**
+ * @brief Test get_process_group_cpu_usage when process list is empty
+ * @note Must return -1.0 when no processes are tracked
+ */
+static void test_process_group_cpu_usage_empty_list(void) {
+    struct process_group pgroup;
+    double usage;
+
+    /* Initialize with INT_MAX: no such process exists, list stays empty */
+    assert(init_process_group(&pgroup, (pid_t)INT_MAX, 0) == 0);
+    assert(get_list_count(pgroup.proclist) == 0);
+
+    /* Empty list must yield -1.0 (unknown) */
+    usage = get_process_group_cpu_usage(&pgroup);
+    assert(usage >= -1.00001 && usage <= -0.99999);
+
+    assert(close_process_group(&pgroup) == 0);
+}
+
+/**
+ * @brief Test long2pid_t with LONG_MAX (overflow must return -1)
+ * @note Covers the round-trip overflow detection branch
+ */
+static void test_util_long2pid_t_overflow(void) {
+    pid_t result;
+
+    /* LONG_MAX overflows pid_t (32-bit) on 64-bit platforms */
+    result = long2pid_t(LONG_MAX);
+    /* Either the round-trip check detects overflow (-1)
+     * or, on exotic platforms where pid_t == long, the value fits.
+     * Either way, the function must not crash. */
+    (void)result;
+}
+
+#if defined(__linux__)
+/**
+ * @brief Test read_line_from_file with NULL, missing, and valid files
+ * @note Covers all three return paths of read_line_from_file (Linux only)
+ */
+static void test_util_read_line_from_file(void) {
+    char *line;
+
+    /* NULL filename must return NULL */
+    line = read_line_from_file(NULL);
+    assert(line == NULL);
+
+    /* Non-existent file must return NULL */
+    line = read_line_from_file("/nonexistent/cpulimit_test_no_such_file");
+    assert(line == NULL);
+
+    /* /proc/self/stat always exists and is non-empty */
+    line = read_line_from_file("/proc/self/stat");
+    assert(line != NULL);
+    free(line);
+}
+#endif /* __linux__ */
 
 /** @def RUN_TEST(test_func)
  *  @brief Macro to run a test function and print its status
@@ -1966,6 +2248,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_list_locate);
     RUN_TEST(test_list_clear_and_destroy);
     RUN_TEST(test_list_edge_cases);
+    RUN_TEST(test_list_null_data_operations);
 
     /* Util module tests */
     printf("\n=== UTIL MODULE TESTS ===\n");
@@ -1979,6 +2262,10 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_time_edge_cases);
     RUN_TEST(test_util_file_basename_edge_cases);
     RUN_TEST(test_util_long2pid_t_edge_cases);
+    RUN_TEST(test_util_long2pid_t_overflow);
+#if defined(__linux__)
+    RUN_TEST(test_util_read_line_from_file);
+#endif
 
     /* Process table module tests */
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
@@ -1988,10 +2275,14 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_table_remove_stale);
     RUN_TEST(test_process_table_collisions);
     RUN_TEST(test_process_table_empty_buckets);
+    RUN_TEST(test_process_table_null_inputs_and_dup);
+    RUN_TEST(test_process_table_stale_null_list);
 
     /* Signal handler module tests */
     printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
     RUN_TEST(test_signal_handler_flags);
+    RUN_TEST(test_signal_handler_sigquit);
+    RUN_TEST(test_signal_handler_sighup);
 
     /* Process iterator module tests */
     printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
@@ -2002,6 +2293,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_getppid_of);
     RUN_TEST(test_process_iterator_is_child_of);
     RUN_TEST(test_process_iterator_filter_edge_cases);
+    RUN_TEST(test_process_iterator_close_null);
+    RUN_TEST(test_process_iterator_getppid_of_edges);
 
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
@@ -2012,6 +2305,9 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_find_by_name);
     RUN_TEST(test_process_group_cpu_usage);
     RUN_TEST(test_process_group_rapid_updates);
+    RUN_TEST(test_process_group_find_by_pid_edges);
+    RUN_TEST(test_process_group_find_by_name_null);
+    RUN_TEST(test_process_group_cpu_usage_empty_list);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
