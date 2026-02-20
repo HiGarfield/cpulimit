@@ -2262,7 +2262,7 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     pid_t pid;
     int status;
     struct cpulimitcfg cfg;
-    char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
+    const char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
 
     memset(&cfg, 0, sizeof(struct cpulimitcfg));
     cfg.program_name = "test";
