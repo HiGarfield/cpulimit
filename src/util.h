@@ -104,9 +104,10 @@ int get_current_time(struct timespec *ts);
  * @return 0 on success, -1 on error (errno set by underlying call)
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
- * that is unaffected by system time changes, otherwise falls back to
- * nanosleep(). The sleep may be interrupted by signals (EINTR) and is not
- * automatically retried.
+ * durations that are unaffected by system time changes, otherwise falls back
+ * to nanosleep(). The underlying call may return early (for example, with
+ * errno set to EINTR if interrupted by a signal); this function does not
+ * automatically resume sleeping in that case.
  */
 int sleep_timespec(const struct timespec *t);
 
