@@ -140,6 +140,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * 2. Destroys and frees the process hashtable
  * 3. Sets both pointers to NULL for safety
  *
+ * @note Safe to call with NULL pgroup (does nothing)
  * @note Safe to call even if pgroup is partially initialized (NULLs are
  *       handled)
  * @note Does not send any signals to processes; they continue running
@@ -166,6 +167,7 @@ int close_process_group(struct process_group *pgroup);
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
+ * @note Does nothing if pgroup is NULL
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
  *       retrieval)
@@ -176,7 +178,8 @@ void update_process_group(struct process_group *pgroup);
  * @brief Calculate aggregate CPU usage across all processes in the group
  * @param pgroup Pointer to the process_group structure to query
  * @return Sum of CPU usage values for all processes with known usage, or
- *         -1.0 if no processes have valid CPU measurements yet
+ *         -1.0 if no processes have valid CPU measurements yet, or
+ *         -1.0 if pgroup is NULL
  *
  * CPU usage is expressed as a fraction of total system CPU capacity:
  * - 0.0 = idle
@@ -189,6 +192,7 @@ void update_process_group(struct process_group *pgroup);
  * 3. Returns -1 if all processes have unknown usage (first update cycle)
  *
  * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
+ * @note Returns -1 if pgroup is NULL
  * @note Thread-safe if pgroup is not being modified concurrently
  */
 double get_process_group_cpu_usage(const struct process_group *pgroup);

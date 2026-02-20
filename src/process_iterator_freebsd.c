@@ -292,7 +292,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     if (kd == NULL) {
         fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
         free(errbuf);
-        exit(EXIT_FAILURE);
+        return 0;
     }
     free(errbuf);
     ret = _is_child_of(kd, child_pid, parent_pid);

@@ -2297,6 +2297,25 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     } while (0)
 
 /**
+ * @brief Test NULL safety of process_group functions
+ * @note Verifies that close_process_group, update_process_group, and
+ *       get_process_group_cpu_usage safely handle NULL pgroup pointers
+ */
+static void test_process_group_null_safety(void) {
+    double cpu_usage;
+
+    /* close_process_group(NULL) must not crash and must return 0 */
+    assert(close_process_group(NULL) == 0);
+
+    /* update_process_group(NULL) must not crash */
+    update_process_group(NULL);
+
+    /* get_process_group_cpu_usage(NULL) must return -1 */
+    cpu_usage = get_process_group_cpu_usage(NULL);
+    assert(cpu_usage >= -1.00001 && cpu_usage <= -0.99999);
+}
+
+/**
  * @brief Main test function
  * @param argc Argument count
  * @param argv Argument vector
@@ -2367,6 +2386,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_find_by_name);
     RUN_TEST(test_process_group_cpu_usage);
     RUN_TEST(test_process_group_rapid_updates);
+    RUN_TEST(test_process_group_null_safety);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
