@@ -195,7 +195,14 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
 static pid_t _getppid_of(kvm_t *kd, pid_t pid) {
     int count;
     struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
-    return (count == 0 || kproc == NULL) ? (pid_t)(-1) : kproc->ki_ppid;
+    if (count == 0 || kproc == NULL) {
+        return (pid_t)(-1);
+    }
+    /* Skip system processes (e.g., PID 0 swapper) and zombie processes */
+    if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
+        return (pid_t)(-1);
+    }
+    return kproc->ki_ppid;
 }
 
 /**
