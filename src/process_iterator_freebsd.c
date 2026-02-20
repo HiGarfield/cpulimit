@@ -384,11 +384,13 @@ int close_process_iterator(struct process_iterator *it) {
         free(it->procs);
         it->procs = NULL;
     }
-    if (kvm_close(it->kd) != 0) {
-        perror("kvm_close");
-        ret = -1;
+    if (it->kd != NULL) {
+        if (kvm_close(it->kd) != 0) {
+            perror("kvm_close");
+            ret = -1;
+        }
+        it->kd = NULL;
     }
-    it->kd = NULL;
     it->i = 0;
     it->count = 0;
     it->filter = NULL;
