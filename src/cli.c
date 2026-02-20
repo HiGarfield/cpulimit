@@ -75,7 +75,8 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
     fprintf(
         stream,
         "  COMMAND [ARG]...         run the command and limit CPU usage (implies -z)\n");
-    exit(exit_code);
+    fflush(stream);
+    _exit(exit_code);
 }
 
 /**
@@ -206,10 +207,11 @@ static void validate_target_options(const struct cpulimitcfg *cfg) {
  * @param cfg Pointer to configuration structure to be filled with parsed values
  *
  * This function processes all command-line options, validates the input,
- * and exits the program (via exit()) if any errors are encountered or if
+ * and exits the program (via _exit()) if any errors are encountered or if
  * help is requested. Upon successful return, cfg contains valid configuration.
  *
- * @note This function calls exit() and does not return on error or help request
+ * @note This function calls _exit() and does not return on error or help
+ *       request
  */
 void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
     int opt, n_cpu;
