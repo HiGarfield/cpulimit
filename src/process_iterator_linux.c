@@ -312,27 +312,6 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 }
 
 /**
- * @brief Validate that a string contains only decimal digits
- * @param str String to validate
- * @return 1 if string is non-empty and contains only digits, 0 otherwise
- *
- * Used to identify process directories in /proc, which have numeric names
- * corresponding to process IDs. Returns 0 for NULL, empty strings, or
- * strings containing any non-digit characters.
- */
-static int is_numeric(const char *str) {
-    if (str == NULL || *str == '\0') {
-        return 0;
-    }
-    for (; *str != '\0'; str++) {
-        if (!isdigit((unsigned char)*str)) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-/**
  * @brief Retrieve the next process matching the filter criteria
  * @param it Pointer to the process_iterator structure
  * @param p Pointer to process structure to populate with process information
@@ -377,9 +356,6 @@ int get_next_process(struct process_iterator *it, struct process *p) {
         }
 #endif
         /* Process directories have numeric names */
-        if (!is_numeric(dit->d_name)) {
-            continue;
-        }
         errno = 0;
         tmp_pid = strtol(dit->d_name, &endptr, 10);
         if (errno != 0 || endptr == dit->d_name || *endptr != '\0') {
