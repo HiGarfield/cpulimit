@@ -187,10 +187,14 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
  * @brief Internal helper to get parent process ID without opening kvm
  * @param kd Kernel virtual memory descriptor (must be already open)
  * @param pid Process ID to query
- * @return Parent process ID on success, -1 on error or if process not found
+ * @return Parent process ID on success, -1 on error, if process not found,
+ *         if the process is a system process (e.g., PID 0 swapper), or if
+ *         the process is a zombie
  *
  * Uses an existing kvm descriptor to query PPID. This avoids the overhead
  * of repeatedly opening and closing kvm when checking multiple processes.
+ * System processes (P_SYSTEM flag) and zombie processes are treated as not
+ * found and return -1.
  */
 static pid_t _getppid_of(kvm_t *kd, pid_t pid) {
     int count;
