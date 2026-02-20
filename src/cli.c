@@ -117,11 +117,13 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
 
 /**
  * @brief Test if a double-precision value is NaN (Not-a-Number)
- * @param x Value to test
- * @return 1 if x is NaN, 0 otherwise
+ * @param value Value to test
+ * @return 1 if value is NaN, 0 otherwise
  *
- * Uses the IEEE 754 property that NaN != NaN. The volatile qualifier
- * prevents compiler optimizations that might eliminate the comparison.
+ * Uses compiler built-ins or the standard isnan() macro when available,
+ * otherwise falls back to the IEEE 754 property that NaN != NaN, using
+ * a volatile variable to prevent optimizations that could eliminate the
+ * comparison.
  */
 static int is_nan(double value) {
 #if defined(__GNUC__) || defined(__clang__)
