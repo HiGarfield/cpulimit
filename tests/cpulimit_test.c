@@ -652,6 +652,9 @@ static void test_process_table_init_destroy(void) {
 
     /* Test destroy with NULL (should not crash) */
     process_table_destroy(NULL);
+
+    /* Test init with NULL (should not crash) */
+    process_table_init(NULL, 16);
 }
 
 /**
@@ -715,6 +718,11 @@ static void test_process_table_add_find(void) {
     /* Test find with NULL table */
     found = process_table_find(NULL, 100);
     assert(found == NULL);
+
+    /* Test add with NULL process (should not crash or modify table) */
+    process_table_add(&pt, NULL);
+    found = process_table_find(&pt, 100);
+    assert(found == p1);
 
     process_table_destroy(&pt);
 }
@@ -1639,10 +1647,16 @@ static void test_process_group_init_invalid_pid(void) {
 
 /**
  * @brief Test find_process_by_pid function
- * @note Verifies that the current process can be found by its PID
+ * @note Verifies that the current process can be found by its PID,
+ *       and that invalid PIDs return 0
  */
 static void test_process_group_find_by_pid(void) {
     assert(find_process_by_pid(getpid()) == getpid());
+
+    /* Invalid PIDs must return 0 */
+    assert(find_process_by_pid((pid_t)0) == 0);
+    assert(find_process_by_pid((pid_t)-1) == 0);
+    assert(find_process_by_pid((pid_t)INT_MAX) == 0);
 }
 
 /**
@@ -1694,6 +1708,9 @@ static void test_process_group_find_by_name(void) {
     assert(find_process_by_name(wrong_name) == 0);
 
     free(wrong_name);
+
+    /* Test Case 4: NULL name should return 0 (not found) */
+    assert(find_process_by_name(NULL) == 0);
 }
 
 /**
@@ -1726,6 +1743,11 @@ static void test_process_iterator_getppid_of(void) {
 
     /* Verify current process's parent PID */
     assert(getppid_of(getpid()) == getppid());
+
+    /* Test with invalid/non-existent PIDs: must return (pid_t)-1 */
+    assert(getppid_of((pid_t)-1) == (pid_t)-1);
+    assert(getppid_of((pid_t)0) == (pid_t)-1);
+    assert(getppid_of((pid_t)INT_MAX) == (pid_t)-1);
 }
 
 /**
