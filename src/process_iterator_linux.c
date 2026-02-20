@@ -182,8 +182,8 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
  * - FreeBSD: Uses kvm_getprocs() with KERN_PROC_PID
  * - macOS: Uses proc_pidinfo() with PROC_PIDTASKALLINFO
  *
- * Returns -1 if the process does not exist, is a zombie, or if system
- * call fails.
+ * Returns -1 if pid is invalid (<= 0), the process does not exist, is a
+ * zombie, or if system call fails.
  */
 pid_t getppid_of(pid_t pid) {
     char statfile[64], state;
