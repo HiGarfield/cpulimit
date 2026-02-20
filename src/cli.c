@@ -43,7 +43,9 @@
  * @param exit_code Exit status code (0 for success, non-zero for error)
  *
  * Prints formatted usage message showing all available options and targets,
- * then exits the program with the specified exit code.
+ * then flushes stream and exits via _exit() with the specified exit code.
+ * Using _exit() avoids flushing inherited stdio buffers, which prevents
+ * blocking writes when called in a forked child process.
  */
 static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
                                  int exit_code) {
@@ -75,7 +77,14 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
     fprintf(
         stream,
         "  COMMAND [ARG]...         run the command and limit CPU usage (implies -z)\n");
-    exit(exit_code);
+    /*
+     * Flush only the stream we wrote to, then use _exit() to avoid flushing
+     * inherited stdio buffers. This prevents a deadlock when called in a
+     * forked child process whose parent is blocked in waitpid(): exit() would
+     * flush the inherited stdout buffer, which can block if the pipe is full.
+     */
+    fflush(stream);
+    _exit(exit_code);
 }
 
 /**
@@ -206,10 +215,11 @@ static void validate_target_options(const struct cpulimitcfg *cfg) {
  * @param cfg Pointer to configuration structure to be filled with parsed values
  *
  * This function processes all command-line options, validates the input,
- * and exits the program (via exit()) if any errors are encountered or if
+ * and exits the program (via _exit()) if any errors are encountered or if
  * help is requested. Upon successful return, cfg contains valid configuration.
  *
- * @note This function calls exit() and does not return on error or help request
+ * @note This function calls _exit() and does not return on error or help
+ *       request
  */
 void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
     int opt, n_cpu;
