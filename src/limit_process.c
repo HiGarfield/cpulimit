@@ -42,9 +42,7 @@
 #include <unistd.h>
 
 /* Very small value to prevent division by zero in calculations */
-#ifndef EPSILON
 #define EPSILON 1e-12
-#endif
 
 /*
  * Base control time slot in microseconds.
