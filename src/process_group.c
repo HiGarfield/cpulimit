@@ -116,6 +116,7 @@ pid_t find_process_by_name(const char *process_name) {
     filter.read_cmd = 1;
     if (init_process_iterator(&it, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
+        free(proc);
         exit(EXIT_FAILURE);
     }
 
@@ -178,6 +179,8 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
     if ((pgroup->proclist = (struct list *)malloc(sizeof(struct list))) ==
         NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
+        process_table_destroy(pgroup->proctable);
+        free(pgroup->proctable);
         exit(EXIT_FAILURE);
     }
     init_list(pgroup->proclist);
@@ -312,6 +315,7 @@ void update_process_group(struct process_group *pgroup) {
     filter.read_cmd = 0;
     if (init_process_iterator(&it, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
+        free(tmp_process);
         exit(EXIT_FAILURE);
     }
 
