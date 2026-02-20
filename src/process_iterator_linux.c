@@ -150,15 +150,25 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     if (!read_cmd) {
         return 0;
     }
-    /* Read command path from /proc/[pid]/cmdline */
-    snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)p->pid);
-    if ((buffer = read_line_from_file(exefile)) == NULL) {
-        return -1;
+    /* Read command path directly from /proc/[pid]/cmdline */
+    {
+        FILE *fp;
+        size_t n;
+        snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)p->pid);
+        fp = fopen(exefile, "r");
+        if (fp == NULL) {
+            return -1;
+        }
+        /*
+         * Read raw bytes directly into p->command, bounded by buffer size.
+         * cmdline separates arguments with null bytes; the first null byte
+         * terminates the program path naturally when used as a C string.
+         */
+        n = fread(p->command, 1, sizeof(p->command) - 1, fp);
+        fclose(fp);
+        p->command[n] = '\0';
+        return (n > 0) ? 0 : -1;
     }
-    strncpy(p->command, buffer, sizeof(p->command) - 1);
-    p->command[sizeof(p->command) - 1] = '\0';
-    free(buffer);
-    return 0;
 }
 
 /**
@@ -329,6 +339,9 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 int get_next_process(struct process_iterator *it, struct process *p) {
     const struct dirent *dit = NULL;
 
+    if (it == NULL || p == NULL) {
+        return -1;
+    }
     if (it->end_of_processes) {
         return -1;
     }

@@ -318,6 +318,9 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
  * and processes not matching the PID filter criteria.
  */
 int get_next_process(struct process_iterator *it, struct process *p) {
+    if (it == NULL || p == NULL) {
+        return -1;
+    }
     if (it->i >= it->count) {
         return -1;
     }
@@ -363,6 +366,9 @@ int get_next_process(struct process_iterator *it, struct process *p) {
  * After this call, the iterator must not be used until re-initialized.
  */
 int close_process_iterator(struct process_iterator *it) {
+    if (it == NULL) {
+        return -1;
+    }
     if (it->pidlist != NULL) {
         free(it->pidlist);
         it->pidlist = NULL;
