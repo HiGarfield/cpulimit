@@ -2307,6 +2307,673 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     assert(WEXITSTATUS(status) == EXIT_FAILURE);
 }
 
+/***************************************************************************
+ * ADDITIONAL LIST MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test adding a NULL data element to the list
+ * @note Verifies that add_elem accepts NULL as valid data pointer
+ */
+static void test_list_add_null_elem(void) {
+    struct list l;
+    const struct list_node *node;
+
+    init_list(&l);
+
+    /* Adding NULL data is valid: the list stores only the pointer */
+    node = add_elem(&l, NULL);
+    assert(node != NULL);
+    assert(node->data == NULL);
+    assert(get_list_count(&l) == 1);
+    assert(is_empty_list(&l) == 0);
+
+    clear_list(&l);
+}
+
+/**
+ * @brief Test locate_node and locate_elem when a node has NULL data
+ * @note Covers the cur->data == NULL guard in locate_node
+ */
+static void test_list_locate_null_data(void) {
+    struct list l;
+    struct list_node *found_node;
+    struct process *p;
+    pid_t search_pid;
+
+    p = (struct process *)malloc(sizeof(struct process));
+    assert(p != NULL);
+    p->pid = (pid_t)100;
+
+    init_list(&l);
+
+    /* Insert a node with NULL data first, then a valid process node */
+    add_elem(&l, NULL);
+    add_elem(&l, p);
+
+    /* locate_node must skip the NULL-data node and find p */
+    search_pid = (pid_t)100;
+    found_node = locate_node(&l, &search_pid, offsetof(struct process, pid),
+                             sizeof(pid_t));
+    assert(found_node != NULL);
+    assert(((struct process *)found_node->data)->pid == (pid_t)100);
+
+    /* locate_elem must return p for the same query */
+    assert(locate_elem(&l, &search_pid, offsetof(struct process, pid),
+                       sizeof(pid_t)) == p);
+
+    /* Searching for a non-existent PID must return NULL */
+    search_pid = (pid_t)999;
+    assert(locate_node(&l, &search_pid, offsetof(struct process, pid),
+                       sizeof(pid_t)) == NULL);
+
+    clear_list(&l);
+    free(p);
+}
+
+/***************************************************************************
+ * ADDITIONAL UTIL MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test timediff_in_ms when the earlier timestamp is after the later one
+ * @note Verifies that a negative difference is returned correctly
+ */
+static void test_util_timediff_negative(void) {
+    struct timespec earlier, later;
+    double diff_ms;
+
+    /* later < earlier => negative result */
+    earlier.tv_sec = 200;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 100;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms < 0.0);
+    assert(diff_ms >= -100001.0 && diff_ms <= -99999.0);
+
+    /* Sub-second negative difference */
+    earlier.tv_sec = 100;
+    earlier.tv_nsec = 500000000L;
+    later.tv_sec = 100;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms < 0.0);
+    assert(diff_ms >= -501.0 && diff_ms <= -499.0);
+}
+
+#if defined(__linux__)
+/**
+ * @brief Test read_line_from_file with various inputs
+ * @note Covers NULL path, non-existent file, empty file, and valid file paths
+ */
+static void test_util_read_line_from_file(void) {
+    char *line;
+
+    /* NULL file name must return NULL */
+    line = read_line_from_file(NULL);
+    assert(line == NULL);
+
+    /* Non-existent file must return NULL */
+    line = read_line_from_file("/nonexistent/path/to/file_cpulimit_test.txt");
+    assert(line == NULL);
+
+    /* /dev/null is empty: getline returns < 0, function must return NULL */
+    line = read_line_from_file("/dev/null");
+    assert(line == NULL);
+
+    /* /proc/version always exists and has content on Linux */
+    line = read_line_from_file("/proc/version");
+    assert(line != NULL);
+    assert(strlen(line) > 0);
+    free(line);
+}
+#endif /* __linux__ */
+
+/***************************************************************************
+ * ADDITIONAL PROCESS_TABLE MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test that adding a duplicate PID leaves the original entry unchanged
+ * @note Covers the duplicate-check branch in process_table_add
+ */
+static void test_process_table_duplicate_pid(void) {
+    struct process_table pt;
+    struct process *p1, *p2;
+    const struct process *found;
+
+    process_table_init(&pt, 16);
+
+    p1 = (struct process *)malloc(sizeof(struct process));
+    p2 = (struct process *)malloc(sizeof(struct process));
+    assert(p1 != NULL && p2 != NULL);
+
+    p1->pid = (pid_t)100;
+    p1->ppid = (pid_t)1;
+    p2->pid = (pid_t)100; /* Same PID as p1 */
+    p2->ppid = (pid_t)2;
+
+    /* Add first process */
+    process_table_add(&pt, p1);
+
+    /* Add second with same PID: must be silently ignored */
+    process_table_add(&pt, p2);
+
+    /* Only p1 must be in the table */
+    found = process_table_find(&pt, (pid_t)100);
+    assert(found == p1);
+
+    process_table_destroy(&pt);
+
+    /* p2 was never owned by the table so it must be freed manually */
+    free(p2);
+}
+
+/**
+ * @brief Test process_table_del when the target PID is not in its bucket
+ * @note Covers the "process not found in non-empty bucket" branch in
+ *       process_table_del
+ */
+static void test_process_table_del_not_found_in_bucket(void) {
+    struct process_table pt;
+    struct process *p;
+    int ret;
+
+    /*
+     * hashsize=16: pid 100 hashes to bucket 4 (100 % 16 = 4),
+     *              pid 116 also hashes to bucket 4 (116 % 16 = 4).
+     * Add pid 100, then try to delete pid 116 (same bucket, not present).
+     */
+    process_table_init(&pt, 16);
+
+    p = (struct process *)malloc(sizeof(struct process));
+    assert(p != NULL);
+    p->pid = (pid_t)100;
+    p->ppid = (pid_t)1;
+
+    process_table_add(&pt, p);
+
+    /* Bucket 4 exists but pid 116 is not in it */
+    ret = process_table_del(&pt, (pid_t)116);
+    assert(ret == 1);
+
+    /* p (pid 100) must still be in the table */
+    assert(process_table_find(&pt, (pid_t)100) == p);
+
+    process_table_destroy(&pt);
+}
+
+/**
+ * @brief Test process_table_remove_stale with a NULL active_list
+ * @note Verifies that a NULL active_list causes all entries to be removed
+ */
+static void test_process_table_remove_stale_null_active(void) {
+    struct process_table pt;
+    struct process *p;
+
+    process_table_init(&pt, 16);
+
+    p = (struct process *)malloc(sizeof(struct process));
+    assert(p != NULL);
+    p->pid = (pid_t)100;
+    p->ppid = (pid_t)1;
+
+    process_table_add(&pt, p);
+    assert(process_table_find(&pt, (pid_t)100) != NULL);
+
+    /* NULL active_list: locate_elem returns NULL for every PID -> remove all */
+    process_table_remove_stale(&pt, NULL);
+
+    /* The process must have been removed (and freed by destroy_node) */
+    assert(process_table_find(&pt, (pid_t)100) == NULL);
+
+    process_table_destroy(&pt);
+}
+
+/***************************************************************************
+ * ADDITIONAL SIGNAL_HANDLER MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test that SIGHUP sets the quit flag but not the TTY flag
+ * @note Covers the default case in sig_handler for non-TTY signals
+ */
+static void test_signal_handler_sighup(void) {
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /* Child: install handlers and raise SIGHUP */
+        configure_signal_handler();
+        if (raise(SIGHUP) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2); /* quit flag must be set */
+        }
+        if (is_terminated_by_tty()) {
+            _exit(3); /* SIGHUP must NOT set TTY flag */
+        }
+        _exit(0);
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/**
+ * @brief Test that SIGQUIT sets both the quit flag and the TTY flag
+ * @note Covers the SIGQUIT case in sig_handler
+ */
+static void test_signal_handler_sigquit(void) {
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /* Child: install handlers and raise SIGQUIT */
+        configure_signal_handler();
+        if (raise(SIGQUIT) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2); /* quit flag must be set */
+        }
+        if (!is_terminated_by_tty()) {
+            _exit(3); /* SIGQUIT MUST set TTY flag */
+        }
+        _exit(0);
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/***************************************************************************
+ * ADDITIONAL PROCESS_ITERATOR MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test closing a process iterator immediately after initialization
+ * @note Verifies that close_process_iterator succeeds without any iteration
+ */
+static void test_process_iterator_close_immediately(void) {
+    struct process_iterator it;
+    struct process_filter filter;
+
+    /* Close without iterating: all-processes filter */
+    filter.pid = (pid_t)0;
+    filter.include_children = 0;
+    filter.read_cmd = 0;
+    assert(init_process_iterator(&it, &filter) == 0);
+    assert(close_process_iterator(&it) == 0);
+
+    /* Close without iterating: single-process filter */
+    filter.pid = getpid();
+    filter.include_children = 0;
+    filter.read_cmd = 0;
+    assert(init_process_iterator(&it, &filter) == 0);
+    assert(close_process_iterator(&it) == 0);
+}
+
+/***************************************************************************
+ * ADDITIONAL CLI MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test parse_arguments with unknown short and long options
+ * @note Covers the case '?' branch for both optopt!=0 and optopt==0
+ */
+static void test_cli_unknown_options(void) {
+    pid_t pid;
+    int status;
+
+    /* Unknown short option -x → exit(EXIT_FAILURE) */
+    {
+        char prog[] = "cpulimit";
+        char opt_x[] = "-x";
+        char *argv[3];
+        struct cpulimitcfg cfg;
+
+        argv[0] = prog;
+        argv[1] = opt_x;
+        argv[2] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(2, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+
+    /* Unknown long option --unknown → exit(EXIT_FAILURE) */
+    {
+        char prog[] = "cpulimit";
+        char opt_unknown[] = "--unknown";
+        char *argv[3];
+        struct cpulimitcfg cfg;
+
+        argv[0] = prog;
+        argv[1] = opt_unknown;
+        argv[2] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(2, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+}
+
+/**
+ * @brief Test parse_arguments with a long option that is missing its argument
+ * @note Covers the optopt==0 branch in case ':' (long option missing value)
+ */
+static void test_cli_missing_long_opt_arg(void) {
+    pid_t pid;
+    int status;
+
+    /* --limit without =VALUE at end of argv → exit(EXIT_FAILURE) */
+    {
+        char prog[] = "cpulimit";
+        char opt_limit[] = "--limit";
+        char *argv[3];
+        struct cpulimitcfg cfg;
+
+        argv[0] = prog;
+        argv[1] = opt_limit;
+        argv[2] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(2, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+}
+
+/**
+ * @brief Test parse_arguments with CPU limit at boundary values
+ * @note Covers the limit<=0 and limit>100*ncpu branches in parse_limit_option
+ */
+static void test_cli_limit_boundaries(void) {
+    pid_t pid;
+    int status;
+    struct cpulimitcfg cfg;
+
+    /* Limit of 0 → fails */
+    {
+        char prog[] = "cpulimit";
+        char opt_l[] = "-l";
+        char val_0[] = "0";
+        char opt_e[] = "-e";
+        char val_exe[] = "test";
+        char *argv[6];
+
+        argv[0] = prog;
+        argv[1] = opt_l;
+        argv[2] = val_0;
+        argv[3] = opt_e;
+        argv[4] = val_exe;
+        argv[5] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(5, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+
+    /* Limit greater than 100*ncpu → fails */
+    {
+        char prog[] = "cpulimit";
+        char opt_l[] = "-l";
+        char val_big[] = "999999";
+        char opt_e[] = "-e";
+        char val_exe[] = "test";
+        char *argv[6];
+
+        argv[0] = prog;
+        argv[1] = opt_l;
+        argv[2] = val_big;
+        argv[3] = opt_e;
+        argv[4] = val_exe;
+        argv[5] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(5, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+
+    /* Limit exactly 100 (100% of one CPU) → succeeds */
+    {
+        char prog[] = "cpulimit";
+        char opt_l[] = "-l";
+        char val_100[] = "100";
+        char opt_e[] = "-e";
+        char val_exe[] = "test";
+        char *argv[6];
+
+        argv[0] = prog;
+        argv[1] = opt_l;
+        argv[2] = val_100;
+        argv[3] = opt_e;
+        argv[4] = val_exe;
+        argv[5] = NULL;
+        parse_arguments(5, (char *const *)argv, &cfg);
+        assert(cfg.limit > 0.99 && cfg.limit < 1.01);
+    }
+}
+
+/**
+ * @brief Test parse_arguments with PID values at boundary conditions
+ * @note Covers the pid<=1 branch in parse_pid_option for PID=0 and PID=1
+ */
+static void test_cli_pid_boundaries(void) {
+    pid_t pid;
+    int status;
+
+    /* PID of 0 → fails (must be > 1) */
+    {
+        char prog[] = "cpulimit";
+        char opt_l[] = "-l";
+        char val_50[] = "50";
+        char opt_p[] = "-p";
+        char val_0[] = "0";
+        char *argv[6];
+        struct cpulimitcfg cfg;
+
+        argv[0] = prog;
+        argv[1] = opt_l;
+        argv[2] = val_50;
+        argv[3] = opt_p;
+        argv[4] = val_0;
+        argv[5] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(5, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+
+    /* PID of 1 → fails (must be > 1) */
+    {
+        char prog[] = "cpulimit";
+        char opt_l[] = "-l";
+        char val_50[] = "50";
+        char opt_p[] = "-p";
+        char val_1[] = "1";
+        char *argv[6];
+        struct cpulimitcfg cfg;
+
+        argv[0] = prog;
+        argv[1] = opt_l;
+        argv[2] = val_50;
+        argv[3] = opt_p;
+        argv[4] = val_1;
+        argv[5] = NULL;
+        pid = fork();
+        assert(pid >= 0);
+        if (pid == 0) {
+            (void)close(STDERR_FILENO);
+            parse_arguments(5, (char *const *)argv, &cfg);
+            _exit(EXIT_SUCCESS);
+        }
+        assert(waitpid(pid, &status, 0) == pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    }
+}
+
+/**
+ * @brief Test parse_arguments with long-option equivalents of short flags
+ * @note Covers --pid= and --include-children long options
+ */
+static void test_cli_long_options_extended(void) {
+    struct cpulimitcfg cfg;
+
+    /* Test --pid=PID and --limit=N together */
+    {
+        char prog[] = "cpulimit";
+        char opt_limit[] = "--limit=50";
+        char opt_pid[] = "--pid=1234";
+        char *argv[4];
+
+        argv[0] = prog;
+        argv[1] = opt_limit;
+        argv[2] = opt_pid;
+        argv[3] = NULL;
+        parse_arguments(3, (char *const *)argv, &cfg);
+        assert(cfg.target_pid == (pid_t)1234);
+        assert(cfg.limit > 0.49 && cfg.limit < 0.51);
+        assert(cfg.lazy_mode == 1); /* --pid implies lazy */
+    }
+
+    /* Test --include-children long option */
+    {
+        char prog[] = "cpulimit";
+        char opt_limit[] = "--limit=50";
+        char opt_include[] = "--include-children";
+        char opt_e[] = "-e";
+        char val_exe[] = "test";
+        char *argv[6];
+
+        argv[0] = prog;
+        argv[1] = opt_limit;
+        argv[2] = opt_include;
+        argv[3] = opt_e;
+        argv[4] = val_exe;
+        argv[5] = NULL;
+        parse_arguments(5, (char *const *)argv, &cfg);
+        assert(cfg.include_children == 1);
+    }
+}
+
+/***************************************************************************
+ * ADDITIONAL LIMITER MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test run_command_mode with a command that exits with non-zero status
+ * @note Verifies that the exit code of the command is propagated correctly
+ */
+static void test_limiter_command_nonzero_exit(void) {
+    pid_t pid;
+    int status;
+    struct cpulimitcfg cfg;
+    char cmd[] = "false";
+    char *args[2];
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = (char *const *)args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    /* 'false' always exits with status 1 */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        run_command_mode(&cfg);
+        _exit(EXIT_SUCCESS); /* Should not reach here */
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) != EXIT_SUCCESS);
+}
+
+/**
+ * @brief Test run_command_mode with a command that does not exist
+ * @note Verifies that execvp failure results in EXIT_FAILURE being propagated
+ */
+static void test_limiter_missing_command(void) {
+    pid_t pid;
+    int status;
+    struct cpulimitcfg cfg;
+    char cmd[] = "nonexistent_cmd_cpulimit_xyz_12345";
+    char *args[2];
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = (char *const *)args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /* Suppress execvp error message */
+        (void)close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(EXIT_SUCCESS); /* Should not reach here */
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    /* execvp fails → child exits with EXIT_FAILURE */
+    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+}
+
 /** @def RUN_TEST(test_func)
  *  @brief Macro to run a test function and print its status
  *  @param test_func Name of the test function to run
@@ -2362,6 +3029,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_list_locate);
     RUN_TEST(test_list_clear_and_destroy);
     RUN_TEST(test_list_edge_cases);
+    RUN_TEST(test_list_add_null_elem);
+    RUN_TEST(test_list_locate_null_data);
 
     /* Util module tests */
     printf("\n=== UTIL MODULE TESTS ===\n");
@@ -2375,6 +3044,10 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_time_edge_cases);
     RUN_TEST(test_util_file_basename_edge_cases);
     RUN_TEST(test_util_long2pid_t_edge_cases);
+    RUN_TEST(test_util_timediff_negative);
+#if defined(__linux__)
+    RUN_TEST(test_util_read_line_from_file);
+#endif
 
     /* Process table module tests */
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
@@ -2384,10 +3057,15 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_table_remove_stale);
     RUN_TEST(test_process_table_collisions);
     RUN_TEST(test_process_table_empty_buckets);
+    RUN_TEST(test_process_table_duplicate_pid);
+    RUN_TEST(test_process_table_del_not_found_in_bucket);
+    RUN_TEST(test_process_table_remove_stale_null_active);
 
     /* Signal handler module tests */
     printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
     RUN_TEST(test_signal_handler_flags);
+    RUN_TEST(test_signal_handler_sighup);
+    RUN_TEST(test_signal_handler_sigquit);
 
     /* Process iterator module tests */
     printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
@@ -2398,6 +3076,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_getppid_of);
     RUN_TEST(test_process_iterator_is_child_of);
     RUN_TEST(test_process_iterator_filter_edge_cases);
+    RUN_TEST(test_process_iterator_close_immediately);
 
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
@@ -2422,11 +3101,18 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_cli_parse_arguments_command_mode);
     RUN_TEST(test_cli_parse_arguments_long_opts);
     RUN_TEST(test_cli_parse_arguments_exit_cases);
+    RUN_TEST(test_cli_unknown_options);
+    RUN_TEST(test_cli_missing_long_opt_arg);
+    RUN_TEST(test_cli_limit_boundaries);
+    RUN_TEST(test_cli_pid_boundaries);
+    RUN_TEST(test_cli_long_options_extended);
 
     /* Limiter module tests */
     printf("\n=== LIMITER MODULE TESTS ===\n");
     RUN_TEST(test_limiter_run_command_mode);
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
+    RUN_TEST(test_limiter_command_nonzero_exit);
+    RUN_TEST(test_limiter_missing_command);
 
     printf("\n=== ALL TESTS PASSED ===\n");
 
