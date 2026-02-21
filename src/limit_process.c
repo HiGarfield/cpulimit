@@ -112,7 +112,7 @@ static double get_dynamic_time_slot(void) {
      * Calculate new time slot based on load:
      * - load / ncpu = normalized load per CPU
      * - Divide by 0.3 to scale: target is 30% baseline load
-     * - Higher load → larger time slot → less frequent adjustments
+     * - Higher load -> larger time slot -> less frequent adjustments
      */
     new_time_slot = time_slot * load / get_ncpu() / 0.3;
     new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);

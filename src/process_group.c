@@ -282,7 +282,7 @@ static struct process *process_dup(const struct process *proc) {
  *
  * CPU usage calculation:
  * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
- * - Uses exponential smoothing: cpu = (1-α)*old + α*sample, α=0.08
+ * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
  * - Detects PID reuse when cputime decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
@@ -387,7 +387,7 @@ void update_process_group(struct process_group *pgroup) {
             } else {
                 /*
                  * Apply exponential moving average for smooth tracking:
-                 * new = (1-α)*old + α*sample
+                 * new = (1-alpha)*old + alpha*sample
                  * This reduces noise while remaining responsive to changes.
                  */
                 p->cpu_usage = (1.0 - ALPHA) * p->cpu_usage + ALPHA * sample;

@@ -211,7 +211,7 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                     int signal_number = WTERMSIG(status);
                     /*
                      * Shell convention: exit status = 128 + signal number
-                     * Example: SIGTERM (15) → exit status 143
+                     * Example: SIGTERM (15) -> exit status 143
                      */
                     child_exit_status = 128 + signal_number;
                     if (cfg->verbose) {
