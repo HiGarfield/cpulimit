@@ -87,44 +87,37 @@ static double get_dynamic_time_slot(void) {
         if (get_current_time(&last_update) == 0) {
             /* Seed PRNG with current time for randomization */
             srandom((unsigned int)(last_update.tv_nsec ^ last_update.tv_sec));
-            goto out;
+        }
+    } else {
+        /* Update at most once per second */
+        if (get_current_time(&now) == 0) {
+            if (timediff_in_ms(&now, &last_update) >= 1000.0) {
+                /* Get 1-minute load average */
+                if (getloadavg(&load, 1) == 1) {
+                    last_update = now;
+
+                    /*
+                     * Calculate new time slot based on load:
+                     * - load / ncpu = normalized load per CPU
+                     * - Divide by 0.3 to scale: target is 30% baseline load
+                     * - Higher load -> larger time slot -> less frequent
+                     *   adjustments
+                     */
+                    new_time_slot = time_slot * load / get_ncpu() / 0.3;
+                    new_time_slot =
+                        CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);
+
+                    /*
+                     * Smooth adaptation using exponential moving average:
+                     * new_value = 0.6 * old_value + 0.4 * measured_value
+                     * This prevents rapid oscillation in time slot size.
+                     */
+                    time_slot = time_slot * 0.6 + new_time_slot * 0.4;
+                }
+            }
         }
     }
 
-    /* Skip update if time retrieval fails */
-    if (get_current_time(&now) != 0) {
-        goto out;
-    }
-
-    /* Update at most once per second */
-    if (timediff_in_ms(&now, &last_update) < 1000.0) {
-        goto out;
-    }
-
-    /* Get 1-minute load average */
-    if (getloadavg(&load, 1) != 1) {
-        goto out;
-    }
-
-    last_update = now;
-
-    /*
-     * Calculate new time slot based on load:
-     * - load / ncpu = normalized load per CPU
-     * - Divide by 0.3 to scale: target is 30% baseline load
-     * - Higher load -> larger time slot -> less frequent adjustments
-     */
-    new_time_slot = time_slot * load / get_ncpu() / 0.3;
-    new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);
-
-    /*
-     * Smooth adaptation using exponential moving average:
-     * new_value = 0.6 * old_value + 0.4 * measured_value
-     * This prevents rapid oscillation in time slot size.
-     */
-    time_slot = time_slot * 0.6 + new_time_slot * 0.4;
-
-out:
     /*
      * Add approximately -5% to +5% random jitter to prevent synchronization
      * with system timer ticks. This improves accuracy by avoiding systematic
