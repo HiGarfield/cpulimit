@@ -1928,7 +1928,7 @@ static void test_limiter_run_pid_or_exe_mode(void) {
 
     assert(waitpid(pid, &status, 0) == pid);
     assert(WIFEXITED(status));
-    /* Process not found with lazy_mode=1 → EXIT_FAILURE */
+    /* Process not found with lazy_mode=1 -> EXIT_FAILURE */
     assert(WEXITSTATUS(status) == EXIT_FAILURE);
 }
 
@@ -2471,7 +2471,7 @@ static void test_limiter_run_command_mode_verbose(void) {
 /**
  * @brief Test run_pid_or_exe_mode with a PID (pid_mode=1) that does not exist
  * @note Uses INT_MAX which is virtually guaranteed to be non-existent;
- *  lazy_mode=1 → EXIT_FAILURE
+ *  lazy_mode=1 -> EXIT_FAILURE
  */
 static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
     pid_t pid;
@@ -3599,7 +3599,7 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
 
     assert(waitpid(pid, &status, 0) == pid);
     assert(WIFEXITED(status));
-    /* Process not found → EXIT_SUCCESS (non-lazy, quit gracefully) */
+    /* Process not found -> EXIT_SUCCESS (non-lazy, quit gracefully) */
     assert(WEXITSTATUS(status) == EXIT_SUCCESS);
 }
 

@@ -46,7 +46,8 @@
  * @brief Initialize a process iterator with specified filter criteria
  * @param it Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (Linux/FreeBSD), exits on failure (macOS)
+ * @return 0 on success, -1 on failure; may call exit() on fatal errors
+ *         (e.g., out-of-memory)
  *
  * This function prepares the iterator for process enumeration. The behavior
  * varies by platform:
