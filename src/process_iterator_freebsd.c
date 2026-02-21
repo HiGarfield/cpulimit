@@ -178,8 +178,8 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
                               int read_cmd) {
     int count;
     struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
-    if (count == 0 || kproc == NULL ||
-        (kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB) ||
+    if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
+        (kproc->ki_stat == SZOMB) ||
         kproc2proc(kd, kproc, process, read_cmd) != 0) {
         return -1;
     }

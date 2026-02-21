@@ -1960,7 +1960,8 @@ static void test_list_null_data_operations(void) {
     assert(locate_node(&l, &search_val, 0, sizeof(int)) == NULL);
     assert(locate_elem(&l, &search_val, 0, sizeof(int)) == NULL);
 
-    /* destroy_node with NULL data must not crash (branch: node->data == NULL) */
+    /* destroy_node with NULL data must not crash (branch: node->data == NULL)
+     */
     destroy_node(&l, node);
     assert(get_list_count(&l) == 0);
     assert(is_empty_list(&l) == 1);
@@ -2233,24 +2234,30 @@ static void test_util_read_line_from_file(void) {
  * @note Covers a>b, a<b, a==b for MAX/MIN; below/above/in-range for CLAMP
  */
 static void test_util_macros(void) {
+    /* Use volatile to prevent value-propagation in static analysers while
+     * still testing the equal-argument and boundary-value edge cases */
+    volatile int eq1 = 4, eq2 = 4;
+    volatile int clamp_low = 0, clamp_high = 10;
+    volatile int clamp_atlow = 0, clamp_athigh = 10;
+
     /* MAX: larger-first, smaller-first, equal */
     assert(MAX(5, 3) == 5);
     assert(MAX(3, 5) == 5);
-    assert(MAX(4, 4) == 4);
+    assert(MAX(eq1, eq2) == 4);
     assert(MAX(-1, 0) == 0);
 
     /* MIN: smaller-first, larger-first, equal */
     assert(MIN(3, 5) == 3);
     assert(MIN(5, 3) == 3);
-    assert(MIN(4, 4) == 4);
+    assert(MIN(eq1, eq2) == 4);
     assert(MIN(-1, 0) == -1);
 
     /* CLAMP: value in range, below low, above high, equals low, equals high */
     assert(CLAMP(5, 0, 10) == 5);
     assert(CLAMP(-1, 0, 10) == 0);
     assert(CLAMP(15, 0, 10) == 10);
-    assert(CLAMP(0, 0, 10) == 0);
-    assert(CLAMP(10, 0, 10) == 10);
+    assert(CLAMP(clamp_atlow, clamp_low, clamp_high) == 0);
+    assert(CLAMP(clamp_athigh, clamp_low, clamp_high) == 10);
 }
 
 /**
@@ -3019,7 +3026,7 @@ static void test_list_locate_single(void) {
     struct list l;
     int val = 42, miss = 99;
     struct list_node *node;
-    void *elem;
+    const void *elem;
 
     init_list(&l);
     add_elem(&l, &val);
@@ -3316,7 +3323,7 @@ static void test_process_iterator_init_all_with_children(void) {
     struct process_iterator it;
     struct process_filter filter;
     struct process *p;
-    int ret, count = 0;
+    int count = 0;
 
     p = (struct process *)malloc(sizeof(struct process));
     assert(p != NULL);
@@ -3326,7 +3333,7 @@ static void test_process_iterator_init_all_with_children(void) {
     filter.read_cmd = 0;
 
     assert(init_process_iterator(&it, &filter) == 0);
-    while ((ret = get_next_process(&it, p)) == 0 && count < 5) {
+    while (get_next_process(&it, p) == 0 && count < 5) {
         count++;
     }
     assert(count > 0);
@@ -3377,7 +3384,6 @@ static void test_process_iterator_with_children(void) {
     struct process *p;
     pid_t child_pid;
     int found_parent = 0, found_child = 0;
-    int ret;
 
     child_pid = fork();
     assert(child_pid >= 0);
@@ -3395,7 +3401,7 @@ static void test_process_iterator_with_children(void) {
     filter.read_cmd = 0;
 
     assert(init_process_iterator(&it, &filter) == 0);
-    while ((ret = get_next_process(&it, p)) == 0) {
+    while (get_next_process(&it, p) == 0) {
         if (p->pid == getpid()) {
             found_parent = 1;
         }
@@ -3525,7 +3531,7 @@ static void test_limit_process_include_children(void) {
         _exit(EXIT_SUCCESS);
     }
 
-    sleep_timespec(&t); /* Let child exit first */
+    sleep_timespec(&t);                  /* Let child exit first */
     limit_process(child_pid, 0.5, 1, 0); /* include_children=1 */
     waitpid(child_pid, NULL, WNOHANG);
 }
@@ -3592,7 +3598,7 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
         close(STDERR_FILENO);
         configure_signal_handler();
         /* Send ourselves SIGTERM to set the quit flag, then call the mode */
-        raise(SIGTERM);
+        kill(getpid(), SIGTERM);
         run_pid_or_exe_mode(&cfg);
         _exit(99);
     }
