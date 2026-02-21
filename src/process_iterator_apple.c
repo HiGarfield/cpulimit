@@ -363,6 +363,9 @@ int get_next_process(struct process_iterator *it, struct process *p) {
  * After this call, the iterator must not be used until re-initialized.
  */
 int close_process_iterator(struct process_iterator *it) {
+    if (it == NULL) {
+        return -1;
+    }
     if (it->pidlist != NULL) {
         free(it->pidlist);
         it->pidlist = NULL;
