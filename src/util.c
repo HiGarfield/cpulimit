@@ -137,8 +137,8 @@ int sleep_timespec(const struct timespec *t) {
  * @return Time difference in milliseconds (later - earlier)
  *
  * Computes the difference accounting for both seconds and nanoseconds fields.
- * Returns a positive value when later > earlier. Precision is microseconds
- * due to nanosecond conversion to milliseconds.
+ * Returns a positive value when later > earlier. The nanosecond component is
+ * divided by 1e6, giving sub-microsecond precision in the returned value.
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier) {
