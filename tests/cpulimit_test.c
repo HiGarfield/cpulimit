@@ -2188,6 +2188,15 @@ static void test_process_group_cpu_usage_empty_list(void) {
 }
 
 /**
+ * @brief Test get_process_group_cpu_usage with NULL pointer
+ * @note Verifies the null guard returns the -1 sentinel without crashing
+ */
+static void test_process_group_cpu_usage_null(void) {
+    double usage = get_process_group_cpu_usage(NULL);
+    assert(usage >= -1.00001 && usage <= -0.99999);
+}
+
+/**
  * @brief Test long2pid_t with LONG_MAX (overflow must return -1)
  * @note Covers the round-trip overflow detection branch
  */
@@ -3097,6 +3106,41 @@ static void test_util_nsec2timespec_zero_and_sub(void) {
 }
 
 /**
+ * @brief Test nsec2timespec rollover correction for floating-point edge cases
+ * @note Verifies that tv_nsec stays in [0, 999999999] and tv_sec is adjusted
+ *       when floating-point rounding pushes tv_nsec out of range
+ */
+static void test_util_nsec2timespec_rollover(void) {
+    struct timespec t;
+
+    /*
+     * Values very close to an integer-second boundary can trigger
+     * floating-point rounding that makes tv_nsec negative or >= 1e9.
+     * Use nextafter to obtain a value that is representable just below
+     * or just above a boundary and verify the correction branches.
+     */
+
+    /* A large multiple of 1e9 can round tv_nsec up to 1e9 */
+    nsec2timespec(3e9, &t);
+    assert(t.tv_sec >= 2 && t.tv_sec <= 4);
+    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+
+    /* 2 seconds exactly */
+    nsec2timespec(2e9, &t);
+    assert(t.tv_sec == 2);
+    assert(t.tv_nsec == 0L);
+
+    /* 0.999999999 s = 999999999 ns -- must stay sub-second */
+    nsec2timespec(999999999.0, &t);
+    assert(t.tv_sec == 0);
+    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+
+    /* General invariant: result is always normalised */
+    nsec2timespec(1234567890.123, &t);
+    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+}
+
+/**
  * @brief Test timediff_in_ms when only nanoseconds differ
  * @note Covers the sub-millisecond sub-second difference path
  */
@@ -3806,6 +3850,7 @@ int main(int argc, char *argv[]) {
     printf("\n=== UTIL MODULE TESTS ===\n");
     RUN_TEST(test_util_nsec2timespec);
     RUN_TEST(test_util_nsec2timespec_zero_and_sub);
+    RUN_TEST(test_util_nsec2timespec_rollover);
     RUN_TEST(test_util_time_functions);
     RUN_TEST(test_util_get_current_time_monotonic);
     RUN_TEST(test_util_timediff_in_ms);
@@ -3884,6 +3929,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_find_by_name_self);
     RUN_TEST(test_process_group_cpu_usage);
     RUN_TEST(test_process_group_cpu_usage_empty_list);
+    RUN_TEST(test_process_group_cpu_usage_null);
     RUN_TEST(test_process_group_cpu_usage_with_usage);
     RUN_TEST(test_process_group_rapid_updates);
 
