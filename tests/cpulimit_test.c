@@ -2960,7 +2960,7 @@ static void test_cli_missing_arg(void) {
 }
 
 /***************************************************************************
- * LIST MODULE – ADDITIONAL COVERAGE
+ * LIST MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
@@ -3052,7 +3052,7 @@ static void test_list_destroy_empty(void) {
 }
 
 /***************************************************************************
- * UTIL MODULE – ADDITIONAL COVERAGE
+ * UTIL MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
@@ -3138,7 +3138,7 @@ static void test_util_file_basename_empty(void) {
 }
 
 /***************************************************************************
- * PROCESS_TABLE MODULE – ADDITIONAL COVERAGE
+ * PROCESS_TABLE MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
@@ -3234,7 +3234,7 @@ static void test_process_table_destroy_edge_cases(void) {
 }
 
 /***************************************************************************
- * SIGNAL_HANDLER MODULE – ADDITIONAL COVERAGE
+ * SIGNAL_HANDLER MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
@@ -3294,7 +3294,7 @@ static void test_signal_handler_sigint(void) {
 }
 
 /***************************************************************************
- * PROCESS_ITERATOR MODULE – ADDITIONAL COVERAGE
+ * PROCESS_ITERATOR MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
@@ -3414,13 +3414,15 @@ static void test_process_iterator_close_null_dip(void) {
     filter.read_cmd = 0;
 
     assert(init_process_iterator(&it, &filter) == 0);
+#if defined(__linux__)
     /* dip is NULL because single-PID optimisation skips opendir() */
     assert(it.dip == NULL);
+#endif
     assert(close_process_iterator(&it) == 0);
 }
 
 /***************************************************************************
- * PROCESS_GROUP MODULE – ADDITIONAL COVERAGE
+ * PROCESS_GROUP MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
@@ -3495,7 +3497,7 @@ static void test_process_group_cpu_usage_with_usage(void) {
 }
 
 /***************************************************************************
- * LIMIT_PROCESS MODULE – ADDITIONAL COVERAGE
+ * LIMIT_PROCESS MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
@@ -3518,7 +3520,7 @@ static void test_limit_process_include_children(void) {
 }
 
 /***************************************************************************
- * LIMITER MODULE – ADDITIONAL COVERAGE
+ * LIMITER MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
@@ -3591,7 +3593,7 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
 }
 
 /***************************************************************************
- * CLI MODULE – ADDITIONAL COVERAGE
+ * CLI MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
 /**
