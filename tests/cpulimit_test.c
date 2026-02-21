@@ -2045,7 +2045,10 @@ static void test_process_table_stale_null_list(void) {
 
 /**
  * @brief Test SIGQUIT signal handling
- * @note SIGQUIT must set both quit_flag and terminated_by_tty
+ * @note SIGQUIT must set both quit_flag and terminated_by_tty.
+ *  The child calls setsid() to create a new session and detach from the
+ *  controlling terminal, preventing BSD terminal drivers from propagating
+ *  SIGQUIT to the parent's process group.
  */
 static void test_signal_handler_sigquit(void) {
     pid_t pid;
@@ -2054,6 +2057,14 @@ static void test_signal_handler_sigquit(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        /*
+         * Create a new session to detach from the controlling terminal.
+         * On BSD, raising SIGQUIT (a core-dump signal) in a process that
+         * shares the parent's terminal session can cause the terminal
+         * driver to propagate the signal to the parent's process group,
+         * corrupting the parent's state. setsid() prevents this.
+         */
+        assert(setsid() != (pid_t)-1);
         configure_signal_handler();
         if (raise(SIGQUIT) != 0) {
             _exit(1);
