@@ -333,21 +333,11 @@ void update_process_group(struct process_group *pgroup) {
             /* Mark CPU usage as unknown until we have a time delta */
             p->cpu_usage = -1;
             process_table_add(pgroup->proctable, p);
-            if (add_elem(pgroup->proclist, p) == NULL) {
-                fprintf(stderr,
-                        "Failed to add process with PID %ld to the list\n",
-                        (long)p->pid);
-                exit(EXIT_FAILURE);
-            }
+            add_elem(pgroup->proclist, p);
         } else {
             double sample;
             /* Existing process: re-add to list for this cycle */
-            if (add_elem(pgroup->proclist, p) == NULL) {
-                fprintf(stderr,
-                        "Failed to add process with PID %ld to the list\n",
-                        (long)p->pid);
-                exit(EXIT_FAILURE);
-            }
+            add_elem(pgroup->proclist, p);
             if (tmp_process->cputime < p->cputime) {
                 /*
                  * CPU time decreased: PID has been reused for a new process.

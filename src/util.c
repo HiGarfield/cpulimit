@@ -176,7 +176,6 @@ const char *file_basename(const char *path) {
  * priority, just with potentially higher latency.
  */
 void increase_priority(void) {
-    static const int MAX_PRIORITY = -20;
     int old_priority, priority;
     errno = 0;
     old_priority = getpriority(PRIO_PROCESS, 0);
@@ -185,7 +184,7 @@ void increase_priority(void) {
         old_priority = 0;
     }
     /* Try to set highest priority, working upward if denied */
-    for (priority = MAX_PRIORITY; priority < old_priority; priority++) {
+    for (priority = PRIO_MIN; priority < old_priority; priority++) {
         errno = 0;
         if (setpriority(PRIO_PROCESS, 0, priority) == 0) {
             break; /* Successfully set priority */
@@ -273,9 +272,8 @@ static int parse_cpu_range(const char *str) {
 
 /**
  * @brief Get online CPU count by reading sysfs
- * @return Number of online CPUs on success, or negative on error: -1: cannot
- *         open/read /sys/devices/system/cpu/online -2: invalid format in the
- *         file
+ * @return Number of online CPUs on success, or -1 on error (failed to
+ *         open/read /sys/devices/system/cpu/online or invalid format)
  *
  * Reads /sys/devices/system/cpu/online and parses the CPU range string.
  * This file uses the same format as parse_cpu_range() supports:

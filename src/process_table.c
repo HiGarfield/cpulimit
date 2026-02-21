@@ -133,11 +133,7 @@ void process_table_add(struct process_table *pt, struct process *p) {
     /* Verify process doesn't already exist before adding */
     if (locate_elem(pt->table[idx], &p->pid, offsetof(struct process, pid),
                     sizeof(pid_t)) == NULL) {
-        if (add_elem(pt->table[idx], p) == NULL) {
-            fprintf(stderr, "Failed to add process with PID %ld to the table\n",
-                    (long)p->pid);
-            exit(EXIT_FAILURE);
-        }
+        add_elem(pt->table[idx], p);
     }
 }
 
