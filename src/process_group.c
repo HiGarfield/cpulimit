@@ -87,7 +87,8 @@ pid_t find_process_by_pid(pid_t pid) {
  *       systems with many processes. For known PIDs, use find_process_by_pid().
  */
 pid_t find_process_by_name(const char *process_name) {
-    pid_t pid = -1;
+    int found = 0;
+    pid_t pid = 0;
     struct process_iterator it;
     struct process_filter filter;
     struct process *proc;
@@ -129,13 +130,14 @@ pid_t find_process_by_name(const char *process_name) {
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
             /*
              * Select this PID if:
-             * - No match found yet (pid < 0), OR
+             * - No match found yet (!found), OR
              * - This process is an ancestor of the previous match
              * This heuristic prefers older/parent processes over newer/child
              * ones
              */
-            if (pid < 0 || is_child_of(pid, proc->pid)) {
+            if (!found || is_child_of(pid, proc->pid)) {
                 pid = proc->pid;
+                found = 1;
             }
         }
     }
@@ -145,7 +147,7 @@ pid_t find_process_by_name(const char *process_name) {
     }
 
     /* Verify the found process still exists and is accessible */
-    return (pid > 0) ? find_process_by_pid(pid) : 0;
+    return found ? find_process_by_pid(pid) : 0;
 }
 
 /**
