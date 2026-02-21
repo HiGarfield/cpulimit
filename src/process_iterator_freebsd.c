@@ -196,7 +196,11 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
  */
 static pid_t _getppid_of(kvm_t *kd, pid_t pid) {
     int count;
-    struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
+    struct kinfo_proc *kproc;
+    if (pid <= 0) {
+        return (pid_t)(-1);
+    }
+    kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
     return (count == 0 || kproc == NULL) ? (pid_t)(-1) : kproc->ki_ppid;
 }
 
