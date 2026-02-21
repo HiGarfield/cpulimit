@@ -61,11 +61,22 @@
  *
  * Splits the nanosecond value into seconds and nanoseconds components.
  * The seconds component is the integer division by 1 billion, and the
- * nanoseconds component is the remainder.
+ * nanoseconds component is the remainder. Adjusts tv_sec and tv_nsec
+ * together to keep tv_nsec in [0, 999999999], guarding against
+ * floating-point rounding errors.
  */
 void nsec2timespec(double nsec, struct timespec *t) {
     t->tv_sec = (time_t)(nsec / 1e9);
     t->tv_nsec = (long)(nsec - (double)t->tv_sec * 1e9);
+    /* Correct tv_sec when floating-point rounding shifts tv_nsec out of
+     * range */
+    if (t->tv_nsec < 0L) {
+        t->tv_sec--;
+        t->tv_nsec += 1000000000L;
+    } else if (t->tv_nsec >= 1000000000L) {
+        t->tv_sec++;
+        t->tv_nsec -= 1000000000L;
+    }
 }
 
 /**

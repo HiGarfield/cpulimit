@@ -344,7 +344,7 @@ void update_process_group(struct process_group *pgroup) {
                  * CPU time decreased: PID has been reused for a new process.
                  * Reset all historical data.
                  */
-                memcpy(p, tmp_process, sizeof(struct process));
+                *p = *tmp_process;
                 /* Mark CPU usage as unknown for new process */
                 p->cpu_usage = -1;
                 continue;
@@ -408,7 +408,8 @@ void update_process_group(struct process_group *pgroup) {
  * @brief Calculate aggregate CPU usage across all processes in the group
  * @param pgroup Pointer to the process_group structure to query
  * @return Sum of CPU usage values for all processes with known usage, or
- *         -1.0 if no processes have valid CPU measurements yet
+ *         -1.0 if no processes have valid CPU measurements yet or if
+ *         pgroup is NULL
  *
  * CPU usage is expressed as a fraction of total system CPU capacity:
  * - 0.0 = idle
@@ -422,10 +423,14 @@ void update_process_group(struct process_group *pgroup) {
  *
  * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
  * @note Thread-safe if pgroup is not being modified concurrently
+ * @note Safe to call with NULL pgroup (returns -1)
  */
 double get_process_group_cpu_usage(const struct process_group *pgroup) {
     const struct list_node *node;
     double cpu_usage = -1;
+    if (pgroup == NULL) {
+        return -1;
+    }
     for (node = first_node(pgroup->proclist); node != NULL; node = node->next) {
         const struct process *p = (struct process *)node->data;
         /* Skip processes without valid CPU measurements yet */

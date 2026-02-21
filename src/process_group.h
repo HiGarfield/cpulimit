@@ -176,7 +176,8 @@ void update_process_group(struct process_group *pgroup);
  * @brief Calculate aggregate CPU usage across all processes in the group
  * @param pgroup Pointer to the process_group structure to query
  * @return Sum of CPU usage values for all processes with known usage, or
- *         -1.0 if no processes have valid CPU measurements yet
+ *         -1.0 if no processes have valid CPU measurements yet or if
+ *         pgroup is NULL
  *
  * CPU usage is expressed as a fraction of total system CPU capacity:
  * - 0.0 = idle
@@ -190,6 +191,7 @@ void update_process_group(struct process_group *pgroup);
  *
  * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
  * @note Thread-safe if pgroup is not being modified concurrently
+ * @note Safe to call with NULL pgroup (returns -1)
  */
 double get_process_group_cpu_usage(const struct process_group *pgroup);
 
