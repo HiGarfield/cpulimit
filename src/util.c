@@ -38,6 +38,7 @@
 #include <sys/sysctl.h>
 #endif
 #if defined(__linux__)
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #if defined(__UCLIBC__)
@@ -219,7 +220,7 @@ void increase_priority(void) {
  * - Spaces around numbers are tolerated
  *
  * Returns -1 if the string contains invalid syntax, negative numbers,
- * or reversed ranges (end < start).
+ * reversed ranges (end < start), or if the CPU count would overflow int.
  */
 static int parse_cpu_range(const char *str) {
     const char *p = str;
@@ -257,7 +258,10 @@ static int parse_cpu_range(const char *str) {
             if (endptr == p || errno != 0 || start > end || end < 0) {
                 return -1; /* Parse error or invalid range */
             }
-
+            /* Check for integer overflow in cpu_count accumulation */
+            if ((long)cpu_count + (end - start + 1L) > (long)INT_MAX) {
+                return -1; /* Would overflow int */
+            }
             cpu_count += (int)(end - start + 1);
             p = endptr;
 
@@ -267,6 +271,9 @@ static int parse_cpu_range(const char *str) {
             }
         } else {
             /* Single CPU number */
+            if (cpu_count == INT_MAX) {
+                return -1; /* Would overflow int */
+            }
             cpu_count++;
         }
 
