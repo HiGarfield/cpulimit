@@ -25,6 +25,7 @@
 
 #undef NDEBUG
 
+#include "../src/cli.h"
 #include "../src/limit_process.h"
 #include "../src/limiter.h"
 #include "../src/list.h"
@@ -2212,6 +2213,752 @@ static void test_util_read_line_from_file(void) {
 }
 #endif /* __linux__ */
 
+/***************************************************************************
+ * UTIL MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test MAX, MIN, and CLAMP macros with all comparison branches
+ * @note Covers a>b, a<b, a==b for MAX/MIN; below/above/in-range for CLAMP
+ */
+static void test_util_macros(void) {
+    /* MAX: larger-first, smaller-first, equal */
+    assert(MAX(5, 3) == 5);
+    assert(MAX(3, 5) == 5);
+    assert(MAX(4, 4) == 4);
+    assert(MAX(-1, 0) == 0);
+
+    /* MIN: smaller-first, larger-first, equal */
+    assert(MIN(3, 5) == 3);
+    assert(MIN(5, 3) == 3);
+    assert(MIN(4, 4) == 4);
+    assert(MIN(-1, 0) == -1);
+
+    /* CLAMP: value in range, below low, above high, equals low, equals high */
+    assert(CLAMP(5, 0, 10) == 5);
+    assert(CLAMP(-1, 0, 10) == 0);
+    assert(CLAMP(15, 0, 10) == 10);
+    assert(CLAMP(0, 0, 10) == 0);
+    assert(CLAMP(10, 0, 10) == 10);
+}
+
+/**
+ * @brief Test timediff_in_ms when the "later" timestamp is actually earlier
+ * @note Covers the negative-difference branch (backwards / rewound time)
+ */
+static void test_util_timediff_negative(void) {
+    struct timespec earlier, later;
+    double diff_ms;
+
+    /* 100 seconds backward */
+    earlier.tv_sec = 200;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 100;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms <= -99999.0 && diff_ms >= -100001.0);
+
+    /* 500 ms backward (nanoseconds only) */
+    earlier.tv_sec = 100;
+    earlier.tv_nsec = 500000000L;
+    later.tv_sec = 100;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms <= -499.0 && diff_ms >= -501.0);
+}
+
+/**
+ * @brief Test sleep_timespec with a zero-duration sleep
+ * @note A zero sleep must return immediately without error
+ */
+static void test_util_sleep_timespec_zero(void) {
+    const struct timespec zero_sleep = {0, 0};
+    int ret;
+    ret = sleep_timespec(&zero_sleep);
+    /* 0 on success; -1 only if interrupted (EINTR) */
+    assert(ret == 0 || ret == -1);
+}
+
+/***************************************************************************
+ * SIGNAL_HANDLER MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test initial state of signal handler flags before any signal is raised
+ * @note Both quit_flag and terminated_by_tty must be 0 before any signal
+ */
+static void test_signal_handler_initial_state(void) {
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (is_quit_flag_set()) {
+            _exit(1);
+        }
+        if (is_terminated_by_tty()) {
+            _exit(2);
+        }
+        _exit(0);
+    }
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/***************************************************************************
+ * PROCESS_GROUP MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test find_process_by_pid with PID 1 (init/systemd)
+ * @note PID 1 always exists: returns positive if accessible, -1 if EPERM,
+ *  never 0
+ */
+static void test_process_group_find_by_pid_init(void) {
+    pid_t result;
+    result = find_process_by_pid((pid_t)1);
+    assert(result != 0);
+}
+
+/***************************************************************************
+ * LIMIT_PROCESS MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test limit_process when the target has already exited
+ * @note Exercises the empty-proclist early-exit branch in limit_process
+ */
+static void test_limit_process_exits_early(void) {
+    const struct timespec t = {0, 50000000L}; /* 50 ms */
+    pid_t child_pid;
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Allow child time to exit so /proc entry is gone */
+    sleep_timespec(&t);
+
+    /* limit_process must handle an already-gone process gracefully */
+    limit_process(child_pid, 0.5, 0, 0);
+
+    /* Reap any remaining zombie */
+    waitpid(child_pid, NULL, WNOHANG);
+}
+
+/**
+ * @brief Test limit_process with verbose=1
+ * @note Exercises the verbose printf branches; output suppressed via fork
+ */
+static void test_limit_process_verbose(void) {
+    pid_t wrapper_pid;
+    int wrapper_status;
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        const struct timespec t = {0, 50000000L};
+        pid_t child_pid;
+
+        close(STDOUT_FILENO); /* Suppress verbose output */
+
+        child_pid = fork();
+        assert(child_pid >= 0);
+        if (child_pid == 0) {
+            _exit(EXIT_SUCCESS);
+        }
+
+        sleep_timespec(&t);
+        limit_process(child_pid, 0.5, 0, 1); /* verbose = 1 */
+        waitpid(child_pid, NULL, WNOHANG);
+        _exit(EXIT_SUCCESS);
+    }
+
+    assert(waitpid(wrapper_pid, &wrapper_status, 0) == wrapper_pid);
+    assert(WIFEXITED(wrapper_status));
+    assert(WEXITSTATUS(wrapper_status) == EXIT_SUCCESS);
+}
+
+/***************************************************************************
+ * LIMITER MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test run_command_mode with a non-existent binary
+ * @note execvp fails in child; parent should exit with EXIT_FAILURE
+ */
+static void test_limiter_run_command_mode_nonexistent(void) {
+    pid_t pid;
+    int status;
+    struct cpulimitcfg cfg;
+    char cmd[] = "/nonexistent_cpulimit_test_binary_xyz";
+    char *args[2];
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = (char *const *)args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test run_command_mode with verbose=1 and a command that succeeds
+ * @note Exercises the verbose printf branches in run_command_mode
+ */
+static void test_limiter_run_command_mode_verbose(void) {
+    pid_t pid;
+    int status;
+    struct cpulimitcfg cfg;
+    char cmd[] = "true";
+    char *args[2];
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = (char *const *)args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+    cfg.verbose = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+}
+
+/**
+ * @brief Test run_pid_or_exe_mode with a PID (pid_mode=1) that does not exist
+ * @note Uses INT_MAX which is virtually guaranteed to be non-existent;
+ *  lazy_mode=1 → EXIT_FAILURE
+ */
+static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
+    pid_t pid;
+    int status;
+    struct cpulimitcfg cfg;
+
+    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    cfg.program_name = "test";
+    cfg.target_pid = (pid_t)INT_MAX;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        run_pid_or_exe_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+}
+
+/***************************************************************************
+ * CLI MODULE TESTS (parse_arguments)
+ ***************************************************************************/
+
+/**
+ * @brief Helper: fork with output suppressed, call parse_arguments, return
+ *  the child's exit-status code
+ * @param argc Argument count
+ * @param argv Argument vector
+ * @return Exit status from the child process
+ */
+static int run_parse_in_child(int argc, char *const *argv) {
+    pid_t pid;
+    int status;
+    struct cpulimitcfg cfg;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        parse_arguments(argc, argv, &cfg);
+        _exit(99); /* Only reached when parse_arguments returns (valid args) */
+    }
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    return WEXITSTATUS(status);
+}
+
+/**
+ * @brief Test parse_arguments with -l LIMIT -p PID (valid PID mode)
+ * @note Verifies target_pid, limit fraction, and implied lazy_mode
+ */
+static void test_cli_pid_mode(void) {
+    struct cpulimitcfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_p[] = "-p";
+    char arg_pid[32];
+    char *av[6];
+
+    snprintf(arg_pid, sizeof(arg_pid), "%ld", (long)getpid());
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[2] = arg_50;
+    av[3] = arg_p;
+    av[4] = arg_pid;
+    av[5] = NULL;
+
+    memset(&cfg, 0, sizeof(cfg));
+    parse_arguments(5, (char *const *)av, &cfg);
+
+    assert(cfg.target_pid == getpid());
+    assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
+    assert(cfg.lazy_mode == 1); /* -p implies lazy */
+    assert(cfg.verbose == 0);
+    assert(cfg.include_children == 0);
+    assert(cfg.exe_name == NULL);
+    assert(cfg.command_mode == 0);
+}
+
+/**
+ * @brief Test parse_arguments with -l LIMIT -e EXE (valid exe mode)
+ * @note Verifies exe_name, limit fraction; lazy_mode stays 0
+ */
+static void test_cli_exe_mode(void) {
+    struct cpulimitcfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_25[] = "25";
+    char arg_e[] = "-e";
+    char arg_exe[] = "some_exe";
+    char *av[6];
+
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[2] = arg_25;
+    av[3] = arg_e;
+    av[4] = arg_exe;
+    av[5] = NULL;
+
+    memset(&cfg, 0, sizeof(cfg));
+    parse_arguments(5, (char *const *)av, &cfg);
+
+    assert(cfg.exe_name != NULL);
+    assert(strcmp(cfg.exe_name, "some_exe") == 0);
+    assert(cfg.limit >= 0.2499 && cfg.limit <= 0.2501);
+    assert(cfg.lazy_mode == 0); /* -e alone does not imply lazy */
+    assert(cfg.target_pid == 0);
+    assert(cfg.command_mode == 0);
+}
+
+/**
+ * @brief Test parse_arguments with -l LIMIT COMMAND [ARGS] (command mode)
+ * @note Verifies command_mode=1, command_args pointer, implied lazy_mode
+ */
+static void test_cli_command_mode(void) {
+    struct cpulimitcfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_75[] = "75";
+    char arg_cmd[] = "echo";
+    char arg_msg[] = "hello";
+    char *av[6];
+
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[2] = arg_75;
+    av[3] = arg_cmd;
+    av[4] = arg_msg;
+    av[5] = NULL;
+
+    memset(&cfg, 0, sizeof(cfg));
+    parse_arguments(5, (char *const *)av, &cfg);
+
+    assert(cfg.command_mode == 1);
+    assert(cfg.command_args != NULL);
+    assert(strcmp(cfg.command_args[0], "echo") == 0);
+    assert(cfg.lazy_mode == 1); /* command mode implies lazy */
+    assert(cfg.target_pid == 0);
+    assert(cfg.exe_name == NULL);
+    assert(cfg.limit >= 0.7499 && cfg.limit <= 0.7501);
+}
+
+/**
+ * @brief Test parse_arguments with long options (--limit=N, --pid=N)
+ * @note Long-form options must behave identically to short-form
+ */
+static void test_cli_long_options(void) {
+    struct cpulimitcfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_limit[] = "--limit=50";
+    char arg_pid_long[48];
+    char *av[4];
+
+    snprintf(arg_pid_long, sizeof(arg_pid_long), "--pid=%ld", (long)getpid());
+    av[0] = arg0;
+    av[1] = arg_limit;
+    av[2] = arg_pid_long;
+    av[3] = NULL;
+
+    memset(&cfg, 0, sizeof(cfg));
+    parse_arguments(3, (char *const *)av, &cfg);
+
+    assert(cfg.target_pid == getpid());
+    assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
+    assert(cfg.lazy_mode == 1);
+}
+
+/**
+ * @brief Test parse_arguments with --exe=EXE long option
+ * @note --exe long form must set exe_name correctly
+ */
+static void test_cli_long_option_exe(void) {
+    struct cpulimitcfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_limit[] = "--limit=50";
+    char arg_exe[] = "--exe=myapp";
+    char *av[4];
+
+    av[0] = arg0;
+    av[1] = arg_limit;
+    av[2] = arg_exe;
+    av[3] = NULL;
+
+    memset(&cfg, 0, sizeof(cfg));
+    parse_arguments(3, (char *const *)av, &cfg);
+
+    assert(cfg.exe_name != NULL);
+    assert(strcmp(cfg.exe_name, "myapp") == 0);
+    assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
+}
+
+/**
+ * @brief Test parse_arguments with -z and -i optional flags
+ * @note Verifies lazy_mode and include_children are set correctly
+ */
+static void test_cli_optional_flags(void) {
+    struct cpulimitcfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_z[] = "-z";
+    char arg_i[] = "-i";
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char *av[8];
+
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[2] = arg_50;
+    av[3] = arg_z;
+    av[4] = arg_i;
+    av[5] = arg_e;
+    av[6] = arg_exe;
+    av[7] = NULL;
+
+    memset(&cfg, 0, sizeof(cfg));
+    parse_arguments(7, (char *const *)av, &cfg);
+
+    assert(cfg.lazy_mode == 1);
+    assert(cfg.include_children == 1);
+}
+
+/**
+ * @brief Test parse_arguments with -v (verbose) flag
+ * @note -v causes a "N CPUs detected" print; run in fork to suppress it
+ */
+static void test_cli_verbose_flag(void) {
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct cpulimitcfg cfg;
+        char arg0[] = "cpulimit";
+        char arg_l[] = "-l";
+        char arg_50[] = "50";
+        char arg_v[] = "-v";
+        char arg_e[] = "-e";
+        char arg_exe[] = "foo";
+        char *av[7];
+
+        av[0] = arg0;
+        av[1] = arg_l;
+        av[2] = arg_50;
+        av[3] = arg_v;
+        av[4] = arg_e;
+        av[5] = arg_exe;
+        av[6] = NULL;
+
+        close(STDOUT_FILENO); /* Suppress "N CPUs detected" output */
+        memset(&cfg, 0, sizeof(cfg));
+        parse_arguments(6, (char *const *)av, &cfg);
+        if (cfg.verbose != 1) {
+            _exit(1);
+        }
+        _exit(0);
+    }
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/**
+ * @brief Test parse_arguments with -h / --help
+ * @note Both short and long help flags must exit with EXIT_SUCCESS
+ */
+static void test_cli_help(void) {
+    char arg0[] = "cpulimit";
+    char arg_h[] = "-h";
+    char arg_help[] = "--help";
+    char *av1[3];
+    char *av2[3];
+
+    av1[0] = arg0;
+    av1[1] = arg_h;
+    av1[2] = NULL;
+    assert(run_parse_in_child(2, (char *const *)av1) == EXIT_SUCCESS);
+
+    av2[0] = arg0;
+    av2[1] = arg_help;
+    av2[2] = NULL;
+    assert(run_parse_in_child(2, (char *const *)av2) == EXIT_SUCCESS);
+}
+
+/**
+ * @brief Test parse_arguments when -l/--limit is not supplied
+ * @note The limit option is required; absence must cause EXIT_FAILURE
+ */
+static void test_cli_missing_limit(void) {
+    char arg0[] = "cpulimit";
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char *av[4];
+
+    av[0] = arg0;
+    av[1] = arg_e;
+    av[2] = arg_exe;
+    av[3] = NULL;
+    assert(run_parse_in_child(3, (char *const *)av) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments with various invalid limit values
+ * @note zero, negative, non-numeric, NaN, and above-max all cause
+ *  EXIT_FAILURE
+ */
+static void test_cli_invalid_limits(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char arg_zero[] = "0";
+    char arg_neg[] = "-5";
+    char arg_abc[] = "abc";
+    char arg_nan[] = "nan";
+    char arg_huge[] = "99999";
+    char *av[6];
+
+    /* Common setup: prog -l LIMIT -e foo */
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[3] = arg_e;
+    av[4] = arg_exe;
+    av[5] = NULL;
+
+    av[2] = arg_zero;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+
+    av[2] = arg_neg;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+
+    av[2] = arg_abc;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+
+    av[2] = arg_nan;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+
+    av[2] = arg_huge;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments with various invalid PID values
+ * @note 0, 1 (reserved), -1, non-numeric, and trailing-char PIDs all cause
+ *  EXIT_FAILURE
+ */
+static void test_cli_invalid_pids(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_p[] = "-p";
+    char arg_pid0[] = "0";
+    char arg_pid1[] = "1";
+    char arg_pidneg[] = "-1";
+    char arg_pidabc[] = "abc";
+    char arg_pidtrail[] = "10x";
+    char *av[6];
+
+    /* Common setup: prog -l 50 -p PID */
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[2] = arg_50;
+    av[3] = arg_p;
+    av[5] = NULL;
+
+    av[4] = arg_pid0;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+
+    av[4] = arg_pid1; /* pid <= 1 validation rejects PID 1 (init/systemd) */
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+
+    av[4] = arg_pidneg;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+
+    av[4] = arg_pidabc;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+
+    av[4] = arg_pidtrail;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments with an empty exe name (-e "")
+ * @note Empty string for -e must cause EXIT_FAILURE
+ */
+static void test_cli_empty_exe(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_e[] = "-e";
+    char arg_empty[] = "";
+    char *av[6];
+
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[2] = arg_50;
+    av[3] = arg_e;
+    av[4] = arg_empty;
+    av[5] = NULL;
+    assert(run_parse_in_child(5, (char *const *)av) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments with no target specified (-l only)
+ * @note Providing a limit but no -p/-e/COMMAND must cause EXIT_FAILURE
+ */
+static void test_cli_no_target(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char *av[4];
+
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[2] = arg_50;
+    av[3] = NULL;
+    assert(run_parse_in_child(3, (char *const *)av) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments with both -p and -e simultaneously
+ * @note Only one target is allowed; two must cause EXIT_FAILURE
+ */
+static void test_cli_multiple_targets(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_p[] = "-p";
+    char arg_pid[32];
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char *av[8];
+
+    snprintf(arg_pid, sizeof(arg_pid), "%ld", (long)getpid());
+    av[0] = arg0;
+    av[1] = arg_l;
+    av[2] = arg_50;
+    av[3] = arg_p;
+    av[4] = arg_pid;
+    av[5] = arg_e;
+    av[6] = arg_exe;
+    av[7] = NULL;
+    assert(run_parse_in_child(7, (char *const *)av) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments with unknown short and long options
+ * @note Unrecognised options must cause EXIT_FAILURE
+ */
+static void test_cli_unknown_option(void) {
+    char arg0[] = "cpulimit";
+    char arg_x[] = "-x";
+    char arg_bogus[] = "--bogus";
+    char *av1[3];
+    char *av2[3];
+
+    av1[0] = arg0;
+    av1[1] = arg_x;
+    av1[2] = NULL;
+    assert(run_parse_in_child(2, (char *const *)av1) == EXIT_FAILURE);
+
+    av2[0] = arg0;
+    av2[1] = arg_bogus;
+    av2[2] = NULL;
+    assert(run_parse_in_child(2, (char *const *)av2) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments when a required option argument is absent
+ * @note -p with no PID and -l with no value must both cause EXIT_FAILURE
+ */
+static void test_cli_missing_arg(void) {
+    char arg0[] = "cpulimit";
+    char arg_p[] = "-p";
+    char arg_l[] = "-l";
+    char *av1[3];
+    char *av2[3];
+
+    av1[0] = arg0;
+    av1[1] = arg_p;
+    av1[2] = NULL;
+    assert(run_parse_in_child(2, (char *const *)av1) == EXIT_FAILURE);
+
+    av2[0] = arg0;
+    av2[1] = arg_l;
+    av2[2] = NULL;
+    assert(run_parse_in_child(2, (char *const *)av2) == EXIT_FAILURE);
+}
+
 /** @def RUN_TEST(test_func)
  *  @brief Macro to run a test function and print its status
  *  @param test_func Name of the test function to run
@@ -2255,6 +3002,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_nsec2timespec);
     RUN_TEST(test_util_time_functions);
     RUN_TEST(test_util_timediff_in_ms);
+    RUN_TEST(test_util_timediff_negative);
     RUN_TEST(test_util_file_basename);
     RUN_TEST(test_util_get_ncpu);
     RUN_TEST(test_util_increase_priority);
@@ -2263,6 +3011,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_file_basename_edge_cases);
     RUN_TEST(test_util_long2pid_t_edge_cases);
     RUN_TEST(test_util_long2pid_t_overflow);
+    RUN_TEST(test_util_macros);
+    RUN_TEST(test_util_sleep_timespec_zero);
 #if defined(__linux__)
     RUN_TEST(test_util_read_line_from_file);
 #endif
@@ -2280,6 +3030,7 @@ int main(int argc, char *argv[]) {
 
     /* Signal handler module tests */
     printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
+    RUN_TEST(test_signal_handler_initial_state);
     RUN_TEST(test_signal_handler_flags);
     RUN_TEST(test_signal_handler_sigquit);
     RUN_TEST(test_signal_handler_sighup);
@@ -2291,10 +3042,10 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_all);
     RUN_TEST(test_process_iterator_read_command);
     RUN_TEST(test_process_iterator_getppid_of);
+    RUN_TEST(test_process_iterator_getppid_of_edges);
     RUN_TEST(test_process_iterator_is_child_of);
     RUN_TEST(test_process_iterator_filter_edge_cases);
     RUN_TEST(test_process_iterator_close_null);
-    RUN_TEST(test_process_iterator_getppid_of_edges);
 
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
@@ -2302,21 +3053,46 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_init_single);
     RUN_TEST(test_process_group_init_invalid_pid);
     RUN_TEST(test_process_group_find_by_pid);
-    RUN_TEST(test_process_group_find_by_name);
-    RUN_TEST(test_process_group_cpu_usage);
-    RUN_TEST(test_process_group_rapid_updates);
     RUN_TEST(test_process_group_find_by_pid_edges);
+    RUN_TEST(test_process_group_find_by_pid_init);
+    RUN_TEST(test_process_group_find_by_name);
     RUN_TEST(test_process_group_find_by_name_null);
+    RUN_TEST(test_process_group_cpu_usage);
     RUN_TEST(test_process_group_cpu_usage_empty_list);
+    RUN_TEST(test_process_group_rapid_updates);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
     RUN_TEST(test_limit_process_basic);
+    RUN_TEST(test_limit_process_exits_early);
+    RUN_TEST(test_limit_process_verbose);
 
     /* Limiter module tests */
     printf("\n=== LIMITER MODULE TESTS ===\n");
     RUN_TEST(test_limiter_run_command_mode);
+    RUN_TEST(test_limiter_run_command_mode_nonexistent);
+    RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
+
+    /* CLI module tests */
+    printf("\n=== CLI MODULE TESTS ===\n");
+    RUN_TEST(test_cli_pid_mode);
+    RUN_TEST(test_cli_exe_mode);
+    RUN_TEST(test_cli_command_mode);
+    RUN_TEST(test_cli_long_options);
+    RUN_TEST(test_cli_long_option_exe);
+    RUN_TEST(test_cli_optional_flags);
+    RUN_TEST(test_cli_verbose_flag);
+    RUN_TEST(test_cli_help);
+    RUN_TEST(test_cli_missing_limit);
+    RUN_TEST(test_cli_invalid_limits);
+    RUN_TEST(test_cli_invalid_pids);
+    RUN_TEST(test_cli_empty_exe);
+    RUN_TEST(test_cli_no_target);
+    RUN_TEST(test_cli_multiple_targets);
+    RUN_TEST(test_cli_unknown_option);
+    RUN_TEST(test_cli_missing_arg);
 
     printf("\n=== ALL TESTS PASSED ===\n");
 
