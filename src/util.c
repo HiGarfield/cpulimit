@@ -258,11 +258,19 @@ static int parse_cpu_range(const char *str) {
             if (endptr == p || errno != 0 || start > end || end < 0) {
                 return -1; /* Parse error or invalid range */
             }
-            /* Check for integer overflow in cpu_count accumulation */
-            if ((long)cpu_count + (end - start + 1L) > (long)INT_MAX) {
-                return -1; /* Would overflow int */
+            /* Compute range length safely (start <= end and both >= 0 here) */
+            {
+                long range_len = end - start;
+                /*
+                 * Check for integer overflow in cpu_count accumulation:
+                 * ensure cpu_count + (range_len + 1) <= INT_MAX without
+                 * forming an overflowing signed expression.
+                 */
+                if (range_len > (long)INT_MAX - (long)cpu_count - 1L) {
+                    return -1; /* Would overflow int */
+                }
+                cpu_count += (int)(range_len + 1L);
             }
-            cpu_count += (int)(end - start + 1);
             p = endptr;
 
             /* Skip trailing whitespace */
