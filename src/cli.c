@@ -189,7 +189,7 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
 static void validate_target_options(const struct cpulimitcfg *cfg) {
     int pid_mode = cfg->target_pid > 0;
     int exe_mode = cfg->exe_name != NULL;
-    int command_mode = !!cfg->command_mode;
+    int command_mode = cfg->command_mode;
 
     /* Verify exactly one target method is specified */
     if (pid_mode + exe_mode + command_mode != 1) {

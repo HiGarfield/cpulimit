@@ -243,7 +243,8 @@ static struct process *process_dup(const struct process *proc) {
         fprintf(stderr, "Memory allocation failed for duplicated process\n");
         exit(EXIT_FAILURE);
     }
-    return (struct process *)memcpy(p, proc, sizeof(struct process));
+    *p = *proc;
+    return p;
 }
 
 /**

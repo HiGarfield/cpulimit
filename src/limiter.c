@@ -129,7 +129,7 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         int child_exit_status =
             EXIT_FAILURE;           /* Default if child not properly reaped */
         char ack;                   /* Synchronization byte from child */
-        char found_cmd_runner = 0;  /* 1 if successfully reaped child PID */
+        int found_cmd_runner = 0;   /* 1 if successfully reaped child PID */
         struct timespec start_time; /* Timestamp when termination starts */
         ssize_t n_read;             /* Bytes read from pipe */
 
