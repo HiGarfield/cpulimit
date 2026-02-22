@@ -159,6 +159,13 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
     }
     strncpy(proc->command, args[0], len_max);
     proc->command[len_max] = '\0';
+    /*
+     * Reject processes with empty command names (e.g. execve with
+     * argv[0]=="")
+     */
+    if (proc->command[0] == '\0') {
+        return -1;
+    }
     return 0;
 }
 

@@ -159,6 +159,13 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     strncpy(p->command, buffer, sizeof(p->command) - 1);
     p->command[sizeof(p->command) - 1] = '\0';
     free(buffer);
+    /*
+     * Reject processes with empty command names (e.g. execve with
+     * argv[0]=="")
+     */
+    if (p->command[0] == '\0') {
+        return -1;
+    }
     return 0;
 }
 

@@ -106,6 +106,7 @@ pid_t find_process_by_pid(pid_t pid);
  * that if a parent process spawns children with the same name, the parent is
  * chosen.
  *
+ * @note Returns 0 immediately for NULL or empty process_name
  * @note Iterates through all processes in the system, which may be slow on
  *       systems with many processes. For known PIDs, use find_process_by_pid().
  */

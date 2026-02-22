@@ -186,6 +186,13 @@ static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
         return -1;
     }
     process->command[sizeof(process->command) - 1] = '\0';
+    /*
+     * Reject processes with empty command names (e.g. execve with
+     * argv[0]=="")
+     */
+    if (process->command[0] == '\0') {
+        return -1;
+    }
     return 0;
 }
 

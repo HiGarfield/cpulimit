@@ -95,7 +95,7 @@ pid_t find_process_by_name(const char *process_name) {
     int full_path_cmp;
     const char *process_cmp_name;
 
-    if (process_name == NULL) {
+    if (process_name == NULL || process_name[0] == '\0') {
         return 0;
     }
 

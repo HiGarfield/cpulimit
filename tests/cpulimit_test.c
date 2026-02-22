@@ -2169,6 +2169,14 @@ static void test_process_group_find_by_name_null(void) {
 }
 
 /**
+ * @brief Test find_process_by_name with empty string (early-return path)
+ * @note Must return 0 immediately without iterating processes
+ */
+static void test_process_group_find_by_name_empty_string(void) {
+    assert(find_process_by_name("") == 0);
+}
+
+/**
  * @brief Test get_process_group_cpu_usage when process list is empty
  * @note Must return -1.0 when no processes are tracked
  */
@@ -3937,6 +3945,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_find_by_pid_init);
     RUN_TEST(test_process_group_find_by_name);
     RUN_TEST(test_process_group_find_by_name_null);
+    RUN_TEST(test_process_group_find_by_name_empty_string);
     RUN_TEST(test_process_group_find_by_name_self);
     RUN_TEST(test_process_group_cpu_usage);
     RUN_TEST(test_process_group_cpu_usage_empty_list);
