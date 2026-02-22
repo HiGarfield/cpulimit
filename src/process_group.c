@@ -300,6 +300,7 @@ static struct process *process_dup(const struct process *proc) {
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
+ * @note Safe to call with NULL pgroup (returns immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
  *       retrieval)
