@@ -190,6 +190,12 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
 
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&pgroup->last_update) != 0) {
+        clear_list(pgroup->proclist);
+        free(pgroup->proclist);
+        pgroup->proclist = NULL;
+        process_table_destroy(pgroup->proctable);
+        free(pgroup->proctable);
+        pgroup->proctable = NULL;
         exit(EXIT_FAILURE);
     }
     /* Perform initial scan to populate process list */
@@ -207,6 +213,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * 2. Destroys and frees the process hashtable
  * 3. Sets both pointers to NULL for safety
  *
+ * @note Safe to call with NULL pgroup (returns 0 immediately)
  * @note Safe to call even if pgroup is partially initialized (NULLs are
  *       handled)
  * @note Does not send any signals to processes; they continue running
@@ -214,6 +221,9 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  *       re-initialization
  */
 int close_process_group(struct process_group *pgroup) {
+    if (pgroup == NULL) {
+        return 0;
+    }
     if (pgroup->proclist != NULL) {
         clear_list(pgroup->proclist);
         free(pgroup->proclist);
@@ -290,6 +300,7 @@ static struct process *process_dup(const struct process *proc) {
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
+ * @note Safe to call with NULL pgroup (returns immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
  *       retrieval)
@@ -300,6 +311,9 @@ void update_process_group(struct process_group *pgroup) {
     struct process_filter filter;
     struct timespec now;
     double dt;
+    if (pgroup == NULL) {
+        return;
+    }
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {

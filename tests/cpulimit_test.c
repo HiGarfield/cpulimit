@@ -3491,14 +3491,24 @@ static void test_process_iterator_close_null_dip(void) {
  * @note Must return 0 without crashing
  */
 static void test_process_group_close_null(void) {
-    /* close_process_group checks pgroup->proctable/proclist for NULL,
-     * but a NULL pgroup pointer itself would crash.  The documented
-     * safe-to-call guarantee applies to partially-initialised structs. */
     struct process_group pg;
+
+    /* NULL pgroup pointer must return 0 without crashing */
+    assert(close_process_group(NULL) == 0);
+
+    /* Partially initialised struct (NULL members) must also work */
     pg.proctable = NULL;
     pg.proclist = NULL;
-    /* Must not crash */
     assert(close_process_group(&pg) == 0);
+}
+
+/**
+ * @brief Test update_process_group with NULL pointer
+ * @note Must return without crashing
+ */
+static void test_process_group_update_null(void) {
+    /* NULL pgroup must not crash */
+    update_process_group(NULL);
 }
 
 /**
@@ -3920,6 +3930,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_init_single);
     RUN_TEST(test_process_group_init_invalid_pid);
     RUN_TEST(test_process_group_close_null);
+    RUN_TEST(test_process_group_update_null);
     RUN_TEST(test_process_group_double_update);
     RUN_TEST(test_process_group_find_by_pid);
     RUN_TEST(test_process_group_find_by_pid_edges);
