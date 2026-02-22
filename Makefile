@@ -9,3 +9,7 @@ install:
 
 uninstall:
 	$(MAKE) -C src $@
+
+test:
+	$(MAKE) -C tests all
+	./tests/cpulimit_test
