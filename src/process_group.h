@@ -140,6 +140,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * 2. Destroys and frees the process hashtable
  * 3. Sets both pointers to NULL for safety
  *
+ * @note Safe to call with NULL pgroup (returns 0 immediately)
  * @note Safe to call even if pgroup is partially initialized (NULLs are
  *       handled)
  * @note Does not send any signals to processes; they continue running
@@ -166,6 +167,7 @@ int close_process_group(struct process_group *pgroup);
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
+ * @note Safe to call with NULL pgroup (returns immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
  *       retrieval)
