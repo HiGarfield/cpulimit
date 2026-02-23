@@ -333,7 +333,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
              * Process exists but cannot be controlled (permission denied).
              * Negative PID indicates EPERM error. No point retrying.
              */
-            printf("No permission to control process\n");
+            fprintf(stderr, "No permission to control process\n");
             exit_status = EXIT_FAILURE;
             break;
         } else {
