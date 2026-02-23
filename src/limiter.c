@@ -71,9 +71,9 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
 
     /*
      * Flush stdout before forking.
-     * This avoids duplicated buffered output when both parent and child
-     * eventually flush inherited streams. Ignore EBADF to support callers
-     * that intentionally close stdout in tests.
+     * This is a defensive measure to avoid duplicated buffered output if
+     * future child code paths use stdio and exit()/flush inherited streams.
+     * Ignore EBADF to support callers that intentionally close stdout in tests.
      */
     if (fflush(stdout) != 0 && errno != EBADF) {
         perror("fflush");
@@ -163,7 +163,9 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                         "Synchronization pipe closed before child setup\n");
             } else {
                 fprintf(stderr,
-                        "Unexpected synchronization value from child\n");
+                        "Unexpected synchronization value from child: "
+                        "expected 'A' (0x41), got 0x%02x\n",
+                        (unsigned char)ack);
             }
             close(sync_pipe[0]);
             /* Reap child to prevent zombie */
