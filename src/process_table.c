@@ -238,7 +238,7 @@ void process_table_destroy(struct process_table *pt) {
         }
     }
     /* Free the bucket array itself */
-    free((void *)pt->table);
+    free(pt->table);
     pt->table = NULL;
     pt->hashsize = 0;
 }
