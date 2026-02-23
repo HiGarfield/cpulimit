@@ -3771,6 +3771,38 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
 }
 
 /**
+ * @brief Test run_pid_or_exe_mode exits with failure when target is self
+ * @note When the found PID matches the calling process, run_pid_or_exe_mode
+ *  must exit with EXIT_FAILURE to prevent cpulimit from limiting itself.
+ */
+static void test_limiter_run_pid_or_exe_mode_self(void) {
+    pid_t wrapper_pid;
+    int wrapper_status;
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        struct cpulimitcfg cfg;
+
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+
+        memset(&cfg, 0, sizeof(struct cpulimitcfg));
+        cfg.program_name = "test";
+        cfg.target_pid = getpid(); /* target is the wrapper itself */
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 1;
+        run_pid_or_exe_mode(&cfg);
+        _exit(EXIT_SUCCESS); /* unreachable: run_pid_or_exe_mode calls exit */
+    }
+
+    assert(waitpid(wrapper_pid, &wrapper_status, 0) == wrapper_pid);
+    assert(WIFEXITED(wrapper_status));
+    /* Must exit with failure to prevent self-limiting */
+    assert(WEXITSTATUS(wrapper_status) == EXIT_FAILURE);
+}
+
+/**
  * @brief Test run_pid_or_exe_mode with verbose=1 exercises the verbose path
  * @note Forks a short-lived target process, then calls run_pid_or_exe_mode
  *  with verbose=1 and lazy_mode=1. Suppresses output. Verifies the function
@@ -4114,6 +4146,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_quit);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_self);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
 
     /* CLI module tests */
