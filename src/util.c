@@ -228,15 +228,16 @@ void increase_priority(void) {
  * - Combinations: "0-3,8-11,15" (separated by commas)
  * - Spaces around numbers are tolerated
  *
- * Returns -1 if the string contains invalid syntax, negative numbers,
- * reversed ranges (end < start), or if the CPU count would overflow int.
+ * Returns -1 if the string is NULL or empty, contains invalid syntax,
+ * negative numbers, reversed ranges (end < start), or if the CPU count
+ * would overflow int.
  */
 static int parse_cpu_range(const char *str) {
     const char *p = str;
     char *endptr;
     int cpu_count = 0;
 
-    if (str == NULL) {
+    if (str == NULL || str[0] == '\0') {
         return -1;
     }
 
