@@ -321,6 +321,11 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
             sleep_timespec(&sleep_time);
         }
 
+        /* Check for termination request after sleep phase */
+        if (is_quit_flag_set()) {
+            break;
+        }
+
         /* Increment cycle counter with wraparound */
         cycle_counter = (cycle_counter + 1) % 200;
     }
