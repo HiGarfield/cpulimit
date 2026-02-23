@@ -1671,9 +1671,9 @@ static void test_process_group_find_by_name(void) {
     /*
      * Test the absolute-path comparison branch: when process_name starts
      * with '/', find_process_by_name compares the full path against each
-     * process's cmdline.  Use a path incorporating the current PID so it
-     * is unique enough to never match any running process's cmdline,
-     * even in shared CI environments.
+     * process's executable path.  Use a path incorporating the current
+     * PID so it is unique enough to never match any running process's
+     * executable path, even in shared CI environments.
      */
     {
         char abs_path[64];

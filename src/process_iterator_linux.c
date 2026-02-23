@@ -88,8 +88,8 @@ int init_process_iterator(struct process_iterator *it,
  * @return 0 on success, -1 on failure or if process is invalid
  *
  * Reads /proc/[pid]/stat for basic process information including PPID,
- * state, and CPU times. Optionally reads /proc/[pid]/cmdline for the
- * command path.
+ * state, and CPU times. Optionally resolves /proc/[pid]/exe to obtain
+ * the absolute path of the executable.
  *
  * The function rejects:
  * - Zombie processes (state Z, X, or x)
@@ -100,7 +100,7 @@ int init_process_iterator(struct process_iterator *it,
  * sysconf(_SC_CLK_TCK).
  */
 static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
-    char statfile[64], exefile[64], state;
+    char statfile[64], state;
     char *buffer;
     const char *ptr_start;
     double usertime, systime;
@@ -151,14 +151,22 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     if (!read_cmd) {
         return 0;
     }
-    /* Read command path from /proc/[pid]/cmdline */
-    snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)pid);
-    if ((buffer = read_line_from_file(exefile)) == NULL) {
-        return -1;
+    /*
+     * Read the executable path via the /proc/[pid]/exe symlink.
+     * This is more reliable than argv[0] from /proc/[pid]/cmdline because
+     * it always reflects the actual file on disk and cannot be spoofed by
+     * the process changing its argv[0].
+     */
+    {
+        char exefile[64];
+        ssize_t len;
+        snprintf(exefile, sizeof(exefile), "/proc/%ld/exe", (long)pid);
+        len = readlink(exefile, p->command, sizeof(p->command) - 1);
+        if (len <= 0) {
+            return -1;
+        }
+        p->command[len] = '\0';
     }
-    strncpy(p->command, buffer, sizeof(p->command) - 1);
-    p->command[sizeof(p->command) - 1] = '\0';
-    free(buffer);
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
