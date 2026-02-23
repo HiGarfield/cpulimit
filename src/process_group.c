@@ -389,8 +389,11 @@ void update_process_group(struct process_group *pgroup) {
                 continue;
             }
             if (dt < MIN_DT) {
-                /* Time delta too small for accurate measurement, skip this
-                 * update */
+                /* Time delta too small for accurate measurement; keep
+                 * cputime unchanged so the next valid update accumulates
+                 * the delta over the full interval, but update ppid to
+                 * reflect any reparenting that may have occurred. */
+                p->ppid = tmp_process->ppid;
                 continue;
             }
             /*
