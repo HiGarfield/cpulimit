@@ -106,7 +106,8 @@ void process_table_add(struct process_table *pt, struct process *p);
  * @brief Remove a process from the hash table by PID
  * @param pt Pointer to the process table
  * @param pid Process ID of the process to remove
- * @return 0 on successful deletion, 1 if process not found or table is NULL
+ * @return 0 on successful deletion, 1 if process not found, table is NULL,
+ *         or table has been destroyed
  *
  * Locates the process by PID, removes its node from the linked list, and
  * frees the node. If removing the last node from a bucket, also frees the
