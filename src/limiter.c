@@ -71,9 +71,9 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
 
     /*
      * Flush stdout before forking.
-     * This avoids duplicated buffered output when both parent and child
-     * eventually flush inherited streams. Ignore EBADF to support callers
-     * that intentionally close stdout in tests.
+     * This is a defensive measure to avoid duplicated buffered output if
+     * future child code paths use stdio and exit()/flush inherited streams.
+     * Ignore EBADF to support callers that intentionally close stdout in tests.
      */
     if (fflush(stdout) != 0 && errno != EBADF) {
         perror("fflush");
