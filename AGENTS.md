@@ -239,6 +239,8 @@ In Ubuntu, the following command SHALL be used:
 - Code MUST be formatted using `clang-format` with the provided configuration.
 - The command `make format` SHALL be used to format the codebase.
 - Code formatting MUST be performed before every commit.
+- Standalone `{ ... }` blocks without a control-flow statement MUST NOT be used.
+- Every block MUST be preceded by a control-flow statement (`if`, `for`, `while`, `switch`, etc.).
 - Unnecessary headers MUST NOT be included.
 - Source code lines SHOULD NOT exceed 80 characters where reasonably possible.
 - When a line exceeds 80 characters, string literals MUST NOT be split.
