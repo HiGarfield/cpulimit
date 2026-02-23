@@ -196,6 +196,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
         fprintf(stderr, "Memory allocation failed for the process list\n");
         process_table_destroy(pgroup->proctable);
         free(pgroup->proctable);
+        pgroup->proctable = NULL;
         exit(EXIT_FAILURE);
     }
     init_list(pgroup->proclist);
