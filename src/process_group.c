@@ -202,7 +202,6 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
 
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&pgroup->last_update) != 0) {
-        clear_list(pgroup->proclist);
         free(pgroup->proclist);
         pgroup->proclist = NULL;
         process_table_destroy(pgroup->proctable);
