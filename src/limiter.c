@@ -241,8 +241,10 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                     }
                 } else {
                     /* Abnormal termination (neither exit nor signal) */
-                    printf("Process %ld terminated abnormally\n",
-                           (long)cmd_runner_pid);
+                    if (cfg->verbose) {
+                        printf("Process %ld terminated abnormally\n",
+                               (long)cmd_runner_pid);
+                    }
                     child_exit_status = EXIT_FAILURE;
                 }
 
@@ -331,7 +333,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
              * Process exists but cannot be controlled (permission denied).
              * Negative PID indicates EPERM error. No point retrying.
              */
-            printf("No permission to control process\n");
+            fprintf(stderr, "No permission to control process\n");
             exit_status = EXIT_FAILURE;
             break;
         } else {
