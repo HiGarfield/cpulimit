@@ -400,8 +400,7 @@ void update_process_group(struct process_group *pgroup) {
                  */
                 p->cpu_usage = (1.0 - ALPHA) * p->cpu_usage + ALPHA * sample;
             }
-            /* Update stored CPU time and parent PID for next delta calculation
-             */
+            /* Update stored CPU time and parent PID for next delta calculation */
             p->ppid = tmp_process->ppid;
             p->cputime = tmp_process->cputime;
         }
