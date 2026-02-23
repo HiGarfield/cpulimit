@@ -201,7 +201,8 @@ int __getloadavg(double *loadavg, int nelem);
  *
  * Opens the specified file, reads the first line using getline(), strips
  * trailing newlines, and returns the result. The caller must free() the
- * returned string. Used primarily for reading single-line sysfs files.
+ * returned string. Used for reading single-line text files such as procfs
+ * stat files and sysfs entries.
  *
  * @note A file containing only a newline character returns an empty string
  *       (non-NULL), not NULL.
