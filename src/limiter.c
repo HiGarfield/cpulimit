@@ -354,7 +354,9 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
                         (long)found_pid);
                 exit(EXIT_FAILURE);
             }
-            printf("Process %ld found\n", (long)found_pid);
+            if (cfg->verbose) {
+                printf("Process %ld found\n", (long)found_pid);
+            }
             /*
              * Apply CPU limiting to the target process.
              * This call blocks until the process terminates or quit flag is
