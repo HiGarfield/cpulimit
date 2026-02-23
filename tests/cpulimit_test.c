@@ -3728,6 +3728,49 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
 }
 
 /**
+ * @brief Test run_pid_or_exe_mode with verbose=0 when process is found
+ * @note Verifies that the non-verbose code path (verbose guard is false)
+ *  works correctly when a process is found: the function limits it and exits
+ *  with EXIT_SUCCESS when the target terminates naturally.
+ */
+static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
+    pid_t wrapper_pid;
+    int wrapper_status;
+    const struct timespec target_life = {0, 500000000L}; /* 500 ms */
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        pid_t target_pid;
+        struct cpulimitcfg cfg;
+
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+
+        /* Fork a target that stays alive long enough to be found */
+        target_pid = fork();
+        assert(target_pid >= 0);
+        if (target_pid == 0) {
+            sleep_timespec(&target_life);
+            _exit(EXIT_SUCCESS);
+        }
+
+        memset(&cfg, 0, sizeof(struct cpulimitcfg));
+        cfg.program_name = "test";
+        cfg.target_pid = target_pid;
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 1;
+        cfg.verbose = 0; /* non-verbose: verbose guard must not print */
+        run_pid_or_exe_mode(&cfg);
+        _exit(EXIT_FAILURE); /* unreachable */
+    }
+
+    assert(waitpid(wrapper_pid, &wrapper_status, 0) == wrapper_pid);
+    assert(WIFEXITED(wrapper_status));
+    assert(WEXITSTATUS(wrapper_status) == EXIT_SUCCESS);
+}
+
+/**
  * @brief Test run_pid_or_exe_mode with verbose=1 exercises the verbose path
  * @note Forks a short-lived target process, then calls run_pid_or_exe_mode
  *  with verbose=1 and lazy_mode=1. Suppresses output. Verifies the function
@@ -4070,6 +4113,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_quit);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
 
     /* CLI module tests */
