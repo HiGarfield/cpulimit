@@ -455,12 +455,17 @@ int __getloadavg(double *loadavg, int nelem) {
 /**
  * @brief Read the first line from a text file
  * @param file_name Path to the file to read
- * @return Newly allocated string containing the first line (no newline), or
- *         NULL on error or if file is empty
+ * @return Newly allocated string containing the first line with trailing
+ *         newlines stripped, or NULL if file_name is NULL, the file cannot be
+ *         opened, or reading fails (including when the file is empty and
+ *         contains no bytes at all)
  *
  * Opens the specified file, reads the first line using getline(), strips
  * trailing newlines, and returns the result. The caller must free() the
  * returned string. Used primarily for reading single-line sysfs files.
+ *
+ * @note A file containing only a newline character returns an empty string
+ *       (non-NULL), not NULL.
  */
 char *read_line_from_file(const char *file_name) {
     FILE *fp;
