@@ -61,9 +61,9 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 
 | Exit Code | Meaning |
 | --------- | ------- |
-| 0 | Success — target was monitored and terminated naturally (PID/EXE mode), or command exited with code 0 (command mode) |
-| 1 | Failure — invalid arguments, target not found (in lazy mode), permission denied, or internal error |
-| 128 + N | Command mode only — command was killed by signal N (e.g. 143 for SIGTERM, 137 for SIGKILL) |
+| 0 | Success: target was monitored and terminated naturally (PID/EXE mode), or command exited with code 0 (command mode) |
+| 1 | Failure: invalid arguments, target not found (in lazy mode), permission denied, or internal error |
+| 128 + N | Command mode only: command was killed by signal N (e.g. 143 for SIGTERM, 137 for SIGKILL) |
 
 ## Examples
 
