@@ -389,10 +389,12 @@ void update_process_group(struct process_group *pgroup) {
                 continue;
             }
             if (dt < MIN_DT) {
-                /* Time delta too small for accurate measurement; keep
+                /* Time delta too small for accurate CPU measurement; keep
                  * cputime unchanged so the next valid update accumulates
-                 * the delta over the full interval, but update ppid to
-                 * reflect any reparenting that may have occurred. */
+                 * the full delta over the interval. Updating ppid is safe
+                 * here because it is independent of timing accuracy: the
+                 * parent PID is a current kernel value and does not
+                 * participate in any time-based delta computation. */
                 p->ppid = tmp_process->ppid;
                 continue;
             }

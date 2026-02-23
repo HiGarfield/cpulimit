@@ -2254,12 +2254,11 @@ static void test_util_read_line_from_file(void) {
 
     /* Empty file must return NULL (getline returns -1 on immediate EOF) */
     fp = fopen(tmpfile, "w");
-    if (fp != NULL) {
-        fclose(fp);
-        line = read_line_from_file(tmpfile);
-        assert(line == NULL);
-        remove(tmpfile);
-    }
+    assert(fp != NULL); /* /tmp must be writable in the test environment */
+    fclose(fp);
+    line = read_line_from_file(tmpfile);
+    assert(line == NULL);
+    remove(tmpfile);
 }
 #endif /* __linux__ */
 
