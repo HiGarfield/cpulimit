@@ -3762,7 +3762,8 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
         cfg.lazy_mode = 1;
         cfg.verbose = 0; /* non-verbose: verbose guard must not print */
         run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE); /* unreachable */
+        _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
+                                calls exit */
     }
 
     assert(waitpid(wrapper_pid, &wrapper_status, 0) == wrapper_pid);
@@ -3793,7 +3794,8 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
         cfg.limit = 0.5;
         cfg.lazy_mode = 1;
         run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_SUCCESS); /* unreachable: run_pid_or_exe_mode calls exit */
+        _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
+                                calls exit */
     }
 
     assert(waitpid(wrapper_pid, &wrapper_status, 0) == wrapper_pid);
@@ -3838,7 +3840,8 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
         cfg.lazy_mode = 1;
         cfg.verbose = 1; /* exercises verbose branch in run_pid_or_exe_mode */
         run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE); /* unreachable */
+        _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
+                                calls exit */
     }
 
     assert(waitpid(wrapper_pid, &wrapper_status, 0) == wrapper_pid);
