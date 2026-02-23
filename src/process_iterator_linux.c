@@ -106,6 +106,8 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     double usertime, systime;
     long ppid;
     static long sc_clk_tck = -1;
+    FILE *fp;
+    size_t len;
 
     memset(p, 0, sizeof(struct process));
     p->pid = pid;
@@ -151,14 +153,23 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     if (!read_cmd) {
         return 0;
     }
-    /* Read command path from /proc/[pid]/cmdline */
+    /*
+     * Read argv[0] from /proc/[pid]/cmdline using fread() to avoid
+     * allocating a buffer for the entire argument list. The cmdline file
+     * uses NUL bytes as argument separators (no newlines), so string
+     * functions naturally stop at the first NUL, giving only argv[0].
+     */
     snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)pid);
-    if ((buffer = read_line_from_file(exefile)) == NULL) {
+    fp = fopen(exefile, "r");
+    if (fp == NULL) {
         return -1;
     }
-    strncpy(p->command, buffer, sizeof(p->command) - 1);
-    p->command[sizeof(p->command) - 1] = '\0';
-    free(buffer);
+    len = fread(p->command, 1, sizeof(p->command) - 1, fp);
+    fclose(fp);
+    if (len == 0) {
+        return -1;
+    }
+    p->command[len] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
