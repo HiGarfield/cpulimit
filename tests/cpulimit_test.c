@@ -2130,6 +2130,35 @@ static void test_signal_handler_sighup(void) {
 }
 
 /**
+ * @brief Test SIGPIPE signal handling
+ * @note SIGPIPE must set quit_flag but must NOT set terminated_by_tty
+ */
+static void test_signal_handler_sigpipe(void) {
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGPIPE) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (is_terminated_by_tty()) { /* SIGPIPE must NOT set the tty flag */
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/**
  * @brief Test close_process_iterator with NULL pointer
  * @note Must return -1 without crashing
  */
@@ -3942,6 +3971,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_sigquit);
     RUN_TEST(test_signal_handler_sigterm);
     RUN_TEST(test_signal_handler_sighup);
+    RUN_TEST(test_signal_handler_sigpipe);
 
     /* Process iterator module tests */
     printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
