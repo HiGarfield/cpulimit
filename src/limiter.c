@@ -342,8 +342,9 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
              * This could cause system instability or deadlock.
              */
             if (found_pid == getpid()) {
-                printf("Target process %ld is cpulimit itself! Aborting\n",
-                       (long)found_pid);
+                fprintf(stderr,
+                        "Error: target process %ld is cpulimit itself\n",
+                        (long)found_pid);
                 exit(EXIT_FAILURE);
             }
             printf("Process %ld found\n", (long)found_pid);
