@@ -183,9 +183,11 @@ const char *file_basename(const char *path) {
  *
  * Tries to set the process nice value to -20 (highest priority) to minimize
  * scheduling latency when controlling target processes. Iterates through
- * priority values from -20 upward until one succeeds or permission is denied.
- * Silently continues if permission is denied; cpulimit can function at normal
- * priority, just with potentially higher latency.
+ * priority values from -20 upward until one succeeds, skipping levels that
+ * are denied by permissions (RLIMIT_NICE may allow a value less negative
+ * than PRIO_MIN even without root). Silently continues if no priority
+ * improvement is possible; cpulimit can function at normal priority, just
+ * with potentially higher latency.
  */
 void increase_priority(void) {
     int old_priority, priority;
@@ -202,8 +204,15 @@ void increase_priority(void) {
             break; /* Successfully set priority */
         }
         if (errno == EPERM) {
-            break; /* Permission denied; stop trying */
+            /*
+             * Permission denied at this level. Continue to the next
+             * (less aggressive) priority: RLIMIT_NICE may allow a
+             * value less negative than PRIO_MIN even without root.
+             */
+            continue;
         }
+        /* Any other error is unexpected; stop trying */
+        break;
     }
 }
 
