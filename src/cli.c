@@ -156,8 +156,14 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
                                int n_cpu) {
     char *endptr;
     double percent_limit;
+    double max_limit;
     errno = 0;
     percent_limit = strtod(limit_str, &endptr);
+    /*
+     * Compute the upper bound as double to avoid int overflow on systems
+     * with large CPU counts (100 * n_cpu overflows if n_cpu > INT_MAX/100).
+     */
+    max_limit = (double)n_cpu * 100.0;
     /*
      * Validate the conversion and value:
      * - No conversion errors
@@ -168,7 +174,7 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
      */
     if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
         is_nan(percent_limit) || percent_limit <= 0 ||
-        percent_limit > 100 * n_cpu) {
+        percent_limit > max_limit) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
