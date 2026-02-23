@@ -49,6 +49,32 @@
 #include <sys/user.h>
 
 /**
+ * @brief Open the kvm(3) interface for process information access
+ * @return Opened kvm descriptor on success, NULL on failure
+ *
+ * Allocates a temporary error buffer, opens the kvm interface in read-only
+ * mode, and frees the buffer. On allocation failure, exits the program.
+ * On kvm_openfiles() failure, prints an error and returns NULL.
+ *
+ * Callers must close the returned descriptor with kvm_close().
+ */
+static kvm_t *open_kvm(void) {
+    kvm_t *kd;
+    char *errbuf;
+    /* Allocate error buffer for kvm interface */
+    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
+        fprintf(stderr, "Memory allocation failed for the error buffer\n");
+        exit(EXIT_FAILURE);
+    }
+    kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
+    if (kd == NULL) {
+        fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
+    }
+    free(errbuf);
+    return kd;
+}
+
+/**
  * @brief Initialize a process iterator with specified filter criteria
  * @param it Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
@@ -68,27 +94,16 @@
 int init_process_iterator(struct process_iterator *it,
                           const struct process_filter *filter) {
     const struct kinfo_proc *procs;
-    char *errbuf;
 
     it->filter = filter;
-
-    /* Allocate error buffer for kvm interface */
-    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
-        fprintf(stderr, "Memory allocation failed for the error buffer\n");
-        exit(EXIT_FAILURE);
-    }
 
     /*
      * Open kvm(3) interface to access kernel virtual memory and
      * process information
      */
-    if ((it->kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf)) ==
-        NULL) {
-        fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
-        free(errbuf);
+    if ((it->kd = open_kvm()) == NULL) {
         return -1;
     }
-    free(errbuf);
 
     /* Optimization for single process without children */
     if (it->filter->pid != 0 && !it->filter->include_children) {
@@ -229,19 +244,9 @@ static pid_t _getppid_of(kvm_t *kd, pid_t pid) {
 pid_t getppid_of(pid_t pid) {
     pid_t ppid;
     kvm_t *kd;
-    char *errbuf;
-    /* Allocate error buffer for kvm interface */
-    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
-        fprintf(stderr, "Memory allocation failed for the error buffer\n");
-        exit(EXIT_FAILURE);
-    }
-    kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
-    if (kd == NULL) {
-        fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
-        free(errbuf);
+    if ((kd = open_kvm()) == NULL) {
         return (pid_t)(-1);
     }
-    free(errbuf);
     ppid = _getppid_of(kd, pid);
     kvm_close(kd);
     return ppid;
@@ -296,19 +301,9 @@ static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret;
     kvm_t *kd;
-    char *errbuf;
-    /* Allocate error buffer for kvm interface */
-    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
-        fprintf(stderr, "Memory allocation failed for the error buffer\n");
+    if ((kd = open_kvm()) == NULL) {
         exit(EXIT_FAILURE);
     }
-    kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
-    if (kd == NULL) {
-        fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
-        free(errbuf);
-        exit(EXIT_FAILURE);
-    }
-    free(errbuf);
     ret = _is_child_of(kd, child_pid, parent_pid);
     kvm_close(kd);
     return ret;
