@@ -151,6 +151,17 @@ pid_t find_process_by_name(const char *process_name) {
 }
 
 /**
+ * @def PROCESS_TABLE_HASHSIZE
+ * @brief Number of hash buckets for the process hashtable
+ *
+ * The hash table uses separate chaining for collision resolution.
+ * A larger size reduces collision probability at the cost of more memory.
+ * 2048 buckets is sufficient for typical process counts while keeping
+ * memory overhead low.
+ */
+#define PROCESS_TABLE_HASHSIZE 2048
+
+/**
  * @brief Initialize a process group for monitoring and CPU limiting
  * @param pgroup Pointer to uninitialized process_group structure to set up
  * @param target_pid PID of the primary process to monitor
@@ -158,7 +169,8 @@ pid_t find_process_by_name(const char *process_name) {
  * @return 0 on success (always succeeds or exits the program)
  *
  * This function:
- * 1. Allocates and initializes the process hashtable (2048 buckets)
+ * 1. Allocates and initializes the process hashtable (PROCESS_TABLE_HASHSIZE
+ *    buckets)
  * 2. Allocates and initializes the process list
  * 3. Records the current time as baseline for CPU calculations
  * 4. Performs initial update to populate the process list
@@ -174,7 +186,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
-    process_table_init(pgroup->proctable, 2048);
+    process_table_init(pgroup->proctable, PROCESS_TABLE_HASHSIZE);
     pgroup->target_pid = target_pid;
     pgroup->include_children = include_children;
 
@@ -377,8 +389,13 @@ void update_process_group(struct process_group *pgroup) {
                 continue;
             }
             if (dt < MIN_DT) {
-                /* Time delta too small for accurate measurement, skip this
-                 * update */
+                /* Time delta too small for accurate CPU measurement; keep
+                 * cputime unchanged so the next valid update accumulates
+                 * the full delta over the interval. Updating ppid is safe
+                 * here because it is independent of timing accuracy: the
+                 * parent PID is a current kernel value and does not
+                 * participate in any time-based delta computation. */
+                p->ppid = tmp_process->ppid;
                 continue;
             }
             /*
@@ -400,7 +417,8 @@ void update_process_group(struct process_group *pgroup) {
                  */
                 p->cpu_usage = (1.0 - ALPHA) * p->cpu_usage + ALPHA * sample;
             }
-            /* Update stored CPU time and parent PID for next delta calculation */
+            /* Update stored CPU time and parent PID for next delta calculation
+             */
             p->ppid = tmp_process->ppid;
             p->cputime = tmp_process->cputime;
         }

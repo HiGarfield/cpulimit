@@ -111,7 +111,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     p->pid = pid;
 
     /* Parse /proc/[pid]/stat for process state and timing information */
-    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)p->pid);
+    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
     if ((buffer = read_line_from_file(statfile)) == NULL) {
         return -1;
     }
@@ -152,7 +152,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         return 0;
     }
     /* Read command path from /proc/[pid]/cmdline */
-    snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)p->pid);
+    snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)pid);
     if ((buffer = read_line_from_file(exefile)) == NULL) {
         return -1;
     }

@@ -1667,6 +1667,22 @@ static void test_process_group_find_by_name(void) {
      */
     assert(find_process_by_name(command) == getpid());
 
+#if defined(__linux__)
+    /*
+     * Test the absolute-path comparison branch: when process_name starts
+     * with '/', find_process_by_name compares the full path against each
+     * process's cmdline.  Use a path incorporating the current PID so it
+     * is unique enough to never match any running process's cmdline,
+     * even in shared CI environments.
+     */
+    {
+        char abs_path[64];
+        snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
+                 (long)getpid());
+        assert(find_process_by_name(abs_path) == 0);
+    }
+#endif /* __linux__ */
+
     /*
      * Test Case 1: Pass an empty string to find_process_by_name.
      * Expectation: Should return 0 (process not found).
@@ -2226,6 +2242,8 @@ static void test_util_long2pid_t_overflow(void) {
  */
 static void test_util_read_line_from_file(void) {
     char *line;
+    char tmpfile[] = "/tmp/cpulimit_empty_XXXXXX";
+    int fd;
 
     /* NULL filename must return NULL */
     line = read_line_from_file(NULL);
@@ -2239,6 +2257,15 @@ static void test_util_read_line_from_file(void) {
     line = read_line_from_file("/proc/self/stat");
     assert(line != NULL);
     free(line);
+
+    /* Empty file must return NULL (getline returns -1 on immediate EOF).
+     * Use mkstemp() to avoid name collisions in parallel test runs. */
+    fd = mkstemp(tmpfile);
+    assert(fd >= 0);
+    close(fd);
+    line = read_line_from_file(tmpfile);
+    assert(line == NULL);
+    remove(tmpfile);
 }
 #endif /* __linux__ */
 
