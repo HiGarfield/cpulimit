@@ -41,8 +41,8 @@ int main(int argc, char *argv[]) {
     parse_arguments(argc, argv, &cfg);
 
     /*
-     * Install signal handlers for SIGTERM, SIGINT, SIGQUIT, and SIGHUP
-     * to ensure graceful cleanup when the program is interrupted
+     * Install signal handlers for SIGTERM, SIGINT, SIGQUIT, SIGHUP, and
+     * SIGPIPE to ensure graceful cleanup when the program is interrupted
      */
     configure_signal_handler();
 

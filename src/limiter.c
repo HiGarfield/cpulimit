@@ -323,7 +323,7 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
 
         if (found_pid == 0) {
             /* Process does not exist */
-            printf("Process cannot be found\n");
+            fprintf(stderr, "Process cannot be found\n");
             if (cfg->lazy_mode) {
                 /* In lazy mode, missing target is an error condition. */
                 exit_status = EXIT_FAILURE;
