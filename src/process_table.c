@@ -73,6 +73,8 @@ void process_table_init(struct process_table *pt, size_t hashsize) {
  *
  * Uses simple modulo hashing. The PID is cast to size_t to ensure
  * positive values before taking the modulo.
+ *
+ * @pre pt->hashsize must be > 0 (callers must guard against destroyed tables)
  */
 static size_t pid_hash(const struct process_table *pt, pid_t pid) {
     return (size_t)pid % pt->hashsize;
