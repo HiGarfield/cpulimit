@@ -151,14 +151,34 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     if (!read_cmd) {
         return 0;
     }
-    /* Read command path from /proc/[pid]/cmdline */
+    /*
+     * Read argv[0] from /proc/[pid]/cmdline using fread() to avoid
+     * allocating a buffer for the entire argument list. The cmdline file
+     * uses NUL bytes as argument separators (no newlines), so reading
+     * at most CMD_BUFF_SIZE-1 bytes and truncating at the first NUL
+     * gives only argv[0], which is the executable path or name.
+     */
     snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)pid);
-    if ((buffer = read_line_from_file(exefile)) == NULL) {
-        return -1;
+    {
+        FILE *fp;
+        size_t len;
+        char *nul;
+        fp = fopen(exefile, "r");
+        if (fp == NULL) {
+            return -1;
+        }
+        len = fread(p->command, 1, sizeof(p->command) - 1, fp);
+        fclose(fp);
+        if (len == 0) {
+            return -1;
+        }
+        p->command[len] = '\0';
+        /* Truncate to the first argument (argv[0]) */
+        nul = (char *)memchr(p->command, '\0', len);
+        if (nul != NULL) {
+            *nul = '\0';
+        }
     }
-    strncpy(p->command, buffer, sizeof(p->command) - 1);
-    p->command[sizeof(p->command) - 1] = '\0';
-    free(buffer);
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
