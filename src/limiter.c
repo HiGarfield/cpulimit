@@ -69,6 +69,19 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
         exit(EXIT_FAILURE);
     }
 
+    /*
+     * Flush stdout before forking.
+     * This is a defensive measure to avoid duplicated buffered output if
+     * future child code paths use stdio and exit()/flush inherited streams.
+     * Ignore EBADF to support callers that intentionally close stdout in tests.
+     */
+    if (fflush(stdout) != 0 && errno != EBADF) {
+        perror("fflush");
+        close(sync_pipe[0]);
+        close(sync_pipe[1]);
+        exit(EXIT_FAILURE);
+    }
+
     /* Fork to create child process that will execute user command */
     cmd_runner_pid = fork();
     if (cmd_runner_pid < 0) {
@@ -143,7 +156,15 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
             n_read = read(sync_pipe[0], &ack, 1);
         } while (n_read < 0 && errno == EINTR);
         if (n_read != 1 || ack != 'A') {
-            perror("read sync");
+            if (n_read < 0) {
+                perror("read sync");
+            } else if (n_read == 0) {
+                fprintf(stderr,
+                        "Synchronization pipe closed before child setup\n");
+            } else {
+                fprintf(stderr,
+                        "Unexpected synchronization value from child\n");
+            }
             close(sync_pipe[0]);
             /* Reap child to prevent zombie */
             waitpid(cmd_runner_pid, NULL, 0);
