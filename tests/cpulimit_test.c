@@ -2226,6 +2226,8 @@ static void test_util_long2pid_t_overflow(void) {
  */
 static void test_util_read_line_from_file(void) {
     char *line;
+    FILE *fp;
+    const char *tmpfile = "/tmp/cpulimit_test_empty.txt";
 
     /* NULL filename must return NULL */
     line = read_line_from_file(NULL);
@@ -2239,6 +2241,15 @@ static void test_util_read_line_from_file(void) {
     line = read_line_from_file("/proc/self/stat");
     assert(line != NULL);
     free(line);
+
+    /* Empty file must return NULL (getline returns -1 on immediate EOF) */
+    fp = fopen(tmpfile, "w");
+    if (fp != NULL) {
+        fclose(fp);
+        line = read_line_from_file(tmpfile);
+        assert(line == NULL);
+        remove(tmpfile);
+    }
 }
 #endif /* __linux__ */
 
