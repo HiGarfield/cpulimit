@@ -41,7 +41,14 @@
 #include <time.h>
 #include <unistd.h>
 
-/* Very small value to prevent division by zero in calculations */
+/*
+ * Very small positive value used to:
+ * - Prevent division by zero in work_ratio calculation (MAX(cpu_usage,
+ * EPSILON))
+ * - Bound work_ratio strictly away from 0 and 1 in CLAMP(work_ratio, EPSILON,
+ *   1 - EPSILON), ensuring both work and sleep phases always have positive
+ *   duration
+ */
 #define EPSILON 1e-12
 
 /*
