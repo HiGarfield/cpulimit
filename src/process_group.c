@@ -237,6 +237,12 @@ int close_process_group(struct process_group *pgroup) {
         return 0;
     }
     if (pgroup->proclist != NULL) {
+        /*
+         * Use clear_list (not destroy_list) because the data pointers in
+         * proclist are the same process structs stored in proctable.
+         * process_table_destroy below will free all data exactly once.
+         * Using destroy_list here would double-free the process structs.
+         */
         clear_list(pgroup->proclist);
         free(pgroup->proclist);
         pgroup->proclist = NULL;
