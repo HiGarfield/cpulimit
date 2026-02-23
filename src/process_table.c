@@ -90,7 +90,7 @@ static size_t pid_hash(const struct process_table *pt, pid_t pid) {
  */
 struct process *process_table_find(const struct process_table *pt, pid_t pid) {
     size_t idx;
-    if (pt == NULL) {
+    if (pt == NULL || pt->table == NULL) {
         return NULL;
     }
     idx = pid_hash(pt, pid);
@@ -117,7 +117,7 @@ struct process *process_table_find(const struct process_table *pt, pid_t pid) {
  */
 void process_table_add(struct process_table *pt, struct process *p) {
     size_t idx;
-    if (pt == NULL || p == NULL) {
+    if (pt == NULL || pt->table == NULL || p == NULL) {
         return;
     }
     idx = pid_hash(pt, p->pid);
@@ -151,7 +151,7 @@ void process_table_add(struct process_table *pt, struct process *p) {
 int process_table_del(struct process_table *pt, pid_t pid) {
     struct list_node *node;
     size_t idx;
-    if (pt == NULL) {
+    if (pt == NULL || pt->table == NULL) {
         return 1;
     }
     idx = pid_hash(pt, pid);
@@ -188,7 +188,7 @@ int process_table_del(struct process_table *pt, pid_t pid) {
 void process_table_remove_stale(struct process_table *pt,
                                 const struct list *active_list) {
     size_t idx;
-    if (pt == NULL) {
+    if (pt == NULL || pt->table == NULL) {
         return;
     }
     for (idx = 0; idx < pt->hashsize; idx++) {

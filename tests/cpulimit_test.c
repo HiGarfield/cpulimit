@@ -3359,6 +3359,43 @@ static void test_process_table_destroy_edge_cases(void) {
     process_table_destroy(&pt);
 }
 
+/**
+ * @brief Test that process_table operations are safe after destroy
+ * @note After process_table_destroy, find/add/del/remove_stale must not
+ *  crash even though pt->table is NULL and pt->hashsize is 0
+ */
+static void test_process_table_ops_after_destroy(void) {
+    struct process_table pt;
+    struct process *p;
+    const struct process *found;
+    int ret;
+
+    process_table_init(&pt, 16);
+    process_table_destroy(&pt);
+    /* pt->table is now NULL, pt->hashsize is now 0 */
+
+    /* find must return NULL without crashing */
+    found = process_table_find(&pt, 100);
+    assert(found == NULL);
+
+    /* add must be a no-op without crashing */
+    p = (struct process *)malloc(sizeof(struct process));
+    assert(p != NULL);
+    p->pid = 100;
+    p->ppid = 1;
+    p->cputime = 0.0;
+    p->cpu_usage = -1.0;
+    process_table_add(&pt, p);
+    free(p); /* p was never added to the table; must be freed manually */
+
+    /* del must return 1 without crashing */
+    ret = process_table_del(&pt, 100);
+    assert(ret == 1);
+
+    /* remove_stale must be a no-op without crashing */
+    process_table_remove_stale(&pt, NULL);
+}
+
 /***************************************************************************
  * SIGNAL_HANDLER MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
@@ -4084,6 +4121,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_table_null_inputs_and_dup);
     RUN_TEST(test_process_table_stale_null_list);
     RUN_TEST(test_process_table_destroy_edge_cases);
+    RUN_TEST(test_process_table_ops_after_destroy);
 
     /* Signal handler module tests */
     printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
