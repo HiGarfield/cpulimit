@@ -34,11 +34,11 @@ extern "C" {
  * @brief Set up signal handlers for graceful program termination
  *
  * Registers a unified signal handler for SIGINT (Ctrl+C), SIGQUIT (Ctrl+\),
- * SIGTERM, and SIGHUP signals. When any of these signals are received, the
- * handler sets a quit flag that can be checked via is_quit_flag_set().
- * For terminal-originated signals (SIGINT, SIGQUIT), also sets a flag
- * indicating TTY termination. The handler uses SA_RESTART to automatically
- * restart interrupted system calls.
+ * SIGTERM, SIGHUP, and SIGPIPE signals. When any of these signals are
+ * received, the handler sets a quit flag that can be checked via
+ * is_quit_flag_set(). For terminal-originated signals (SIGINT, SIGQUIT),
+ * also sets a flag indicating TTY termination. The handler uses SA_RESTART
+ * to automatically restart interrupted system calls.
  *
  * @note Exits with error if signal registration fails
  */
