@@ -241,8 +241,10 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                     }
                 } else {
                     /* Abnormal termination (neither exit nor signal) */
-                    printf("Process %ld terminated abnormally\n",
-                           (long)cmd_runner_pid);
+                    if (cfg->verbose) {
+                        printf("Process %ld terminated abnormally\n",
+                               (long)cmd_runner_pid);
+                    }
                     child_exit_status = EXIT_FAILURE;
                 }
 
