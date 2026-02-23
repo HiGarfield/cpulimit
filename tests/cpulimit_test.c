@@ -1667,6 +1667,16 @@ static void test_process_group_find_by_name(void) {
      */
     assert(find_process_by_name(command) == getpid());
 
+#if defined(__linux__)
+    /*
+     * Test the absolute-path comparison branch: when process_name starts
+     * with '/', find_process_by_name compares the full path against each
+     * process's cmdline.  Use a path that no running process can have as
+     * its cmdline to confirm the branch returns 0 without crashing.
+     */
+    assert(find_process_by_name("/nonexistent/cpulimit_abs_path_test") == 0);
+#endif /* __linux__ */
+
     /*
      * Test Case 1: Pass an empty string to find_process_by_name.
      * Expectation: Should return 0 (process not found).
