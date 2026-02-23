@@ -289,6 +289,12 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                 /* ECHILD means no more children, exit loop */
                 break;
             }
+            /*
+             * Implicit else: wpid > 0 but wpid != cmd_runner_pid.
+             * A descendant process (grandchild, etc.) that was in the same
+             * process group exited and was reaped. We don't track its exit
+             * status; continue the loop to wait for cmd_runner_pid.
+             */
         }
 
         /*
