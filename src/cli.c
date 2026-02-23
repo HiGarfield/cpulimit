@@ -47,6 +47,7 @@
  */
 static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
                                  int exit_code) {
+    int ncpu = get_ncpu();
     fprintf(stream, "Usage: %s OPTION... TARGET\n", cfg->program_name);
     fprintf(stream,
             "Limit the CPU usage of a process to a specified percentage.\n");
@@ -54,8 +55,8 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
     fprintf(stream, "Options:\n");
     fprintf(
         stream,
-        "  -l LIMIT, --limit=LIMIT  CPU percentage limit, range (0, %d] (required)\n",
-        100 * get_ncpu());
+        "  -l LIMIT, --limit=LIMIT  CPU percentage limit, range (0, %ld] (required)\n",
+        (long)ncpu * 100L);
     fprintf(stream, "  -v, --verbose            show control statistics\n");
     fprintf(
         stream,
