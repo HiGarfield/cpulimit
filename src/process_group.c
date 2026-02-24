@@ -154,6 +154,7 @@ pid_t find_process_by_name(const char *process_name) {
     }
     free(proc);
     if (close_process_iterator(&it) != 0) {
+        fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
     }
 
@@ -450,6 +451,7 @@ void update_process_group(struct process_group *pgroup) {
     }
     free(tmp_process);
     if (close_process_iterator(&it) != 0) {
+        fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
     }
 
