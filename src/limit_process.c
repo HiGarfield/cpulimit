@@ -147,7 +147,7 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
     while (node != NULL) {
         struct list_node *next_node =
             node->next; /* Save before potential deletion */
-        pid_t pid = ((struct process *)node->data)->pid;
+        pid_t pid = ((const struct process *)node->data)->pid;
         if (kill(pid, sig) != 0) {
             /*
              * Signal delivery failed. Common reasons:
