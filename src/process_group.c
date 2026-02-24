@@ -250,6 +250,9 @@ int close_process_group(struct process_group *pgroup) {
         pgroup->proctable = NULL;
     }
 
+    /* Zero out remaining fields to prevent stale data after close */
+    memset(pgroup, 0, sizeof(*pgroup));
+
     return 0;
 }
 
