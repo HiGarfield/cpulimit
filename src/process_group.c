@@ -325,10 +325,11 @@ void update_process_group(struct process_group *pgroup) {
     struct process_filter filter;
     struct timespec now;
     double dt;
-    int ncpu = get_ncpu(); /* Cached: compute once per call */
+    int ncpu;
     if (pgroup == NULL) {
         return;
     }
+    ncpu = get_ncpu(); /* Cached: compute once per call */
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
