@@ -62,6 +62,9 @@
  */
 int init_process_iterator(struct process_iterator *it,
                           const struct process_filter *filter) {
+    if (it == NULL || filter == NULL) {
+        return -1;
+    }
     it->filter = filter;
     it->end_of_processes = 0;
     if (it->filter->pid != 0 && !it->filter->include_children) {
