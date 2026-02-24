@@ -219,7 +219,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * This function:
  * 1. Clears and frees the process list
  * 2. Destroys and frees the process hashtable
- * 3. Sets both pointers to NULL for safety
+ * 3. Sets pointers to NULL and zeros numeric fields for safety
  *
  * @note Safe to call with NULL pgroup (returns 0 immediately)
  * @note Safe to call even if pgroup is partially initialized (NULLs are
