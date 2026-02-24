@@ -107,7 +107,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     char statfile[64], exefile[64], state;
     char *buffer;
     const char *ptr_start;
-    double usertime, systime;
+    unsigned long usertime_ticks, systime_ticks;
     long ppid;
     static long sc_clk_tck = -1;
     FILE *fp;
@@ -131,10 +131,10 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         return -1;
     }
     if (sscanf(ptr_start,
-               ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf", &state,
-               &ppid, &usertime, &systime) != 4 ||
+               ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lu %lu", &state,
+               &ppid, &usertime_ticks, &systime_ticks) != 4 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0 || usertime < 0 || systime < 0) {
+        ppid <= 0) {
         free(buffer);
         return -1;
     }
@@ -152,7 +152,8 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         }
     }
     /* Convert CPU times from clock ticks to milliseconds */
-    p->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
+    p->cputime =
+        (double)(usertime_ticks + systime_ticks) * 1000.0 / (double)sc_clk_tck;
 
     if (!read_cmd) {
         return 0;
