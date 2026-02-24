@@ -326,6 +326,9 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
  * and processes not matching the PID filter criteria.
  */
 int get_next_process(struct process_iterator *it, struct process *p) {
+    if (it == NULL || p == NULL) {
+        return -1;
+    }
     if (it->i >= it->count) {
         return -1;
     }
