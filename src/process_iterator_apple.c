@@ -66,7 +66,7 @@ int init_process_iterator(struct process_iterator *it,
     int buffer_size, retries, success = 0;
 
     if (it == NULL || filter == NULL) {
-        exit(EXIT_FAILURE);
+        return -1;
     }
     memset(it, 0, sizeof(*it));
     it->filter = filter;
