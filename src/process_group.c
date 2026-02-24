@@ -330,6 +330,7 @@ void update_process_group(struct process_group *pgroup) {
     struct process_filter filter;
     struct timespec now;
     double dt;
+    int ncpu = get_ncpu(); /* Cached: compute once per call */
     if (pgroup == NULL) {
         return;
     }
@@ -372,7 +373,6 @@ void update_process_group(struct process_group *pgroup) {
             add_elem(pgroup->proclist, p);
         } else {
             double sample;
-            int ncpu;
             /* Existing process: re-add to list for this cycle */
             add_elem(pgroup->proclist, p);
             if (tmp_process->cputime < p->cputime) {
@@ -413,7 +413,6 @@ void update_process_group(struct process_group *pgroup) {
              */
             sample = (tmp_process->cputime - p->cputime) / dt;
             /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
-            ncpu = get_ncpu();
             sample = MIN(sample, (double)ncpu);
             if (p->cpu_usage < 0) {
                 /* First valid measurement: initialize directly */
