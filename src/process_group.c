@@ -308,7 +308,8 @@ static struct process *process_dup(const struct process *proc) {
  * 2. Updates the process list, removing terminated processes from tracking
  * 3. Calculates CPU usage for each process using exponential moving average
  * 4. Handles edge cases: PID reuse, clock skew, insufficient time delta
- * 5. Updates last_update timestamp if sufficient time has elapsed
+ * 5. Updates last_update timestamp if sufficient time has elapsed or if
+ *    time moved backwards (to establish a new baseline)
  *
  * CPU usage calculation:
  * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
