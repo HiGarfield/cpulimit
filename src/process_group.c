@@ -479,6 +479,10 @@ double get_process_group_cpu_usage(const struct process_group *pgroup) {
     }
     for (node = first_node(pgroup->proclist); node != NULL; node = node->next) {
         const struct process *p = (const struct process *)node->data;
+        /* Skip NULL-data nodes (should not occur but defensive) */
+        if (p == NULL) {
+            continue;
+        }
         /* Skip processes without valid CPU measurements yet */
         if (p->cpu_usage < 0) {
             continue;
