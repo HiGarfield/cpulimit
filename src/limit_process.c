@@ -153,10 +153,12 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
              * Signal delivery failed. Common reasons:
              * - ESRCH: Process no longer exists
              * - EPERM: Permission denied (rare in this context)
+             * Save errno before any other calls that may clobber it.
              */
-            if (verbose && errno != ESRCH) {
+            int saved_errno = errno;
+            if (verbose && saved_errno != ESRCH) {
                 fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
-                        sig, (long)pid, strerror(errno));
+                        sig, (long)pid, strerror(saved_errno));
             }
             /* Remove dead/inaccessible process from tracking */
             delete_node(procgroup->proclist, node);
