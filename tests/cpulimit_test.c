@@ -1541,9 +1541,10 @@ static void test_process_iterator_multiple(void) {
     int ret;
     pid_t self_pid;
     pid_t self_ppid;
+    pid_t child_pid;
 
     /* Create a child process for testing */
-    pid_t child_pid = fork();
+    child_pid = fork();
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
@@ -1688,9 +1689,10 @@ static void test_proc_group_single(int include_children) {
     size_t cnt;
     int ncpu_val;
     pid_t self_pid;
+    pid_t child_pid;
 
     /* Create a child process for testing */
-    pid_t child_pid = fork();
+    child_pid = fork();
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
