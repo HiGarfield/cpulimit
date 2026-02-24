@@ -89,6 +89,7 @@ struct process {
      * Estimated current CPU usage as a multiplier of one CPU core.
      * Range: 0.0 to number_of_cpus. For example, 0.5 means using
      * 50% of one core, while 2.0 means using two full cores.
+     * A value of -1.0 indicates that usage has not yet been measured.
      */
     double cpu_usage;
 
