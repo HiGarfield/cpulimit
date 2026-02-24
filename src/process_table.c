@@ -234,7 +234,7 @@ void process_table_remove_stale(struct process_table *pt,
  */
 void process_table_destroy(struct process_table *pt) {
     size_t idx;
-    if (pt == NULL) {
+    if (pt == NULL || pt->table == NULL) {
         return;
     }
     /* Free each bucket's linked list and its contents */
