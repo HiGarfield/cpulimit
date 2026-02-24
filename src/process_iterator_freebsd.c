@@ -95,6 +95,9 @@ int init_process_iterator(struct process_iterator *it,
                           const struct process_filter *filter) {
     const struct kinfo_proc *procs;
 
+    if (it == NULL || filter == NULL) {
+        return -1;
+    }
     it->filter = filter;
 
     /*
@@ -325,7 +328,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * and processes not matching the PID filter criteria.
  */
 int get_next_process(struct process_iterator *it, struct process *p) {
-    if (it == NULL || p == NULL) {
+    if (it == NULL || p == NULL || it->filter == NULL) {
         return -1;
     }
 
