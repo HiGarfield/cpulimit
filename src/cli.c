@@ -121,18 +121,22 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
  * @param value Value to test
  * @return 1 if value is NaN, 0 otherwise
  *
- * Uses compiler built-ins or the standard isnan() macro when available,
+ * Uses the standard isnan() macro or compiler built-ins when available,
  * otherwise falls back to the IEEE 754 property that NaN != NaN, using
  * a volatile variable to prevent optimizations that could eliminate the
  * comparison.
  */
 static int is_nan(double value) {
-#if defined(__GNUC__) || defined(__clang__)
-    return __builtin_isnan(value);
-#elif defined(isnan) || defined(_ISOC99_SOURCE) ||                             \
+#if defined(isnan) || defined(_ISOC99_SOURCE) ||                               \
     (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) ||              \
     (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L)
     return isnan(value);
+#elif (defined(__GNUC__) && defined(__GNUC_MINOR__) &&                         \
+       (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4))) ||            \
+    (defined(__clang__) && defined(__clang_major__) &&                         \
+     defined(__clang_minor__) &&                                               \
+     (__clang_major__ > 2 || (__clang_major__ == 2 && __clang_minor__ >= 8)))
+    return __builtin_isnan(value);
 #else
     /* Fallback implementation for platforms without isnan support */
     volatile double temp = value;
