@@ -833,6 +833,11 @@ static void test_process_table_remove_stale(void) {
 /**
  * @brief Test process_table_remove_stale removes NULL-data nodes
  * @note NULL-data nodes should be removed defensively
+ *
+ * To test this defensive path we must inject a NULL-data node directly
+ * into the internal hash bucket. The process_table struct and its table
+ * member are exposed in the public header, so this access is intentional;
+ * the idx computation mirrors process_table's own pid_hash() formula.
  */
 static void test_process_table_remove_stale_null_data(void) {
     struct process_table pt;
@@ -849,10 +854,13 @@ static void test_process_table_remove_stale_null_data(void) {
     p1->pid = 101;
     process_table_add(&pt, p1);
 
-    /* Manually inject a NULL-data node into the same bucket */
+    /*
+     * Inject a NULL-data node into the same bucket.
+     * idx mirrors process_table's pid_hash(): (size_t)pid % hashsize.
+     */
     idx = (size_t)101 % 16;
     assert(pt.table[idx] != NULL);
-    add_elem(pt.table[idx], NULL); /* force a NULL-data node into the bucket */
+    add_elem(pt.table[idx], NULL);
 
     /* add p1 to active_list so it is not removed */
     add_elem(&active_list, p1);
@@ -869,7 +877,6 @@ static void test_process_table_remove_stale_null_data(void) {
     clear_list(&active_list);
     process_table_destroy(&pt);
 }
-
 
 /**
  * @brief Test signal handler flags

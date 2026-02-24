@@ -335,7 +335,7 @@ void update_process_group(struct process_group *pgroup) {
     if (pgroup == NULL) {
         return;
     }
-    ncpu = get_ncpu(); /* Cached: compute once per call */
+    ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
