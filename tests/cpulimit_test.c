@@ -830,9 +830,46 @@ static void test_process_table_remove_stale(void) {
     process_table_destroy(&pt);
 }
 
-/***************************************************************************
- * SIGNAL_HANDLER MODULE TESTS
- ***************************************************************************/
+/**
+ * @brief Test process_table_remove_stale removes NULL-data nodes
+ * @note NULL-data nodes should be removed defensively
+ */
+static void test_process_table_remove_stale_null_data(void) {
+    struct process_table pt;
+    struct list active_list;
+    struct process *p1;
+    size_t idx;
+
+    process_table_init(&pt, 16);
+    init_list(&active_list);
+
+    /* Insert a valid process */
+    p1 = (struct process *)malloc(sizeof(struct process));
+    assert(p1 != NULL);
+    p1->pid = 101;
+    process_table_add(&pt, p1);
+
+    /* Manually inject a NULL-data node into the same bucket */
+    idx = (size_t)101 % 16;
+    assert(pt.table[idx] != NULL);
+    add_elem(pt.table[idx], NULL); /* force a NULL-data node into the bucket */
+
+    /* add p1 to active_list so it is not removed */
+    add_elem(&active_list, p1);
+
+    /* remove_stale must remove the NULL-data node without crashing */
+    process_table_remove_stale(&pt, &active_list);
+
+    /* p1 must still be present */
+    assert(process_table_find(&pt, 101) == p1);
+
+    /* The NULL-data node must be gone (bucket list has exactly one entry) */
+    assert(get_list_count(pt.table[idx]) == 1);
+
+    clear_list(&active_list);
+    process_table_destroy(&pt);
+}
+
 
 /**
  * @brief Test signal handler flags
@@ -2156,6 +2193,43 @@ static void test_signal_handler_sigpipe(void) {
     assert(waitpid(pid, &status, 0) == pid);
     assert(WIFEXITED(status));
     assert(WEXITSTATUS(status) == 0);
+}
+
+/**
+ * @brief Test init_process_iterator and get_next_process with NULL inputs
+ * @note NULL it or NULL filter must return -1 without crashing
+ */
+static void test_process_iterator_null_inputs(void) {
+    struct process_iterator it;
+    struct process_filter filter;
+    struct process *p;
+
+    memset(&filter, 0, sizeof(filter));
+
+    p = (struct process *)malloc(sizeof(struct process));
+    assert(p != NULL);
+
+    /* NULL it pointer must return -1 */
+    assert(init_process_iterator(NULL, &filter) == -1);
+
+    /* NULL filter pointer must return -1 */
+    assert(init_process_iterator(&it, NULL) == -1);
+
+    /* get_next_process with NULL it must return -1 */
+    assert(get_next_process(NULL, p) == -1);
+
+    /* get_next_process with NULL p must return -1 */
+    filter.pid = getpid();
+    filter.include_children = 0;
+    filter.read_cmd = 0;
+    assert(init_process_iterator(&it, &filter) == 0);
+    assert(get_next_process(&it, NULL) == -1);
+    assert(close_process_iterator(&it) == 0);
+
+    /* get_next_process after close (filter=NULL) must return -1 */
+    assert(get_next_process(&it, p) == -1);
+
+    free(p);
 }
 
 /**
@@ -3627,6 +3701,24 @@ static void test_process_group_close_null(void) {
 }
 
 /**
+ * @brief Test that close_process_group zeros all numeric fields
+ * @note After close, target_pid, include_children, and last_update must be 0
+ */
+static void test_process_group_close_zeros_fields(void) {
+    struct process_group pgroup;
+    assert(init_process_group(&pgroup, getpid(), 1) == 0);
+    assert(pgroup.target_pid == getpid());
+    assert(pgroup.include_children == 1);
+    assert(close_process_group(&pgroup) == 0);
+    assert(pgroup.proclist == NULL);
+    assert(pgroup.proctable == NULL);
+    assert(pgroup.target_pid == 0);
+    assert(pgroup.include_children == 0);
+    assert(pgroup.last_update.tv_sec == 0);
+    assert(pgroup.last_update.tv_nsec == 0);
+}
+
+/**
  * @brief Test update_process_group with NULL pointer
  * @note Must return without crashing
  */
@@ -4140,6 +4232,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_table_del_absent_pid);
     RUN_TEST(test_process_table_del_empty_bucket);
     RUN_TEST(test_process_table_remove_stale);
+    RUN_TEST(test_process_table_remove_stale_null_data);
     RUN_TEST(test_process_table_collisions);
     RUN_TEST(test_process_table_empty_buckets);
     RUN_TEST(test_process_table_null_inputs_and_dup);
@@ -4172,6 +4265,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_with_children);
     RUN_TEST(test_process_iterator_close_null_dip);
     RUN_TEST(test_process_iterator_close_null);
+    RUN_TEST(test_process_iterator_null_inputs);
 
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
@@ -4179,6 +4273,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_init_single);
     RUN_TEST(test_process_group_init_invalid_pid);
     RUN_TEST(test_process_group_close_null);
+    RUN_TEST(test_process_group_close_zeros_fields);
     RUN_TEST(test_process_group_update_null);
     RUN_TEST(test_process_group_double_update);
     RUN_TEST(test_process_group_find_by_pid);
