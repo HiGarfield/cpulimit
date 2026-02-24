@@ -109,6 +109,15 @@ pid_t find_process_by_name(const char *process_name) {
     full_path_cmp = process_name[0] == '/';
     process_cmp_name =
         full_path_cmp ? process_name : file_basename(process_name);
+    /*
+     * Reject an empty comparison name (e.g. process_name == "bin/").
+     * file_basename("bin/") returns "" because the last '/' has nothing
+     * after it.  Matching against an empty string would produce false
+     * positives for any process whose argv[0] also ends with '/'.
+     */
+    if (process_cmp_name[0] == '\0') {
+        return 0;
+    }
     if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process\n");
         exit(EXIT_FAILURE);
