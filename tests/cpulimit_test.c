@@ -2394,6 +2394,20 @@ static void test_util_read_line_from_file(void) {
     line = read_line_from_file(tmpfile);
     assert(line == NULL);
     remove(tmpfile);
+
+    /* A file containing only a newline returns a non-NULL empty string */
+    {
+        char nl_tmpfile[] = "/tmp/cpulimit_newline_XXXXXX";
+        int nl_fd = mkstemp(nl_tmpfile);
+        assert(nl_fd >= 0);
+        assert(write(nl_fd, "\n", 1) == 1);
+        close(nl_fd);
+        line = read_line_from_file(nl_tmpfile);
+        assert(line != NULL);
+        assert(line[0] == '\0');
+        free(line);
+        remove(nl_tmpfile);
+    }
 }
 #endif /* __linux__ */
 
