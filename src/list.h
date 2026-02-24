@@ -135,7 +135,8 @@ void delete_node(struct list *l, struct list_node *node);
  * then frees the node structure. Use this only when the data was allocated
  * with malloc() and has no other references.
  *
- * @note Safe to call with NULL list or node (does nothing)
+ * @note Safe to call with NULL list or node (frees node resources without
+ *       modifying the list when l is NULL; does nothing when node is NULL)
  */
 void destroy_node(struct list *l, struct list_node *node);
 
