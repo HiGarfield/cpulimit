@@ -206,7 +206,10 @@ void process_table_remove_stale(struct process_table *pt,
         for (node = first_node(pt->table[idx]); node != NULL;
              node = next_node) {
             next_node = node->next;
-            if (node->data != NULL) {
+            if (node->data == NULL) {
+                /* Defensive: remove phantom NULL-data nodes */
+                destroy_node(pt->table[idx], node);
+            } else {
                 pid_t pid = ((const struct process *)node->data)->pid;
                 if (locate_elem(active_list, &pid,
                                 offsetof(struct process, pid),
