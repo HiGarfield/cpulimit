@@ -170,7 +170,7 @@ static void test_list_add_elem(void) {
     size_t cnt;
     int empty;
     const struct list_node *fn;
-    struct list_node *null_node;
+    const struct list_node *null_node;
 
     init_list(&l);
 
@@ -319,11 +319,11 @@ static void test_list_destroy_node(void) {
 static void test_list_locate(void) {
     struct list l;
     struct process *p1, *p2, *p3;
-    struct list_node *found_node;
+    const struct list_node *found_node;
     const struct process *found_elem;
     pid_t search_pid;
     const struct process *found_proc;
-    void *void_elem;
+    const void *void_elem;
 
     init_list(&l);
 
@@ -1311,7 +1311,6 @@ static void test_process_table_collisions(void) {
     struct process *p[20];
     const struct process *found;
     size_t i;
-    int pt_del;
 
     /* Use small hash size to force collisions */
     process_table_init(&pt, 4);
@@ -1333,6 +1332,7 @@ static void test_process_table_collisions(void) {
 
     /* Delete some processes */
     for (i = 0; i < 20; i += 3) {
+        int pt_del;
         pt_del = process_table_del(&pt, collision_pids[i]);
         assert(pt_del == 0);
     }
@@ -1430,7 +1430,6 @@ static void test_process_group_rapid_updates(void) {
     pid_t child_pid;
     int i;
     int ret;
-    size_t cnt;
 
     child_pid = fork();
     assert(child_pid >= 0);
@@ -1452,6 +1451,7 @@ static void test_process_group_rapid_updates(void) {
     assert(ret == 0);
 
     for (i = 0; i < 20; i++) {
+        size_t cnt;
         update_process_group(&pgroup);
         cnt = get_list_count(pgroup.proclist);
         assert(cnt == 1);
@@ -1686,7 +1686,6 @@ static void test_proc_group_single(int include_children) {
     struct process_group pgroup;
     int i;
     int ret;
-    size_t cnt;
     int ncpu_val;
     pid_t self_pid;
     pid_t child_pid;
@@ -1716,6 +1715,7 @@ static void test_proc_group_single(int include_children) {
     for (i = 0; i < 100; i++) {
         const struct list_node *node = NULL;
         size_t count = 0;
+        size_t cnt;
 
         update_process_group(&pgroup);
         cnt = get_list_count(pgroup.proclist);
@@ -1949,7 +1949,6 @@ static void test_process_iterator_getppid_of(void) {
     struct process *process;
     struct process_filter filter;
     int ret;
-    pid_t ppid_result;
     pid_t ppid_self;
     pid_t expected_ppid;
 
@@ -1967,6 +1966,7 @@ static void test_process_iterator_getppid_of(void) {
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
     while (get_next_process(&it, process) == 0) {
+        pid_t ppid_result;
         ppid_result = getppid_of(process->pid);
         assert(ppid_result == process->ppid);
     }
@@ -1990,10 +1990,7 @@ static void test_limit_process_basic(void) {
     pid_t child_pid;
     int sync_pipe[2], num_procs;
     int pr, cl;
-    ssize_t nwritten;
-    int ret;
-    int ncpu_val;
-    size_t cnt;
+
     num_procs = get_ncpu();
     /* Ensure at least 2 processes to validate include_children option */
     num_procs = MAX(num_procs, 2);
@@ -2042,6 +2039,8 @@ static void test_limit_process_basic(void) {
             double cpu_usage = 0;
             struct process_group pgroup;
             const struct timespec sleep_time = {0, 500000000L};
+            int ret;
+            int ncpu_val;
 
             /* Initialize process group monitoring */
             ret = init_process_group(&pgroup, child_pid, 1);
@@ -2050,6 +2049,7 @@ static void test_limit_process_basic(void) {
             /* Monitor CPU usage over 60 iterations */
             for (i = 0; i < 60 && !is_quit_flag_set(); i++) {
                 double temp_cpu_usage;
+                size_t cnt;
                 sleep_timespec(&sleep_time);
                 update_process_group(&pgroup);
 
@@ -2091,6 +2091,7 @@ static void test_limit_process_basic(void) {
         /* child_pid == 0: Target process group */
         int i;
         volatile int keep_running = 1;
+        ssize_t nwritten;
 
         /* Create new process group */
         setpgid(0, 0);
@@ -2226,8 +2227,8 @@ static void test_list_null_data_operations(void) {
     int search_val;
     size_t cnt;
     int empty;
-    struct list_node *tmp_node;
-    void *void_elem;
+    const struct list_node *tmp_node;
+    const void *void_elem;
 
     init_list(&l);
 
@@ -2348,7 +2349,6 @@ static void test_process_table_stale_null_list(void) {
 static void test_signal_handler_sigquit(void) {
     pid_t pid;
     int status;
-    pid_t sid;
     pid_t waited;
     int exited;
     int exit_code;
@@ -2363,6 +2363,7 @@ static void test_signal_handler_sigquit(void) {
          * driver to propagate the signal to the parent's process group,
          * corrupting the parent's state. setsid() prevents this.
          */
+        pid_t sid;
         sid = setsid();
         assert(sid != (pid_t)-1);
         configure_signal_handler();
@@ -3610,8 +3611,8 @@ static void test_list_locate_single(void) {
     struct list_node *node;
     const void *elem;
     int node_val;
-    struct list_node *tmp_node;
-    void *void_elem;
+    const struct list_node *tmp_node;
+    const void *void_elem;
 
     init_list(&l);
     add_elem(&l, &val);
