@@ -1477,6 +1477,11 @@ static void test_process_iterator_single(void) {
     struct process_filter filter;
     size_t count;
     int ret;
+    pid_t self_pid;
+    pid_t self_ppid;
+
+    self_pid = getpid();
+    self_ppid = getppid();
 
     /* Allocate memory for process structure */
     if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
@@ -1494,8 +1499,8 @@ static void test_process_iterator_single(void) {
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
     while (get_next_process(&it, process) == 0) {
-        assert(process->pid == getpid());
-        assert(process->ppid == getppid());
+        assert(process->pid == self_pid);
+        assert(process->ppid == self_ppid);
         assert(process->cputime >= 0);
         count++;
     }
@@ -1512,8 +1517,8 @@ static void test_process_iterator_single(void) {
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
     while (get_next_process(&it, process) == 0) {
-        assert(process->pid == getpid());
-        assert(process->ppid == getppid());
+        assert(process->pid == self_pid);
+        assert(process->ppid == self_ppid);
         assert(process->cputime >= 0);
         count++;
     }
@@ -1534,6 +1539,8 @@ static void test_process_iterator_multiple(void) {
     struct process_filter filter;
     size_t count = 0;
     int ret;
+    pid_t self_pid;
+    pid_t self_ppid;
 
     /* Create a child process for testing */
     pid_t child_pid = fork();
@@ -1555,6 +1562,8 @@ static void test_process_iterator_multiple(void) {
     }
 
     /* Set up filter to include children */
+    self_pid = getpid();
+    self_ppid = getppid();
     filter.pid = getpid();
     filter.include_children = 1;
     filter.read_cmd = 0;
@@ -1564,9 +1573,9 @@ static void test_process_iterator_multiple(void) {
     assert(ret == 0);
     while (get_next_process(&it, process) == 0) {
         if (process->pid == getpid()) {
-            assert(process->ppid == getppid());
+            assert(process->ppid == self_ppid);
         } else if (process->pid == child_pid) {
-            assert(process->ppid == getpid());
+            assert(process->ppid == self_pid);
         } else {
             assert(0);
         }
@@ -1594,8 +1603,10 @@ static void test_process_iterator_all(void) {
     size_t count = 0;
     int found_self = 0;
     int ret;
+    pid_t self_ppid;
 
     /* Set up filter to get all processes */
+    self_ppid = getppid();
     filter.pid = 0;
     filter.include_children = 0;
     filter.read_cmd = 0;
@@ -1612,7 +1623,7 @@ static void test_process_iterator_all(void) {
 
     while (get_next_process(&it, process) == 0) {
         if (process->pid == getpid()) {
-            assert(process->ppid == getppid());
+            assert(process->ppid == self_ppid);
             assert(process->cputime >= 0);
             found_self = 1;
         }
@@ -1676,6 +1687,7 @@ static void test_proc_group_single(int include_children) {
     int ret;
     size_t cnt;
     int ncpu_val;
+    pid_t self_pid;
 
     /* Create a child process for testing */
     pid_t child_pid = fork();
@@ -1694,6 +1706,7 @@ static void test_proc_group_single(int include_children) {
     }
 
     /* Initialize process group with the child PID */
+    self_pid = getpid();
     ret = init_process_group(&pgroup, child_pid, include_children);
     assert(ret == 0);
 
@@ -1709,7 +1722,7 @@ static void test_proc_group_single(int include_children) {
         for (node = pgroup.proclist->first; node != NULL; node = node->next) {
             const struct process *p = (const struct process *)node->data;
             assert(p->pid == child_pid);
-            assert(p->ppid == getpid());
+            assert(p->ppid == self_pid);
             /* p->cpu_usage should be -1 or [0, NCPU] */
             ncpu_val = get_ncpu();
             assert((p->cpu_usage >= -1.00001 && p->cpu_usage <= -0.99999) ||
@@ -1753,6 +1766,8 @@ static void test_process_iterator_read_command(void) {
     const char *proc_name1, *proc_name2;
     int cmp_result;
     int ret;
+    pid_t self_pid;
+    pid_t self_ppid;
 
     /* Allocate memory for process structure */
     if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
@@ -1761,6 +1776,8 @@ static void test_process_iterator_read_command(void) {
     }
 
     /* Set up filter to get current process with command reading */
+    self_pid = getpid();
+    self_ppid = getppid();
     filter.pid = getpid();
     filter.include_children = 0;
     filter.read_cmd = 1;
@@ -1770,8 +1787,8 @@ static void test_process_iterator_read_command(void) {
     assert(ret == 0);
     ret = get_next_process(&it, process);
     assert(ret == 0);
-    assert(process->pid == getpid());
-    assert(process->ppid == getppid());
+    assert(process->pid == self_pid);
+    assert(process->ppid == self_ppid);
 
     /* Compare command names */
     proc_name1 = file_basename(command);
@@ -2681,25 +2698,39 @@ static void test_util_macros(void) {
     volatile int eq1 = 4, eq2 = 4;
     volatile int clamp_low = 0, clamp_high = 10;
     volatile int clamp_atlow = 0, clamp_athigh = 10;
+    int macro_val;
 
     /* MAX: larger-first, smaller-first, equal */
-    assert(MAX(5, 3) == 5);
-    assert(MAX(3, 5) == 5);
-    assert(MAX(eq1, eq2) == 4);
-    assert(MAX(-1, 0) == 0);
+    macro_val = MAX(5, 3);
+    assert(macro_val == 5);
+    macro_val = MAX(3, 5);
+    assert(macro_val == 5);
+    macro_val = MAX(eq1, eq2);
+    assert(macro_val == 4);
+    macro_val = MAX(-1, 0);
+    assert(macro_val == 0);
 
     /* MIN: smaller-first, larger-first, equal */
-    assert(MIN(3, 5) == 3);
-    assert(MIN(5, 3) == 3);
-    assert(MIN(eq1, eq2) == 4);
-    assert(MIN(-1, 0) == -1);
+    macro_val = MIN(3, 5);
+    assert(macro_val == 3);
+    macro_val = MIN(5, 3);
+    assert(macro_val == 3);
+    macro_val = MIN(eq1, eq2);
+    assert(macro_val == 4);
+    macro_val = MIN(-1, 0);
+    assert(macro_val == -1);
 
     /* CLAMP: value in range, below low, above high, equals low, equals high */
-    assert(CLAMP(5, 0, 10) == 5);
-    assert(CLAMP(-1, 0, 10) == 0);
-    assert(CLAMP(15, 0, 10) == 10);
-    assert(CLAMP(clamp_atlow, clamp_low, clamp_high) == 0);
-    assert(CLAMP(clamp_athigh, clamp_low, clamp_high) == 10);
+    macro_val = CLAMP(5, 0, 10);
+    assert(macro_val == 5);
+    macro_val = CLAMP(-1, 0, 10);
+    assert(macro_val == 0);
+    macro_val = CLAMP(15, 0, 10);
+    assert(macro_val == 10);
+    macro_val = CLAMP(clamp_atlow, clamp_low, clamp_high);
+    assert(macro_val == 0);
+    macro_val = CLAMP(clamp_athigh, clamp_low, clamp_high);
+    assert(macro_val == 10);
 }
 
 /**
@@ -3021,7 +3052,9 @@ static void test_cli_pid_mode(void) {
     char arg_p[] = "-p";
     char arg_pid[32];
     char *av[6];
+    pid_t self_pid;
 
+    self_pid = getpid();
     snprintf(arg_pid, sizeof(arg_pid), "%ld", (long)getpid());
     av[0] = arg0;
     av[1] = arg_l;
@@ -3033,7 +3066,7 @@ static void test_cli_pid_mode(void) {
     memset(&cfg, 0, sizeof(cfg));
     parse_arguments(5, (char *const *)av, &cfg);
 
-    assert(cfg.target_pid == getpid());
+    assert(cfg.target_pid == self_pid);
     assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
     assert(cfg.lazy_mode == 1); /* -p implies lazy */
     assert(cfg.verbose == 0);
@@ -3119,7 +3152,9 @@ static void test_cli_long_options(void) {
     char arg_limit[] = "--limit=50";
     char arg_pid_long[48];
     char *av[4];
+    pid_t self_pid;
 
+    self_pid = getpid();
     snprintf(arg_pid_long, sizeof(arg_pid_long), "--pid=%ld", (long)getpid());
     av[0] = arg0;
     av[1] = arg_limit;
@@ -3129,7 +3164,7 @@ static void test_cli_long_options(void) {
     memset(&cfg, 0, sizeof(cfg));
     parse_arguments(3, (char *const *)av, &cfg);
 
-    assert(cfg.target_pid == getpid());
+    assert(cfg.target_pid == self_pid);
     assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
     assert(cfg.lazy_mode == 1);
 }
@@ -4010,10 +4045,12 @@ static void test_process_iterator_exhaust_single(void) {
     struct process_filter filter;
     struct process *p;
     int ret;
+    pid_t self_pid;
 
     p = (struct process *)malloc(sizeof(struct process));
     assert(p != NULL);
 
+    self_pid = getpid();
     filter.pid = getpid();
     filter.include_children = 0;
     filter.read_cmd = 0;
@@ -4024,7 +4061,7 @@ static void test_process_iterator_exhaust_single(void) {
     /* First call: returns the process */
     ret = get_next_process(&it, p);
     assert(ret == 0);
-    assert(p->pid == getpid());
+    assert(p->pid == self_pid);
 
     /* Second call: end_of_processes=1, must return -1 */
     ret = get_next_process(&it, p);
