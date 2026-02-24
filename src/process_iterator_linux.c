@@ -351,7 +351,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 int get_next_process(struct process_iterator *it, struct process *p) {
     const struct dirent *dit = NULL;
 
-    if (it == NULL || p == NULL) {
+    if (it == NULL || p == NULL || it->filter == NULL) {
         return -1;
     }
     if (it->end_of_processes) {
