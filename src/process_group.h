@@ -109,6 +109,8 @@ pid_t find_process_by_pid(pid_t pid);
  * @note Returns 0 immediately for NULL or empty process_name
  * @note Iterates through all processes in the system, which may be slow on
  *       systems with many processes. For known PIDs, use find_process_by_pid().
+ * @note Calls exit(EXIT_FAILURE) on critical errors (e.g., memory allocation
+ *       failure or iterator initialization failure)
  */
 pid_t find_process_by_name(const char *process_name);
 
