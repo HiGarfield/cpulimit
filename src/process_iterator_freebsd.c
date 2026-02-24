@@ -112,8 +112,8 @@ int init_process_iterator(struct process_iterator *it,
          * process; get_next_process() will use kvm_getprocs() directly
          */
         it->procs = NULL;
-        it->i = -1;
-        it->count = 0;
+        it->i = 0;
+        it->count = 1;
         return 0;
     }
 
