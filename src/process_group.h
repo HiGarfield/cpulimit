@@ -119,7 +119,7 @@ pid_t find_process_by_name(const char *process_name);
  * @param pgroup Pointer to uninitialized process_group structure to set up
  * @param target_pid PID of the primary process to monitor
  * @param include_children Non-zero to monitor descendants, zero for target only
- * @return 0 on success (always succeeds or exits the program)
+ * @return 0 on success, -1 if pgroup is NULL; exits on other errors
  *
  * This function:
  * 1. Allocates and initializes the process hashtable with a fixed number of
@@ -128,6 +128,7 @@ pid_t find_process_by_name(const char *process_name);
  * 3. Records the current time as baseline for CPU calculations
  * 4. Performs initial update to populate the process list
  *
+ * @note Returns -1 immediately if pgroup is NULL
  * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
  * @note After return, pgroup is fully initialized and ready for use
  */

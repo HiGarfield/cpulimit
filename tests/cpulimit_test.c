@@ -1682,6 +1682,14 @@ static void test_process_group_init_invalid_pid(void) {
 }
 
 /**
+ * @brief Test init_process_group with NULL pgroup argument
+ * @note Must return -1 without crashing when pgroup is NULL
+ */
+static void test_process_group_init_null(void) {
+    assert(init_process_group(NULL, getpid(), 0) == -1);
+}
+
+/**
  * @brief Test find_process_by_pid function
  * @note Verifies that the current process can be found by its PID
  */
@@ -4279,6 +4287,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_init_all);
     RUN_TEST(test_process_group_init_single);
     RUN_TEST(test_process_group_init_invalid_pid);
+    RUN_TEST(test_process_group_init_null);
     RUN_TEST(test_process_group_close_null);
     RUN_TEST(test_process_group_close_zeros_fields);
     RUN_TEST(test_process_group_update_null);
