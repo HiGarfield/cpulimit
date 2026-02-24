@@ -291,9 +291,11 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
             }
             /*
              * Implicit else: wpid > 0 but wpid != cmd_runner_pid.
-             * A descendant process (grandchild, etc.) that was in the same
-             * process group exited and was reaped. We don't track its exit
-             * status; continue the loop to wait for cmd_runner_pid.
+             * waitpid(-pgid) only returns direct children of this process
+             * in the specified process group. Since cmd_runner_pid is the
+             * only direct child in the group, this branch is not expected
+             * to be reached during normal operation. Handle it defensively
+             * by continuing to wait for cmd_runner_pid.
              */
         }
 
