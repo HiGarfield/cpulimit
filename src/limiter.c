@@ -248,8 +248,9 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                     }
                     child_exit_status = EXIT_FAILURE;
                 }
-
-            } else if (wpid == 0) {
+                break; /* primary child reaped; exit cleanup loop */
+            }
+            if (wpid == 0) {
                 /*
                  * No state changes yet (WNOHANG returned immediately).
                  * Check if we've exceeded timeout for graceful termination.
