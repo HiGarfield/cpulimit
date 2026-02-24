@@ -207,8 +207,8 @@ struct process_iterator {
  * @brief Initialize a process iterator with specified filter criteria
  * @param it Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure; may call exit() on fatal errors
- *         (e.g., out-of-memory)
+ * @return 0 on success, -1 on failure (including NULL it or filter);
+ *         may call exit() on fatal errors (e.g., out-of-memory)
  *
  * This function prepares the iterator for process enumeration. The behavior
  * varies by platform:
@@ -227,7 +227,8 @@ int init_process_iterator(struct process_iterator *it,
  * @brief Retrieve the next process matching the filter criteria
  * @param it Pointer to the process_iterator structure
  * @param p Pointer to process structure to populate with process information
- * @return 0 on success with process data in p, -1 if no more processes
+ * @return 0 on success with process data in p, -1 if no more processes or
+ *         if it, p, or it->filter is NULL
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
