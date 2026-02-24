@@ -185,8 +185,9 @@ int process_table_del(struct process_table *pt, pid_t pid) {
  * @param active_list Pointer to the list of currently active processes
  *
  * Iterates through all buckets in the hash table and removes any process
- * entries whose PIDs are not present in the active_list. This prevents
- * unbounded growth of the hash table when tracked processes terminate.
+ * entries whose PIDs are not present in the active_list. Also removes any
+ * NULL-data nodes encountered. This prevents unbounded growth of the hash
+ * table when tracked processes terminate.
  * The process data for removed entries is freed.
  *
  * @note Safe to call with NULL pointer (does nothing)
