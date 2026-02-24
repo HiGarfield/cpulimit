@@ -246,6 +246,8 @@ In Ubuntu, the following command SHALL be used:
 - When a line exceeds 80 characters, string literals MUST NOT be split.
 - Adjacent string literal concatenation MUST NOT be used.
 - If a string literal exceeds 80 characters, the line MAY exceed the limit.
+- The arguments passed to the assert macro MUST be extremely simple expressions only.
+- Function calls, macro invocations, and other complex expressions MUST NOT be used as arguments to the assert macro.
 
 ---
 
