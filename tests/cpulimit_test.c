@@ -3092,6 +3092,29 @@ static void test_list_delete_node_empty(void) {
 }
 
 /**
+ * @brief Test destroy_node with a NULL list frees node and data without crash
+ * @note Exercises the l==NULL fast-path that frees node directly
+ */
+static void test_list_destroy_node_null_list(void) {
+    struct list_node *node;
+    int *data;
+
+    data = (int *)malloc(sizeof(int));
+    assert(data != NULL);
+    *data = 42;
+
+    node = (struct list_node *)malloc(sizeof(struct list_node));
+    assert(node != NULL);
+    node->data = data;
+    node->previous = NULL;
+    node->next = NULL;
+
+    /* destroy_node with NULL list must free both data and node */
+    destroy_node(NULL, node);
+    /* If we reach here without crash, the test passed */
+}
+
+/**
  * @brief Test locate_node/locate_elem with a single-element list
  * @note Ensures the single-node match and single-node miss paths work
  */
@@ -4069,6 +4092,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_list_add_elem);
     RUN_TEST(test_list_delete_node);
     RUN_TEST(test_list_delete_node_empty);
+    RUN_TEST(test_list_destroy_node_null_list);
     RUN_TEST(test_list_destroy_node);
     RUN_TEST(test_list_first_node_nonempty);
     RUN_TEST(test_list_locate);
