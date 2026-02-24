@@ -2311,6 +2311,16 @@ static void test_process_group_find_by_name_empty_string(void) {
 }
 
 /**
+ * @brief Test find_process_by_name with a relative path ending in '/'
+ * @note The basename of "bin/" is an empty string, so no process can match;
+ *  must return 0 without crashing
+ */
+static void test_process_group_find_by_name_trailing_slash(void) {
+    /* Relative path with trailing slash yields an empty basename */
+    assert(find_process_by_name("bin/") == 0);
+}
+
+/**
  * @brief Test get_process_group_cpu_usage when process list is empty
  * @note Must return -1.0 when no processes are tracked
  */
@@ -4298,6 +4308,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_find_by_name);
     RUN_TEST(test_process_group_find_by_name_null);
     RUN_TEST(test_process_group_find_by_name_empty_string);
+    RUN_TEST(test_process_group_find_by_name_trailing_slash);
     RUN_TEST(test_process_group_find_by_name_self);
     RUN_TEST(test_process_group_cpu_usage);
     RUN_TEST(test_process_group_cpu_usage_empty_list);
