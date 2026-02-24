@@ -218,6 +218,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
 
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&pgroup->last_update) != 0) {
+        perror("get_current_time");
         close_process_group(pgroup);
         exit(EXIT_FAILURE);
     }
@@ -352,6 +353,7 @@ void update_process_group(struct process_group *pgroup) {
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
+        perror("get_current_time");
         exit(EXIT_FAILURE);
     }
     if ((tmp_process = (struct process *)malloc(sizeof(struct process))) ==

@@ -199,6 +199,7 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
 
         /* Record time for timeout monitoring during cleanup */
         if (get_current_time(&start_time) != 0) {
+            perror("get_current_time");
             exit(EXIT_FAILURE);
         }
 
@@ -259,6 +260,7 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
                     0, 50000000L}; /* 50 milliseconds */
                 struct timespec current_time;
                 if (get_current_time(&current_time) != 0) {
+                    perror("get_current_time");
                     exit(EXIT_FAILURE);
                 }
 
