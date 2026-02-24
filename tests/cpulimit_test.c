@@ -1721,12 +1721,15 @@ static void test_proc_group_single(int include_children) {
 
         for (node = pgroup.proclist->first; node != NULL; node = node->next) {
             const struct process *p = (const struct process *)node->data;
+            int cpu_unset;
+            int cpu_valid;
             assert(p->pid == child_pid);
             assert(p->ppid == self_pid);
             /* p->cpu_usage should be -1 or [0, NCPU] */
             ncpu_val = get_ncpu();
-            assert((p->cpu_usage >= -1.00001 && p->cpu_usage <= -0.99999) ||
-                   (p->cpu_usage >= 0 && p->cpu_usage <= 1.0 * ncpu_val));
+            cpu_unset = (p->cpu_usage >= -1.00001 && p->cpu_usage <= -0.99999);
+            cpu_valid = (p->cpu_usage >= 0 && p->cpu_usage <= 1.0 * ncpu_val);
+            assert(cpu_unset || cpu_valid);
             count++;
         }
         assert(count == 1);
