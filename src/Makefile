@@ -79,8 +79,6 @@ PROJECT_CFLAGS :=
 PROJECT_LDFLAGS :=
 endif # NOFLAGS = 1
 
-PROJECT_LDFLAGS += -lm
-
 # Platform-specific linker flags
 PROJECT_LDFLAGS += \
     $(if $(findstring Linux,$(UNAME)),-lrt) \

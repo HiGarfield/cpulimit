@@ -29,7 +29,6 @@
 
 #include <errno.h>
 #include <getopt.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -117,34 +116,6 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
 }
 
 /**
- * @brief Test if a double-precision value is NaN (Not-a-Number)
- * @param value Value to test
- * @return 1 if value is NaN, 0 otherwise
- *
- * Uses the standard isnan() macro or compiler built-ins when available,
- * otherwise falls back to the IEEE 754 property that NaN != NaN, using
- * a volatile variable to prevent optimizations that could eliminate the
- * comparison.
- */
-static int is_nan(double value) {
-#if defined(isnan) || defined(_ISOC99_SOURCE) ||                               \
-    (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) ||              \
-    (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L)
-    return isnan(value);
-#elif (defined(__GNUC__) && defined(__GNUC_MINOR__) &&                         \
-       (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4))) ||            \
-    (defined(__clang__) && defined(__clang_major__) &&                         \
-     defined(__clang_minor__) &&                                               \
-     (__clang_major__ > 2 || (__clang_major__ == 2 && __clang_minor__ >= 8)))
-    return __builtin_isnan(value);
-#else
-    /* Fallback implementation for platforms without isnan support */
-    volatile double temp = value;
-    return temp != temp;
-#endif
-}
-
-/**
  * @brief Parse and validate the CPU limit percentage from command-line argument
  * @param limit_str String representation of the CPU limit percentage
  * @param cfg Pointer to configuration structure to update
@@ -178,8 +149,7 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
      * - Within valid range: (0, n_cpu * 100]
      */
     if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
-        is_nan(percent_limit) || percent_limit <= 0 ||
-        percent_limit > max_limit) {
+        !(percent_limit > 0 && percent_limit <= max_limit)) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
