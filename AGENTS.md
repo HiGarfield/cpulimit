@@ -87,6 +87,7 @@ See `/README.md`.
 - `gcc` MUST be installed to build and test the project.
 - `clang` MUST be installed to build and test the project.
 - `make` MUST be installed to build and test the project.
+- `cmake` MUST be installed to build and test the project.
 - `clang-format` MUST be installed to format the codebase.
 - `bear` MUST be installed to generate `compile_commands.json` for static analysis tools.
 - `cppcheck` MUST be installed to perform static analysis on the codebase.
@@ -255,9 +256,11 @@ In Ubuntu, the following command SHALL be used:
 
 - The project MUST be built using `make CHECK=1` without any warnings or errors.
 - gcc and clang MUST be tested using:
-  - `make CHECK=1 CC=gcc`
-  - `make CHECK=1 CC=clang`
-- Any warnings or errors during the build process MUST be fixed.
+  - `make clean && make CHECK=1 CC=gcc`
+  - `make clean && make CHECK=1 CC=clang`
+- cmake-based building MUST be tested using:
+  - `rm -rf build && cmake -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all`
+- All warnings and errors MUST be resolved before submission.
 
 ---
 
