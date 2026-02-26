@@ -1,1 +1,0 @@
-/tmp/codeql-scratch-eb9e4489de1c08aa/dbs/cpp/working/autobuild/bin/cc -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/busy.dir/link.d CMakeFiles/busy.dir/tests/busy.c.o CMakeFiles/busy.dir/src/signal_handler.c.o CMakeFiles/busy.dir/src/util.c.o -o busy  -lrt
