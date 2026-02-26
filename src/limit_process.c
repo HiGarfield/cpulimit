@@ -169,7 +169,7 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
             }
             /* Remove dead/inaccessible process from tracking */
             delete_node(procgroup->proclist, node);
-            process_table_del(procgroup->proctable, pid);
+            delete_from_process_table(procgroup->proctable, pid);
         }
         node = next_node;
     }

@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __PROCESS_ITERATOR_H
-#define __PROCESS_ITERATOR_H
+#ifndef CPULIMIT_PROCESS_ITERATOR_H
+#define CPULIMIT_PROCESS_ITERATOR_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -295,4 +295,4 @@ pid_t getppid_of(pid_t pid);
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_PROCESS_ITERATOR_H */

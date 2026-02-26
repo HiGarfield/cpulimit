@@ -23,8 +23,8 @@
 
 #ifdef __APPLE__
 
-#ifndef __PROCESS_ITERATOR_APPLE_C
-#define __PROCESS_ITERATOR_APPLE_C
+#ifndef CPULIMIT_PROCESS_ITERATOR_APPLE_C
+#define CPULIMIT_PROCESS_ITERATOR_APPLE_C
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -388,5 +388,5 @@ int close_process_iterator(struct process_iterator *it) {
     return 0;
 }
 
-#endif
-#endif
+#endif /* CPULIMIT_PROCESS_ITERATOR_APPLE_C */
+#endif /* __APPLE__ */

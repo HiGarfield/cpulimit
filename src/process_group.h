@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __PROCESS_GROUP_H
-#define __PROCESS_GROUP_H
+#ifndef CPULIMIT_PROCESS_GROUP_H
+#define CPULIMIT_PROCESS_GROUP_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -207,4 +207,4 @@ double get_process_group_cpu_usage(const struct process_group *pgroup);
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_PROCESS_GROUP_H */

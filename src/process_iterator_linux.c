@@ -21,8 +21,8 @@
 
 #ifdef __linux__
 
-#ifndef __PROCESS_ITERATOR_LINUX_C
-#define __PROCESS_ITERATOR_LINUX_C
+#ifndef CPULIMIT_PROCESS_ITERATOR_LINUX_C
+#define CPULIMIT_PROCESS_ITERATOR_LINUX_C
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -438,5 +438,5 @@ int close_process_iterator(struct process_iterator *it) {
     return ret == 0 ? 0 : -1;
 }
 
-#endif
-#endif
+#endif /* CPULIMIT_PROCESS_ITERATOR_LINUX_C */
+#endif /* __linux__ */
