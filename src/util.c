@@ -46,7 +46,7 @@
 #endif
 #endif
 
-#ifdef __IMPL_GETLOADAVG
+#ifdef CPULIMIT_IMPL_GETLOADAVG
 #include <stdlib.h>
 #include <sys/sysinfo.h>
 #endif
@@ -414,7 +414,7 @@ int get_ncpu(void) {
     return cached_ncpu;
 }
 
-#ifdef __IMPL_GETLOADAVG
+#ifdef CPULIMIT_IMPL_GETLOADAVG
 /**
  * @brief Get system load averages (custom implementation for old uClibc)
  * @param loadavg Array to receive load average values
@@ -425,7 +425,7 @@ int get_ncpu(void) {
  * the fixed-point values to floating-point. This implementation is used
  * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
  */
-int __getloadavg(double *loadavg, int nelem) {
+int cpulimit_getloadavg(double *loadavg, int nelem) {
     struct sysinfo si;
     int i;
 

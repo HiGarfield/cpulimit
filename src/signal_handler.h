@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __SIGNAL_HANDLER_H
-#define __SIGNAL_HANDLER_H
+#ifndef CPULIMIT_SIGNAL_HANDLER_H
+#define CPULIMIT_SIGNAL_HANDLER_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,4 +68,4 @@ int is_terminated_by_tty(void);
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_SIGNAL_HANDLER_H */

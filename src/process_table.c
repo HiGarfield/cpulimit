@@ -42,9 +42,9 @@
  * buckets to NULL. The hash table uses separate chaining for collision
  * resolution. If memory allocation fails, the program exits with an error.
  *
- * @note The caller must call process_table_destroy() to free resources
+ * @note The caller must call destroy_process_table() to free resources
  */
-void process_table_init(struct process_table *pt, size_t hashsize) {
+void init_process_table(struct process_table *pt, size_t hashsize) {
     if (pt == NULL) {
         return;
     }
@@ -91,7 +91,8 @@ static size_t pid_hash(const struct process_table *pt, pid_t pid) {
  * the process table is NULL, the table has been destroyed (pt->table is
  * NULL), the bucket is empty, or the PID is not found.
  */
-struct process *process_table_find(const struct process_table *pt, pid_t pid) {
+struct process *find_in_process_table(const struct process_table *pt,
+                                      pid_t pid) {
     size_t idx;
     if (pt == NULL || pt->table == NULL) {
         return NULL;
@@ -120,7 +121,7 @@ struct process *process_table_find(const struct process_table *pt, pid_t pid) {
  * @note Safe to call when pt is NULL or the table has been destroyed
  *       (pt->table is NULL): the call is a no-op in both cases.
  */
-void process_table_add(struct process_table *pt, struct process *p) {
+void add_to_process_table(struct process_table *pt, struct process *p) {
     size_t idx;
     if (pt == NULL || pt->table == NULL || p == NULL) {
         return;
@@ -154,7 +155,7 @@ void process_table_add(struct process_table *pt, struct process *p) {
  * bucket's linked list structure. The process data itself is freed by this
  * operation.
  */
-int process_table_del(struct process_table *pt, pid_t pid) {
+int delete_from_process_table(struct process_table *pt, pid_t pid) {
     struct list_node *node;
     size_t idx;
     if (pt == NULL || pt->table == NULL) {
@@ -193,8 +194,8 @@ int process_table_del(struct process_table *pt, pid_t pid) {
  * @note Safe to call with NULL pointer (does nothing)
  * @note Safe to call on a destroyed table (pt->table is NULL): does nothing
  */
-void process_table_remove_stale(struct process_table *pt,
-                                const struct list *active_list) {
+void remove_stale_from_process_table(struct process_table *pt,
+                                     const struct list *active_list) {
     size_t idx;
     if (pt == NULL || pt->table == NULL) {
         return;
@@ -236,7 +237,7 @@ void process_table_remove_stale(struct process_table *pt,
  *
  * @note Safe to call with NULL pointer (does nothing)
  */
-void process_table_destroy(struct process_table *pt) {
+void destroy_process_table(struct process_table *pt) {
     size_t idx;
     if (pt == NULL || pt->table == NULL) {
         return;

@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __UTIL_H
-#define __UTIL_H
+#ifndef CPULIMIT_UTIL_H
+#define CPULIMIT_UTIL_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -185,9 +185,9 @@ int get_ncpu(void);
  * the fixed-point values to floating-point. This implementation is used
  * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
  */
-int __getloadavg(double *loadavg, int nelem);
-#define getloadavg(loadavg, nelem) (__getloadavg((loadavg), (nelem)))
-#define __IMPL_GETLOADAVG
+int cpulimit_getloadavg(double *loadavg, int nelem);
+#define getloadavg(loadavg, nelem) (cpulimit_getloadavg((loadavg), (nelem)))
+#define CPULIMIT_IMPL_GETLOADAVG
 #endif
 
 #if defined(__linux__)
@@ -234,4 +234,4 @@ pid_t long2pid_t(long long_pid);
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_UTIL_H */

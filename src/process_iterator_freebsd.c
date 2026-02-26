@@ -21,8 +21,8 @@
 
 #ifdef __FreeBSD__
 
-#ifndef __PROCESS_ITERATOR_FREEBSD_C
-#define __PROCESS_ITERATOR_FREEBSD_C
+#ifndef CPULIMIT_PROCESS_ITERATOR_FREEBSD_C
+#define CPULIMIT_PROCESS_ITERATOR_FREEBSD_C
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -155,8 +155,8 @@ int init_process_iterator(struct process_iterator *it,
  * When read_cmd is set, retrieves command arguments via kvm_getargv()
  * and uses the first argument (argv[0]) as the command path.
  */
-static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
-                      int read_cmd) {
+static int kinfo_proc_to_proc(kvm_t *kd, struct kinfo_proc *kproc,
+                              struct process *proc, int read_cmd) {
     char **args;
     size_t len_max;
     if (kproc == NULL || proc == NULL) {
@@ -192,7 +192,7 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
  * @brief Retrieve information for a single process by PID
  * @param kd Kernel virtual memory descriptor
  * @param pid Process ID to query
- * @param process Pointer to process structure to populate
+ * @param p Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure or if process not found
  *
@@ -200,13 +200,13 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
  * Returns failure if the process doesn't exist, is a zombie, is a kernel
  * thread, or if conversion fails.
  */
-static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
-                              int read_cmd) {
+static int read_process_info(kvm_t *kd, pid_t pid, struct process *p,
+                             int read_cmd) {
     int count;
     struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
     if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
         (kproc->ki_stat == SZOMB) ||
-        kproc2proc(kd, kproc, process, read_cmd) != 0) {
+        kinfo_proc_to_proc(kd, kproc, p, read_cmd) != 0) {
         return -1;
     }
     return 0;
@@ -221,7 +221,7 @@ static int get_single_process(kvm_t *kd, pid_t pid, struct process *process,
  * Uses an existing kvm descriptor to query PPID. This avoids the overhead
  * of repeatedly opening and closing kvm when checking multiple processes.
  */
-static pid_t _getppid_of(kvm_t *kd, pid_t pid) {
+static pid_t getppid_of_kd(kvm_t *kd, pid_t pid) {
     int count;
     struct kinfo_proc *kproc;
     if (pid <= 0) {
@@ -251,7 +251,7 @@ pid_t getppid_of(pid_t pid) {
     if ((kd = open_kvm()) == NULL) {
         return (pid_t)(-1);
     }
-    ppid = _getppid_of(kd, pid);
+    ppid = getppid_of_kd(kd, pid);
     kvm_close(kd);
     return ppid;
 }
@@ -267,7 +267,7 @@ pid_t getppid_of(pid_t pid) {
  * if parent_pid appears in the ancestry. Uses an existing kvm descriptor to
  * avoid repeated open/close overhead.
  */
-static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
+static int is_child_of_kd(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
@@ -276,11 +276,11 @@ static int _is_child_of(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
      * (PID 1)
      */
     if (parent_pid == 1) {
-        return _getppid_of(kd, child_pid) != (pid_t)(-1);
+        return getppid_of_kd(kd, child_pid) != (pid_t)(-1);
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
-        child_pid = _getppid_of(kd, child_pid);
+        child_pid = getppid_of_kd(kd, child_pid);
     }
     return child_pid == parent_pid;
 }
@@ -308,7 +308,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     if ((kd = open_kvm()) == NULL) {
         exit(EXIT_FAILURE);
     }
-    ret = _is_child_of(kd, child_pid, parent_pid);
+    ret = is_child_of_kd(kd, child_pid, parent_pid);
     kvm_close(kd);
     return ret;
 }
@@ -339,8 +339,8 @@ int get_next_process(struct process_iterator *it, struct process *p) {
 
     /* Handle single process without children */
     if (it->filter->pid != 0 && !it->filter->include_children) {
-        if (get_single_process(it->kd, it->filter->pid, p,
-                               it->filter->read_cmd) != 0) {
+        if (read_process_info(it->kd, it->filter->pid, p,
+                              it->filter->read_cmd) != 0) {
             it->i = it->count = 0;
             return -1;
         }
@@ -361,12 +361,12 @@ int get_next_process(struct process_iterator *it, struct process *p) {
          */
         if (it->filter->pid != 0 && it->filter->include_children &&
             kproc->ki_pid != it->filter->pid &&
-            !_is_child_of(it->kd, kproc->ki_pid, it->filter->pid)) {
+            !is_child_of_kd(it->kd, kproc->ki_pid, it->filter->pid)) {
             continue;
         }
 
         /* Convert to platform-independent structure */
-        if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0) {
+        if (kinfo_proc_to_proc(it->kd, kproc, p, it->filter->read_cmd) != 0) {
             continue;
         }
 
@@ -410,5 +410,5 @@ int close_process_iterator(struct process_iterator *it) {
     return ret;
 }
 
-#endif
-#endif
+#endif /* CPULIMIT_PROCESS_ITERATOR_FREEBSD_C */
+#endif /* __FreeBSD__ */

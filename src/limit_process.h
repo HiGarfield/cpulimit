@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __LIMIT_PROCESS_H
-#define __LIMIT_PROCESS_H
+#ifndef CPULIMIT_LIMIT_PROCESS_H
+#define CPULIMIT_LIMIT_PROCESS_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,4 +64,4 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose);
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_LIMIT_PROCESS_H */

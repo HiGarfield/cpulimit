@@ -119,17 +119,17 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
  * @brief Parse and validate the CPU limit percentage from command-line argument
  * @param limit_str String representation of the CPU limit percentage
  * @param cfg Pointer to configuration structure to update
- * @param n_cpu Number of CPU cores in the system
+ * @param ncpu Number of CPU cores in the system
  *
  * Converts limit string to a double-precision percentage value, validates
- * it is within the acceptable range (0, n_cpu*100], and stores the
+ * it is within the acceptable range (0, ncpu*100], and stores the
  * normalized fraction (percentage/100) in cfg->limit.
  *
  * @note Exits the program with error message if limit is invalid or out of
  *       range
  */
 static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
-                               int n_cpu) {
+                               int ncpu) {
     char *endptr;
     double percent_limit;
     double max_limit;
@@ -137,23 +137,23 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
     percent_limit = strtod(limit_str, &endptr);
     /*
      * Compute the upper bound as double to avoid int overflow on systems
-     * with large CPU counts (100 * n_cpu overflows if n_cpu > INT_MAX/100).
+     * with large CPU counts (100 * ncpu overflows if ncpu > INT_MAX/100).
      */
-    max_limit = (double)n_cpu * 100.0;
+    max_limit = (double)ncpu * 100.0;
     /*
      * Validate the conversion and value:
      * - No conversion errors
      * - String was not empty
      * - No trailing characters
      * - Not NaN
-     * - Within valid range: (0, n_cpu * 100]
+     * - Within valid range: (0, ncpu * 100]
      */
     if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
         !(percent_limit > 0 && percent_limit <= max_limit)) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
-    /* Store as fraction (0.0 to n_cpu) for internal calculations */
+    /* Store as fraction (0.0 to ncpu) for internal calculations */
     cfg->limit = percent_limit / 100.0;
 }
 
@@ -193,7 +193,7 @@ static void validate_target_options(const struct cpulimitcfg *cfg) {
  * @note This function calls exit() and does not return on error or help request
  */
 void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
-    int opt, n_cpu;
+    int opt, ncpu;
     const struct option long_options[] = {
         {"pid", required_argument, NULL, 'p'},
         {"exe", required_argument, NULL, 'e'},
@@ -205,7 +205,7 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
         {NULL, 0, NULL, 0}};
 
     /* Determine available CPU count for limit validation */
-    n_cpu = get_ncpu();
+    ncpu = get_ncpu();
 
     /* Initialize configuration with default values */
     memset(cfg, 0, sizeof(struct cpulimitcfg));
@@ -250,7 +250,7 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
             break;
 
         case 'l': /* CPU percentage limit */
-            parse_limit_option(optarg, cfg, n_cpu);
+            parse_limit_option(optarg, cfg, ncpu);
             break;
 
         case 'v': /* Verbose statistics output */
@@ -318,6 +318,6 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
 
     /* Display CPU count in verbose mode */
     if (cfg->verbose) {
-        printf("%d CPU%s detected\n", n_cpu, n_cpu > 1 ? "s" : "");
+        printf("%d CPU%s detected\n", ncpu, ncpu > 1 ? "s" : "");
     }
 }

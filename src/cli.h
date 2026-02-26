@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __CLI_H
-#define __CLI_H
+#ifndef CPULIMIT_CLI_H
+#define CPULIMIT_CLI_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -113,4 +113,4 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg);
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_CLI_H */
