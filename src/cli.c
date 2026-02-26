@@ -219,7 +219,16 @@ void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
 #if defined(__APPLE__) || defined(__FreeBSD__)
     optreset = 1;
 #endif
+#if defined(__GLIBC__)
+    /*
+     * glibc requires optind = 0 to fully reinitialize getopt_long() state.
+     * This preserves deterministic behavior across repeated calls in tests
+     * and on older glibc versions.
+     */
+    optind = 0;
+#else
     optind = 1;
+#endif
     opterr = 0; /* Suppress getopt's built-in error messages */
     /*
      * Process all options using getopt_long.
