@@ -4677,6 +4677,20 @@ static void test_cli_long_options_lazy_verbose(void) {
     assert(exit_code == 0);
 }
 
+/**
+ * @brief Robust test function invocation.
+ * Ensures that the test function is called exactly once and cannot be inlined
+ * or optimized away.
+ * @param test_fn Pointer to the void(void) test function to invoke.
+ */
+#if (defined(__GNUC__) && __GNUC__ >= 2) || defined(__clang__)
+__attribute__((noinline))
+#endif
+static void
+test_invoke_indirect(void (*volatile test_fn)(void)) {
+    test_fn();
+}
+
 /** @def RUN_TEST(test_func)
  *  @brief Macro to run a test function and print its status
  *  @param test_func Name of the test function to run
@@ -4684,7 +4698,7 @@ static void test_cli_long_options_lazy_verbose(void) {
 #define RUN_TEST(test_func)                                                    \
     do {                                                                       \
         printf("Running %s()...\n", #test_func);                               \
-        test_func();                                                           \
+        test_invoke_indirect(test_func);                                       \
         printf("%s() passed.\n", #test_func);                                  \
     } while (0)
 
