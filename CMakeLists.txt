@@ -2,6 +2,17 @@ cmake_minimum_required(VERSION 3.5)
 
 project(cpulimit C)
 
+# OS check - only supports Linux, macOS (Darwin), and FreeBSD
+set(SUPPORTED_OS Linux Darwin FreeBSD)
+
+list(FIND SUPPORTED_OS ${CMAKE_SYSTEM_NAME} _os_index)
+if(_os_index EQUAL -1)
+    message(FATAL_ERROR
+        "Unsupported operating system: ${CMAKE_SYSTEM_NAME}\n"
+        "This project only supports: ${SUPPORTED_OS}"
+    )
+endif()
+
 include(GNUInstallDirs)
 include(CTest)
 include(CheckCCompilerFlag)
