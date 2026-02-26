@@ -1757,7 +1757,7 @@ static void test_process_group_init_single(void) {
     test_process_group_single(1);
 }
 
-static char *s_argv0 = NULL;
+static char *argv0 = NULL;
 
 /**
  * @brief Test process name retrieval
@@ -1796,7 +1796,7 @@ static void test_process_iterator_read_command(void) {
     assert(proc->ppid == self_ppid);
 
     /* Compare command names */
-    proc_name1 = file_basename(s_argv0);
+    proc_name1 = file_basename(argv0);
     proc_name2 = file_basename(proc->command);
     cmp_ret = strcmp(proc_name1, proc_name2);
     assert(cmp_ret == 0);
@@ -1885,11 +1885,11 @@ static void test_process_group_find_by_name(void) {
     }
 
     /*
-     * 's_argv0' is the name of the current process (equivalent to argv[0]).
+     * 'argv0' is the name of the current process (equivalent to argv[0]).
      * Verify that the find_process_by_name function can find the current
      * process (PID should match the return value of getpid()).
      */
-    fpid = find_process_by_name(s_argv0);
+    fpid = find_process_by_name(argv0);
     self_pid = getpid();
     assert(fpid == self_pid);
 
@@ -1920,8 +1920,8 @@ static void test_process_group_find_by_name(void) {
      * to the current process's name.
      * Expectation: Should return 0 (process not found).
      */
-    strcpy(wrong_name, s_argv0); /* Copy the current process's name */
-    strcat(wrong_name, "x");     /* Append 'x' to make it non-matching */
+    strcpy(wrong_name, argv0); /* Copy the current process's name */
+    strcat(wrong_name, "x");   /* Append 'x' to make it non-matching */
     fpid = find_process_by_name(wrong_name);
     assert(fpid == 0);
 
@@ -1930,7 +1930,7 @@ static void test_process_group_find_by_name(void) {
      * the last character removed.
      * Expectation: Should return 0 (process not found).
      */
-    strcpy(wrong_name, s_argv0); /* Copy the current process's name */
+    strcpy(wrong_name, argv0); /* Copy the current process's name */
     len = strlen(wrong_name);
     wrong_name[len - 1] = '\0'; /* Remove the last character */
     fpid = find_process_by_name(wrong_name);
@@ -4238,10 +4238,10 @@ static void test_process_group_find_by_name_self(void) {
     const char *self_name;
     pid_t result;
 
-    if (s_argv0 == NULL) {
-        return; /* s_argv0 set in main() */
+    if (argv0 == NULL) {
+        return; /* argv0 set in main() */
     }
-    self_name = file_basename(s_argv0);
+    self_name = file_basename(argv0);
     if (self_name == NULL || self_name[0] == '\0') {
         return;
     }
@@ -4717,7 +4717,7 @@ test_invoke_indirect(void (*volatile test_fn)(void)) {
  */
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
-    s_argv0 = argv[0];
+    argv0 = argv[0];
 
     configure_signal_handler();
     printf("Starting tests...\n");
