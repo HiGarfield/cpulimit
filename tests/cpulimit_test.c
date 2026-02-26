@@ -581,37 +581,37 @@ static void test_util_timediff_in_ms(void) {
  */
 static void test_util_file_basename(void) {
     const char *result;
-    int cmp_result;
+    int cmp_ret;
 
     /* Test simple filename */
     result = file_basename("test.txt");
-    cmp_result = strcmp(result, "test.txt");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "test.txt");
+    assert(cmp_ret == 0);
 
     /* Test path with directory */
     result = file_basename("/usr/bin/test");
-    cmp_result = strcmp(result, "test");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "test");
+    assert(cmp_ret == 0);
 
     /* Test path with multiple directories */
     result = file_basename("/home/user/documents/file.txt");
-    cmp_result = strcmp(result, "file.txt");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "file.txt");
+    assert(cmp_ret == 0);
 
     /* Test path ending with slash */
     result = file_basename("/home/user/");
-    cmp_result = strcmp(result, "");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
 
     /* Test root directory */
     result = file_basename("/");
-    cmp_result = strcmp(result, "");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
 
     /* Test current directory */
     result = file_basename("./file");
-    cmp_result = strcmp(result, "file");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "file");
+    assert(cmp_ret == 0);
 }
 
 /**
@@ -620,14 +620,14 @@ static void test_util_file_basename(void) {
  */
 static void test_util_get_ncpu(void) {
     int ncpu;
-    int ncpu2;
+    int ncpu_cached;
 
     ncpu = get_ncpu();
     assert(ncpu >= 1);
 
     /* Call again to test caching */
-    ncpu2 = get_ncpu();
-    assert(ncpu2 == ncpu);
+    ncpu_cached = get_ncpu();
+    assert(ncpu_cached == ncpu);
 }
 
 /**
@@ -1086,7 +1086,7 @@ static void test_process_group_cpu_usage(void) {
     pid_t child_pid;
     int i;
     int ret;
-    int ncpu_val;
+    int ncpu;
 
     /* Create a child process that uses CPU */
     child_pid = fork();
@@ -1122,9 +1122,9 @@ static void test_process_group_cpu_usage(void) {
     /* Should now have valid CPU usage */
     cpu_usage = get_process_group_cpu_usage(&pgroup);
     /* CPU usage should be between 0 and ncpu */
-    ncpu_val = get_ncpu();
+    ncpu = get_ncpu();
     assert(cpu_usage >= 0.0);
-    assert(cpu_usage <= 1.0 * ncpu_val);
+    assert(cpu_usage <= 1.0 * ncpu);
 
     ret = close_process_group(&pgroup);
     assert(ret == 0);
@@ -1253,33 +1253,33 @@ static void test_util_time_edge_cases(void) {
  */
 static void test_util_file_basename_edge_cases(void) {
     const char *result;
-    int cmp_result;
+    int cmp_ret;
 
     /* Test multiple consecutive slashes */
     result = file_basename("//usr//bin//test");
-    cmp_result = strcmp(result, "test");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "test");
+    assert(cmp_ret == 0);
 
     /* Test path with no directory separator */
     result = file_basename("filename");
-    cmp_result = strcmp(result, "filename");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "filename");
+    assert(cmp_ret == 0);
 
     /* Test path with dot directory */
     result = file_basename("../test");
-    cmp_result = strcmp(result, "test");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "test");
+    assert(cmp_ret == 0);
 
     /* Test just a slash */
     result = file_basename("/");
-    cmp_result = strcmp(result, "");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
 
     /* Test NULL input */
     result = file_basename(NULL);
     assert(result != NULL);
-    cmp_result = strcmp(result, "");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
 }
 
 /**
@@ -1332,9 +1332,9 @@ static void test_process_table_collisions(void) {
 
     /* Delete some processes */
     for (i = 0; i < 20; i += 3) {
-        int pt_del;
-        pt_del = process_table_del(&pt, collision_pids[i]);
-        assert(pt_del == 0);
+        int ret;
+        ret = process_table_del(&pt, collision_pids[i]);
+        assert(ret == 0);
     }
 
     /* Verify deleted processes are gone */
@@ -1394,13 +1394,13 @@ static void test_process_table_empty_buckets(void) {
  */
 static void test_process_iterator_filter_edge_cases(void) {
     struct process_iterator it;
-    struct process *process;
+    struct process *proc;
     struct process_filter filter;
     int count;
     int ret;
 
-    process = (struct process *)malloc(sizeof(struct process));
-    assert(process != NULL);
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
 
     /* Test with PID 0 (all processes) and read_cmd enabled */
     filter.pid = (pid_t)0;
@@ -1410,7 +1410,7 @@ static void test_process_iterator_filter_edge_cases(void) {
     count = 0;
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
-    while (get_next_process(&it, process) == 0 && count < 10) {
+    while (get_next_process(&it, proc) == 0 && count < 10) {
         /* Just iterate a few processes to verify it works */
         count++;
     }
@@ -1418,7 +1418,7 @@ static void test_process_iterator_filter_edge_cases(void) {
     ret = close_process_iterator(&it);
     assert(ret == 0);
 
-    free(process);
+    free(proc);
 }
 
 /**
@@ -1473,7 +1473,7 @@ static void test_process_group_rapid_updates(void) {
  */
 static void test_process_iterator_single(void) {
     struct process_iterator it;
-    struct process *process;
+    struct process *proc;
     struct process_filter filter;
     size_t count;
     int ret;
@@ -1484,7 +1484,7 @@ static void test_process_iterator_single(void) {
     self_ppid = getppid();
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1498,10 +1498,10 @@ static void test_process_iterator_single(void) {
     /* Initialize iterator and iterate through processes */
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
-    while (get_next_process(&it, process) == 0) {
-        assert(process->pid == self_pid);
-        assert(process->ppid == self_ppid);
-        assert(process->cputime >= 0);
+    while (get_next_process(&it, proc) == 0) {
+        assert(proc->pid == self_pid);
+        assert(proc->ppid == self_ppid);
+        assert(proc->cputime >= 0);
         count++;
     }
     assert(count == 1);
@@ -1516,14 +1516,14 @@ static void test_process_iterator_single(void) {
 
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
-    while (get_next_process(&it, process) == 0) {
-        assert(process->pid == self_pid);
-        assert(process->ppid == self_ppid);
-        assert(process->cputime >= 0);
+    while (get_next_process(&it, proc) == 0) {
+        assert(proc->pid == self_pid);
+        assert(proc->ppid == self_ppid);
+        assert(proc->cputime >= 0);
         count++;
     }
     assert(count == 1);
-    free(process);
+    free(proc);
     ret = close_process_iterator(&it);
     assert(ret == 0);
 }
@@ -1535,7 +1535,7 @@ static void test_process_iterator_single(void) {
  */
 static void test_process_iterator_multiple(void) {
     struct process_iterator it;
-    struct process *process;
+    struct process *proc;
     struct process_filter filter;
     size_t count = 0;
     int ret;
@@ -1557,7 +1557,7 @@ static void test_process_iterator_multiple(void) {
     }
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1572,19 +1572,19 @@ static void test_process_iterator_multiple(void) {
     /* Initialize iterator and verify both processes are found */
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
-    while (get_next_process(&it, process) == 0) {
-        if (process->pid == getpid()) {
-            assert(process->ppid == self_ppid);
-        } else if (process->pid == child_pid) {
-            assert(process->ppid == self_pid);
+    while (get_next_process(&it, proc) == 0) {
+        if (proc->pid == getpid()) {
+            assert(proc->ppid == self_ppid);
+        } else if (proc->pid == child_pid) {
+            assert(proc->ppid == self_pid);
         } else {
             assert(0);
         }
-        assert(process->cputime >= 0);
+        assert(proc->cputime >= 0);
         count++;
     }
     assert(count == 2);
-    free(process);
+    free(proc);
     ret = close_process_iterator(&it);
     assert(ret == 0);
 
@@ -1599,7 +1599,7 @@ static void test_process_iterator_multiple(void) {
  */
 static void test_process_iterator_all(void) {
     struct process_iterator it;
-    struct process *process;
+    struct process *proc;
     struct process_filter filter;
     size_t count = 0;
     int found_self = 0;
@@ -1613,7 +1613,7 @@ static void test_process_iterator_all(void) {
     filter.read_cmd = 0;
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1622,10 +1622,10 @@ static void test_process_iterator_all(void) {
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
 
-    while (get_next_process(&it, process) == 0) {
-        if (process->pid == getpid()) {
-            assert(process->ppid == self_ppid);
-            assert(process->cputime >= 0);
+    while (get_next_process(&it, proc) == 0) {
+        if (proc->pid == getpid()) {
+            assert(proc->ppid == self_ppid);
+            assert(proc->cputime >= 0);
             found_self = 1;
         }
         count++;
@@ -1634,7 +1634,7 @@ static void test_process_iterator_all(void) {
     /* Verify we found at least one process and our own PID is visible */
     assert(count > 0);
     assert(found_self == 1);
-    free(process);
+    free(proc);
     ret = close_process_iterator(&it);
     assert(ret == 0);
 }
@@ -1682,11 +1682,11 @@ static void test_process_group_init_all(void) {
  * @note Creates a child process and verifies that the process group
  *  correctly tracks it, with or without child process inclusion
  */
-static void test_proc_group_single(int include_children) {
+static void test_process_group_single(int include_children) {
     struct process_group pgroup;
     int i;
     int ret;
-    int ncpu_val;
+    int ncpu;
     pid_t self_pid;
     pid_t child_pid;
 
@@ -1728,9 +1728,9 @@ static void test_proc_group_single(int include_children) {
             assert(p->pid == child_pid);
             assert(p->ppid == self_pid);
             /* p->cpu_usage should be -1 or [0, NCPU] */
-            ncpu_val = get_ncpu();
+            ncpu = get_ncpu();
             cpu_unset = (p->cpu_usage >= -1.00001 && p->cpu_usage <= -0.99999);
-            cpu_valid = (p->cpu_usage >= 0 && p->cpu_usage <= 1.0 * ncpu_val);
+            cpu_valid = (p->cpu_usage >= 0 && p->cpu_usage <= 1.0 * ncpu);
             assert(cpu_unset || cpu_valid);
             count++;
         }
@@ -1751,13 +1751,13 @@ static void test_proc_group_single(int include_children) {
  */
 static void test_process_group_init_single(void) {
     /* Test without including children */
-    test_proc_group_single(0);
+    test_process_group_single(0);
 
     /* Test with including children */
-    test_proc_group_single(1);
+    test_process_group_single(1);
 }
 
-static char *command = NULL;
+static char *s_argv0 = NULL;
 
 /**
  * @brief Test process name retrieval
@@ -1766,16 +1766,16 @@ static char *command = NULL;
  */
 static void test_process_iterator_read_command(void) {
     struct process_iterator it;
-    struct process *process;
+    struct process *proc;
     struct process_filter filter;
     const char *proc_name1, *proc_name2;
-    int cmp_result;
+    int cmp_ret;
     int ret;
     pid_t self_pid;
     pid_t self_ppid;
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1790,21 +1790,21 @@ static void test_process_iterator_read_command(void) {
     /* Get process information and verify command name */
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
-    ret = get_next_process(&it, process);
+    ret = get_next_process(&it, proc);
     assert(ret == 0);
-    assert(process->pid == self_pid);
-    assert(process->ppid == self_ppid);
+    assert(proc->pid == self_pid);
+    assert(proc->ppid == self_ppid);
 
     /* Compare command names */
-    proc_name1 = file_basename(command);
-    proc_name2 = file_basename(process->command);
-    cmp_result = strcmp(proc_name1, proc_name2);
-    assert(cmp_result == 0);
+    proc_name1 = file_basename(s_argv0);
+    proc_name2 = file_basename(proc->command);
+    cmp_ret = strcmp(proc_name1, proc_name2);
+    assert(cmp_ret == 0);
 
     /* Verify no more processes */
-    ret = get_next_process(&it, process);
+    ret = get_next_process(&it, proc);
     assert(ret != 0);
-    free(process);
+    free(proc);
     ret = close_process_iterator(&it);
     assert(ret == 0);
 }
@@ -1873,7 +1873,10 @@ static void test_process_group_find_by_name(void) {
     char *wrong_name;
     size_t len;
     pid_t fpid;
-    pid_t cur_pid;
+    pid_t self_pid;
+#if defined(__linux__)
+    char abs_path[64];
+#endif /* __linux__ */
 
     /* Allocate buffer for modified process names */
     if ((wrong_name = (char *)malloc(PATH_MAX + 1)) == NULL) {
@@ -1882,13 +1885,13 @@ static void test_process_group_find_by_name(void) {
     }
 
     /*
-     * 'command' is the name of the current process (equivalent to argv[0]).
+     * 's_argv0' is the name of the current process (equivalent to argv[0]).
      * Verify that the find_process_by_name function can find the current
      * process (PID should match the return value of getpid()).
      */
-    fpid = find_process_by_name(command);
-    cur_pid = getpid();
-    assert(fpid == cur_pid);
+    fpid = find_process_by_name(s_argv0);
+    self_pid = getpid();
+    assert(fpid == self_pid);
 
 #if defined(__linux__)
     /*
@@ -1898,13 +1901,10 @@ static void test_process_group_find_by_name(void) {
      * is unique enough to never match any running process's cmdline,
      * even in shared CI environments.
      */
-    {
-        char abs_path[64];
-        snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
-                 (long)getpid());
-        fpid = find_process_by_name(abs_path);
-        assert(fpid == 0);
-    }
+    snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
+             (long)getpid());
+    fpid = find_process_by_name(abs_path);
+    assert(fpid == 0);
 #endif /* __linux__ */
 
     /*
@@ -1920,7 +1920,7 @@ static void test_process_group_find_by_name(void) {
      * to the current process's name.
      * Expectation: Should return 0 (process not found).
      */
-    strcpy(wrong_name, command); /* Copy the current process's name */
+    strcpy(wrong_name, s_argv0); /* Copy the current process's name */
     strcat(wrong_name, "x");     /* Append 'x' to make it non-matching */
     fpid = find_process_by_name(wrong_name);
     assert(fpid == 0);
@@ -1930,7 +1930,7 @@ static void test_process_group_find_by_name(void) {
      * the last character removed.
      * Expectation: Should return 0 (process not found).
      */
-    strcpy(wrong_name, command); /* Copy the current process's name */
+    strcpy(wrong_name, s_argv0); /* Copy the current process's name */
     len = strlen(wrong_name);
     wrong_name[len - 1] = '\0'; /* Remove the last character */
     fpid = find_process_by_name(wrong_name);
@@ -1946,7 +1946,7 @@ static void test_process_group_find_by_name(void) {
  */
 static void test_process_iterator_getppid_of(void) {
     struct process_iterator it;
-    struct process *process;
+    struct process *proc;
     struct process_filter filter;
     int ret;
     pid_t ppid_self;
@@ -1957,7 +1957,7 @@ static void test_process_iterator_getppid_of(void) {
     filter.read_cmd = 0;
 
     /* Allocate memory for process structure */
-    if ((process = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1965,12 +1965,12 @@ static void test_process_iterator_getppid_of(void) {
     /* Iterate through all processes and verify parent PID */
     ret = init_process_iterator(&it, &filter);
     assert(ret == 0);
-    while (get_next_process(&it, process) == 0) {
+    while (get_next_process(&it, proc) == 0) {
         pid_t ppid_result;
-        ppid_result = getppid_of(process->pid);
-        assert(ppid_result == process->ppid);
+        ppid_result = getppid_of(proc->pid);
+        assert(ppid_result == proc->ppid);
     }
-    free(process);
+    free(proc);
     ret = close_process_iterator(&it);
     assert(ret == 0);
 
@@ -1989,15 +1989,15 @@ static void test_limit_process_basic(void) {
     const double cpu_usage_limit = 0.5;
     pid_t child_pid;
     int sync_pipe[2], num_procs;
-    int pr, cl;
+    int ret;
 
     num_procs = get_ncpu();
     /* Ensure at least 2 processes to validate include_children option */
     num_procs = MAX(num_procs, 2);
 
     /* Create pipe for synchronization */
-    pr = pipe(sync_pipe);
-    assert(pr == 0);
+    ret = pipe(sync_pipe);
+    assert(ret == 0);
 
     /* Fork first child process */
     child_pid = fork();
@@ -2006,28 +2006,28 @@ static void test_limit_process_basic(void) {
     if (child_pid > 0) {
         /* Parent process: monitor CPU usage */
         pid_t limiter_pid;
-        ssize_t bytes_read, read_result;
+        ssize_t ack_count, read_ret;
         char ack;
 
-        cl = close(sync_pipe[1]);
-        assert(cl == 0);
+        ret = close(sync_pipe[1]);
+        assert(ret == 0);
 
         /* Wait for num_procs acknowledgements (from num_procs processes) */
-        for (bytes_read = 0; bytes_read < num_procs; bytes_read++) {
-            read_result = read(sync_pipe[0], &ack, 1);
-            if (read_result == -1 && errno == EINTR) {
+        for (ack_count = 0; ack_count < num_procs; ack_count++) {
+            read_ret = read(sync_pipe[0], &ack, 1);
+            if (read_ret == -1 && errno == EINTR) {
                 continue; /* Interrupted, retry read */
             }
-            assert(read_result == 1 && ack == 'A');
+            assert(read_ret == 1 && ack == 'A');
         }
         /* Now should read EOF */
         do {
-            read_result = read(sync_pipe[0], &ack, 1);
-        } while (read_result == -1 && errno == EINTR);
-        assert(read_result == 0);
-        cl = close(sync_pipe[0]);
-        assert(cl == 0);
-        assert(bytes_read == num_procs);
+            read_ret = read(sync_pipe[0], &ack, 1);
+        } while (read_ret == -1 && errno == EINTR);
+        assert(read_ret == 0);
+        ret = close(sync_pipe[0]);
+        assert(ret == 0);
+        assert(ack_count == num_procs);
         /* Fork CPU limiter process */
         limiter_pid = fork();
         assert(limiter_pid >= 0);
@@ -2039,8 +2039,7 @@ static void test_limit_process_basic(void) {
             double cpu_usage = 0;
             struct process_group pgroup;
             const struct timespec sleep_time = {0, 500000000L};
-            int ret;
-            int ncpu_val;
+            int ncpu;
 
             /* Initialize process group monitoring */
             ret = init_process_group(&pgroup, child_pid, 1);
@@ -2079,8 +2078,8 @@ static void test_limit_process_basic(void) {
                    cpu_usage);
 
             /* Verify CPU usage */
-            ncpu_val = get_ncpu();
-            assert(cpu_usage <= ncpu_val);
+            ncpu = get_ncpu();
+            assert(cpu_usage <= ncpu);
 
             return;
         }
@@ -2096,8 +2095,8 @@ static void test_limit_process_basic(void) {
         /* Create new process group */
         setpgid(0, 0);
 
-        cl = close(sync_pipe[0]);
-        assert(cl == 0);
+        ret = close(sync_pipe[0]);
+        assert(ret == 0);
 
         /* Fork (num_procs - 1) child processes */
         for (i = 1; i < num_procs; i++) {
@@ -2113,8 +2112,8 @@ static void test_limit_process_basic(void) {
         /* Send acknowledgement and close pipe */
         nwritten = write(sync_pipe[1], "A", 1);
         assert(nwritten == 1);
-        cl = close(sync_pipe[1]);
-        assert(cl == 0);
+        ret = close(sync_pipe[1]);
+        assert(ret == 0);
 
         /* Keep processes running until terminated */
         while (keep_running && !is_quit_flag_set()) {
@@ -2518,12 +2517,17 @@ static void test_process_iterator_close_null(void) {
  */
 static void test_process_iterator_getppid_of_edges(void) {
     pid_t ppid_of_zero;
+    pid_t ppid_of_neg;
     pid_t ppid_of_max;
     pid_t ppid_self;
     pid_t expected_ppid;
     /* PID 0: /proc/0/stat does not exist */
     ppid_of_zero = getppid_of((pid_t)0);
     assert(ppid_of_zero == (pid_t)-1);
+
+    /* Negative PID: invalid, must return -1 */
+    ppid_of_neg = getppid_of((pid_t)-1);
+    assert(ppid_of_neg == (pid_t)-1);
 
     /* INT_MAX: virtually guaranteed non-existent PID */
     ppid_of_max = getppid_of((pid_t)INT_MAX);
@@ -3093,7 +3097,7 @@ static void test_cli_exe_mode(void) {
     char arg_e[] = "-e";
     char arg_exe[] = "some_exe";
     char *av[6];
-    int cmp;
+    int cmp_ret;
 
     av[0] = arg0;
     av[1] = arg_l;
@@ -3106,8 +3110,8 @@ static void test_cli_exe_mode(void) {
     parse_arguments(5, (char *const *)av, &cfg);
 
     assert(cfg.exe_name != NULL);
-    cmp = strcmp(cfg.exe_name, "some_exe");
-    assert(cmp == 0);
+    cmp_ret = strcmp(cfg.exe_name, "some_exe");
+    assert(cmp_ret == 0);
     assert(cfg.limit >= 0.2499 && cfg.limit <= 0.2501);
     assert(cfg.lazy_mode == 0); /* -e alone does not imply lazy */
     assert(cfg.target_pid == 0);
@@ -3126,7 +3130,7 @@ static void test_cli_command_mode(void) {
     char arg_cmd[] = "echo";
     char arg_msg[] = "hello";
     char *av[6];
-    int cmp;
+    int cmp_ret;
 
     av[0] = arg0;
     av[1] = arg_l;
@@ -3140,8 +3144,8 @@ static void test_cli_command_mode(void) {
 
     assert(cfg.command_mode == 1);
     assert(cfg.command_args != NULL);
-    cmp = strcmp(cfg.command_args[0], "echo");
-    assert(cmp == 0);
+    cmp_ret = strcmp(cfg.command_args[0], "echo");
+    assert(cmp_ret == 0);
     assert(cfg.lazy_mode == 1); /* command mode implies lazy */
     assert(cfg.target_pid == 0);
     assert(cfg.exe_name == NULL);
@@ -3185,7 +3189,7 @@ static void test_cli_long_option_exe(void) {
     char arg_limit[] = "--limit=50";
     char arg_exe[] = "--exe=myapp";
     char *av[4];
-    int cmp;
+    int cmp_ret;
 
     av[0] = arg0;
     av[1] = arg_limit;
@@ -3196,8 +3200,8 @@ static void test_cli_long_option_exe(void) {
     parse_arguments(3, (char *const *)av, &cfg);
 
     assert(cfg.exe_name != NULL);
-    cmp = strcmp(cfg.exe_name, "myapp");
-    assert(cmp == 0);
+    cmp_ret = strcmp(cfg.exe_name, "myapp");
+    assert(cmp_ret == 0);
     assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
 }
 
@@ -3289,19 +3293,19 @@ static void test_cli_help(void) {
     char arg_help[] = "--help";
     char *av1[3];
     char *av2[3];
-    int rpc;
+    int parse_ret;
 
     av1[0] = arg0;
     av1[1] = arg_h;
     av1[2] = NULL;
-    rpc = run_parse_in_child(2, (char *const *)av1);
-    assert(rpc == EXIT_SUCCESS);
+    parse_ret = run_parse_in_child(2, (char *const *)av1);
+    assert(parse_ret == EXIT_SUCCESS);
 
     av2[0] = arg0;
     av2[1] = arg_help;
     av2[2] = NULL;
-    rpc = run_parse_in_child(2, (char *const *)av2);
-    assert(rpc == EXIT_SUCCESS);
+    parse_ret = run_parse_in_child(2, (char *const *)av2);
+    assert(parse_ret == EXIT_SUCCESS);
 }
 
 /**
@@ -3313,14 +3317,14 @@ static void test_cli_missing_limit(void) {
     char arg_e[] = "-e";
     char arg_exe[] = "foo";
     char *av[4];
-    int rpc;
+    int parse_ret;
 
     av[0] = arg0;
     av[1] = arg_e;
     av[2] = arg_exe;
     av[3] = NULL;
-    rpc = run_parse_in_child(3, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(3, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -3339,7 +3343,7 @@ static void test_cli_invalid_limits(void) {
     char arg_nan[] = "nan";
     char arg_huge[] = "99999";
     char *av[6];
-    int rpc;
+    int parse_ret;
 
     /* Common setup: prog -l LIMIT -e foo */
     av[0] = arg0;
@@ -3349,24 +3353,24 @@ static void test_cli_invalid_limits(void) {
     av[5] = NULL;
 
     av[2] = arg_zero;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 
     av[2] = arg_neg;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 
     av[2] = arg_abc;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 
     av[2] = arg_nan;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 
     av[2] = arg_huge;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -3385,7 +3389,7 @@ static void test_cli_invalid_pids(void) {
     char arg_pidabc[] = "abc";
     char arg_pidtrail[] = "10x";
     char *av[6];
-    int rpc;
+    int parse_ret;
 
     /* Common setup: prog -l 50 -p PID */
     av[0] = arg0;
@@ -3395,24 +3399,24 @@ static void test_cli_invalid_pids(void) {
     av[5] = NULL;
 
     av[4] = arg_pid0;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 
     av[4] = arg_pid1; /* pid <= 1 validation rejects PID 1 (init/systemd) */
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 
     av[4] = arg_pidneg;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 
     av[4] = arg_pidabc;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 
     av[4] = arg_pidtrail;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -3426,7 +3430,7 @@ static void test_cli_empty_exe(void) {
     char arg_e[] = "-e";
     char arg_empty[] = "";
     char *av[6];
-    int rpc;
+    int parse_ret;
 
     av[0] = arg0;
     av[1] = arg_l;
@@ -3434,8 +3438,8 @@ static void test_cli_empty_exe(void) {
     av[3] = arg_e;
     av[4] = arg_empty;
     av[5] = NULL;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -3447,14 +3451,14 @@ static void test_cli_no_target(void) {
     char arg_l[] = "-l";
     char arg_50[] = "50";
     char *av[4];
-    int rpc;
+    int parse_ret;
 
     av[0] = arg0;
     av[1] = arg_l;
     av[2] = arg_50;
     av[3] = NULL;
-    rpc = run_parse_in_child(3, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(3, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -3470,7 +3474,7 @@ static void test_cli_multiple_targets(void) {
     char arg_e[] = "-e";
     char arg_exe[] = "foo";
     char *av[8];
-    int rpc;
+    int parse_ret;
 
     snprintf(arg_pid, sizeof(arg_pid), "%ld", (long)getpid());
     av[0] = arg0;
@@ -3481,8 +3485,8 @@ static void test_cli_multiple_targets(void) {
     av[5] = arg_e;
     av[6] = arg_exe;
     av[7] = NULL;
-    rpc = run_parse_in_child(7, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(7, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -3495,19 +3499,19 @@ static void test_cli_unknown_option(void) {
     char arg_bogus[] = "--bogus";
     char *av1[3];
     char *av2[3];
-    int rpc;
+    int parse_ret;
 
     av1[0] = arg0;
     av1[1] = arg_x;
     av1[2] = NULL;
-    rpc = run_parse_in_child(2, (char *const *)av1);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(2, (char *const *)av1);
+    assert(parse_ret == EXIT_FAILURE);
 
     av2[0] = arg0;
     av2[1] = arg_bogus;
     av2[2] = NULL;
-    rpc = run_parse_in_child(2, (char *const *)av2);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(2, (char *const *)av2);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -3520,19 +3524,19 @@ static void test_cli_missing_arg(void) {
     char arg_l[] = "-l";
     char *av1[3];
     char *av2[3];
-    int rpc;
+    int parse_ret;
 
     av1[0] = arg0;
     av1[1] = arg_p;
     av1[2] = NULL;
-    rpc = run_parse_in_child(2, (char *const *)av1);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(2, (char *const *)av1);
+    assert(parse_ret == EXIT_FAILURE);
 
     av2[0] = arg0;
     av2[1] = arg_l;
     av2[2] = NULL;
-    rpc = run_parse_in_child(2, (char *const *)av2);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(2, (char *const *)av2);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /***************************************************************************
@@ -4182,11 +4186,11 @@ static void test_process_group_close_null(void) {
 static void test_process_group_close_zeros_fields(void) {
     struct process_group pgroup;
     int ret;
-    pid_t cur_pid;
-    cur_pid = getpid();
-    ret = init_process_group(&pgroup, cur_pid, 1);
+    pid_t self_pid;
+    self_pid = getpid();
+    ret = init_process_group(&pgroup, self_pid, 1);
     assert(ret == 0);
-    assert(pgroup.target_pid == cur_pid);
+    assert(pgroup.target_pid == self_pid);
     assert(pgroup.include_children == 1);
     ret = close_process_group(&pgroup);
     assert(ret == 0);
@@ -4214,9 +4218,9 @@ static void test_process_group_update_null(void) {
 static void test_process_group_double_update(void) {
     struct process_group pgroup;
     int ret;
-    pid_t cur_pid;
-    cur_pid = getpid();
-    ret = init_process_group(&pgroup, cur_pid, 0);
+    pid_t self_pid;
+    self_pid = getpid();
+    ret = init_process_group(&pgroup, self_pid, 0);
     assert(ret == 0);
     update_process_group(&pgroup);
     /* Immediate second update: dt < MIN_DT, so CPU usage stays -1 */
@@ -4234,10 +4238,10 @@ static void test_process_group_find_by_name_self(void) {
     const char *self_name;
     pid_t result;
 
-    if (command == NULL) {
-        return; /* command set in main() */
+    if (s_argv0 == NULL) {
+        return; /* s_argv0 set in main() */
     }
-    self_name = file_basename(command);
+    self_name = file_basename(s_argv0);
     if (self_name == NULL || self_name[0] == '\0') {
         return;
     }
@@ -4256,10 +4260,10 @@ static void test_process_group_cpu_usage_with_usage(void) {
     double usage;
     int i;
     int ret;
-    pid_t cur_pid;
+    pid_t self_pid;
 
-    cur_pid = getpid();
-    ret = init_process_group(&pgroup, cur_pid, 0);
+    self_pid = getpid();
+    ret = init_process_group(&pgroup, self_pid, 0);
     assert(ret == 0);
     for (i = 0; i < 5; i++) {
         sleep_timespec(&wait);
@@ -4562,9 +4566,9 @@ static void test_cli_limit_at_max(void) {
     char arg_e[] = "-e";
     char arg_exe[] = "foo";
     char *av[6];
-    int n_cpu = get_ncpu();
+    int ncpu = get_ncpu();
 
-    snprintf(arg_max, sizeof(arg_max), "%d", 100 * n_cpu);
+    snprintf(arg_max, sizeof(arg_max), "%d", 100 * ncpu);
     av[0] = arg0;
     av[1] = arg_l;
     av[2] = arg_max;
@@ -4575,8 +4579,8 @@ static void test_cli_limit_at_max(void) {
     memset(&cfg, 0, sizeof(cfg));
     parse_arguments(5, (char *const *)av, &cfg);
     /* Limit stored as fraction: 100*ncpu/100 == ncpu */
-    assert(cfg.limit >= (double)n_cpu - 0.001 &&
-           cfg.limit <= (double)n_cpu + 0.001);
+    assert(cfg.limit >= (double)ncpu - 0.001 &&
+           cfg.limit <= (double)ncpu + 0.001);
 }
 
 /**
@@ -4615,7 +4619,7 @@ static void test_cli_limit_trailing_chars(void) {
     char arg_e[] = "-e";
     char arg_exe[] = "foo";
     char *av[6];
-    int rpc;
+    int parse_ret;
 
     av[0] = arg0;
     av[1] = arg_l;
@@ -4623,8 +4627,8 @@ static void test_cli_limit_trailing_chars(void) {
     av[3] = arg_e;
     av[4] = arg_exe;
     av[5] = NULL;
-    rpc = run_parse_in_child(5, (char *const *)av);
-    assert(rpc == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, (char *const *)av);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -4713,7 +4717,7 @@ test_invoke_indirect(void (*volatile test_fn)(void)) {
  */
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
-    command = argv[0];
+    s_argv0 = argv[0];
 
     configure_signal_handler();
     printf("Starting tests...\n");
