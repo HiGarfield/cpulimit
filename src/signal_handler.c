@@ -38,7 +38,7 @@
  * Volatile qualifier prevents compiler optimizations that could cache the
  * value.
  */
-static volatile sig_atomic_t limiter_quit_flag = 0;
+static volatile sig_atomic_t quit_flag = 0;
 
 /**
  * @brief Flag indicating termination originated from terminal keyboard input
@@ -46,7 +46,7 @@ static volatile sig_atomic_t limiter_quit_flag = 0;
  * Set to 1 for SIGINT (Ctrl+C) and SIGQUIT (Ctrl+\), remains 0 for
  * other termination signals like SIGTERM or SIGHUP.
  */
-static volatile sig_atomic_t terminated_by_tty = 0;
+static volatile sig_atomic_t tty_quit_flag = 0;
 
 /**
  * @brief Unified signal handler for termination signals
@@ -62,13 +62,13 @@ static void sig_handler(int sig) {
     switch (sig) {
     case SIGINT:  /* Ctrl+C */
     case SIGQUIT: /* Ctrl+\ */
-        terminated_by_tty = 1;
+        tty_quit_flag = 1;
         break;
     default:
         break;
     }
     /* Set global quit flag to initiate graceful shutdown */
-    limiter_quit_flag = 1;
+    quit_flag = 1;
 }
 
 /**
@@ -116,7 +116,7 @@ void configure_signal_handler(void) {
  * loop should periodically check this flag to initiate graceful shutdown.
  */
 int is_quit_flag_set(void) {
-    return !!limiter_quit_flag;
+    return !!quit_flag;
 }
 
 /**
@@ -128,5 +128,5 @@ int is_quit_flag_set(void) {
  * customize shutdown behavior or messages based on how termination occurred.
  */
 int is_terminated_by_tty(void) {
-    return !!terminated_by_tty;
+    return !!tty_quit_flag;
 }

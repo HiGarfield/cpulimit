@@ -155,8 +155,8 @@ int init_process_iterator(struct process_iterator *it,
  * When read_cmd is set, retrieves command arguments via kvm_getargv()
  * and uses the first argument (argv[0]) as the command path.
  */
-static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
-                      int read_cmd) {
+static int kinfo_proc_to_proc(kvm_t *kd, struct kinfo_proc *kproc,
+                              struct process *proc, int read_cmd) {
     char **args;
     size_t len_max;
     if (kproc == NULL || proc == NULL) {
@@ -192,7 +192,7 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
  * @brief Retrieve information for a single process by PID
  * @param kd Kernel virtual memory descriptor
  * @param pid Process ID to query
- * @param process Pointer to process structure to populate
+ * @param p Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure or if process not found
  *
@@ -200,13 +200,13 @@ static int kproc2proc(kvm_t *kd, struct kinfo_proc *kproc, struct process *proc,
  * Returns failure if the process doesn't exist, is a zombie, is a kernel
  * thread, or if conversion fails.
  */
-static int read_process_info(kvm_t *kd, pid_t pid, struct process *process,
+static int read_process_info(kvm_t *kd, pid_t pid, struct process *p,
                              int read_cmd) {
     int count;
     struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
     if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
         (kproc->ki_stat == SZOMB) ||
-        kproc2proc(kd, kproc, process, read_cmd) != 0) {
+        kinfo_proc_to_proc(kd, kproc, p, read_cmd) != 0) {
         return -1;
     }
     return 0;
@@ -366,7 +366,7 @@ int get_next_process(struct process_iterator *it, struct process *p) {
         }
 
         /* Convert to platform-independent structure */
-        if (kproc2proc(it->kd, kproc, p, it->filter->read_cmd) != 0) {
+        if (kinfo_proc_to_proc(it->kd, kproc, p, it->filter->read_cmd) != 0) {
             continue;
         }
 

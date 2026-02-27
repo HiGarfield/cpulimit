@@ -130,7 +130,7 @@ static double get_dynamic_time_slot(void) {
 
 /**
  * @brief Send a signal to all processes in a process group
- * @param procgroup Pointer to process group structure containing target
+ * @param pgroup Pointer to process group structure containing target
  *                  processes
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
  * @param verbose If non-zero, print errors when signal delivery fails
@@ -141,16 +141,16 @@ static double get_dynamic_time_slot(void) {
  *
  * @note Safe iteration: stores next node before potential deletion
  */
-static void send_signal_to_processes(struct process_group *procgroup, int sig,
+static void send_signal_to_processes(struct process_group *pgroup, int sig,
                                      int verbose) {
-    struct list_node *node = first_node(procgroup->proclist);
+    struct list_node *node = first_node(pgroup->proclist);
     while (node != NULL) {
         struct list_node *next_node =
             node->next; /* Save before potential deletion */
         pid_t pid;
         if (node->data == NULL) {
             /* Defensive: skip and remove any NULL-data nodes */
-            delete_node(procgroup->proclist, node);
+            delete_node(pgroup->proclist, node);
             node = next_node;
             continue;
         }
@@ -168,8 +168,8 @@ static void send_signal_to_processes(struct process_group *procgroup, int sig,
                         sig, (long)pid, strerror(saved_errno));
             }
             /* Remove dead/inaccessible process from tracking */
-            delete_node(procgroup->proclist, node);
-            delete_from_process_table(procgroup->proctable, pid);
+            delete_node(pgroup->proclist, node);
+            delete_from_process_table(pgroup->proctable, pid);
         }
         node = next_node;
     }

@@ -350,7 +350,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * and processes not matching the PID filter criteria.
  */
 int get_next_process(struct process_iterator *it, struct process *p) {
-    const struct dirent *dit = NULL;
+    const struct dirent *dir_entry = NULL;
 
     if (it == NULL || p == NULL || it->filter == NULL) {
         return -1;
@@ -367,7 +367,7 @@ int get_next_process(struct process_iterator *it, struct process *p) {
     }
 
     /* Iterate through /proc entries to find matching processes */
-    while ((dit = readdir(it->dip)) != NULL) {
+    while ((dir_entry = readdir(it->dip)) != NULL) {
         pid_t pid;
         char *endptr;
         long tmp_pid;
@@ -377,14 +377,14 @@ int get_next_process(struct process_iterator *it, struct process *p) {
          * DT_UNKNOWN must be checked because not all filesystems support
          * d_type.
          */
-        if (dit->d_type != DT_DIR && dit->d_type != DT_UNKNOWN) {
+        if (dir_entry->d_type != DT_DIR && dir_entry->d_type != DT_UNKNOWN) {
             continue;
         }
 #endif
         /* Process directories have numeric names */
         errno = 0;
-        tmp_pid = strtol(dit->d_name, &endptr, 10);
-        if (errno != 0 || endptr == dit->d_name || *endptr != '\0') {
+        tmp_pid = strtol(dir_entry->d_name, &endptr, 10);
+        if (errno != 0 || endptr == dir_entry->d_name || *endptr != '\0') {
             continue;
         }
         pid = long2pid_t(tmp_pid);

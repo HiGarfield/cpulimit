@@ -161,7 +161,7 @@ static double platform_time_to_ms(double platform_time) {
 /**
  * @brief Convert macOS proc_taskallinfo to portable process structure
  * @param ti Pointer to source proc_taskallinfo structure
- * @param process Pointer to destination process structure to populate
+ * @param proc Pointer to destination process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure
  *
@@ -171,27 +171,26 @@ static double platform_time_to_ms(double platform_time) {
  *
  * When read_cmd is set, retrieves the executable path via proc_pidpath().
  */
-static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
-                    int read_cmd) {
-    process->pid = (pid_t)ti->pbsd.pbi_pid;
-    process->ppid = (pid_t)ti->pbsd.pbi_ppid;
+static int proc_taskinfo_to_proc(struct proc_taskallinfo *ti,
+                                 struct process *proc, int read_cmd) {
+    proc->pid = (pid_t)ti->pbsd.pbi_pid;
+    proc->ppid = (pid_t)ti->pbsd.pbi_ppid;
     /* Sum user and system CPU time, convert to milliseconds */
-    process->cputime = platform_time_to_ms((double)ti->ptinfo.pti_total_user) +
-                       platform_time_to_ms((double)ti->ptinfo.pti_total_system);
+    proc->cputime = platform_time_to_ms((double)ti->ptinfo.pti_total_user) +
+                    platform_time_to_ms((double)ti->ptinfo.pti_total_system);
     if (!read_cmd) {
         return 0;
     }
     /* Retrieve full path to executable */
-    if (proc_pidpath(process->pid, process->command,
-                     sizeof(process->command)) <= 0) {
+    if (proc_pidpath(proc->pid, proc->command, sizeof(proc->command)) <= 0) {
         return -1;
     }
-    process->command[sizeof(process->command) - 1] = '\0';
+    proc->command[sizeof(proc->command) - 1] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
      */
-    if (process->command[0] == '\0') {
+    if (proc->command[0] == '\0') {
         return -1;
     }
     return 0;
@@ -212,7 +211,7 @@ static int pti2proc(struct proc_taskallinfo *ti, struct process *process,
  * - Zombie processes (pbi_status == SZOMB)
  * - System processes (pbi_flags & PROC_FLAG_SYSTEM)
  */
-static int get_process_pti(pid_t pid, struct proc_taskallinfo *ti) {
+static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *ti) {
     if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, ti, sizeof(*ti)) !=
         (int)sizeof(*ti)) {
         /* Silently skip common errors for processes we cannot access */
@@ -246,7 +245,7 @@ static int get_process_pti(pid_t pid, struct proc_taskallinfo *ti) {
  */
 pid_t getppid_of(pid_t pid) {
     struct proc_taskallinfo ti;
-    if (get_process_pti(pid, &ti) == 0) {
+    if (get_proc_taskinfo(pid, &ti) == 0) {
         return (pid_t)ti.pbsd.pbi_ppid;
     }
     return (pid_t)(-1);
@@ -294,18 +293,18 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure
  *
- * Internal helper that retrieves task information via get_process_pti()
+ * Internal helper that retrieves task information via get_proc_taskinfo()
  * and converts it to the platform-independent process structure via
- * pti2proc(). Used by get_next_process() for both single-process and
- * multi-process iteration.
+ * proc_taskinfo_to_proc(). Used by get_next_process() for both
+ * single-process and multi-process iteration.
  */
 static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     struct proc_taskallinfo ti;
     memset(p, 0, sizeof(struct process));
-    if (get_process_pti(pid, &ti) != 0) {
+    if (get_proc_taskinfo(pid, &ti) != 0) {
         return -1;
     }
-    if (pti2proc(&ti, p, read_cmd) != 0) {
+    if (proc_taskinfo_to_proc(&ti, p, read_cmd) != 0) {
         return -1;
     }
     return 0;

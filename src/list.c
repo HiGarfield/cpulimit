@@ -59,28 +59,28 @@ void init_list(struct list *l) {
  *       terminates the process and does not return to the caller.
  */
 struct list_node *add_elem(struct list *l, void *elem) {
-    struct list_node *newnode;
+    struct list_node *new_node;
     if (l == NULL) {
         return NULL;
     }
-    if ((newnode = (struct list_node *)malloc(sizeof(struct list_node))) ==
+    if ((new_node = (struct list_node *)malloc(sizeof(struct list_node))) ==
         NULL) {
         fprintf(stderr, "Memory allocation failed for the new list node\n");
         exit(EXIT_FAILURE);
     }
-    newnode->data = elem;
-    newnode->previous = l->last;
-    newnode->next = NULL;
+    new_node->data = elem;
+    new_node->previous = l->last;
+    new_node->next = NULL;
     if (l->count == 0) {
         /* Empty list: new node becomes both first and last */
-        l->first = l->last = newnode;
+        l->first = l->last = new_node;
     } else {
         /* Non-empty list: append to end */
-        l->last->next = newnode;
-        l->last = newnode;
+        l->last->next = new_node;
+        l->last = new_node;
     }
     l->count++;
-    return newnode;
+    return new_node;
 }
 
 /**

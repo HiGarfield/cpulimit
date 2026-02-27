@@ -414,7 +414,7 @@ int get_ncpu(void) {
     return cached_ncpu;
 }
 
-#ifdef __IMPL_GETLOADAVG
+#ifdef CPULIMIT_IMPL_GETLOADAVG
 /**
  * @brief Get system load averages (custom implementation for old uClibc)
  * @param loadavg Array to receive load average values
