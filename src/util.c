@@ -234,7 +234,7 @@ void increase_priority(void) {
  * rejected due to invalid syntax (strtol finds no number).
  */
 static int parse_cpu_range(const char *str) {
-    const char *pos = str;
+    const char *parse_pos = str;
     char *endptr;
     int cpu_count = 0;
 
@@ -242,31 +242,31 @@ static int parse_cpu_range(const char *str) {
         return -1;
     }
 
-    while (*pos != '\0') {
+    while (*parse_pos != '\0') {
         long start;
         /* Parse first number (strtol automatically skips leading whitespace) */
         errno = 0;
-        start = strtol(pos, &endptr, 10);
-        if (endptr == pos || errno != 0 || start < 0) {
+        start = strtol(parse_pos, &endptr, 10);
+        if (endptr == parse_pos || errno != 0 || start < 0) {
             return -1; /* Parse error or invalid value */
         }
-        pos = endptr;
+        parse_pos = endptr;
 
         /* Skip trailing whitespace after number */
-        while (isspace((unsigned char)*pos)) {
-            pos++;
+        while (isspace((unsigned char)*parse_pos)) {
+            parse_pos++;
         }
 
-        if (*pos == '-') {
+        if (*parse_pos == '-') {
             /* Range format: start-end */
             long end, range_len;
 
-            pos++; /* Skip the dash */
+            parse_pos++; /* Skip the dash */
 
             /* Parse end of range */
             errno = 0;
-            end = strtol(pos, &endptr, 10);
-            if (endptr == pos || errno != 0 || start > end || end < 0) {
+            end = strtol(parse_pos, &endptr, 10);
+            if (endptr == parse_pos || errno != 0 || start > end || end < 0) {
                 return -1; /* Parse error or invalid range */
             }
             /* Compute range length safely (start <= end and both >= 0 here) */
@@ -281,11 +281,11 @@ static int parse_cpu_range(const char *str) {
             }
             cpu_count += (int)(range_len + 1L);
 
-            pos = endptr;
+            parse_pos = endptr;
 
             /* Skip trailing whitespace */
-            while (isspace((unsigned char)*pos)) {
-                pos++;
+            while (isspace((unsigned char)*parse_pos)) {
+                parse_pos++;
             }
         } else {
             /* Single CPU number */
@@ -296,9 +296,9 @@ static int parse_cpu_range(const char *str) {
         }
 
         /* Expect comma or end of string */
-        if (*pos == ',') {
-            pos++; /* Move past comma to parse next segment */
-        } else if (*pos != '\0') {
+        if (*parse_pos == ',') {
+            parse_pos++; /* Move past comma to parse next segment */
+        } else if (*parse_pos != '\0') {
             return -1; /* Unexpected character */
         }
     }

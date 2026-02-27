@@ -2365,9 +2365,9 @@ static void test_signal_handler_sigquit(void) {
          * driver to propagate the signal to the parent's process group,
          * corrupting the parent's state. setsid() prevents this.
          */
-        pid_t sid;
-        sid = setsid();
-        assert(sid != (pid_t)-1);
+        pid_t session_id;
+        session_id = setsid();
+        assert(session_id != (pid_t)-1);
         configure_signal_handler();
         if (raise(SIGQUIT) != 0) {
             _exit(1);
