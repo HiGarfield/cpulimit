@@ -93,17 +93,18 @@ static size_t pid_hash(const struct process_table *pt, pid_t pid) {
  */
 struct process *find_in_process_table(const struct process_table *pt,
                                       pid_t pid) {
-    size_t idx;
+    size_t bucket_idx;
     if (pt == NULL || pt->table == NULL) {
         return NULL;
     }
-    idx = pid_hash(pt, pid);
-    if (pt->table[idx] == NULL) {
+    bucket_idx = pid_hash(pt, pid);
+    if (pt->table[bucket_idx] == NULL) {
         return NULL;
     }
     /* Search the linked list in this bucket, comparing PIDs */
-    return (struct process *)locate_elem(
-        pt->table[idx], &pid, offsetof(struct process, pid), sizeof(pid_t));
+    return (struct process *)locate_elem(pt->table[bucket_idx], &pid,
+                                         offsetof(struct process, pid),
+                                         sizeof(pid_t));
 }
 
 /**
@@ -122,24 +123,24 @@ struct process *find_in_process_table(const struct process_table *pt,
  *       (pt->table is NULL): the call is a no-op in both cases.
  */
 void add_to_process_table(struct process_table *pt, struct process *proc) {
-    size_t idx;
+    size_t bucket_idx;
     if (pt == NULL || pt->table == NULL || proc == NULL) {
         return;
     }
-    idx = pid_hash(pt, proc->pid);
-    if (pt->table[idx] == NULL) {
+    bucket_idx = pid_hash(pt, proc->pid);
+    if (pt->table[bucket_idx] == NULL) {
         /* Bucket is empty; create new linked list for this bucket */
-        if ((pt->table[idx] = (struct list *)malloc(sizeof(struct list))) ==
-            NULL) {
+        if ((pt->table[bucket_idx] =
+                 (struct list *)malloc(sizeof(struct list))) == NULL) {
             fprintf(stderr, "Memory allocation failed for the process list\n");
             exit(EXIT_FAILURE);
         }
-        init_list(pt->table[idx]);
+        init_list(pt->table[bucket_idx]);
     }
     /* Verify process doesn't already exist before adding */
-    if (locate_elem(pt->table[idx], &proc->pid, offsetof(struct process, pid),
-                    sizeof(pid_t)) == NULL) {
-        add_elem(pt->table[idx], proc);
+    if (locate_elem(pt->table[bucket_idx], &proc->pid,
+                    offsetof(struct process, pid), sizeof(pid_t)) == NULL) {
+        add_elem(pt->table[bucket_idx], proc);
     }
 }
 
@@ -157,25 +158,25 @@ void add_to_process_table(struct process_table *pt, struct process *proc) {
  */
 int delete_from_process_table(struct process_table *pt, pid_t pid) {
     struct list_node *node;
-    size_t idx;
+    size_t bucket_idx;
     if (pt == NULL || pt->table == NULL) {
         return 1;
     }
-    idx = pid_hash(pt, pid);
-    if (pt->table[idx] == NULL) {
+    bucket_idx = pid_hash(pt, pid);
+    if (pt->table[bucket_idx] == NULL) {
         return 1; /* Bucket is empty */
     }
-    node = locate_node(pt->table[idx], &pid, offsetof(struct process, pid),
-                       sizeof(pid_t));
+    node = locate_node(pt->table[bucket_idx], &pid,
+                       offsetof(struct process, pid), sizeof(pid_t));
     if (node == NULL) {
         return 1; /* Process not found in bucket */
     }
     /* Remove node and free its data */
-    destroy_node(pt->table[idx], node);
+    destroy_node(pt->table[bucket_idx], node);
     /* If bucket is now empty, free the list structure */
-    if (is_empty_list(pt->table[idx])) {
-        free(pt->table[idx]);
-        pt->table[idx] = NULL;
+    if (is_empty_list(pt->table[bucket_idx])) {
+        free(pt->table[bucket_idx]);
+        pt->table[bucket_idx] = NULL;
     }
     return 0;
 }
@@ -196,33 +197,33 @@ int delete_from_process_table(struct process_table *pt, pid_t pid) {
  */
 void remove_stale_from_process_table(struct process_table *pt,
                                      const struct list *active_list) {
-    size_t idx;
+    size_t bucket_idx;
     if (pt == NULL || pt->table == NULL) {
         return;
     }
-    for (idx = 0; idx < pt->hashsize; idx++) {
+    for (bucket_idx = 0; bucket_idx < pt->hashsize; bucket_idx++) {
         struct list_node *node, *next_node;
-        if (pt->table[idx] == NULL) {
+        if (pt->table[bucket_idx] == NULL) {
             continue;
         }
-        for (node = first_node(pt->table[idx]); node != NULL;
+        for (node = first_node(pt->table[bucket_idx]); node != NULL;
              node = next_node) {
             next_node = node->next;
             if (node->data == NULL) {
                 /* Defensive: remove phantom NULL-data nodes */
-                destroy_node(pt->table[idx], node);
+                destroy_node(pt->table[bucket_idx], node);
             } else {
                 pid_t pid = ((const struct process *)node->data)->pid;
                 if (locate_elem(active_list, &pid,
                                 offsetof(struct process, pid),
                                 sizeof(pid_t)) == NULL) {
-                    destroy_node(pt->table[idx], node);
+                    destroy_node(pt->table[bucket_idx], node);
                 }
             }
         }
-        if (is_empty_list(pt->table[idx])) {
-            free(pt->table[idx]);
-            pt->table[idx] = NULL;
+        if (is_empty_list(pt->table[bucket_idx])) {
+            free(pt->table[bucket_idx]);
+            pt->table[bucket_idx] = NULL;
         }
     }
 }
@@ -238,15 +239,15 @@ void remove_stale_from_process_table(struct process_table *pt,
  * @note Safe to call with NULL pointer (does nothing)
  */
 void destroy_process_table(struct process_table *pt) {
-    size_t idx;
+    size_t bucket_idx;
     if (pt == NULL || pt->table == NULL) {
         return;
     }
     /* Free each bucket's linked list and its contents */
-    for (idx = 0; idx < pt->hashsize; idx++) {
-        if (pt->table[idx] != NULL) {
-            destroy_list(pt->table[idx]);
-            free(pt->table[idx]);
+    for (bucket_idx = 0; bucket_idx < pt->hashsize; bucket_idx++) {
+        if (pt->table[bucket_idx] != NULL) {
+            destroy_list(pt->table[bucket_idx]);
+            free(pt->table[bucket_idx]);
         }
     }
     /* Free the bucket array itself */
