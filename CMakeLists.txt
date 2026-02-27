@@ -21,6 +21,14 @@ set(CMAKE_C_STANDARD 90)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+# Generate compile_commands.json for use by static analysis tools
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Set a default build type of Release if none is specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 option(CPULIMIT_BUILD_TESTS "Build test binaries" ON)
 
 function(add_c_compiler_flag_if_supported FLAG)
@@ -134,6 +142,11 @@ add_c_compiler_flag_if_supported("-Wanalyzer-shift-count-negative")
 add_c_compiler_flag_if_supported("-Wanalyzer-shift-count-overflow")
 add_c_compiler_flag_if_supported("-Wanalyzer-out-of-bounds")
 add_c_compiler_flag_if_supported("-Wanalyzer-unsafe-call-within-signal-handler")
+
+add_c_compiler_flag_if_supported("-Werror")
+
+# Force 64-bit time_t and file offsets to prevent Y2038 issue
+add_compile_definitions(_TIME_BITS=64 _FILE_OFFSET_BITS=64)
 
 set(CPULIMIT_PLATFORM_LIBS)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
