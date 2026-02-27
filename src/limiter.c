@@ -142,7 +142,7 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
          */
         int child_exit_status =
             EXIT_FAILURE;           /* Default if child not properly reaped */
-        char ack;                   /* Synchronization byte from child */
+        char sync_ack;              /* Synchronization byte from child */
         int found_cmd_runner = 0;   /* 1 if successfully reaped child PID */
         struct timespec start_time; /* Timestamp when termination starts */
         ssize_t n_read;             /* Bytes read from pipe */
@@ -154,9 +154,9 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
          * This ensures child has completed setpgid() before parent continues.
          */
         do {
-            n_read = read(sync_pipe[0], &ack, 1);
+            n_read = read(sync_pipe[0], &sync_ack, 1);
         } while (n_read < 0 && errno == EINTR);
-        if (n_read != 1 || ack != 'A') {
+        if (n_read != 1 || sync_ack != 'A') {
             if (n_read < 0) {
                 perror("read sync");
             } else if (n_read == 0) {
