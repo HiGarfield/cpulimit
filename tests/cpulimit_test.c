@@ -4260,7 +4260,7 @@ static void test_process_group_find_by_name_self(void) {
  */
 static void test_process_group_cpu_usage_with_usage(void) {
     struct process_group pgroup;
-    const struct timespec wait = {0, 50000000L}; /* 50 ms */
+    const struct timespec wait_time = {0, 50000000L}; /* 50 ms */
     double usage;
     int i;
     int ret;
@@ -4270,7 +4270,7 @@ static void test_process_group_cpu_usage_with_usage(void) {
     ret = init_process_group(&pgroup, self_pid, 0);
     assert(ret == 0);
     for (i = 0; i < 5; i++) {
-        sleep_timespec(&wait);
+        sleep_timespec(&wait_time);
         update_process_group(&pgroup);
     }
     usage = get_process_group_cpu_usage(&pgroup);
