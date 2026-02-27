@@ -92,7 +92,7 @@ struct cpulimitcfg {
      * Array of command-line arguments to execute (NULL-terminated) in command
      * mode.
      */
-    char *const *command_args;
+    char **command_args;
 };
 
 /**
@@ -107,7 +107,7 @@ struct cpulimitcfg {
  *
  * @note This function calls exit() and does not return on error or help request
  */
-void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg);
+void parse_arguments(int argc, char **argv, struct cpulimitcfg *cfg);
 
 #ifdef __cplusplus
 }

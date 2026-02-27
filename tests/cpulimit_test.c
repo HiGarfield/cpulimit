@@ -3029,7 +3029,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
  * @param argv Argument vector
  * @return Exit status from the child process
  */
-static int run_parse_in_child(int argc, char *const *argv) {
+static int run_parse_in_child(int argc, char **argv) {
     pid_t pid;
     int status;
     struct cpulimitcfg cfg;

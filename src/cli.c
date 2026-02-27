@@ -192,7 +192,7 @@ static void validate_target_options(const struct cpulimitcfg *cfg) {
  *
  * @note This function calls exit() and does not return on error or help request
  */
-void parse_arguments(int argc, char *const *argv, struct cpulimitcfg *cfg) {
+void parse_arguments(int argc, char **argv, struct cpulimitcfg *cfg) {
     int opt, ncpu;
     const struct option long_options[] = {
         {"pid", required_argument, NULL, 'p'},
