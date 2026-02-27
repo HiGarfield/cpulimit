@@ -104,9 +104,9 @@ int init_process_iterator(struct process_iterator *iter,
  * sysconf(_SC_CLK_TCK).
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
-    char statfile[64], exefile[64], state;
+    char statfile[64], cmdline_path[64], state;
     char *buffer;
-    const char *ptr_start;
+    const char *stat_fields_start;
     double usertime, systime;
     long ppid;
     static long sc_clk_tck = -1;
@@ -125,12 +125,12 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * Find the last ')' to handle process names containing parentheses.
      * Format: pid (comm) state ppid ... utime stime ...
      */
-    ptr_start = strrchr(buffer, ')');
-    if (ptr_start == NULL) {
+    stat_fields_start = strrchr(buffer, ')');
+    if (stat_fields_start == NULL) {
         free(buffer);
         return -1;
     }
-    if (sscanf(ptr_start,
+    if (sscanf(stat_fields_start,
                ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf", &state,
                &ppid, &usertime, &systime) != 4 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
@@ -163,8 +163,9 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * uses NUL bytes as argument separators (no newlines), so string
      * functions naturally stop at the first NUL, giving only argv[0].
      */
-    snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)pid);
-    cmdline_file = fopen(exefile, "r");
+    snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%ld/cmdline",
+             (long)pid);
+    cmdline_file = fopen(cmdline_path, "r");
     if (cmdline_file == NULL) {
         return -1;
     }
@@ -202,7 +203,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
 pid_t getppid_of(pid_t pid) {
     char statfile[64], state;
     char *buffer;
-    const char *ptr_start;
+    const char *stat_fields_start;
     long ppid;
 
     /* Parse /proc/[pid]/stat for parent process ID */
@@ -211,13 +212,13 @@ pid_t getppid_of(pid_t pid) {
         return (pid_t)-1;
     }
     /* Find last ')' to handle process names with parentheses */
-    ptr_start = strrchr(buffer, ')');
-    if (ptr_start == NULL) {
+    stat_fields_start = strrchr(buffer, ')');
+    if (stat_fields_start == NULL) {
         free(buffer);
         return (pid_t)-1;
     }
     /* Extract state and PPID, reject zombies and invalid PPIDs */
-    if (sscanf(ptr_start, ") %c %ld", &state, &ppid) != 2 ||
+    if (sscanf(stat_fields_start, ") %c %ld", &state, &ppid) != 2 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
         ppid <= 0) {
         free(buffer);
@@ -266,16 +267,18 @@ static int get_start_time(pid_t pid, struct timespec *start_time) {
 
 /**
  * @brief Compare two timestamps to determine chronological order
- * @param t1 First timestamp
- * @param t2 Second timestamp
- * @return 1 if t1 occurred before t2, 0 otherwise
+ * @param ts_lhs First timestamp
+ * @param ts_rhs Second timestamp
+ * @return 1 if ts_lhs occurred before ts_rhs, 0 otherwise
  *
  * Performs chronological comparison of two timespec structures.
  * Compares seconds first, then nanoseconds if seconds are equal.
  */
-static int earlier_than(const struct timespec *t1, const struct timespec *t2) {
-    return t1->tv_sec < t2->tv_sec ||
-           (t1->tv_sec == t2->tv_sec && t1->tv_nsec < t2->tv_nsec);
+static int earlier_than(const struct timespec *ts_lhs,
+                        const struct timespec *ts_rhs) {
+    return ts_lhs->tv_sec < ts_rhs->tv_sec ||
+           (ts_lhs->tv_sec == ts_rhs->tv_sec &&
+            ts_lhs->tv_nsec < ts_rhs->tv_nsec);
 }
 
 /**
