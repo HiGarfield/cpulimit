@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
      * Configuration structure to store parsed command line arguments
      * including target specification, CPU limit, and behavior flags
      */
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
 
     /*
      * Parse and validate command line arguments.

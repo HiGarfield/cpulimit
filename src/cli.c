@@ -44,7 +44,7 @@
  * Prints formatted usage message showing all available options and targets,
  * then exits the program with the specified exit code.
  */
-static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
+static void print_usage_and_exit(FILE *stream, const struct cpulimit_cfg *cfg,
                                  int exit_code) {
     int ncpu = get_ncpu();
     fprintf(stream, "Usage: %s OPTION... TARGET\n", cfg->program_name);
@@ -90,7 +90,7 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimitcfg *cfg,
  *
  * @note Exits the program with error message if PID is invalid or out of range
  */
-static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
+static void parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     char *endptr;
     long pid;
     pid_t pid_result;
@@ -128,7 +128,7 @@ static void parse_pid_option(const char *pid_str, struct cpulimitcfg *cfg) {
  * @note Exits the program with error message if limit is invalid or out of
  *       range
  */
-static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
+static void parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
                                int ncpu) {
     char *endptr;
     double percent_limit;
@@ -167,7 +167,7 @@ static void parse_limit_option(const char *limit_str, struct cpulimitcfg *cfg,
  *
  * @note Exits the program with error message if validation fails
  */
-static void validate_target_options(const struct cpulimitcfg *cfg) {
+static void validate_target_options(const struct cpulimit_cfg *cfg) {
     int pid_mode = cfg->target_pid > 0;
     int exe_mode = cfg->exe_name != NULL;
     int command_mode = cfg->command_mode;
@@ -192,8 +192,8 @@ static void validate_target_options(const struct cpulimitcfg *cfg) {
  *
  * @note This function calls exit() and does not return on error or help request
  */
-void parse_arguments(int argc, char **argv, struct cpulimitcfg *cfg) {
-    int opt, ncpu;
+void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
+    int option_char, ncpu;
     const struct option long_options[] = {
         {"pid", required_argument, NULL, 'p'},
         {"exe", required_argument, NULL, 'e'},
@@ -208,7 +208,7 @@ void parse_arguments(int argc, char **argv, struct cpulimitcfg *cfg) {
     ncpu = get_ncpu();
 
     /* Initialize configuration with default values */
-    memset(cfg, 0, sizeof(struct cpulimitcfg));
+    memset(cfg, 0, sizeof(struct cpulimit_cfg));
     cfg->program_name = file_basename(argv[0]);
     cfg->limit = -1.0; /* Negative value indicates limit not yet specified */
 
@@ -234,9 +234,9 @@ void parse_arguments(int argc, char **argv, struct cpulimitcfg *cfg) {
      * Process all options using getopt_long.
      * Leading '+' stops parsing at first non-option (for COMMAND mode)
      */
-    while ((opt = getopt_long(argc, argv, "+:p:e:l:vzih", long_options,
-                              NULL)) != -1) {
-        switch (opt) {
+    while ((option_char = getopt_long(argc, argv, "+:p:e:l:vzih", long_options,
+                                      NULL)) != -1) {
+        switch (option_char) {
         case 'p': /* Process ID target */
             parse_pid_option(optarg, cfg);
             break;

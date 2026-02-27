@@ -33,14 +33,14 @@ extern "C" {
 #include <sys/types.h>
 
 /**
- * @struct cpulimitcfg
+ * @struct cpulimit_cfg
  * @brief Configuration structure containing all runtime parameters for CPU
  *        limiting
  *
  * This structure stores the parsed command-line options and determines
  * the program's execution mode and behavior.
  */
-struct cpulimitcfg {
+struct cpulimit_cfg {
     /**
      * Program name (basename of argv[0]) used in usage messages.
      */
@@ -107,7 +107,7 @@ struct cpulimitcfg {
  *
  * @note This function calls exit() and does not return on error or help request
  */
-void parse_arguments(int argc, char **argv, struct cpulimitcfg *cfg);
+void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg);
 
 #ifdef __cplusplus
 }

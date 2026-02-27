@@ -49,7 +49,7 @@ extern "C" {
  *
  * @note This function calls exit() and does not return
  */
-void run_command_mode(const struct cpulimitcfg *cfg);
+void run_command_mode(const struct cpulimit_cfg *cfg);
 
 /**
  * @brief Search for and limit an existing process by PID or executable name
@@ -64,7 +64,7 @@ void run_command_mode(const struct cpulimitcfg *cfg);
  *
  * @note This function calls exit() and does not return
  */
-void run_pid_or_exe_mode(const struct cpulimitcfg *cfg);
+void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg);
 
 #ifdef __cplusplus
 }

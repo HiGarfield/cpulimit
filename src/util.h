@@ -78,7 +78,7 @@ extern "C" {
 /**
  * @brief Convert nanoseconds to timespec structure
  * @param nsec Number of nanoseconds (can be >= 1 billion)
- * @param t Pointer to timespec structure to populate
+ * @param result_ts Pointer to timespec structure to populate
  *
  * Splits the nanosecond value into seconds and nanoseconds components.
  * The seconds component is the integer division by 1 billion, and the
@@ -86,11 +86,11 @@ extern "C" {
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
  */
-void nsec2timespec(double nsec, struct timespec *t);
+void nsec2timespec(double nsec, struct timespec *result_ts);
 
 /**
  * @brief Get a high-resolution timestamp, preferring a monotonic clock
- * @param ts Pointer to timespec structure to receive current time
+ * @param result_ts Pointer to timespec structure to receive current time
  * @return 0 on success, -1 on failure
  *
  * Uses CLOCK_MONOTONIC if available (unaffected by system time changes) to
@@ -98,11 +98,11 @@ void nsec2timespec(double nsec, struct timespec *t);
  * gettimeofday() as a final fallback. Provides at least microsecond
  * resolution on all supported platforms.
  */
-int get_current_time(struct timespec *ts);
+int get_current_time(struct timespec *result_ts);
 
 /**
  * @brief Sleep for a specified duration
- * @param t Pointer to timespec specifying sleep duration
+ * @param duration Pointer to timespec specifying sleep duration
  * @return 0 on success, -1 on error (errno set by underlying call)
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
@@ -111,7 +111,7 @@ int get_current_time(struct timespec *ts);
  * errno set to EINTR if interrupted by a signal); this function does not
  * automatically resume sleeping in that case.
  */
-int sleep_timespec(const struct timespec *t);
+int sleep_timespec(const struct timespec *duration);
 
 /**
  * @brief Calculate elapsed time between two timestamps in milliseconds
