@@ -160,7 +160,7 @@ static double platform_time_to_ms(double platform_time) {
 
 /**
  * @brief Convert macOS proc_taskallinfo to portable process structure
- * @param ti Pointer to source proc_taskallinfo structure
+ * @param task_info Pointer to source proc_taskallinfo structure
  * @param proc Pointer to destination process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure
@@ -171,13 +171,14 @@ static double platform_time_to_ms(double platform_time) {
  *
  * When read_cmd is set, retrieves the executable path via proc_pidpath().
  */
-static int proc_taskinfo_to_proc(struct proc_taskallinfo *ti,
+static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
-    proc->pid = (pid_t)ti->pbsd.pbi_pid;
-    proc->ppid = (pid_t)ti->pbsd.pbi_ppid;
+    proc->pid = (pid_t)task_info->pbsd.pbi_pid;
+    proc->ppid = (pid_t)task_info->pbsd.pbi_ppid;
     /* Sum user and system CPU time, convert to milliseconds */
-    proc->cputime = platform_time_to_ms((double)ti->ptinfo.pti_total_user) +
-                    platform_time_to_ms((double)ti->ptinfo.pti_total_system);
+    proc->cputime =
+        platform_time_to_ms((double)task_info->ptinfo.pti_total_user) +
+        platform_time_to_ms((double)task_info->ptinfo.pti_total_system);
     if (!read_cmd) {
         return 0;
     }
@@ -199,7 +200,7 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *ti,
 /**
  * @brief Retrieve detailed task information for a process
  * @param pid Process ID to query
- * @param ti Pointer to structure to populate with task information
+ * @param task_info Pointer to structure to populate with task information
  * @return 0 on success, -1 on failure or if process should be skipped
  *
  * Uses proc_pidinfo() with PROC_PIDTASKALLINFO to retrieve comprehensive
@@ -211,19 +212,19 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *ti,
  * - Zombie processes (pbi_status == SZOMB)
  * - System processes (pbi_flags & PROC_FLAG_SYSTEM)
  */
-static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *ti) {
-    if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, ti, sizeof(*ti)) !=
-        (int)sizeof(*ti)) {
+static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
+    if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info,
+                     sizeof(*task_info)) != (int)sizeof(*task_info)) {
         /* Silently skip common errors for processes we cannot access */
         if (errno != EPERM && errno != ESRCH) {
             perror("proc_pidinfo");
         }
         return -1;
     }
-    if (ti->pbsd.pbi_status == SZOMB) {
+    if (task_info->pbsd.pbi_status == SZOMB) {
         return -1;
     }
-    if (ti->pbsd.pbi_flags & PROC_FLAG_SYSTEM) {
+    if (task_info->pbsd.pbi_flags & PROC_FLAG_SYSTEM) {
         return -1;
     }
     return 0;
@@ -244,9 +245,9 @@ static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *ti) {
  * call fails.
  */
 pid_t getppid_of(pid_t pid) {
-    struct proc_taskallinfo ti;
-    if (get_proc_taskinfo(pid, &ti) == 0) {
-        return (pid_t)ti.pbsd.pbi_ppid;
+    struct proc_taskallinfo task_info;
+    if (get_proc_taskinfo(pid, &task_info) == 0) {
+        return (pid_t)task_info.pbsd.pbi_ppid;
     }
     return (pid_t)(-1);
 }
@@ -299,12 +300,12 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * single-process and multi-process iteration.
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
-    struct proc_taskallinfo ti;
+    struct proc_taskallinfo task_info;
     memset(proc, 0, sizeof(struct process));
-    if (get_proc_taskinfo(pid, &ti) != 0) {
+    if (get_proc_taskinfo(pid, &task_info) != 0) {
         return -1;
     }
-    if (proc_taskinfo_to_proc(&ti, proc, read_cmd) != 0) {
+    if (proc_taskinfo_to_proc(&task_info, proc, read_cmd) != 0) {
         return -1;
     }
     return 0;
