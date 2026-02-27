@@ -193,19 +193,21 @@ struct list_node *first_node(const struct list *lst) {
  */
 struct list_node *locate_node(const struct list *lst, const void *elem,
                               size_t offset, size_t length) {
-    struct list_node *cur;
+    struct list_node *current_node;
 
     if (lst == NULL || elem == NULL || length == 0) {
         return NULL;
     }
 
     /* Traverse list and compare specified field in each node's data */
-    for (cur = lst->first; cur != NULL; cur = cur->next) {
-        if (cur->data == NULL) {
+    for (current_node = lst->first; current_node != NULL;
+         current_node = current_node->next) {
+        if (current_node->data == NULL) {
             continue;
         }
-        if (memcmp((const char *)cur->data + offset, elem, length) == 0) {
-            return cur;
+        if (memcmp((const char *)current_node->data + offset, elem, length) ==
+            0) {
+            return current_node;
         }
     }
 
