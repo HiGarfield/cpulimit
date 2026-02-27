@@ -345,7 +345,7 @@ void update_process_group(struct process_group *pgroup) {
     struct process *tmp_process;
     struct process_filter filter;
     struct timespec now;
-    double dt;
+    double elapsed_ms;
     int ncpu;
     if (pgroup == NULL) {
         return;
@@ -363,7 +363,7 @@ void update_process_group(struct process_group *pgroup) {
         exit(EXIT_FAILURE);
     }
     /* Calculate elapsed time since last update (milliseconds) */
-    dt = timediff_in_ms(&now, &pgroup->last_update);
+    elapsed_ms = timediff_in_ms(&now, &pgroup->last_update);
 
     /* Configure iterator to scan target process and optionally descendants */
     filter.pid = pgroup->target_pid;
@@ -403,7 +403,7 @@ void update_process_group(struct process_group *pgroup) {
                 proc->cpu_usage = -1;
                 continue;
             }
-            if (dt < 0) {
+            if (elapsed_ms < 0) {
                 /*
                  * Time moved backwards (system clock adjustment, NTP
                  * correction). Update cputime but don't calculate usage this
@@ -414,7 +414,7 @@ void update_process_group(struct process_group *pgroup) {
                 proc->cpu_usage = -1;
                 continue;
             }
-            if (dt < MIN_DT) {
+            if (elapsed_ms < MIN_DT) {
                 /* Time delta too small for accurate CPU measurement; keep
                  * cputime unchanged so the next valid update accumulates
                  * the full delta over the interval. Updating ppid is safe
@@ -429,7 +429,7 @@ void update_process_group(struct process_group *pgroup) {
              * sample = (delta_cputime / delta_walltime)
              * This represents the fraction of one CPU core used.
              */
-            sample = (tmp_process->cputime - proc->cputime) / dt;
+            sample = (tmp_process->cputime - proc->cputime) / elapsed_ms;
             /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
             sample = MIN(sample, (double)ncpu);
             if (proc->cpu_usage < 0) {
@@ -463,7 +463,7 @@ void update_process_group(struct process_group *pgroup) {
      * Update timestamp only if sufficient time passed for CPU calculation
      * or if time moved backwards (to establish new baseline).
      */
-    if (dt < 0 || dt >= MIN_DT) {
+    if (elapsed_ms < 0 || elapsed_ms >= MIN_DT) {
         pgroup->last_update = now;
     }
 }
