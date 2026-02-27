@@ -897,7 +897,7 @@ static void test_process_table_remove_stale(void) {
 static void test_process_table_remove_stale_null_data(void) {
     struct process_table proc_table;
     struct list active_list;
-    struct process *p1;
+    struct process *proc1;
     size_t bucket_idx;
     size_t list_count;
     const struct process *pt_found;
@@ -906,10 +906,10 @@ static void test_process_table_remove_stale_null_data(void) {
     init_list(&active_list);
 
     /* Insert a valid process */
-    p1 = (struct process *)malloc(sizeof(struct process));
-    assert(p1 != NULL);
-    p1->pid = 101;
-    add_to_process_table(&proc_table, p1);
+    proc1 = (struct process *)malloc(sizeof(struct process));
+    assert(proc1 != NULL);
+    proc1->pid = 101;
+    add_to_process_table(&proc_table, proc1);
 
     /*
      * Inject a NULL-data node into the same bucket.
@@ -919,15 +919,15 @@ static void test_process_table_remove_stale_null_data(void) {
     assert(proc_table.table[bucket_idx] != NULL);
     add_elem(proc_table.table[bucket_idx], NULL);
 
-    /* add p1 to active_list so it is not removed */
-    add_elem(&active_list, p1);
+    /* add proc1 to active_list so it is not removed */
+    add_elem(&active_list, proc1);
 
     /* remove_stale must remove the NULL-data node without crashing */
     remove_stale_from_process_table(&proc_table, &active_list);
 
-    /* p1 must still be present */
+    /* proc1 must still be present */
     pt_found = find_in_process_table(&proc_table, 101);
-    assert(pt_found == p1);
+    assert(pt_found == proc1);
 
     /* The NULL-data node must be gone (bucket list has exactly one entry) */
     list_count = get_list_count(proc_table.table[bucket_idx]);
@@ -1213,37 +1213,37 @@ static void test_list_edge_cases(void) {
  * @note Tests boundary conditions and special values
  */
 static void test_util_time_edge_cases(void) {
-    struct timespec ts;
+    struct timespec result_ts;
     double diff_ms;
-    struct timespec t1, t2;
+    struct timespec ts_earlier, ts_later;
 
     /* Test nsec2timespec with very large value */
-    nsec2timespec(10000000000.0, &ts); /* 10 seconds */
-    assert(ts.tv_sec == 10);
-    assert(ts.tv_nsec == 0);
+    nsec2timespec(10000000000.0, &result_ts); /* 10 seconds */
+    assert(result_ts.tv_sec == 10);
+    assert(result_ts.tv_nsec == 0);
 
     /* Test timediff_in_ms with same time */
-    t1.tv_sec = 1000;
-    t1.tv_nsec = 500000000L;
-    t2.tv_sec = 1000;
-    t2.tv_nsec = 500000000L;
-    diff_ms = timediff_in_ms(&t2, &t1);
+    ts_earlier.tv_sec = 1000;
+    ts_earlier.tv_nsec = 500000000L;
+    ts_later.tv_sec = 1000;
+    ts_later.tv_nsec = 500000000L;
+    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
     assert(diff_ms >= -0.001 && diff_ms <= 0.001);
 
     /* Test timediff_in_ms with very small difference */
-    t1.tv_sec = 1000;
-    t1.tv_nsec = 0;
-    t2.tv_sec = 1000;
-    t2.tv_nsec = 1000000L; /* 1 millisecond */
-    diff_ms = timediff_in_ms(&t2, &t1);
+    ts_earlier.tv_sec = 1000;
+    ts_earlier.tv_nsec = 0;
+    ts_later.tv_sec = 1000;
+    ts_later.tv_nsec = 1000000L; /* 1 millisecond */
+    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
     assert(diff_ms >= 0.999 && diff_ms <= 1.001);
 
     /* Test timediff_in_ms with large difference */
-    t1.tv_sec = 1000;
-    t1.tv_nsec = 0;
-    t2.tv_sec = 2000;
-    t2.tv_nsec = 0;
-    diff_ms = timediff_in_ms(&t2, &t1);
+    ts_earlier.tv_sec = 1000;
+    ts_earlier.tv_nsec = 0;
+    ts_later.tv_sec = 2000;
+    ts_later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
     assert(diff_ms >= 999999.0 && diff_ms <= 1000001.0);
 }
 
@@ -1859,10 +1859,10 @@ static void test_process_group_init_null(void) {
  */
 static void test_process_group_find_by_pid(void) {
     pid_t self_pid;
-    pid_t fpid;
+    pid_t found_pid;
     self_pid = getpid();
-    fpid = find_process_by_pid(self_pid);
-    assert(fpid == self_pid);
+    found_pid = find_process_by_pid(self_pid);
+    assert(found_pid == self_pid);
 }
 
 /**
@@ -1873,7 +1873,7 @@ static void test_process_group_find_by_pid(void) {
 static void test_process_group_find_by_name(void) {
     char *wrong_name;
     size_t len;
-    pid_t fpid;
+    pid_t found_pid;
     pid_t self_pid;
 #if defined(__linux__)
     char abs_path[64];
@@ -1890,9 +1890,9 @@ static void test_process_group_find_by_name(void) {
      * Verify that the find_process_by_name function can find the current
      * process (PID should match the return value of getpid()).
      */
-    fpid = find_process_by_name(argv0);
+    found_pid = find_process_by_name(argv0);
     self_pid = getpid();
-    assert(fpid == self_pid);
+    assert(found_pid == self_pid);
 
 #if defined(__linux__)
     /*
@@ -1904,8 +1904,8 @@ static void test_process_group_find_by_name(void) {
      */
     snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
              (long)getpid());
-    fpid = find_process_by_name(abs_path);
-    assert(fpid == 0);
+    found_pid = find_process_by_name(abs_path);
+    assert(found_pid == 0);
 #endif /* __linux__ */
 
     /*
@@ -1913,8 +1913,8 @@ static void test_process_group_find_by_name(void) {
      * Expectation: Should return 0 (process not found).
      */
     strcpy(wrong_name, "");
-    fpid = find_process_by_name(wrong_name);
-    assert(fpid == 0);
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
 
     /*
      * Test Case 2: Pass an incorrect process name by appending 'x'
@@ -1923,8 +1923,8 @@ static void test_process_group_find_by_name(void) {
      */
     strcpy(wrong_name, argv0); /* Copy the current process's name */
     strcat(wrong_name, "x");   /* Append 'x' to make it non-matching */
-    fpid = find_process_by_name(wrong_name);
-    assert(fpid == 0);
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
 
     /*
      * Test Case 3: Pass a copy of the current process's name with
@@ -1934,8 +1934,8 @@ static void test_process_group_find_by_name(void) {
     strcpy(wrong_name, argv0); /* Copy the current process's name */
     len = strlen(wrong_name);
     wrong_name[len - 1] = '\0'; /* Remove the last character */
-    fpid = find_process_by_name(wrong_name);
-    assert(fpid == 0);
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
 
     free(wrong_name);
 }
