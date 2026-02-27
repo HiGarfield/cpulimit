@@ -470,18 +470,18 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
  *       (non-NULL), not NULL.
  */
 char *read_line_from_file(const char *file_name) {
-    FILE *fp;
+    FILE *input_file;
     char *line = NULL;
     size_t line_size = 0;
-    if (file_name == NULL || (fp = fopen(file_name, "r")) == NULL) {
+    if (file_name == NULL || (input_file = fopen(file_name, "r")) == NULL) {
         return NULL;
     }
-    if (getline(&line, &line_size, fp) < 0) {
+    if (getline(&line, &line_size, input_file) < 0) {
         free(line);
-        fclose(fp);
+        fclose(input_file);
         return NULL;
     }
-    fclose(fp);
+    fclose(input_file);
     /* Strip trailing newline characters */
     line[strcspn(line, "\r\n")] = '\0';
     return line;
