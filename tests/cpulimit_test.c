@@ -2150,7 +2150,7 @@ static void test_limiter_run_command_mode(void) {
     memset(&cfg, 0, sizeof(struct cpulimitcfg));
     cfg.program_name = "test";
     cfg.command_mode = 1;
-    cfg.command_args = (char *const *)args;
+    cfg.command_args = args;
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
@@ -2921,7 +2921,7 @@ static void test_limiter_run_command_mode_nonexistent(void) {
     memset(&cfg, 0, sizeof(struct cpulimitcfg));
     cfg.program_name = "test";
     cfg.command_mode = 1;
-    cfg.command_args = (char *const *)args;
+    cfg.command_args = args;
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
@@ -2961,7 +2961,7 @@ static void test_limiter_run_command_mode_verbose(void) {
     memset(&cfg, 0, sizeof(struct cpulimitcfg));
     cfg.program_name = "test";
     cfg.command_mode = 1;
-    cfg.command_args = (char *const *)args;
+    cfg.command_args = args;
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
     cfg.verbose = 1;
@@ -3029,7 +3029,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
  * @param argv Argument vector
  * @return Exit status from the child process
  */
-static int run_parse_in_child(int argc, char *const *argv) {
+static int run_parse_in_child(int argc, char **argv) {
     pid_t pid;
     int status;
     struct cpulimitcfg cfg;
@@ -3075,7 +3075,7 @@ static void test_cli_pid_mode(void) {
     av[5] = NULL;
 
     memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(5, (char *const *)av, &cfg);
+    parse_arguments(5, av, &cfg);
 
     assert(cfg.target_pid == self_pid);
     assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
@@ -3108,7 +3108,7 @@ static void test_cli_exe_mode(void) {
     av[5] = NULL;
 
     memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(5, (char *const *)av, &cfg);
+    parse_arguments(5, av, &cfg);
 
     assert(cfg.exe_name != NULL);
     cmp_ret = strcmp(cfg.exe_name, "some_exe");
@@ -3141,7 +3141,7 @@ static void test_cli_command_mode(void) {
     av[5] = NULL;
 
     memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(5, (char *const *)av, &cfg);
+    parse_arguments(5, av, &cfg);
 
     assert(cfg.command_mode == 1);
     assert(cfg.command_args != NULL);
@@ -3173,7 +3173,7 @@ static void test_cli_long_options(void) {
     av[3] = NULL;
 
     memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(3, (char *const *)av, &cfg);
+    parse_arguments(3, av, &cfg);
 
     assert(cfg.target_pid == self_pid);
     assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
@@ -3198,7 +3198,7 @@ static void test_cli_long_option_exe(void) {
     av[3] = NULL;
 
     memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(3, (char *const *)av, &cfg);
+    parse_arguments(3, av, &cfg);
 
     assert(cfg.exe_name != NULL);
     cmp_ret = strcmp(cfg.exe_name, "myapp");
@@ -3231,7 +3231,7 @@ static void test_cli_optional_flags(void) {
     av[7] = NULL;
 
     memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(7, (char *const *)av, &cfg);
+    parse_arguments(7, av, &cfg);
 
     assert(cfg.lazy_mode == 1);
     assert(cfg.include_children == 1);
@@ -3270,7 +3270,7 @@ static void test_cli_verbose_flag(void) {
 
         close(STDOUT_FILENO); /* Suppress "N CPUs detected" output */
         memset(&cfg, 0, sizeof(cfg));
-        parse_arguments(6, (char *const *)av, &cfg);
+        parse_arguments(6, av, &cfg);
         if (cfg.verbose != 1) {
             _exit(1);
         }
@@ -3299,13 +3299,13 @@ static void test_cli_help(void) {
     av1[0] = arg0;
     av1[1] = arg_h;
     av1[2] = NULL;
-    parse_ret = run_parse_in_child(2, (char *const *)av1);
+    parse_ret = run_parse_in_child(2, av1);
     assert(parse_ret == EXIT_SUCCESS);
 
     av2[0] = arg0;
     av2[1] = arg_help;
     av2[2] = NULL;
-    parse_ret = run_parse_in_child(2, (char *const *)av2);
+    parse_ret = run_parse_in_child(2, av2);
     assert(parse_ret == EXIT_SUCCESS);
 }
 
@@ -3324,7 +3324,7 @@ static void test_cli_missing_limit(void) {
     av[1] = arg_e;
     av[2] = arg_exe;
     av[3] = NULL;
-    parse_ret = run_parse_in_child(3, (char *const *)av);
+    parse_ret = run_parse_in_child(3, av);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -3354,23 +3354,23 @@ static void test_cli_invalid_limits(void) {
     av[5] = NULL;
 
     av[2] = arg_zero;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 
     av[2] = arg_neg;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 
     av[2] = arg_abc;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 
     av[2] = arg_nan;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 
     av[2] = arg_huge;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -3400,23 +3400,23 @@ static void test_cli_invalid_pids(void) {
     av[5] = NULL;
 
     av[4] = arg_pid0;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 
     av[4] = arg_pid1; /* pid <= 1 validation rejects PID 1 (init/systemd) */
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 
     av[4] = arg_pidneg;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 
     av[4] = arg_pidabc;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 
     av[4] = arg_pidtrail;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -3439,7 +3439,7 @@ static void test_cli_empty_exe(void) {
     av[3] = arg_e;
     av[4] = arg_empty;
     av[5] = NULL;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -3458,7 +3458,7 @@ static void test_cli_no_target(void) {
     av[1] = arg_l;
     av[2] = arg_50;
     av[3] = NULL;
-    parse_ret = run_parse_in_child(3, (char *const *)av);
+    parse_ret = run_parse_in_child(3, av);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -3486,7 +3486,7 @@ static void test_cli_multiple_targets(void) {
     av[5] = arg_e;
     av[6] = arg_exe;
     av[7] = NULL;
-    parse_ret = run_parse_in_child(7, (char *const *)av);
+    parse_ret = run_parse_in_child(7, av);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -3505,13 +3505,13 @@ static void test_cli_unknown_option(void) {
     av1[0] = arg0;
     av1[1] = arg_x;
     av1[2] = NULL;
-    parse_ret = run_parse_in_child(2, (char *const *)av1);
+    parse_ret = run_parse_in_child(2, av1);
     assert(parse_ret == EXIT_FAILURE);
 
     av2[0] = arg0;
     av2[1] = arg_bogus;
     av2[2] = NULL;
-    parse_ret = run_parse_in_child(2, (char *const *)av2);
+    parse_ret = run_parse_in_child(2, av2);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -3530,13 +3530,13 @@ static void test_cli_missing_arg(void) {
     av1[0] = arg0;
     av1[1] = arg_p;
     av1[2] = NULL;
-    parse_ret = run_parse_in_child(2, (char *const *)av1);
+    parse_ret = run_parse_in_child(2, av1);
     assert(parse_ret == EXIT_FAILURE);
 
     av2[0] = arg0;
     av2[1] = arg_l;
     av2[2] = NULL;
-    parse_ret = run_parse_in_child(2, (char *const *)av2);
+    parse_ret = run_parse_in_child(2, av2);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -4327,7 +4327,7 @@ static void test_limiter_run_command_mode_false(void) {
     memset(&cfg, 0, sizeof(struct cpulimitcfg));
     cfg.program_name = "test";
     cfg.command_mode = 1;
-    cfg.command_args = (char *const *)args;
+    cfg.command_args = args;
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
@@ -4554,7 +4554,7 @@ static void test_cli_long_option_include_children(void) {
     av[5] = NULL;
 
     memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(5, (char *const *)av, &cfg);
+    parse_arguments(5, av, &cfg);
     assert(cfg.include_children == 1);
 }
 
@@ -4581,7 +4581,7 @@ static void test_cli_limit_at_max(void) {
     av[5] = NULL;
 
     memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(5, (char *const *)av, &cfg);
+    parse_arguments(5, av, &cfg);
     /* Limit stored as fraction: 100*ncpu/100 == ncpu */
     assert(cfg.limit >= (double)ncpu - 0.001 &&
            cfg.limit <= (double)ncpu + 0.001);
@@ -4608,7 +4608,7 @@ static void test_cli_pid_minimum_valid(void) {
     av[5] = NULL;
 
     /* PID 2 is syntactically valid (> 1); parse must succeed (exit code 99) */
-    ret = run_parse_in_child(5, (char *const *)av);
+    ret = run_parse_in_child(5, av);
     assert(ret == 99);
 }
 
@@ -4631,7 +4631,7 @@ static void test_cli_limit_trailing_chars(void) {
     av[3] = arg_e;
     av[4] = arg_exe;
     av[5] = NULL;
-    parse_ret = run_parse_in_child(5, (char *const *)av);
+    parse_ret = run_parse_in_child(5, av);
     assert(parse_ret == EXIT_FAILURE);
 }
 
@@ -4668,7 +4668,7 @@ static void test_cli_long_options_lazy_verbose(void) {
     if (pid == 0) {
         close(STDOUT_FILENO);
         memset(&cfg, 0, sizeof(cfg));
-        parse_arguments(6, (char *const *)av, &cfg);
+        parse_arguments(6, av, &cfg);
         if (cfg.lazy_mode != 1) {
             _exit(1);
         }
