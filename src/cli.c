@@ -193,7 +193,7 @@ static void validate_target_options(const struct cpulimitcfg *cfg) {
  * @note This function calls exit() and does not return on error or help request
  */
 void parse_arguments(int argc, char **argv, struct cpulimitcfg *cfg) {
-    int opt, ncpu;
+    int option_char, ncpu;
     const struct option long_options[] = {
         {"pid", required_argument, NULL, 'p'},
         {"exe", required_argument, NULL, 'e'},
@@ -234,9 +234,9 @@ void parse_arguments(int argc, char **argv, struct cpulimitcfg *cfg) {
      * Process all options using getopt_long.
      * Leading '+' stops parsing at first non-option (for COMMAND mode)
      */
-    while ((opt = getopt_long(argc, argv, "+:p:e:l:vzih", long_options,
-                              NULL)) != -1) {
-        switch (opt) {
+    while ((option_char = getopt_long(argc, argv, "+:p:e:l:vzih", long_options,
+                                      NULL)) != -1) {
+        switch (option_char) {
         case 'p': /* Process ID target */
             parse_pid_option(optarg, cfg);
             break;
