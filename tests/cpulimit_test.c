@@ -2656,9 +2656,9 @@ static void test_util_long2pid_t_overflow(void) {
 static void test_util_read_line_from_file(void) {
     char *line;
     char tmp_file[] = "/tmp/cpulimit_empty_XXXXXX";
-    int fd;
+    int tmp_fd;
     char nl_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
-    int nl_fd;
+    int newline_fd;
     ssize_t nwritten;
 
     /* NULL filename must return NULL */
@@ -2676,19 +2676,19 @@ static void test_util_read_line_from_file(void) {
 
     /* Empty file must return NULL (getline returns -1 on immediate EOF).
      * Use mkstemp() to avoid name collisions in parallel test runs. */
-    fd = mkstemp(tmp_file);
-    assert(fd >= 0);
-    close(fd);
+    tmp_fd = mkstemp(tmp_file);
+    assert(tmp_fd >= 0);
+    close(tmp_fd);
     line = read_line_from_file(tmp_file);
     assert(line == NULL);
     remove(tmp_file);
 
     /* A file containing only a newline returns a non-NULL empty string */
-    nl_fd = mkstemp(nl_tmp_file);
-    assert(nl_fd >= 0);
-    nwritten = write(nl_fd, "\n", 1);
+    newline_fd = mkstemp(nl_tmp_file);
+    assert(newline_fd >= 0);
+    nwritten = write(newline_fd, "\n", 1);
     assert(nwritten == 1);
-    close(nl_fd);
+    close(newline_fd);
     line = read_line_from_file(nl_tmp_file);
     assert(line != NULL);
     assert(line[0] == '\0');
