@@ -44,9 +44,9 @@
 
 /**
  * @brief Initialize a process iterator with specified filter criteria
- * @param it Pointer to the process_iterator structure to initialize
+ * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL it or filter);
+ * @return 0 on success, -1 on failure (including NULL iter or filter);
  *         may call exit() on fatal errors
  *         (e.g., out-of-memory)
  *
@@ -60,16 +60,16 @@
  * The filter pointer is stored and must remain valid until
  * close_process_iterator() is called.
  */
-int init_process_iterator(struct process_iterator *it,
+int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
     const int max_retries = 5, min_buffer_size = 1024 * (int)sizeof(pid_t);
     int buffer_size, retries, success = 0;
 
-    if (it == NULL || filter == NULL) {
+    if (iter == NULL || filter == NULL) {
         return -1;
     }
-    memset(it, 0, sizeof(*it));
-    it->filter = filter;
+    memset(iter, 0, sizeof(*iter));
+    iter->filter = filter;
 
     /* Optimization: single process without children requires no snapshot */
     if (filter->pid != 0 && !filter->include_children) {
@@ -77,7 +77,7 @@ int init_process_iterator(struct process_iterator *it,
          * Skip retrieving process list; get_next_process() will
          * query the single process directly
          */
-        it->count = 1;
+        iter->proc_count = 1;
         return 0;
     }
     /*
@@ -96,12 +96,12 @@ int init_process_iterator(struct process_iterator *it,
     for (retries = 0; retries < max_retries; retries++) {
         int bytes;
 
-        if ((it->pidlist = (pid_t *)malloc((size_t)buffer_size)) == NULL) {
+        if ((iter->pid_list = (pid_t *)malloc((size_t)buffer_size)) == NULL) {
             break;
         }
 
         /* Populate buffer with process IDs */
-        bytes = proc_listpids(PROC_ALL_PIDS, 0, it->pidlist, buffer_size);
+        bytes = proc_listpids(PROC_ALL_PIDS, 0, iter->pid_list, buffer_size);
         if (bytes <= 0) {
             /* System call failed - cannot recover */
             break;
@@ -112,22 +112,22 @@ int init_process_iterator(struct process_iterator *it,
          * between our allocation and the system call.
          */
         if (bytes < buffer_size) {
-            it->count = bytes / (int)sizeof(pid_t);
+            iter->proc_count = bytes / (int)sizeof(pid_t);
             success = 1;
             break;
         }
 
         /* Buffer too small - free and retry with larger size */
-        free(it->pidlist);
-        it->pidlist = NULL;
+        free(iter->pid_list);
+        iter->pid_list = NULL;
         buffer_size *= 2;
     }
 
     /* Fatal error if all retries exhausted or allocation failed */
     if (!success) {
-        if (it->pidlist != NULL) {
-            free(it->pidlist);
-            it->pidlist = NULL;
+        if (iter->pid_list != NULL) {
+            free(iter->pid_list);
+            iter->pid_list = NULL;
         }
         exit(EXIT_FAILURE);
     }
@@ -144,40 +144,42 @@ int init_process_iterator(struct process_iterator *it,
  * the timebase ratio (numer/denom) from mach_timebase_info(). This
  * function caches the conversion factor on first call.
  *
- * The result is in milliseconds to match the cputime field of the
+ * The result is in milliseconds to match the cpu_time field of the
  * process structure.
  */
 static double platform_time_to_ms(double platform_time) {
-    static double factor = -1;
-    if (factor < 0) {
+    static double timebase_factor = -1;
+    if (timebase_factor < 0) {
         mach_timebase_info_data_t timebase_info;
         mach_timebase_info(&timebase_info);
         /* Convert to milliseconds: (numer/denom) gives nanoseconds per tick */
-        factor = (double)timebase_info.numer / (double)timebase_info.denom;
+        timebase_factor =
+            (double)timebase_info.numer / (double)timebase_info.denom;
     }
-    return platform_time * factor / 1e6;
+    return platform_time * timebase_factor / 1e6;
 }
 
 /**
  * @brief Convert macOS proc_taskallinfo to portable process structure
- * @param ti Pointer to source proc_taskallinfo structure
+ * @param task_info Pointer to source proc_taskallinfo structure
  * @param proc Pointer to destination process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure
  *
  * Extracts process information from macOS-specific proc_taskallinfo and
- * converts it to the platform-independent process structure. CPU time is
+ * converts iter to the platform-independent process structure. CPU time is
  * calculated as the sum of user and system time, converted to milliseconds.
  *
  * When read_cmd is set, retrieves the executable path via proc_pidpath().
  */
-static int proc_taskinfo_to_proc(struct proc_taskallinfo *ti,
+static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
-    proc->pid = (pid_t)ti->pbsd.pbi_pid;
-    proc->ppid = (pid_t)ti->pbsd.pbi_ppid;
+    proc->pid = (pid_t)task_info->pbsd.pbi_pid;
+    proc->ppid = (pid_t)task_info->pbsd.pbi_ppid;
     /* Sum user and system CPU time, convert to milliseconds */
-    proc->cputime = platform_time_to_ms((double)ti->ptinfo.pti_total_user) +
-                    platform_time_to_ms((double)ti->ptinfo.pti_total_system);
+    proc->cpu_time =
+        platform_time_to_ms((double)task_info->ptinfo.pti_total_user) +
+        platform_time_to_ms((double)task_info->ptinfo.pti_total_system);
     if (!read_cmd) {
         return 0;
     }
@@ -199,7 +201,7 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *ti,
 /**
  * @brief Retrieve detailed task information for a process
  * @param pid Process ID to query
- * @param ti Pointer to structure to populate with task information
+ * @param task_info Pointer to structure to populate with task information
  * @return 0 on success, -1 on failure or if process should be skipped
  *
  * Uses proc_pidinfo() with PROC_PIDTASKALLINFO to retrieve comprehensive
@@ -211,19 +213,19 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *ti,
  * - Zombie processes (pbi_status == SZOMB)
  * - System processes (pbi_flags & PROC_FLAG_SYSTEM)
  */
-static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *ti) {
-    if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, ti, sizeof(*ti)) !=
-        (int)sizeof(*ti)) {
+static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
+    if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info,
+                     sizeof(*task_info)) != (int)sizeof(*task_info)) {
         /* Silently skip common errors for processes we cannot access */
         if (errno != EPERM && errno != ESRCH) {
             perror("proc_pidinfo");
         }
         return -1;
     }
-    if (ti->pbsd.pbi_status == SZOMB) {
+    if (task_info->pbsd.pbi_status == SZOMB) {
         return -1;
     }
-    if (ti->pbsd.pbi_flags & PROC_FLAG_SYSTEM) {
+    if (task_info->pbsd.pbi_flags & PROC_FLAG_SYSTEM) {
         return -1;
     }
     return 0;
@@ -244,9 +246,9 @@ static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *ti) {
  * call fails.
  */
 pid_t getppid_of(pid_t pid) {
-    struct proc_taskallinfo ti;
-    if (get_proc_taskinfo(pid, &ti) == 0) {
-        return (pid_t)ti.pbsd.pbi_ppid;
+    struct proc_taskallinfo task_info;
+    if (get_proc_taskinfo(pid, &task_info) == 0) {
+        return (pid_t)task_info.pbsd.pbi_ppid;
     }
     return (pid_t)(-1);
 }
@@ -289,22 +291,22 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 /**
  * @brief Retrieve process information for a specific PID
  * @param pid Process ID to query
- * @param p Pointer to process structure to populate
+ * @param proc Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure
  *
  * Internal helper that retrieves task information via get_proc_taskinfo()
- * and converts it to the platform-independent process structure via
+ * and converts iter to the platform-independent process structure via
  * proc_taskinfo_to_proc(). Used by get_next_process() for both
  * single-process and multi-process iteration.
  */
-static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
-    struct proc_taskallinfo ti;
-    memset(p, 0, sizeof(struct process));
-    if (get_proc_taskinfo(pid, &ti) != 0) {
+static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
+    struct proc_taskallinfo task_info;
+    memset(proc, 0, sizeof(struct process));
+    if (get_proc_taskinfo(pid, &task_info) != 0) {
         return -1;
     }
-    if (proc_taskinfo_to_proc(&ti, p, read_cmd) != 0) {
+    if (proc_taskinfo_to_proc(&task_info, proc, read_cmd) != 0) {
         return -1;
     }
     return 0;
@@ -312,58 +314,59 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
 
 /**
  * @brief Retrieve the next process matching the filter criteria
- * @param it Pointer to the process_iterator structure
- * @param p Pointer to process structure to populate with process information
- * @return 0 on success with process data in p, -1 if no more processes
+ * @param iter Pointer to the process_iterator structure
+ * @param proc Pointer to process structure to populate with process information
+ * @return 0 on success with process data in proc, -1 if no more processes
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cputime
+ * - Always populated: pid, ppid, cpu_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *it, struct process *p) {
-    if (it == NULL || p == NULL || it->filter == NULL) {
+int get_next_process(struct process_iterator *iter, struct process *proc) {
+    if (iter == NULL || proc == NULL || iter->filter == NULL) {
         return -1;
     }
-    if (it->i >= it->count) {
+    if (iter->current_index >= iter->proc_count) {
         return -1;
     }
     /* Handle single process without children */
-    if (it->filter->pid != 0 && !it->filter->include_children) {
-        if (read_process_info(it->filter->pid, p, it->filter->read_cmd) == 0) {
-            it->i = it->count = 1;
+    if (iter->filter->pid != 0 && !iter->filter->include_children) {
+        if (read_process_info(iter->filter->pid, proc,
+                              iter->filter->read_cmd) == 0) {
+            iter->current_index = iter->proc_count = 1;
             return 0;
         }
-        it->i = it->count = 0;
+        iter->current_index = iter->proc_count = 0;
         return -1;
     }
     /* Iterate through process ID list, applying filters */
-    while (it->i < it->count) {
-        if (read_process_info(it->pidlist[it->i], p, it->filter->read_cmd) ==
-            0) {
+    while (iter->current_index < iter->proc_count) {
+        if (read_process_info(iter->pid_list[iter->current_index], proc,
+                              iter->filter->read_cmd) == 0) {
             /*
              * Apply PID filter after reading process info.
              * Accept if: no filter, exact match, or descendant match.
              */
-            if (it->filter->pid == 0 || p->pid == it->filter->pid ||
-                (it->filter->include_children &&
-                 is_child_of(p->pid, it->filter->pid))) {
-                it->i++;
+            if (iter->filter->pid == 0 || proc->pid == iter->filter->pid ||
+                (iter->filter->include_children &&
+                 is_child_of(proc->pid, iter->filter->pid))) {
+                iter->current_index++;
                 return 0;
             }
         }
-        it->i++;
+        iter->current_index++;
     }
     return -1;
 }
 
 /**
  * @brief Close the process iterator and release allocated resources
- * @param it Pointer to the process_iterator structure to close
+ * @param iter Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
  *
  * Releases platform-specific resources allocated during initialization:
@@ -373,17 +376,17 @@ int get_next_process(struct process_iterator *it, struct process *p) {
  *
  * After this call, the iterator must not be used until re-initialized.
  */
-int close_process_iterator(struct process_iterator *it) {
-    if (it == NULL) {
+int close_process_iterator(struct process_iterator *iter) {
+    if (iter == NULL) {
         return -1;
     }
-    if (it->pidlist != NULL) {
-        free(it->pidlist);
-        it->pidlist = NULL;
+    if (iter->pid_list != NULL) {
+        free(iter->pid_list);
+        iter->pid_list = NULL;
     }
-    it->filter = NULL;
-    it->count = 0;
-    it->i = 0;
+    iter->filter = NULL;
+    iter->proc_count = 0;
+    iter->current_index = 0;
     return 0;
 }
 

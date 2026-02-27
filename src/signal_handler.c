@@ -84,23 +84,25 @@ static void sig_handler(int sig) {
  * @note Exits with error if signal registration fails
  */
 void configure_signal_handler(void) {
-    struct sigaction sa;
-    size_t i;
+    struct sigaction sig_action;
+    size_t sig_idx;
     /* Array of signals that should trigger graceful termination */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
     /* Configure sigaction structure with unified handler */
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler =
-        sig_handler;          /* Unified handler for all termination signals */
-    sa.sa_flags = SA_RESTART; /* Automatically restart interrupted syscalls */
+    memset(&sig_action, 0, sizeof(sig_action));
+    sig_action.sa_handler =
+        sig_handler; /* Unified handler for all termination signals */
+    sig_action.sa_flags =
+        SA_RESTART; /* Automatically restart interrupted syscalls */
     sigemptyset(
-        &sa.sa_mask); /* Don't block additional signals during handler */
+        &sig_action
+             .sa_mask); /* Don't block additional signals during handler */
 
     /* Register the same handler for all termination signals */
-    for (i = 0; i < num_sigs; i++) {
-        if (sigaction(term_sigs[i], &sa, NULL) != 0) {
+    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
+        if (sigaction(term_sigs[sig_idx], &sig_action, NULL) != 0) {
             perror("Failed to set signal handler");
             exit(EXIT_FAILURE);
         }

@@ -47,14 +47,14 @@ struct process_group {
      * Hashtable mapping PIDs to process structures for O(1) lookup.
      * Used to detect new processes, reused PIDs, and track historical data.
      */
-    struct process_table *proctable;
+    struct process_table *proc_table;
 
     /**
      * Linked list of currently active processes in this group.
      * Rebuilt on each update by scanning /proc (or equivalent).
-     * Contains pointers to process structures stored in proctable.
+     * Contains pointers to process structures stored in proc_table.
      */
-    struct list *proclist;
+    struct list *proc_list;
 
     /**
      * PID of the primary target process.
@@ -169,7 +169,7 @@ int close_process_group(struct process_group *pgroup);
  * CPU usage calculation:
  * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
  * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
- * - Detects PID reuse when cputime decreases (resets history)
+ * - Detects PID reuse when cpu_time decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
@@ -193,7 +193,7 @@ void update_process_group(struct process_group *pgroup);
  * - N = fully utilizing N CPU cores (on multi-core systems)
  *
  * The function:
- * 1. Iterates through all processes in proclist
+ * 1. Iterates through all processes in proc_list
  * 2. Sums cpu_usage for processes with valid measurements (cpu_usage >= 0)
  * 3. Returns -1 if all processes have unknown usage (first update cycle)
  *

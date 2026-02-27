@@ -58,7 +58,7 @@ static void *busy_loop(void *arg) {
  *  command line argument.
  */
 int main(int argc, const char *argv[]) {
-    int i, num_threads;
+    int thread_idx, num_threads;
     pthread_attr_t attr;
 
     configure_signal_handler();
@@ -69,7 +69,7 @@ int main(int argc, const char *argv[]) {
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-    for (i = 1; i < num_threads; i++) {
+    for (thread_idx = 1; thread_idx < num_threads; thread_idx++) {
         pthread_t tid;
         if (pthread_create(&tid, &attr, busy_loop, NULL) != 0) {
             perror("pthread_create");
@@ -82,8 +82,8 @@ int main(int argc, const char *argv[]) {
 
     if (is_quit_flag_set() && is_terminated_by_tty() && isatty(STDIN_FILENO) &&
         isatty(STDOUT_FILENO)) {
-        ssize_t ret = write(STDOUT_FILENO, "\n", 1);
-        (void)ret;
+        ssize_t write_result = write(STDOUT_FILENO, "\n", 1);
+        (void)write_result;
     }
 
     return 0;

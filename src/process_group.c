@@ -91,7 +91,7 @@ pid_t find_process_by_pid(pid_t pid) {
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
-    struct process_iterator it;
+    struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
     int full_path_cmp;
@@ -127,14 +127,14 @@ pid_t find_process_by_name(const char *process_name) {
     filter.pid = 0;
     filter.include_children = 0;
     filter.read_cmd = 1;
-    if (init_process_iterator(&it, &filter) != 0) {
+    if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(proc);
         exit(EXIT_FAILURE);
     }
 
     /* Scan all processes to find matching executable */
-    while (get_next_process(&it, proc) != -1) {
+    while (get_next_process(&iter, proc) != -1) {
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : file_basename(proc->command);
         /* Check if this process matches the target name */
@@ -153,7 +153,7 @@ pid_t find_process_by_name(const char *process_name) {
         }
     }
     free(proc);
-    if (close_process_iterator(&it) != 0) {
+    if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
     }
@@ -197,25 +197,25 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
         return -1;
     }
     /* Allocate and initialize hashtable for fast process lookup by PID */
-    if ((pgroup->proctable = (struct process_table *)malloc(
+    if ((pgroup->proc_table = (struct process_table *)malloc(
              sizeof(struct process_table))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
-    init_process_table(pgroup->proctable, PROCESS_TABLE_HASHSIZE);
+    init_process_table(pgroup->proc_table, PROCESS_TABLE_HASHSIZE);
     pgroup->target_pid = target_pid;
     pgroup->include_children = include_children;
 
     /* Allocate and initialize linked list for process iteration */
-    if ((pgroup->proclist = (struct list *)malloc(sizeof(struct list))) ==
+    if ((pgroup->proc_list = (struct list *)malloc(sizeof(struct list))) ==
         NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
-        destroy_process_table(pgroup->proctable);
-        free(pgroup->proctable);
-        pgroup->proctable = NULL;
+        destroy_process_table(pgroup->proc_table);
+        free(pgroup->proc_table);
+        pgroup->proc_table = NULL;
         exit(EXIT_FAILURE);
     }
-    init_list(pgroup->proclist);
+    init_list(pgroup->proc_list);
 
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&pgroup->last_update) != 0) {
@@ -249,22 +249,22 @@ int close_process_group(struct process_group *pgroup) {
     if (pgroup == NULL) {
         return 0;
     }
-    if (pgroup->proclist != NULL) {
+    if (pgroup->proc_list != NULL) {
         /*
          * Use clear_list (not destroy_list) because the data pointers in
-         * proclist are the same process structs stored in proctable.
+         * proc_list are the same process structs stored in proc_table.
          * destroy_process_table below will free all data exactly once.
          * Using destroy_list here would double-free the process structs.
          */
-        clear_list(pgroup->proclist);
-        free(pgroup->proclist);
-        pgroup->proclist = NULL;
+        clear_list(pgroup->proc_list);
+        free(pgroup->proc_list);
+        pgroup->proc_list = NULL;
     }
 
-    if (pgroup->proctable != NULL) {
-        destroy_process_table(pgroup->proctable);
-        free(pgroup->proctable);
-        pgroup->proctable = NULL;
+    if (pgroup->proc_table != NULL) {
+        destroy_process_table(pgroup->proc_table);
+        free(pgroup->proc_table);
+        pgroup->proc_table = NULL;
     }
 
     /* Zero out remaining fields to prevent stale data after close */
@@ -284,13 +284,13 @@ int close_process_group(struct process_group *pgroup) {
  * @note Calls exit(EXIT_FAILURE) if memory allocation fails
  */
 static struct process *process_dup(const struct process *proc) {
-    struct process *p;
-    if ((p = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    struct process *new_proc;
+    if ((new_proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "Memory allocation failed for duplicated process\n");
         exit(EXIT_FAILURE);
     }
-    *p = *proc;
-    return p;
+    *new_proc = *proc;
+    return new_proc;
 }
 
 /**
@@ -331,7 +331,7 @@ static struct process *process_dup(const struct process *proc) {
  * CPU usage calculation:
  * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
  * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
- * - Detects PID reuse when cputime decreases (resets history)
+ * - Detects PID reuse when cpu_time decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
@@ -341,11 +341,11 @@ static struct process *process_dup(const struct process *proc) {
  *       retrieval)
  */
 void update_process_group(struct process_group *pgroup) {
-    struct process_iterator it;
+    struct process_iterator iter;
     struct process *tmp_process;
     struct process_filter filter;
     struct timespec now;
-    double dt;
+    double elapsed_ms;
     int ncpu;
     if (pgroup == NULL) {
         return;
@@ -363,65 +363,65 @@ void update_process_group(struct process_group *pgroup) {
         exit(EXIT_FAILURE);
     }
     /* Calculate elapsed time since last update (milliseconds) */
-    dt = timediff_in_ms(&now, &pgroup->last_update);
+    elapsed_ms = timediff_in_ms(&now, &pgroup->last_update);
 
     /* Configure iterator to scan target process and optionally descendants */
     filter.pid = pgroup->target_pid;
     filter.include_children = pgroup->include_children;
     filter.read_cmd = 0;
-    if (init_process_iterator(&it, &filter) != 0) {
+    if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(tmp_process);
         exit(EXIT_FAILURE);
     }
 
     /* Clear process list (will be rebuilt from scratch) */
-    clear_list(pgroup->proclist);
+    clear_list(pgroup->proc_list);
 
     /* Scan currently running processes and update tracking data */
-    while (get_next_process(&it, tmp_process) != -1) {
-        struct process *p =
-            find_in_process_table(pgroup->proctable, tmp_process->pid);
-        if (p == NULL) {
+    while (get_next_process(&iter, tmp_process) != -1) {
+        struct process *proc =
+            find_in_process_table(pgroup->proc_table, tmp_process->pid);
+        if (proc == NULL) {
             /* New process detected: add to hashtable and list */
-            p = process_dup(tmp_process);
+            proc = process_dup(tmp_process);
             /* Mark CPU usage as unknown until we have a time delta */
-            p->cpu_usage = -1;
-            add_to_process_table(pgroup->proctable, p);
-            add_elem(pgroup->proclist, p);
+            proc->cpu_usage = -1;
+            add_to_process_table(pgroup->proc_table, proc);
+            add_elem(pgroup->proc_list, proc);
         } else {
             double sample;
             /* Existing process: re-add to list for this cycle */
-            add_elem(pgroup->proclist, p);
-            if (tmp_process->cputime < p->cputime) {
+            add_elem(pgroup->proc_list, proc);
+            if (tmp_process->cpu_time < proc->cpu_time) {
                 /*
                  * CPU time decreased: PID has been reused for a new process.
                  * Reset all historical data.
                  */
-                *p = *tmp_process;
+                *proc = *tmp_process;
                 /* Mark CPU usage as unknown for new process */
-                p->cpu_usage = -1;
+                proc->cpu_usage = -1;
                 continue;
             }
-            if (dt < 0) {
+            if (elapsed_ms < 0) {
                 /*
                  * Time moved backwards (system clock adjustment, NTP
-                 * correction). Update cputime but don't calculate usage this
+                 * correction). Update cpu_time but don't calculate usage this
                  * cycle.
                  */
-                p->ppid = tmp_process->ppid;
-                p->cputime = tmp_process->cputime;
-                p->cpu_usage = -1;
+                proc->ppid = tmp_process->ppid;
+                proc->cpu_time = tmp_process->cpu_time;
+                proc->cpu_usage = -1;
                 continue;
             }
-            if (dt < MIN_DT) {
+            if (elapsed_ms < MIN_DT) {
                 /* Time delta too small for accurate CPU measurement; keep
-                 * cputime unchanged so the next valid update accumulates
+                 * cpu_time unchanged so the next valid update accumulates
                  * the full delta over the interval. Updating ppid is safe
                  * here because it is independent of timing accuracy: the
                  * parent PID is a current kernel value and does not
                  * participate in any time-based delta computation. */
-                p->ppid = tmp_process->ppid;
+                proc->ppid = tmp_process->ppid;
                 continue;
             }
             /*
@@ -429,40 +429,41 @@ void update_process_group(struct process_group *pgroup) {
              * sample = (delta_cputime / delta_walltime)
              * This represents the fraction of one CPU core used.
              */
-            sample = (tmp_process->cputime - p->cputime) / dt;
+            sample = (tmp_process->cpu_time - proc->cpu_time) / elapsed_ms;
             /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
             sample = MIN(sample, (double)ncpu);
-            if (p->cpu_usage < 0) {
+            if (proc->cpu_usage < 0) {
                 /* First valid measurement: initialize directly */
-                p->cpu_usage = sample;
+                proc->cpu_usage = sample;
             } else {
                 /*
                  * Apply exponential moving average for smooth tracking:
                  * new = (1-alpha)*old + alpha*sample
                  * This reduces noise while remaining responsive to changes.
                  */
-                p->cpu_usage = (1.0 - ALPHA) * p->cpu_usage + ALPHA * sample;
+                proc->cpu_usage =
+                    (1.0 - ALPHA) * proc->cpu_usage + ALPHA * sample;
             }
             /* Update stored CPU time and parent PID for next delta calculation
              */
-            p->ppid = tmp_process->ppid;
-            p->cputime = tmp_process->cputime;
+            proc->ppid = tmp_process->ppid;
+            proc->cpu_time = tmp_process->cpu_time;
         }
     }
     free(tmp_process);
-    if (close_process_iterator(&it) != 0) {
+    if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
     }
 
     /* Remove hash table entries for processes that are no longer running */
-    remove_stale_from_process_table(pgroup->proctable, pgroup->proclist);
+    remove_stale_from_process_table(pgroup->proc_table, pgroup->proc_list);
 
     /*
      * Update timestamp only if sufficient time passed for CPU calculation
      * or if time moved backwards (to establish new baseline).
      */
-    if (dt < 0 || dt >= MIN_DT) {
+    if (elapsed_ms < 0 || elapsed_ms >= MIN_DT) {
         pgroup->last_update = now;
     }
 }
@@ -480,7 +481,7 @@ void update_process_group(struct process_group *pgroup) {
  * - N = fully utilizing N CPU cores (on multi-core systems)
  *
  * The function:
- * 1. Iterates through all processes in proclist
+ * 1. Iterates through all processes in proc_list
  * 2. Sums cpu_usage for processes with valid measurements (cpu_usage >= 0)
  * 3. Returns -1 if all processes have unknown usage (first update cycle)
  *
@@ -494,21 +495,22 @@ double get_process_group_cpu_usage(const struct process_group *pgroup) {
     if (pgroup == NULL) {
         return -1;
     }
-    for (node = first_node(pgroup->proclist); node != NULL; node = node->next) {
-        const struct process *p = (const struct process *)node->data;
+    for (node = first_node(pgroup->proc_list); node != NULL;
+         node = node->next) {
+        const struct process *proc = (const struct process *)node->data;
         /* Skip NULL-data nodes (should not occur but defensive) */
-        if (p == NULL) {
+        if (proc == NULL) {
             continue;
         }
         /* Skip processes without valid CPU measurements yet */
-        if (p->cpu_usage < 0) {
+        if (proc->cpu_usage < 0) {
             continue;
         }
         /* Initialize sum on first valid process */
         if (cpu_usage < 0) {
             cpu_usage = 0;
         }
-        cpu_usage += p->cpu_usage;
+        cpu_usage += proc->cpu_usage;
     }
     return cpu_usage;
 }
