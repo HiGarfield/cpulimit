@@ -150,7 +150,7 @@ struct process_iterator {
      * Directory stream for /proc filesystem.
      * Each entry corresponds to a process directory (e.g., /proc/1234).
      */
-    DIR *dip;
+    DIR *proc_dir;
 
     /**
      * Flag indicating iteration is complete.
@@ -162,7 +162,7 @@ struct process_iterator {
      * Kernel virtual memory descriptor for accessing process information.
      * Opened via kvm_openfiles() and used for all process queries.
      */
-    kvm_t *kd;
+    kvm_t *kvm_handle;
 
     /**
      * Snapshot of all process information structures.
@@ -178,12 +178,12 @@ struct process_iterator {
     /**
      * Current iteration index into the procs array.
      */
-    int i;
+    int current_index;
 #elif defined(__APPLE__)
     /**
      * Current iteration index into the pidlist array.
      */
-    int i;
+    int current_index;
 
     /**
      * Total number of process IDs in the list.

@@ -4154,7 +4154,7 @@ static void test_process_iterator_close_null_dip(void) {
     assert(ret == 0);
 #if defined(__linux__)
     /* dip is NULL because single-PID optimisation skips opendir() */
-    assert(it.dip == NULL);
+    assert(it.proc_dir == NULL);
 #endif
     ret = close_process_iterator(&it);
     assert(ret == 0);

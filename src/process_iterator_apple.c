@@ -329,22 +329,22 @@ int get_next_process(struct process_iterator *it, struct process *p) {
     if (it == NULL || p == NULL || it->filter == NULL) {
         return -1;
     }
-    if (it->i >= it->count) {
+    if (it->current_index >= it->count) {
         return -1;
     }
     /* Handle single process without children */
     if (it->filter->pid != 0 && !it->filter->include_children) {
         if (read_process_info(it->filter->pid, p, it->filter->read_cmd) == 0) {
-            it->i = it->count = 1;
+            it->current_index = it->count = 1;
             return 0;
         }
-        it->i = it->count = 0;
+        it->current_index = it->count = 0;
         return -1;
     }
     /* Iterate through process ID list, applying filters */
-    while (it->i < it->count) {
-        if (read_process_info(it->pidlist[it->i], p, it->filter->read_cmd) ==
-            0) {
+    while (it->current_index < it->count) {
+        if (read_process_info(it->pidlist[it->current_index], p,
+                              it->filter->read_cmd) == 0) {
             /*
              * Apply PID filter after reading process info.
              * Accept if: no filter, exact match, or descendant match.
@@ -352,11 +352,11 @@ int get_next_process(struct process_iterator *it, struct process *p) {
             if (it->filter->pid == 0 || p->pid == it->filter->pid ||
                 (it->filter->include_children &&
                  is_child_of(p->pid, it->filter->pid))) {
-                it->i++;
+                it->current_index++;
                 return 0;
             }
         }
-        it->i++;
+        it->current_index++;
     }
     return -1;
 }
@@ -383,7 +383,7 @@ int close_process_iterator(struct process_iterator *it) {
     }
     it->filter = NULL;
     it->count = 0;
-    it->i = 0;
+    it->current_index = 0;
     return 0;
 }
 

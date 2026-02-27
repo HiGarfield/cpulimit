@@ -73,11 +73,11 @@ int init_process_iterator(struct process_iterator *it,
          * Optimization: when querying a single process without children,
          * we can skip opening /proc directory entirely
          */
-        it->dip = NULL;
+        it->proc_dir = NULL;
         return 0;
     }
     /* Open /proc directory for iterating process entries */
-    if ((it->dip = opendir("/proc")) == NULL) {
+    if ((it->proc_dir = opendir("/proc")) == NULL) {
         perror("opendir");
         return -1;
     }
@@ -367,7 +367,7 @@ int get_next_process(struct process_iterator *it, struct process *p) {
     }
 
     /* Iterate through /proc entries to find matching processes */
-    while ((dir_entry = readdir(it->dip)) != NULL) {
+    while ((dir_entry = readdir(it->proc_dir)) != NULL) {
         pid_t pid;
         char *endptr;
         long tmp_pid;
@@ -425,11 +425,11 @@ int close_process_iterator(struct process_iterator *it) {
         return -1;
     }
 
-    if (it->dip != NULL) {
-        if ((ret = closedir(it->dip)) != 0) {
+    if (it->proc_dir != NULL) {
+        if ((ret = closedir(it->proc_dir)) != 0) {
             perror("closedir");
         }
-        it->dip = NULL;
+        it->proc_dir = NULL;
     }
 
     it->end_of_processes = 0;

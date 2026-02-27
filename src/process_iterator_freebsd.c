@@ -59,19 +59,19 @@
  * Callers must close the returned descriptor with kvm_close().
  */
 static kvm_t *open_kvm(void) {
-    kvm_t *kd;
+    kvm_t *kvm_handle;
     char *errbuf;
     /* Allocate error buffer for kvm interface */
     if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);
     }
-    kd = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
-    if (kd == NULL) {
+    kvm_handle = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
+    if (kvm_handle == NULL) {
         fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
     }
     free(errbuf);
-    return kd;
+    return kvm_handle;
 }
 
 /**
@@ -105,7 +105,7 @@ int init_process_iterator(struct process_iterator *it,
      * Open kvm(3) interface to access kernel virtual memory and
      * process information
      */
-    if ((it->kd = open_kvm()) == NULL) {
+    if ((it->kvm_handle = open_kvm()) == NULL) {
         return -1;
     }
 
@@ -116,7 +116,7 @@ int init_process_iterator(struct process_iterator *it,
          * process; get_next_process() will use kvm_getprocs() directly
          */
         it->procs = NULL;
-        it->i = 0;
+        it->current_index = 0;
         it->count = 1;
         return 0;
     }
@@ -125,8 +125,9 @@ int init_process_iterator(struct process_iterator *it,
      * Retrieve snapshot of all processes via KERN_PROC_PROC.
      * This returns a pointer to kernel data that must be copied.
      */
-    if ((procs = kvm_getprocs(it->kd, KERN_PROC_PROC, 0, &it->count)) == NULL) {
-        kvm_close(it->kd);
+    if ((procs = kvm_getprocs(it->kvm_handle, KERN_PROC_PROC, 0, &it->count)) ==
+        NULL) {
+        kvm_close(it->kvm_handle);
         return -1;
     }
     /* Copy process list to iterator's own memory */
@@ -136,13 +137,13 @@ int init_process_iterator(struct process_iterator *it,
         exit(EXIT_FAILURE);
     }
     memcpy(it->procs, procs, sizeof(struct kinfo_proc) * (size_t)it->count);
-    it->i = 0;
+    it->current_index = 0;
     return 0;
 }
 
 /**
  * @brief Convert FreeBSD kinfo_proc structure to portable process structure
- * @param kd Kernel virtual memory descriptor for kvm_getargv()
+ * @param kvm_handle Kernel virtual memory descriptor for kvm_getargv()
  * @param kproc Pointer to source kinfo_proc structure
  * @param proc Pointer to destination process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
@@ -155,7 +156,7 @@ int init_process_iterator(struct process_iterator *it,
  * When read_cmd is set, retrieves command arguments via kvm_getargv()
  * and uses the first argument (argv[0]) as the command path.
  */
-static int kinfo_proc_to_proc(kvm_t *kd, struct kinfo_proc *kproc,
+static int kinfo_proc_to_proc(kvm_t *kvm_handle, struct kinfo_proc *kproc,
                               struct process *proc, int read_cmd) {
     char **args;
     size_t len_max;
@@ -172,7 +173,7 @@ static int kinfo_proc_to_proc(kvm_t *kd, struct kinfo_proc *kproc,
     }
     len_max = sizeof(proc->command) - 1;
     /* Retrieve command arguments as string array */
-    args = kvm_getargv(kd, kproc, (int)len_max);
+    args = kvm_getargv(kvm_handle, kproc, (int)len_max);
     if (args == NULL || args[0] == NULL) {
         return -1;
     }
@@ -190,7 +191,7 @@ static int kinfo_proc_to_proc(kvm_t *kd, struct kinfo_proc *kproc,
 
 /**
  * @brief Retrieve information for a single process by PID
- * @param kd Kernel virtual memory descriptor
+ * @param kvm_handle Kernel virtual memory descriptor
  * @param pid Process ID to query
  * @param p Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
@@ -200,13 +201,14 @@ static int kinfo_proc_to_proc(kvm_t *kd, struct kinfo_proc *kproc,
  * Returns failure if the process doesn't exist, is a zombie, is a kernel
  * thread, or if conversion fails.
  */
-static int read_process_info(kvm_t *kd, pid_t pid, struct process *p,
+static int read_process_info(kvm_t *kvm_handle, pid_t pid, struct process *p,
                              int read_cmd) {
     int count;
-    struct kinfo_proc *kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
+    struct kinfo_proc *kproc =
+        kvm_getprocs(kvm_handle, KERN_PROC_PID, pid, &count);
     if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
         (kproc->ki_stat == SZOMB) ||
-        kinfo_proc_to_proc(kd, kproc, p, read_cmd) != 0) {
+        kinfo_proc_to_proc(kvm_handle, kproc, p, read_cmd) != 0) {
         return -1;
     }
     return 0;
@@ -214,20 +216,20 @@ static int read_process_info(kvm_t *kd, pid_t pid, struct process *p,
 
 /**
  * @brief Internal helper to get parent process ID without opening kvm
- * @param kd Kernel virtual memory descriptor (must be already open)
+ * @param kvm_handle Kernel virtual memory descriptor (must be already open)
  * @param pid Process ID to query
  * @return Parent process ID on success, -1 on error or if process not found
  *
  * Uses an existing kvm descriptor to query PPID. This avoids the overhead
  * of repeatedly opening and closing kvm when checking multiple processes.
  */
-static pid_t getppid_of_kd(kvm_t *kd, pid_t pid) {
+static pid_t getppid_of_kd(kvm_t *kvm_handle, pid_t pid) {
     int count;
     struct kinfo_proc *kproc;
     if (pid <= 0) {
         return (pid_t)(-1);
     }
-    kproc = kvm_getprocs(kd, KERN_PROC_PID, pid, &count);
+    kproc = kvm_getprocs(kvm_handle, KERN_PROC_PID, pid, &count);
     return (count == 0 || kproc == NULL) ? (pid_t)(-1) : kproc->ki_ppid;
 }
 
@@ -247,18 +249,18 @@ static pid_t getppid_of_kd(kvm_t *kd, pid_t pid) {
  */
 pid_t getppid_of(pid_t pid) {
     pid_t ppid;
-    kvm_t *kd;
-    if ((kd = open_kvm()) == NULL) {
+    kvm_t *kvm_handle;
+    if ((kvm_handle = open_kvm()) == NULL) {
         return (pid_t)(-1);
     }
-    ppid = getppid_of_kd(kd, pid);
-    kvm_close(kd);
+    ppid = getppid_of_kd(kvm_handle, pid);
+    kvm_close(kvm_handle);
     return ppid;
 }
 
 /**
  * @brief Internal helper to check parent-child relationship with open kvm
- * @param kd Kernel virtual memory descriptor (must be already open)
+ * @param kvm_handle Kernel virtual memory descriptor (must be already open)
  * @param child_pid Process ID to check for descendant relationship
  * @param parent_pid Process ID of the potential ancestor
  * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
@@ -267,7 +269,8 @@ pid_t getppid_of(pid_t pid) {
  * if parent_pid appears in the ancestry. Uses an existing kvm descriptor to
  * avoid repeated open/close overhead.
  */
-static int is_child_of_kd(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
+static int is_child_of_kd(kvm_t *kvm_handle, pid_t child_pid,
+                          pid_t parent_pid) {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
@@ -276,11 +279,11 @@ static int is_child_of_kd(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
      * (PID 1)
      */
     if (parent_pid == 1) {
-        return getppid_of_kd(kd, child_pid) != (pid_t)(-1);
+        return getppid_of_kd(kvm_handle, child_pid) != (pid_t)(-1);
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
-        child_pid = getppid_of_kd(kd, child_pid);
+        child_pid = getppid_of_kd(kvm_handle, child_pid);
     }
     return child_pid == parent_pid;
 }
@@ -304,12 +307,12 @@ static int is_child_of_kd(kvm_t *kd, pid_t child_pid, pid_t parent_pid) {
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret;
-    kvm_t *kd;
-    if ((kd = open_kvm()) == NULL) {
+    kvm_t *kvm_handle;
+    if ((kvm_handle = open_kvm()) == NULL) {
         exit(EXIT_FAILURE);
     }
-    ret = is_child_of_kd(kd, child_pid, parent_pid);
-    kvm_close(kd);
+    ret = is_child_of_kd(kvm_handle, child_pid, parent_pid);
+    kvm_close(kvm_handle);
     return ret;
 }
 
@@ -333,24 +336,24 @@ int get_next_process(struct process_iterator *it, struct process *p) {
         return -1;
     }
 
-    if (it->i >= it->count) {
+    if (it->current_index >= it->count) {
         return -1;
     }
 
     /* Handle single process without children */
     if (it->filter->pid != 0 && !it->filter->include_children) {
-        if (read_process_info(it->kd, it->filter->pid, p,
+        if (read_process_info(it->kvm_handle, it->filter->pid, p,
                               it->filter->read_cmd) != 0) {
-            it->i = it->count = 0;
+            it->current_index = it->count = 0;
             return -1;
         }
-        it->i = it->count = 1;
+        it->current_index = it->count = 1;
         return 0;
     }
 
     /* Iterate through process snapshot */
-    while (it->i < it->count) {
-        struct kinfo_proc *kproc = &it->procs[it->i++];
+    while (it->current_index < it->count) {
+        struct kinfo_proc *kproc = &it->procs[it->current_index++];
         /* Skip kernel threads and zombie processes */
         if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
             continue;
@@ -361,12 +364,13 @@ int get_next_process(struct process_iterator *it, struct process *p) {
          */
         if (it->filter->pid != 0 && it->filter->include_children &&
             kproc->ki_pid != it->filter->pid &&
-            !is_child_of_kd(it->kd, kproc->ki_pid, it->filter->pid)) {
+            !is_child_of_kd(it->kvm_handle, kproc->ki_pid, it->filter->pid)) {
             continue;
         }
 
         /* Convert to platform-independent structure */
-        if (kinfo_proc_to_proc(it->kd, kproc, p, it->filter->read_cmd) != 0) {
+        if (kinfo_proc_to_proc(it->kvm_handle, kproc, p,
+                               it->filter->read_cmd) != 0) {
             continue;
         }
 
@@ -397,16 +401,16 @@ int close_process_iterator(struct process_iterator *it) {
         free(it->procs);
         it->procs = NULL;
     }
-    if (it->kd != NULL) {
-        if (kvm_close(it->kd) != 0) {
+    if (it->kvm_handle != NULL) {
+        if (kvm_close(it->kvm_handle) != 0) {
             perror("kvm_close");
             ret = -1;
         }
-        it->kd = NULL;
+        it->kvm_handle = NULL;
     }
     it->filter = NULL;
     it->count = 0;
-    it->i = 0;
+    it->current_index = 0;
     return ret;
 }
 
