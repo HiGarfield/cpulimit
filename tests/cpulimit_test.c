@@ -128,8 +128,8 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
 static void test_list_init_and_empty(void) {
     struct list l;
     int empty;
-    size_t cnt;
-    const struct list_node *fn;
+    size_t list_count;
+    const struct list_node *first_node_result;
 
     /* Test initialization */
     init_list(&l);
@@ -144,16 +144,16 @@ static void test_list_init_and_empty(void) {
     assert(empty == 1);
 
     /* Test get_list_count */
-    cnt = get_list_count(&l);
-    assert(cnt == 0);
-    cnt = get_list_count(NULL);
-    assert(cnt == 0);
+    list_count = get_list_count(&l);
+    assert(list_count == 0);
+    list_count = get_list_count(NULL);
+    assert(list_count == 0);
 
     /* Test first_node */
-    fn = first_node(&l);
-    assert(fn == NULL);
-    fn = first_node(NULL);
-    assert(fn == NULL);
+    first_node_result = first_node(&l);
+    assert(first_node_result == NULL);
+    first_node_result = first_node(NULL);
+    assert(first_node_result == NULL);
 
     /* Test init_list with NULL */
     init_list(NULL);
@@ -167,9 +167,9 @@ static void test_list_add_elem(void) {
     struct list l;
     int data1 = 1, data2 = 2, data3 = 3;
     const struct list_node *node1, *node2, *node3;
-    size_t cnt;
+    size_t list_count;
     int empty;
-    const struct list_node *fn;
+    const struct list_node *first_node_result;
     const struct list_node *null_node;
 
     init_list(&l);
@@ -182,12 +182,12 @@ static void test_list_add_elem(void) {
     assert(node1->next == NULL);
     assert(l.first == node1);
     assert(l.last == node1);
-    cnt = get_list_count(&l);
-    assert(cnt == 1);
+    list_count = get_list_count(&l);
+    assert(list_count == 1);
     empty = is_empty_list(&l);
     assert(empty == 0);
-    fn = first_node(&l);
-    assert(fn == node1);
+    first_node_result = first_node(&l);
+    assert(first_node_result == node1);
 
     /* Add second element */
     node2 = add_elem(&l, &data2);
@@ -198,8 +198,8 @@ static void test_list_add_elem(void) {
     assert(node1->next == node2);
     assert(l.first == node1);
     assert(l.last == node2);
-    cnt = get_list_count(&l);
-    assert(cnt == 2);
+    list_count = get_list_count(&l);
+    assert(list_count == 2);
 
     /* Add third element */
     node3 = add_elem(&l, &data3);
@@ -210,8 +210,8 @@ static void test_list_add_elem(void) {
     assert(node2->next == node3);
     assert(l.first == node1);
     assert(l.last == node3);
-    cnt = get_list_count(&l);
-    assert(cnt == 3);
+    list_count = get_list_count(&l);
+    assert(list_count == 3);
 
     /* Test add_elem with NULL list */
     null_node = add_elem(NULL, &data1);
@@ -229,7 +229,7 @@ static void test_list_delete_node(void) {
     struct list l;
     int data1 = 1, data2 = 2, data3 = 3;
     struct list_node *node1, *node2, *node3;
-    size_t cnt;
+    size_t list_count;
     int empty;
 
     init_list(&l);
@@ -239,8 +239,8 @@ static void test_list_delete_node(void) {
 
     /* Delete middle node */
     delete_node(&l, node2);
-    cnt = get_list_count(&l);
-    assert(cnt == 2);
+    list_count = get_list_count(&l);
+    assert(list_count == 2);
     assert(l.first == node1);
     assert(l.last == node3);
     assert(node1->next == node3);
@@ -248,8 +248,8 @@ static void test_list_delete_node(void) {
 
     /* Delete first node */
     delete_node(&l, node1);
-    cnt = get_list_count(&l);
-    assert(cnt == 1);
+    list_count = get_list_count(&l);
+    assert(list_count == 1);
     assert(l.first == node3);
     assert(l.last == node3);
     assert(node3->previous == NULL);
@@ -257,8 +257,8 @@ static void test_list_delete_node(void) {
 
     /* Delete last node */
     delete_node(&l, node3);
-    cnt = get_list_count(&l);
-    assert(cnt == 0);
+    list_count = get_list_count(&l);
+    assert(list_count == 0);
     assert(l.first == NULL);
     assert(l.last == NULL);
     empty = is_empty_list(&l);
@@ -277,7 +277,7 @@ static void test_list_destroy_node(void) {
     struct list l;
     int *data1, *data2;
     struct list_node *node1, *node2;
-    size_t cnt;
+    size_t list_count;
     int empty;
 
     init_list(&l);
@@ -295,15 +295,15 @@ static void test_list_destroy_node(void) {
 
     /* Destroy second node */
     destroy_node(&l, node2);
-    cnt = get_list_count(&l);
-    assert(cnt == 1);
+    list_count = get_list_count(&l);
+    assert(list_count == 1);
     assert(l.first == node1);
     assert(l.last == node1);
 
     /* Destroy first node */
     destroy_node(&l, node1);
-    cnt = get_list_count(&l);
-    assert(cnt == 0);
+    list_count = get_list_count(&l);
+    assert(list_count == 0);
     empty = is_empty_list(&l);
     assert(empty == 1);
 
@@ -408,7 +408,7 @@ static void test_list_clear_and_destroy(void) {
     struct list l1, l2;
     int data1 = 1, data2 = 2, data3 = 3;
     int *dyn_data1, *dyn_data2, *dyn_data3;
-    size_t cnt;
+    size_t list_count;
     int empty;
 
     /* Test clear_list - data not freed */
@@ -416,12 +416,12 @@ static void test_list_clear_and_destroy(void) {
     add_elem(&l1, &data1);
     add_elem(&l1, &data2);
     add_elem(&l1, &data3);
-    cnt = get_list_count(&l1);
-    assert(cnt == 3);
+    list_count = get_list_count(&l1);
+    assert(list_count == 3);
 
     clear_list(&l1);
-    cnt = get_list_count(&l1);
-    assert(cnt == 0);
+    list_count = get_list_count(&l1);
+    assert(list_count == 0);
     assert(l1.first == NULL);
     assert(l1.last == NULL);
     empty = is_empty_list(&l1);
@@ -445,12 +445,12 @@ static void test_list_clear_and_destroy(void) {
     add_elem(&l2, dyn_data1);
     add_elem(&l2, dyn_data2);
     add_elem(&l2, dyn_data3);
-    cnt = get_list_count(&l2);
-    assert(cnt == 3);
+    list_count = get_list_count(&l2);
+    assert(list_count == 3);
 
     destroy_list(&l2);
-    cnt = get_list_count(&l2);
-    assert(cnt == 0);
+    list_count = get_list_count(&l2);
+    assert(list_count == 0);
     assert(l2.first == NULL);
     assert(l2.last == NULL);
     empty = is_empty_list(&l2);
@@ -892,14 +892,14 @@ static void test_process_table_remove_stale(void) {
  * To test this defensive path we must inject a NULL-data node directly
  * into the internal hash bucket. The process_table struct and its table
  * member are exposed in the public header, so this access is intentional;
- * the idx computation mirrors process_table's own pid_hash() formula.
+ * the bucket_idx computation mirrors process_table's own pid_hash() formula.
  */
 static void test_process_table_remove_stale_null_data(void) {
     struct process_table pt;
     struct list active_list;
     struct process *p1;
-    size_t idx;
-    size_t cnt;
+    size_t bucket_idx;
+    size_t list_count;
     const struct process *pt_found;
 
     init_process_table(&pt, 16);
@@ -913,11 +913,11 @@ static void test_process_table_remove_stale_null_data(void) {
 
     /*
      * Inject a NULL-data node into the same bucket.
-     * idx mirrors process_table's pid_hash(): (size_t)pid % hashsize.
+     * bucket_idx mirrors process_table's pid_hash(): (size_t)pid % hashsize.
      */
-    idx = (size_t)101 % 16;
-    assert(pt.table[idx] != NULL);
-    add_elem(pt.table[idx], NULL);
+    bucket_idx = (size_t)101 % 16;
+    assert(pt.table[bucket_idx] != NULL);
+    add_elem(pt.table[bucket_idx], NULL);
 
     /* add p1 to active_list so it is not removed */
     add_elem(&active_list, p1);
@@ -930,8 +930,8 @@ static void test_process_table_remove_stale_null_data(void) {
     assert(pt_found == p1);
 
     /* The NULL-data node must be gone (bucket list has exactly one entry) */
-    cnt = get_list_count(pt.table[idx]);
-    assert(cnt == 1);
+    list_count = get_list_count(pt.table[bucket_idx]);
+    assert(list_count == 1);
 
     clear_list(&active_list);
     destroy_process_table(&pt);
@@ -1084,7 +1084,7 @@ static void test_process_group_cpu_usage(void) {
     struct process_group pgroup;
     double cpu_usage;
     pid_t child_pid;
-    int i;
+    int node_idx;
     int ret;
     int ncpu;
 
@@ -1113,7 +1113,7 @@ static void test_process_group_cpu_usage(void) {
     assert(cpu_usage >= -1.00001 && cpu_usage <= -0.99999);
 
     /* Update a few times to get valid measurements */
-    for (i = 0; i < 5; i++) {
+    for (node_idx = 0; node_idx < 5; node_idx++) {
         const struct timespec sleep_time = {0, 100000000L}; /* 100ms */
         sleep_timespec(&sleep_time);
         update_process_group(&pgroup);
@@ -1139,19 +1139,19 @@ static void test_list_edge_cases(void) {
     struct list l;
     int data[10];
     struct list_node *node;
-    int i, count;
-    size_t cnt;
+    int node_idx, count;
+    size_t list_count;
     int first_val, second_val, last_val;
 
     init_list(&l);
 
     /* Test adding many elements */
-    for (i = 0; i < 10; i++) {
-        data[i] = i;
-        add_elem(&l, &data[i]);
+    for (node_idx = 0; node_idx < 10; node_idx++) {
+        data[node_idx] = node_idx;
+        add_elem(&l, &data[node_idx]);
     }
-    cnt = get_list_count(&l);
-    assert(cnt == 10);
+    list_count = get_list_count(&l);
+    assert(list_count == 10);
 
     /* Verify forward traversal */
     count = 0;
@@ -1177,25 +1177,25 @@ static void test_list_edge_cases(void) {
     while (!is_empty_list(&l)) {
         delete_node(&l, l.last);
     }
-    cnt = get_list_count(&l);
-    assert(cnt == 0);
+    list_count = get_list_count(&l);
+    assert(list_count == 0);
 
     /* Test deleting nodes in middle repeatedly */
-    for (i = 0; i < 5; i++) {
-        data[i] = i;
-        add_elem(&l, &data[i]);
+    for (node_idx = 0; node_idx < 5; node_idx++) {
+        data[node_idx] = node_idx;
+        add_elem(&l, &data[node_idx]);
     }
 
     /* Delete middle elements */
     node = l.first->next; /* Second element */
     delete_node(&l, node);
-    cnt = get_list_count(&l);
-    assert(cnt == 4);
+    list_count = get_list_count(&l);
+    assert(list_count == 4);
 
     node = l.first->next; /* New second element (was third) */
     delete_node(&l, node);
-    cnt = get_list_count(&l);
-    assert(cnt == 3);
+    list_count = get_list_count(&l);
+    assert(list_count == 3);
 
     /* Verify remaining elements */
     first_val = *(int *)l.first->data;
@@ -1310,40 +1310,40 @@ static void test_process_table_collisions(void) {
                                              240, 250, 260, 270, 280, 290};
     struct process *p[20];
     const struct process *found;
-    size_t i;
+    size_t case_idx;
 
     /* Use small hash size to force collisions */
     init_process_table(&pt, 4);
 
     /* Add many processes */
-    for (i = 0; i < 20; i++) {
-        p[i] = (struct process *)malloc(sizeof(struct process));
-        assert(p[i] != NULL);
-        p[i]->pid = collision_pids[i];
-        add_to_process_table(&pt, p[i]);
+    for (case_idx = 0; case_idx < 20; case_idx++) {
+        p[case_idx] = (struct process *)malloc(sizeof(struct process));
+        assert(p[case_idx] != NULL);
+        p[case_idx]->pid = collision_pids[case_idx];
+        add_to_process_table(&pt, p[case_idx]);
     }
 
     /* Verify all processes can be found */
-    for (i = 0; i < 20; i++) {
-        found = find_in_process_table(&pt, collision_pids[i]);
-        assert(found == p[i]);
-        assert(found->pid == collision_pids[i]);
+    for (case_idx = 0; case_idx < 20; case_idx++) {
+        found = find_in_process_table(&pt, collision_pids[case_idx]);
+        assert(found == p[case_idx]);
+        assert(found->pid == collision_pids[case_idx]);
     }
 
     /* Delete some processes */
-    for (i = 0; i < 20; i += 3) {
+    for (case_idx = 0; case_idx < 20; case_idx += 3) {
         int ret;
-        ret = delete_from_process_table(&pt, collision_pids[i]);
+        ret = delete_from_process_table(&pt, collision_pids[case_idx]);
         assert(ret == 0);
     }
 
     /* Verify deleted processes are gone */
-    for (i = 0; i < 20; i++) {
-        found = find_in_process_table(&pt, collision_pids[i]);
-        if (i % 3 == 0) {
+    for (case_idx = 0; case_idx < 20; case_idx++) {
+        found = find_in_process_table(&pt, collision_pids[case_idx]);
+        if (case_idx % 3 == 0) {
             assert(found == NULL);
         } else {
-            assert(found == p[i]);
+            assert(found == p[case_idx]);
         }
     }
 
@@ -1428,7 +1428,7 @@ static void test_process_iterator_filter_edge_cases(void) {
 static void test_process_group_rapid_updates(void) {
     struct process_group pgroup;
     pid_t child_pid;
-    int i;
+    int proc_idx;
     int ret;
 
     child_pid = fork();
@@ -1450,11 +1450,11 @@ static void test_process_group_rapid_updates(void) {
     ret = init_process_group(&pgroup, child_pid, 0);
     assert(ret == 0);
 
-    for (i = 0; i < 20; i++) {
-        size_t cnt;
+    for (proc_idx = 0; proc_idx < 20; proc_idx++) {
+        size_t list_count;
         update_process_group(&pgroup);
-        cnt = get_list_count(pgroup.proclist);
-        assert(cnt == 1);
+        list_count = get_list_count(pgroup.proclist);
+        assert(list_count == 1);
     }
 
     ret = close_process_group(&pgroup);
@@ -1684,7 +1684,7 @@ static void test_process_group_init_all(void) {
  */
 static void test_process_group_single(int include_children) {
     struct process_group pgroup;
-    int i;
+    int iter_idx;
     int ret;
     int ncpu;
     pid_t self_pid;
@@ -1712,14 +1712,14 @@ static void test_process_group_single(int include_children) {
     assert(ret == 0);
 
     /* Update process group 100 times and verify consistency */
-    for (i = 0; i < 100; i++) {
+    for (iter_idx = 0; iter_idx < 100; iter_idx++) {
         const struct list_node *node = NULL;
         size_t count = 0;
-        size_t cnt;
+        size_t list_count;
 
         update_process_group(&pgroup);
-        cnt = get_list_count(pgroup.proclist);
-        assert(cnt == 1);
+        list_count = get_list_count(pgroup.proclist);
+        assert(list_count == 1);
 
         for (node = pgroup.proclist->first; node != NULL; node = node->next) {
             const struct process *p = (const struct process *)node->data;
@@ -1817,27 +1817,27 @@ static void test_process_iterator_read_command(void) {
 static void test_process_group_init_invalid_pid(void) {
     struct process_group pgroup;
     int ret;
-    size_t cnt;
+    size_t list_count;
 
     /* Test with PID -1 */
     ret = init_process_group(&pgroup, -1, 0);
     assert(ret == 0);
-    cnt = get_list_count(pgroup.proclist);
-    assert(cnt == 0);
+    list_count = get_list_count(pgroup.proclist);
+    assert(list_count == 0);
     update_process_group(&pgroup);
-    cnt = get_list_count(pgroup.proclist);
-    assert(cnt == 0);
+    list_count = get_list_count(pgroup.proclist);
+    assert(list_count == 0);
     ret = close_process_group(&pgroup);
     assert(ret == 0);
 
     /* Test with PID INT_MAX */
     ret = init_process_group(&pgroup, INT_MAX, 0);
     assert(ret == 0);
-    cnt = get_list_count(pgroup.proclist);
-    assert(cnt == 0);
+    list_count = get_list_count(pgroup.proclist);
+    assert(list_count == 0);
     update_process_group(&pgroup);
-    cnt = get_list_count(pgroup.proclist);
-    assert(cnt == 0);
+    list_count = get_list_count(pgroup.proclist);
+    assert(list_count == 0);
     ret = close_process_group(&pgroup);
     assert(ret == 0);
 }
@@ -2034,7 +2034,7 @@ static void test_limit_process_basic(void) {
 
         if (limiter_pid > 0) {
             /* Monitor process: track CPU usage */
-            int i;
+            int iter_idx;
             size_t count = 0;
             double cpu_usage = 0;
             struct process_group pgroup;
@@ -2046,15 +2046,16 @@ static void test_limit_process_basic(void) {
             assert(ret == 0);
 
             /* Monitor CPU usage over 60 iterations */
-            for (i = 0; i < 60 && !is_quit_flag_set(); i++) {
+            for (iter_idx = 0; iter_idx < 60 && !is_quit_flag_set();
+                 iter_idx++) {
                 double temp_cpu_usage;
-                size_t cnt;
+                size_t list_count;
                 sleep_timespec(&sleep_time);
                 update_process_group(&pgroup);
 
                 /* Verify all num_procs processes are being monitored */
-                cnt = get_list_count(pgroup.proclist);
-                assert(cnt == (size_t)num_procs);
+                list_count = get_list_count(pgroup.proclist);
+                assert(list_count == (size_t)num_procs);
 
                 temp_cpu_usage = get_process_group_cpu_usage(&pgroup);
                 if (temp_cpu_usage > 0) {
@@ -2088,7 +2089,7 @@ static void test_limit_process_basic(void) {
         exit(EXIT_SUCCESS);
     } else {
         /* child_pid == 0: Target process group */
-        int i;
+        int proc_idx;
         volatile int keep_running = 1;
         ssize_t nwritten;
 
@@ -2099,7 +2100,7 @@ static void test_limit_process_basic(void) {
         assert(ret == 0);
 
         /* Fork (num_procs - 1) child processes */
-        for (i = 1; i < num_procs; i++) {
+        for (proc_idx = 1; proc_idx < num_procs; proc_idx++) {
             pid_t pid = fork();
             assert(pid >= 0);
 
@@ -2224,7 +2225,7 @@ static void test_list_null_data_operations(void) {
     struct list l;
     struct list_node *node;
     int search_val;
-    size_t cnt;
+    size_t list_count;
     int empty;
     const struct list_node *tmp_node;
     const void *void_elem;
@@ -2235,8 +2236,8 @@ static void test_list_null_data_operations(void) {
     node = add_elem(&l, NULL);
     assert(node != NULL);
     assert(node->data == NULL);
-    cnt = get_list_count(&l);
-    assert(cnt == 1);
+    list_count = get_list_count(&l);
+    assert(list_count == 1);
     empty = is_empty_list(&l);
     assert(empty == 0);
 
@@ -2250,8 +2251,8 @@ static void test_list_null_data_operations(void) {
     /* destroy_node with NULL data must not crash (branch: node->data == NULL)
      */
     destroy_node(&l, node);
-    cnt = get_list_count(&l);
-    assert(cnt == 0);
+    list_count = get_list_count(&l);
+    assert(list_count == 0);
     empty = is_empty_list(&l);
     assert(empty == 1);
 }
@@ -2606,13 +2607,13 @@ static void test_process_group_cpu_usage_empty_list(void) {
     struct process_group pgroup;
     double usage;
     int ret;
-    size_t cnt;
+    size_t list_count;
 
     /* Initialize with INT_MAX: no such process exists, list stays empty */
     ret = init_process_group(&pgroup, (pid_t)INT_MAX, 0);
     assert(ret == 0);
-    cnt = get_list_count(pgroup.proclist);
-    assert(cnt == 0);
+    list_count = get_list_count(pgroup.proclist);
+    assert(list_count == 0);
 
     /* Empty list must yield -1.0 (unknown) */
     usage = get_process_group_cpu_usage(&pgroup);
@@ -3574,13 +3575,13 @@ static void test_list_first_node_nonempty(void) {
 static void test_list_delete_node_empty(void) {
     struct list l;
     struct list_node fake_node;
-    size_t cnt;
+    size_t list_count;
 
     init_list(&l);
     /* count == 0 guard: should silently return */
     delete_node(&l, &fake_node);
-    cnt = get_list_count(&l);
-    assert(cnt == 0);
+    list_count = get_list_count(&l);
+    assert(list_count == 0);
 }
 
 /**
@@ -3645,12 +3646,12 @@ static void test_list_locate_single(void) {
  */
 static void test_list_clear_empty(void) {
     struct list l;
-    size_t cnt;
+    size_t list_count;
     int empty;
     init_list(&l);
     clear_list(&l);
-    cnt = get_list_count(&l);
-    assert(cnt == 0);
+    list_count = get_list_count(&l);
+    assert(list_count == 0);
     empty = is_empty_list(&l);
     assert(empty == 1);
 }
@@ -3661,12 +3662,12 @@ static void test_list_clear_empty(void) {
  */
 static void test_list_destroy_empty(void) {
     struct list l;
-    size_t cnt;
+    size_t list_count;
     int empty;
     init_list(&l);
     destroy_list(&l);
-    cnt = get_list_count(&l);
-    assert(cnt == 0);
+    list_count = get_list_count(&l);
+    assert(list_count == 0);
     empty = is_empty_list(&l);
     assert(empty == 1);
 }
@@ -4262,14 +4263,14 @@ static void test_process_group_cpu_usage_with_usage(void) {
     struct process_group pgroup;
     const struct timespec wait_time = {0, 50000000L}; /* 50 ms */
     double usage;
-    int i;
+    int iter_idx;
     int ret;
     pid_t self_pid;
 
     self_pid = getpid();
     ret = init_process_group(&pgroup, self_pid, 0);
     assert(ret == 0);
-    for (i = 0; i < 5; i++) {
+    for (iter_idx = 0; iter_idx < 5; iter_idx++) {
         sleep_timespec(&wait_time);
         update_process_group(&pgroup);
     }
