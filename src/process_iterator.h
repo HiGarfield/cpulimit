@@ -162,7 +162,7 @@ struct process_iterator {
      * Kernel virtual memory descriptor for accessing process information.
      * Opened via kvm_openfiles() and used for all process queries.
      */
-    kvm_t *kvm_handle;
+    kvm_t *kvm_descriptor;
 
     /**
      * Snapshot of all process information structures.
