@@ -148,14 +148,15 @@ int init_process_iterator(struct process_iterator *it,
  * process structure.
  */
 static double platform_time_to_ms(double platform_time) {
-    static double factor = -1;
-    if (factor < 0) {
+    static double timebase_factor = -1;
+    if (timebase_factor < 0) {
         mach_timebase_info_data_t timebase_info;
         mach_timebase_info(&timebase_info);
         /* Convert to milliseconds: (numer/denom) gives nanoseconds per tick */
-        factor = (double)timebase_info.numer / (double)timebase_info.denom;
+        timebase_factor =
+            (double)timebase_info.numer / (double)timebase_info.denom;
     }
-    return platform_time * factor / 1e6;
+    return platform_time * timebase_factor / 1e6;
 }
 
 /**
