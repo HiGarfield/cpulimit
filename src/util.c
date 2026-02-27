@@ -58,7 +58,7 @@
 /**
  * @brief Convert nanoseconds to timespec structure
  * @param nsec Number of nanoseconds (can be >= 1 billion)
- * @param t Pointer to timespec structure to populate
+ * @param ts Pointer to timespec structure to populate
  *
  * Splits the nanosecond value into seconds and nanoseconds components.
  * The seconds component is the integer division by 1 billion, and the
@@ -66,17 +66,17 @@
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
  */
-void nsec2timespec(double nsec, struct timespec *t) {
-    t->tv_sec = (time_t)(nsec / 1e9);
-    t->tv_nsec = (long)(nsec - (double)t->tv_sec * 1e9);
+void nsec2timespec(double nsec, struct timespec *ts) {
+    ts->tv_sec = (time_t)(nsec / 1e9);
+    ts->tv_nsec = (long)(nsec - (double)ts->tv_sec * 1e9);
     /* Correct tv_sec when floating-point rounding shifts tv_nsec out of
      * range */
-    if (t->tv_nsec < 0L) {
-        t->tv_sec--;
-        t->tv_nsec += 1000000000L;
-    } else if (t->tv_nsec >= 1000000000L) {
-        t->tv_sec++;
-        t->tv_nsec -= 1000000000L;
+    if (ts->tv_nsec < 0L) {
+        ts->tv_sec--;
+        ts->tv_nsec += 1000000000L;
+    } else if (ts->tv_nsec >= 1000000000L) {
+        ts->tv_sec++;
+        ts->tv_nsec -= 1000000000L;
     }
 }
 
@@ -111,7 +111,7 @@ int get_current_time(struct timespec *ts) {
 
 /**
  * @brief Sleep for a specified duration
- * @param t Pointer to timespec specifying sleep duration
+ * @param ts Pointer to timespec specifying sleep duration
  * @return 0 on success, -1 on error (errno set by underlying call)
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
@@ -120,7 +120,7 @@ int get_current_time(struct timespec *ts) {
  * errno set to EINTR if interrupted by a signal); this function does not
  * automatically resume sleeping in that case.
  */
-int sleep_timespec(const struct timespec *t) {
+int sleep_timespec(const struct timespec *ts) {
 #if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
     defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(CLOCK_MONOTONIC)
@@ -130,7 +130,7 @@ int sleep_timespec(const struct timespec *t) {
      * on failure. Convert to -1/errno convention for consistency with
      * nanosleep and the documented return value contract.
      */
-    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, t, NULL);
+    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, ts, NULL);
     if (ret != 0) {
         errno = ret;
         return -1;
@@ -138,7 +138,7 @@ int sleep_timespec(const struct timespec *t) {
     return 0;
 #else
     /* Fall back to standard nanosleep */
-    return nanosleep(t, NULL);
+    return nanosleep(ts, NULL);
 #endif
 }
 
