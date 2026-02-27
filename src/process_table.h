@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __PROCESS_TABLE_H
-#define __PROCESS_TABLE_H
+#ifndef CPULIMIT_PROCESS_TABLE_H
+#define CPULIMIT_PROCESS_TABLE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -69,9 +69,9 @@ struct process_table {
  * buckets to NULL. The hash table uses separate chaining for collision
  * resolution. If memory allocation fails, the program exits with an error.
  *
- * @note The caller must call process_table_destroy() to free resources
+ * @note The caller must call destroy_process_table() to free resources
  */
-void process_table_init(struct process_table *pt, size_t hashsize);
+void init_process_table(struct process_table *pt, size_t hashsize);
 
 /**
  * @brief Look up a process in the table by its PID
@@ -84,7 +84,8 @@ void process_table_init(struct process_table *pt, size_t hashsize);
  * the process table is NULL, the table has been destroyed, the bucket is
  * empty, or the PID is not found.
  */
-struct process *process_table_find(const struct process_table *pt, pid_t pid);
+struct process *find_in_process_table(const struct process_table *pt,
+                                      pid_t pid);
 
 /**
  * @brief Insert a process into the hash table
@@ -100,7 +101,7 @@ struct process *process_table_find(const struct process_table *pt, pid_t pid);
  *       (duplicate PIDs are ignored).
  * @note Safe to call on a destroyed table (does nothing)
  */
-void process_table_add(struct process_table *pt, struct process *p);
+void add_to_process_table(struct process_table *pt, struct process *p);
 
 /**
  * @brief Remove a process from the hash table by PID
@@ -114,7 +115,7 @@ void process_table_add(struct process_table *pt, struct process *p);
  * bucket's linked list structure. The process data itself is freed by this
  * operation.
  */
-int process_table_del(struct process_table *pt, pid_t pid);
+int delete_from_process_table(struct process_table *pt, pid_t pid);
 
 /**
  * @brief Remove stale entries from the hash table
@@ -130,8 +131,8 @@ int process_table_del(struct process_table *pt, pid_t pid);
  * @note Safe to call with NULL pointer (does nothing)
  * @note Safe to call on a destroyed table (does nothing)
  */
-void process_table_remove_stale(struct process_table *pt,
-                                const struct list *active_list);
+void remove_stale_from_process_table(struct process_table *pt,
+                                     const struct list *active_list);
 
 /**
  * @brief Destroy the hash table and free all associated memory
@@ -143,10 +144,10 @@ void process_table_remove_stale(struct process_table *pt,
  *
  * @note Safe to call with NULL pointer (does nothing)
  */
-void process_table_destroy(struct process_table *pt);
+void destroy_process_table(struct process_table *pt);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_PROCESS_TABLE_H */

@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __LIST_H
-#define __LIST_H
+#ifndef CPULIMIT_LIST_H
+#define CPULIMIT_LIST_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -228,4 +228,4 @@ void destroy_list(struct list *l);
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_LIST_H */

@@ -675,44 +675,44 @@ static void test_util_long2pid_t(void) {
 
 /**
  * @brief Test process table initialization and destruction
- * @note Tests process_table_init and process_table_destroy
+ * @note Tests init_process_table and destroy_process_table
  */
 static void test_process_table_init_destroy(void) {
     struct process_table pt;
 
     /* Test initialization with small hashsize */
-    process_table_init(&pt, 16);
+    init_process_table(&pt, 16);
     assert(pt.table != NULL);
     assert(pt.hashsize == 16);
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
     assert(pt.table == NULL);
 
     /* Test initialization with larger hashsize */
-    process_table_init(&pt, 256);
+    init_process_table(&pt, 256);
     assert(pt.table != NULL);
     assert(pt.hashsize == 256);
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 
     /* Test zero hashsize fallback (must avoid division by zero in hashing) */
-    process_table_init(&pt, 0);
+    init_process_table(&pt, 0);
     assert(pt.table != NULL);
     assert(pt.hashsize == 1);
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 
     /* Test destroy with NULL (should not crash) */
-    process_table_destroy(NULL);
+    destroy_process_table(NULL);
 }
 
 /**
  * @brief Test process table add and find operations
- * @note Tests process_table_add and process_table_find
+ * @note Tests add_to_process_table and find_in_process_table
  */
 static void test_process_table_add_find(void) {
     struct process_table pt;
     struct process *p1, *p2, *p3;
     const struct process *found;
 
-    process_table_init(&pt, 64);
+    init_process_table(&pt, 64);
 
     /* Create test processes */
     p1 = (struct process *)malloc(sizeof(struct process));
@@ -735,44 +735,44 @@ static void test_process_table_add_find(void) {
     p3->cputime = 0.0;
 
     /* Test find on empty table */
-    found = process_table_find(&pt, 100);
+    found = find_in_process_table(&pt, 100);
     assert(found == NULL);
 
     /* Add first process */
-    process_table_add(&pt, p1);
-    found = process_table_find(&pt, 100);
+    add_to_process_table(&pt, p1);
+    found = find_in_process_table(&pt, 100);
     assert(found == p1);
     assert(found->pid == 100);
 
     /* Add second process */
-    process_table_add(&pt, p2);
-    found = process_table_find(&pt, 200);
+    add_to_process_table(&pt, p2);
+    found = find_in_process_table(&pt, 200);
     assert(found == p2);
     assert(found->pid == 200);
 
     /* Verify first process still findable */
-    found = process_table_find(&pt, 100);
+    found = find_in_process_table(&pt, 100);
     assert(found == p1);
 
     /* Add third process */
-    process_table_add(&pt, p3);
-    found = process_table_find(&pt, 300);
+    add_to_process_table(&pt, p3);
+    found = find_in_process_table(&pt, 300);
     assert(found == p3);
 
     /* Test find non-existent PID */
-    found = process_table_find(&pt, 999);
+    found = find_in_process_table(&pt, 999);
     assert(found == NULL);
 
     /* Test find with NULL table */
-    found = process_table_find(NULL, 100);
+    found = find_in_process_table(NULL, 100);
     assert(found == NULL);
 
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
  * @brief Test process table delete operation
- * @note Tests process_table_del
+ * @note Tests delete_from_process_table
  */
 static void test_process_table_del(void) {
     struct process_table pt;
@@ -780,7 +780,7 @@ static void test_process_table_del(void) {
     const struct process *found;
     int ret;
 
-    process_table_init(&pt, 64);
+    init_process_table(&pt, 64);
 
     p1 = (struct process *)malloc(sizeof(struct process));
     p2 = (struct process *)malloc(sizeof(struct process));
@@ -793,48 +793,48 @@ static void test_process_table_del(void) {
     p2->pid = 200;
     p3->pid = 300;
 
-    process_table_add(&pt, p1);
-    process_table_add(&pt, p2);
-    process_table_add(&pt, p3);
+    add_to_process_table(&pt, p1);
+    add_to_process_table(&pt, p2);
+    add_to_process_table(&pt, p3);
 
     /* Delete middle process */
-    ret = process_table_del(&pt, 200);
+    ret = delete_from_process_table(&pt, 200);
     assert(ret == 0);
-    found = process_table_find(&pt, 200);
+    found = find_in_process_table(&pt, 200);
     assert(found == NULL);
 
     /* Verify others still exist */
-    found = process_table_find(&pt, 100);
+    found = find_in_process_table(&pt, 100);
     assert(found == p1);
-    found = process_table_find(&pt, 300);
+    found = find_in_process_table(&pt, 300);
     assert(found == p3);
 
     /* Delete first process */
-    ret = process_table_del(&pt, 100);
+    ret = delete_from_process_table(&pt, 100);
     assert(ret == 0);
-    found = process_table_find(&pt, 100);
+    found = find_in_process_table(&pt, 100);
     assert(found == NULL);
 
     /* Delete last process */
-    ret = process_table_del(&pt, 300);
+    ret = delete_from_process_table(&pt, 300);
     assert(ret == 0);
-    found = process_table_find(&pt, 300);
+    found = find_in_process_table(&pt, 300);
     assert(found == NULL);
 
     /* Try to delete non-existent process */
-    ret = process_table_del(&pt, 999);
+    ret = delete_from_process_table(&pt, 999);
     assert(ret == 1);
 
     /* Test del with NULL table */
-    ret = process_table_del(NULL, 100);
+    ret = delete_from_process_table(NULL, 100);
     assert(ret == 1);
 
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
  * @brief Test process table remove stale entries
- * @note Tests process_table_remove_stale
+ * @note Tests remove_stale_from_process_table
  */
 static void test_process_table_remove_stale(void) {
     struct process_table pt;
@@ -842,7 +842,7 @@ static void test_process_table_remove_stale(void) {
     struct process *p1, *p2, *p3;
     const struct process *found;
 
-    process_table_init(&pt, 64);
+    init_process_table(&pt, 64);
     init_list(&active_list);
 
     /* Create and add three processes to table */
@@ -857,36 +857,36 @@ static void test_process_table_remove_stale(void) {
     p2->pid = 200;
     p3->pid = 300;
 
-    process_table_add(&pt, p1);
-    process_table_add(&pt, p2);
-    process_table_add(&pt, p3);
+    add_to_process_table(&pt, p1);
+    add_to_process_table(&pt, p2);
+    add_to_process_table(&pt, p3);
 
     /* Add only p1 and p3 to active list */
     add_elem(&active_list, p1);
     add_elem(&active_list, p3);
 
     /* Remove stale entries (p2 should be removed) */
-    process_table_remove_stale(&pt, &active_list);
+    remove_stale_from_process_table(&pt, &active_list);
 
     /* Verify p2 was removed */
-    found = process_table_find(&pt, 200);
+    found = find_in_process_table(&pt, 200);
     assert(found == NULL);
 
     /* Verify p1 and p3 still exist */
-    found = process_table_find(&pt, 100);
+    found = find_in_process_table(&pt, 100);
     assert(found == p1);
-    found = process_table_find(&pt, 300);
+    found = find_in_process_table(&pt, 300);
     assert(found == p3);
 
     /* Test with NULL (should not crash) */
-    process_table_remove_stale(NULL, &active_list);
+    remove_stale_from_process_table(NULL, &active_list);
 
     clear_list(&active_list);
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
- * @brief Test process_table_remove_stale removes NULL-data nodes
+ * @brief Test remove_stale_from_process_table removes NULL-data nodes
  * @note NULL-data nodes should be removed defensively
  *
  * To test this defensive path we must inject a NULL-data node directly
@@ -902,14 +902,14 @@ static void test_process_table_remove_stale_null_data(void) {
     size_t cnt;
     const struct process *pt_found;
 
-    process_table_init(&pt, 16);
+    init_process_table(&pt, 16);
     init_list(&active_list);
 
     /* Insert a valid process */
     p1 = (struct process *)malloc(sizeof(struct process));
     assert(p1 != NULL);
     p1->pid = 101;
-    process_table_add(&pt, p1);
+    add_to_process_table(&pt, p1);
 
     /*
      * Inject a NULL-data node into the same bucket.
@@ -923,10 +923,10 @@ static void test_process_table_remove_stale_null_data(void) {
     add_elem(&active_list, p1);
 
     /* remove_stale must remove the NULL-data node without crashing */
-    process_table_remove_stale(&pt, &active_list);
+    remove_stale_from_process_table(&pt, &active_list);
 
     /* p1 must still be present */
-    pt_found = process_table_find(&pt, 101);
+    pt_found = find_in_process_table(&pt, 101);
     assert(pt_found == p1);
 
     /* The NULL-data node must be gone (bucket list has exactly one entry) */
@@ -934,7 +934,7 @@ static void test_process_table_remove_stale_null_data(void) {
     assert(cnt == 1);
 
     clear_list(&active_list);
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
@@ -1313,19 +1313,19 @@ static void test_process_table_collisions(void) {
     size_t i;
 
     /* Use small hash size to force collisions */
-    process_table_init(&pt, 4);
+    init_process_table(&pt, 4);
 
     /* Add many processes */
     for (i = 0; i < 20; i++) {
         p[i] = (struct process *)malloc(sizeof(struct process));
         assert(p[i] != NULL);
         p[i]->pid = collision_pids[i];
-        process_table_add(&pt, p[i]);
+        add_to_process_table(&pt, p[i]);
     }
 
     /* Verify all processes can be found */
     for (i = 0; i < 20; i++) {
-        found = process_table_find(&pt, collision_pids[i]);
+        found = find_in_process_table(&pt, collision_pids[i]);
         assert(found == p[i]);
         assert(found->pid == collision_pids[i]);
     }
@@ -1333,13 +1333,13 @@ static void test_process_table_collisions(void) {
     /* Delete some processes */
     for (i = 0; i < 20; i += 3) {
         int ret;
-        ret = process_table_del(&pt, collision_pids[i]);
+        ret = delete_from_process_table(&pt, collision_pids[i]);
         assert(ret == 0);
     }
 
     /* Verify deleted processes are gone */
     for (i = 0; i < 20; i++) {
-        found = process_table_find(&pt, collision_pids[i]);
+        found = find_in_process_table(&pt, collision_pids[i]);
         if (i % 3 == 0) {
             assert(found == NULL);
         } else {
@@ -1347,7 +1347,7 @@ static void test_process_table_collisions(void) {
         }
     }
 
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
@@ -1360,7 +1360,7 @@ static void test_process_table_empty_buckets(void) {
     struct process *p1, *p2;
     const struct process *pt_found;
 
-    process_table_init(&pt, 256);
+    init_process_table(&pt, 256);
     init_list(&active_list);
 
     /* Add sparse processes */
@@ -1372,20 +1372,20 @@ static void test_process_table_empty_buckets(void) {
     p1->pid = (pid_t)10;
     p2->pid = (pid_t)1000;
 
-    process_table_add(&pt, p1);
-    process_table_add(&pt, p2);
+    add_to_process_table(&pt, p1);
+    add_to_process_table(&pt, p2);
 
     /* Remove stale with empty active list */
-    process_table_remove_stale(&pt, &active_list);
+    remove_stale_from_process_table(&pt, &active_list);
 
     /* All processes should be removed */
-    pt_found = process_table_find(&pt, (pid_t)10);
+    pt_found = find_in_process_table(&pt, (pid_t)10);
     assert(pt_found == NULL);
-    pt_found = process_table_find(&pt, (pid_t)1000);
+    pt_found = find_in_process_table(&pt, (pid_t)1000);
     assert(pt_found == NULL);
 
     clear_list(&active_list);
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
@@ -2257,9 +2257,10 @@ static void test_list_null_data_operations(void) {
 }
 
 /**
- * @brief Test process_table_init and process_table_add with NULL inputs
- * @note Covers: process_table_init(NULL,...), process_table_add(NULL,p),
- *  process_table_add(pt,NULL), and duplicate-PID insertion (silently ignored)
+ * @brief Test init_process_table and add_to_process_table with NULL inputs
+ * @note Covers: init_process_table(NULL,...), add_to_process_table(NULL,p),
+ *  add_to_process_table(pt,NULL), and duplicate-PID insertion (silently
+ * ignored)
  */
 static void test_process_table_null_inputs_and_dup(void) {
     struct process_table pt;
@@ -2267,28 +2268,28 @@ static void test_process_table_null_inputs_and_dup(void) {
     const struct process *found;
     const struct process *pt_found;
 
-    /* process_table_init with NULL pointer must not crash */
-    process_table_init(NULL, 16);
+    /* init_process_table with NULL pointer must not crash */
+    init_process_table(NULL, 16);
 
     /* Set up a valid table for the remaining sub-tests */
-    process_table_init(&pt, 16);
+    init_process_table(&pt, 16);
 
-    /* process_table_add with NULL table must not crash */
+    /* add_to_process_table with NULL table must not crash */
     p1 = (struct process *)malloc(sizeof(struct process));
     assert(p1 != NULL);
     p1->pid = 100;
     p1->ppid = 1;
     p1->cputime = 0.0;
-    process_table_add(NULL, p1);
+    add_to_process_table(NULL, p1);
 
-    /* process_table_add with NULL process must not crash */
-    process_table_add(&pt, NULL);
-    pt_found = process_table_find(&pt, 100);
+    /* add_to_process_table with NULL process must not crash */
+    add_to_process_table(&pt, NULL);
+    pt_found = find_in_process_table(&pt, 100);
     assert(pt_found == NULL);
 
     /* Normal add */
-    process_table_add(&pt, p1);
-    found = process_table_find(&pt, 100);
+    add_to_process_table(&pt, p1);
+    found = find_in_process_table(&pt, 100);
     assert(found == p1);
 
     /* Duplicate-PID insertion must be silently ignored: p1 stays */
@@ -2297,19 +2298,19 @@ static void test_process_table_null_inputs_and_dup(void) {
     p2->pid = 100; /* same PID as p1 */
     p2->ppid = 1;
     p2->cputime = 0.0;
-    process_table_add(&pt, p2);
-    found = process_table_find(&pt, 100);
+    add_to_process_table(&pt, p2);
+    found = find_in_process_table(&pt, 100);
     assert(found == p1); /* p1 must still be the stored entry */
 
     /* p2 was never added to the table; free it manually */
     free(p2);
 
-    /* p1 will be freed by process_table_destroy */
-    process_table_destroy(&pt);
+    /* p1 will be freed by destroy_process_table */
+    destroy_process_table(&pt);
 }
 
 /**
- * @brief Test process_table_remove_stale with NULL active_list
+ * @brief Test remove_stale_from_process_table with NULL active_list
  * @note When active_list is NULL, locate_elem always returns NULL so all
  *  entries are treated as stale and removed
  */
@@ -2318,24 +2319,24 @@ static void test_process_table_stale_null_list(void) {
     struct process *p;
     const struct process *pt_found;
 
-    process_table_init(&pt, 16);
+    init_process_table(&pt, 16);
 
     p = (struct process *)malloc(sizeof(struct process));
     assert(p != NULL);
     p->pid = 100;
     p->ppid = 1;
     p->cputime = 0.0;
-    process_table_add(&pt, p);
-    pt_found = process_table_find(&pt, 100);
+    add_to_process_table(&pt, p);
+    pt_found = find_in_process_table(&pt, 100);
     assert(pt_found == p);
 
     /* NULL active_list: every entry lacks a match, so all are removed */
-    process_table_remove_stale(&pt, NULL);
-    pt_found = process_table_find(&pt, 100);
+    remove_stale_from_process_table(&pt, NULL);
+    pt_found = find_in_process_table(&pt, 100);
     assert(pt_found == NULL);
 
-    /* p was freed by process_table_remove_stale via destroy_node */
-    process_table_destroy(&pt);
+    /* p was freed by remove_stale_from_process_table via destroy_node */
+    destroy_process_table(&pt);
 }
 
 /**
@@ -3799,7 +3800,7 @@ static void test_util_file_basename_empty(void) {
  ***************************************************************************/
 
 /**
- * @brief Test process_table_init with hashsize=0 (forced to 1)
+ * @brief Test init_process_table with hashsize=0 (forced to 1)
  * @note hashsize=0 must be clamped to 1; add/find/del must still work
  */
 static void test_process_table_init_hashsize_zero(void) {
@@ -3808,7 +3809,7 @@ static void test_process_table_init_hashsize_zero(void) {
     const struct process *pt_found;
     int pt_del;
 
-    process_table_init(&pt, 0);
+    init_process_table(&pt, 0);
     assert(pt.hashsize == 1);
     assert(pt.table != NULL);
 
@@ -3819,29 +3820,30 @@ static void test_process_table_init_hashsize_zero(void) {
     p->cputime = 0.0;
     p->cpu_usage = -1.0;
 
-    process_table_add(&pt, p);
-    pt_found = process_table_find(&pt, 77);
+    add_to_process_table(&pt, p);
+    pt_found = find_in_process_table(&pt, 77);
     assert(pt_found == p);
-    pt_del = process_table_del(&pt, 77);
+    pt_del = delete_from_process_table(&pt, 77);
     assert(pt_del == 0);
-    pt_found = process_table_find(&pt, 77);
+    pt_found = find_in_process_table(&pt, 77);
     assert(pt_found == NULL);
 
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
- * @brief Test process_table_find with NULL process table
+ * @brief Test find_in_process_table with NULL process table
  * @note Must return NULL without crashing
  */
 static void test_process_table_find_null_pt(void) {
     const struct process *pt_found;
-    pt_found = process_table_find(NULL, 1);
+    pt_found = find_in_process_table(NULL, 1);
     assert(pt_found == NULL);
 }
 
 /**
- * @brief Test process_table_del when PID is absent from a populated bucket
+ * @brief Test delete_from_process_table when PID is absent from a populated
+ * bucket
  * @note del on a non-empty table for a PID in the same bucket must return 1
  */
 static void test_process_table_del_absent_pid(void) {
@@ -3851,7 +3853,7 @@ static void test_process_table_del_absent_pid(void) {
     const struct process *pt_found;
 
     /* Use hashsize=1 so all PIDs go to bucket 0 */
-    process_table_init(&pt, 1);
+    init_process_table(&pt, 1);
 
     p = (struct process *)malloc(sizeof(struct process));
     assert(p != NULL);
@@ -3859,53 +3861,55 @@ static void test_process_table_del_absent_pid(void) {
     p->ppid = 1;
     p->cputime = 0.0;
     p->cpu_usage = -1.0;
-    process_table_add(&pt, p);
+    add_to_process_table(&pt, p);
 
     /* PID 99 hashes to bucket 0 (same bucket, but not in list) */
-    pt_del = process_table_del(&pt, 99);
+    pt_del = delete_from_process_table(&pt, 99);
     assert(pt_del == 1);
 
     /* PID 5 is still there */
-    pt_found = process_table_find(&pt, 5);
+    pt_found = find_in_process_table(&pt, 5);
     assert(pt_found == p);
 
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
- * @brief Test process_table_del on a PID that was never inserted at all
+ * @brief Test delete_from_process_table on a PID that was never inserted at all
  * @note Empty bucket: returns 1
  */
 static void test_process_table_del_empty_bucket(void) {
     struct process_table pt;
     int pt_del;
 
-    process_table_init(&pt, 16);
-    pt_del = process_table_del(&pt, 100);
+    init_process_table(&pt, 16);
+    pt_del = delete_from_process_table(&pt, 100);
     assert(pt_del == 1);
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
- * @brief Test process_table_destroy on NULL and on a freshly-initialized table
+ * @brief Test destroy_process_table on NULL and on a freshly-initialized table
  * @note NULL must not crash; fresh empty table must also not crash
  */
 static void test_process_table_destroy_edge_cases(void) {
     struct process_table pt;
 
     /* NULL pointer: must be a no-op */
-    process_table_destroy(NULL);
+    destroy_process_table(NULL);
 
     /* Fresh table with no entries */
-    process_table_init(&pt, 8);
-    process_table_destroy(&pt);
+    init_process_table(&pt, 8);
+    destroy_process_table(&pt);
     /* Subsequent destroy must not crash (pt->table is NULL) */
-    process_table_destroy(&pt);
+    destroy_process_table(&pt);
 }
 
 /**
  * @brief Test that process_table operations are safe after destroy
- * @note After process_table_destroy, find/add/del/remove_stale must not
+ * @note After destroy_process_table,
+ * find_in_process_table/add_to_process_table/
+ *  delete_from_process_table/remove_stale_from_process_table must not
  *  crash even though pt->table is NULL and pt->hashsize is 0
  */
 static void test_process_table_ops_after_destroy(void) {
@@ -3914,12 +3918,12 @@ static void test_process_table_ops_after_destroy(void) {
     const struct process *found;
     int ret;
 
-    process_table_init(&pt, 16);
-    process_table_destroy(&pt);
+    init_process_table(&pt, 16);
+    destroy_process_table(&pt);
     /* pt->table is now NULL, pt->hashsize is now 0 */
 
     /* find must return NULL without crashing */
-    found = process_table_find(&pt, 100);
+    found = find_in_process_table(&pt, 100);
     assert(found == NULL);
 
     /* add must be a no-op without crashing */
@@ -3929,15 +3933,15 @@ static void test_process_table_ops_after_destroy(void) {
     p->ppid = 1;
     p->cputime = 0.0;
     p->cpu_usage = -1.0;
-    process_table_add(&pt, p);
+    add_to_process_table(&pt, p);
     free(p); /* p was never added to the table; must be freed manually */
 
     /* del must return 1 without crashing */
-    ret = process_table_del(&pt, 100);
+    ret = delete_from_process_table(&pt, 100);
     assert(ret == 1);
 
     /* remove_stale must be a no-op without crashing */
-    process_table_remove_stale(&pt, NULL);
+    remove_stale_from_process_table(&pt, NULL);
 }
 
 /***************************************************************************

@@ -19,8 +19,8 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __LIMITER_H
-#define __LIMITER_H
+#ifndef CPULIMIT_LIMITER_H
+#define CPULIMIT_LIMITER_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,4 +70,4 @@ void run_pid_or_exe_mode(const struct cpulimitcfg *cfg);
 }
 #endif
 
-#endif
+#endif /* CPULIMIT_LIMITER_H */
