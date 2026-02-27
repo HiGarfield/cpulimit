@@ -41,7 +41,7 @@
  *  used.
  */
 int main(int argc, const char *argv[]) {
-    int i, num_procs;
+    int proc_idx, num_procs;
     pid_t pid = -1;
     configure_signal_handler();
     num_procs = argc == 2 ? atoi(argv[1]) : get_ncpu();
@@ -49,7 +49,7 @@ int main(int argc, const char *argv[]) {
     num_procs = MAX(num_procs, 2);
 
     /* Create num_procs-1 child processes (total num_procs processes) */
-    for (i = 1; i < num_procs; i++) {
+    for (proc_idx = 1; proc_idx < num_procs; proc_idx++) {
         do {
             pid = fork();
         } while (pid < 0 && errno == EINTR);
@@ -72,8 +72,8 @@ int main(int argc, const char *argv[]) {
 
     if (pid > 0 && is_quit_flag_set() && is_terminated_by_tty() &&
         isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
-        ssize_t ret = write(STDOUT_FILENO, "\n", 1);
-        (void)ret;
+        ssize_t write_result = write(STDOUT_FILENO, "\n", 1);
+        (void)write_result;
     }
     return 0;
 }

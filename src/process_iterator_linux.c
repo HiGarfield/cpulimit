@@ -45,9 +45,9 @@
 
 /**
  * @brief Initialize a process iterator with specified filter criteria
- * @param it Pointer to the process_iterator structure to initialize
+ * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL it or filter);
+ * @return 0 on success, -1 on failure (including NULL iter or filter);
  *         may call exit() on fatal errors
  *         (e.g., out-of-memory)
  *
@@ -61,23 +61,23 @@
  * The filter pointer is stored and must remain valid until
  * close_process_iterator() is called.
  */
-int init_process_iterator(struct process_iterator *it,
+int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
-    if (it == NULL || filter == NULL) {
+    if (iter == NULL || filter == NULL) {
         return -1;
     }
-    it->filter = filter;
-    it->end_of_processes = 0;
-    if (it->filter->pid != 0 && !it->filter->include_children) {
+    iter->filter = filter;
+    iter->end_of_processes = 0;
+    if (iter->filter->pid != 0 && !iter->filter->include_children) {
         /*
          * Optimization: when querying a single process without children,
          * we can skip opening /proc directory entirely
          */
-        it->dip = NULL;
+        iter->proc_dir = NULL;
         return 0;
     }
     /* Open /proc directory for iterating process entries */
-    if ((it->dip = opendir("/proc")) == NULL) {
+    if ((iter->proc_dir = opendir("/proc")) == NULL) {
         perror("opendir");
         return -1;
     }
@@ -87,7 +87,7 @@ int init_process_iterator(struct process_iterator *it,
 /**
  * @brief Extract process information from Linux /proc filesystem
  * @param pid Process ID to query
- * @param p Pointer to process structure to populate
+ * @param proc Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure or if process is invalid
  *
@@ -103,18 +103,18 @@ int init_process_iterator(struct process_iterator *it,
  * CPU times are converted from clock ticks to milliseconds using
  * sysconf(_SC_CLK_TCK).
  */
-static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
-    char statfile[64], exefile[64], state;
+static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
+    char statfile[64], cmdline_path[64], state;
     char *buffer;
-    const char *ptr_start;
-    double usertime, systime;
+    const char *stat_fields_start;
+    double user_time, sys_time;
     long ppid;
     static long sc_clk_tck = -1;
-    FILE *fp;
-    size_t len;
+    FILE *cmdline_file;
+    size_t bytes_read;
 
-    memset(p, 0, sizeof(struct process));
-    p->pid = pid;
+    memset(proc, 0, sizeof(struct process));
+    proc->pid = pid;
 
     /* Parse /proc/[pid]/stat for process state and timing information */
     snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
@@ -125,22 +125,22 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
      * Find the last ')' to handle process names containing parentheses.
      * Format: pid (comm) state ppid ... utime stime ...
      */
-    ptr_start = strrchr(buffer, ')');
-    if (ptr_start == NULL) {
+    stat_fields_start = strrchr(buffer, ')');
+    if (stat_fields_start == NULL) {
         free(buffer);
         return -1;
     }
-    if (sscanf(ptr_start,
+    if (sscanf(stat_fields_start,
                ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf", &state,
-               &ppid, &usertime, &systime) != 4 ||
+               &ppid, &user_time, &sys_time) != 4 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0 || usertime < 0 || systime < 0) {
+        ppid <= 0 || user_time < 0 || sys_time < 0) {
         free(buffer);
         return -1;
     }
     free(buffer);
-    p->ppid = long2pid_t(ppid);
-    if (p->ppid < 0) {
+    proc->ppid = long2pid_t(ppid);
+    if (proc->ppid < 0) {
         return -1;
     }
     /* Initialize clock ticks per second on first call */
@@ -152,7 +152,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         }
     }
     /* Convert CPU times from clock ticks to milliseconds */
-    p->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
+    proc->cpu_time = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
 
     if (!read_cmd) {
         return 0;
@@ -163,22 +163,24 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
      * uses NUL bytes as argument separators (no newlines), so string
      * functions naturally stop at the first NUL, giving only argv[0].
      */
-    snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)pid);
-    fp = fopen(exefile, "r");
-    if (fp == NULL) {
+    snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%ld/cmdline",
+             (long)pid);
+    cmdline_file = fopen(cmdline_path, "r");
+    if (cmdline_file == NULL) {
         return -1;
     }
-    len = fread(p->command, 1, sizeof(p->command) - 1, fp);
-    fclose(fp);
-    if (len == 0) {
+    bytes_read =
+        fread(proc->command, 1, sizeof(proc->command) - 1, cmdline_file);
+    fclose(cmdline_file);
+    if (bytes_read == 0) {
         return -1;
     }
-    p->command[len] = '\0';
+    proc->command[bytes_read] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
      */
-    if (p->command[0] == '\0') {
+    if (proc->command[0] == '\0') {
         return -1;
     }
     return 0;
@@ -201,7 +203,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
 pid_t getppid_of(pid_t pid) {
     char statfile[64], state;
     char *buffer;
-    const char *ptr_start;
+    const char *stat_fields_start;
     long ppid;
 
     /* Parse /proc/[pid]/stat for parent process ID */
@@ -210,13 +212,13 @@ pid_t getppid_of(pid_t pid) {
         return (pid_t)-1;
     }
     /* Find last ')' to handle process names with parentheses */
-    ptr_start = strrchr(buffer, ')');
-    if (ptr_start == NULL) {
+    stat_fields_start = strrchr(buffer, ')');
+    if (stat_fields_start == NULL) {
         free(buffer);
         return (pid_t)-1;
     }
     /* Extract state and PPID, reject zombies and invalid PPIDs */
-    if (sscanf(ptr_start, ") %c %ld", &state, &ppid) != 2 ||
+    if (sscanf(stat_fields_start, ") %c %ld", &state, &ppid) != 2 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
         ppid <= 0) {
         free(buffer);
@@ -265,16 +267,18 @@ static int get_start_time(pid_t pid, struct timespec *start_time) {
 
 /**
  * @brief Compare two timestamps to determine chronological order
- * @param t1 First timestamp
- * @param t2 Second timestamp
- * @return 1 if t1 occurred before t2, 0 otherwise
+ * @param ts_lhs First timestamp
+ * @param ts_rhs Second timestamp
+ * @return 1 if ts_lhs occurred before ts_rhs, 0 otherwise
  *
  * Performs chronological comparison of two timespec structures.
  * Compares seconds first, then nanoseconds if seconds are equal.
  */
-static int earlier_than(const struct timespec *t1, const struct timespec *t2) {
-    return t1->tv_sec < t2->tv_sec ||
-           (t1->tv_sec == t2->tv_sec && t1->tv_nsec < t2->tv_nsec);
+static int earlier_than(const struct timespec *ts_lhs,
+                        const struct timespec *ts_rhs) {
+    return ts_lhs->tv_sec < ts_rhs->tv_sec ||
+           (ts_lhs->tv_sec == ts_rhs->tv_sec &&
+            ts_lhs->tv_nsec < ts_rhs->tv_nsec);
 }
 
 /**
@@ -336,41 +340,42 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 
 /**
  * @brief Retrieve the next process matching the filter criteria
- * @param it Pointer to the process_iterator structure
- * @param p Pointer to process structure to populate with process information
- * @return 0 on success with process data in p, -1 if no more processes
+ * @param iter Pointer to the process_iterator structure
+ * @param proc Pointer to process structure to populate with process information
+ * @return 0 on success with process data in proc, -1 if no more processes
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cputime
+ * - Always populated: pid, ppid, cpu_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *it, struct process *p) {
+int get_next_process(struct process_iterator *iter, struct process *proc) {
     const struct dirent *dir_entry = NULL;
 
-    if (it == NULL || p == NULL || it->filter == NULL) {
+    if (iter == NULL || proc == NULL || iter->filter == NULL) {
         return -1;
     }
-    if (it->end_of_processes) {
+    if (iter->end_of_processes) {
         return -1;
     }
 
     /* Fast path for single process without children */
-    if (it->filter->pid != 0 && !it->filter->include_children) {
-        int ret = read_process_info(it->filter->pid, p, it->filter->read_cmd);
-        it->end_of_processes = 1;
+    if (iter->filter->pid != 0 && !iter->filter->include_children) {
+        int ret =
+            read_process_info(iter->filter->pid, proc, iter->filter->read_cmd);
+        iter->end_of_processes = 1;
         return ret == 0 ? 0 : -1;
     }
 
     /* Iterate through /proc entries to find matching processes */
-    while ((dir_entry = readdir(it->dip)) != NULL) {
+    while ((dir_entry = readdir(iter->proc_dir)) != NULL) {
         pid_t pid;
         char *endptr;
-        long tmp_pid;
+        long long_pid;
 #ifdef _DIRENT_HAVE_D_TYPE
         /*
          * Optimization: skip non-directories if d_type is available.
@@ -383,33 +388,33 @@ int get_next_process(struct process_iterator *it, struct process *p) {
 #endif
         /* Process directories have numeric names */
         errno = 0;
-        tmp_pid = strtol(dir_entry->d_name, &endptr, 10);
+        long_pid = strtol(dir_entry->d_name, &endptr, 10);
         if (errno != 0 || endptr == dir_entry->d_name || *endptr != '\0') {
             continue;
         }
-        pid = long2pid_t(tmp_pid);
+        pid = long2pid_t(long_pid);
         if (pid <= 0) {
             continue;
         }
         /* Apply PID filter: match target PID or its descendants */
-        if (it->filter->pid != 0 && it->filter->pid != pid &&
-            !is_child_of(pid, it->filter->pid)) {
+        if (iter->filter->pid != 0 && iter->filter->pid != pid &&
+            !is_child_of(pid, iter->filter->pid)) {
             continue;
         }
         /* Read process info and skip on failure (e.g., process exited) */
-        if (read_process_info(pid, p, it->filter->read_cmd) != 0) {
+        if (read_process_info(pid, proc, iter->filter->read_cmd) != 0) {
             continue;
         }
         return 0;
     }
     /* Reached end of /proc directory */
-    it->end_of_processes = 1;
+    iter->end_of_processes = 1;
     return -1;
 }
 
 /**
  * @brief Close the process iterator and release allocated resources
- * @param it Pointer to the process_iterator structure to close
+ * @param iter Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
  *
  * Releases platform-specific resources allocated during initialization:
@@ -419,21 +424,21 @@ int get_next_process(struct process_iterator *it, struct process *p) {
  *
  * After this call, the iterator must not be used until re-initialized.
  */
-int close_process_iterator(struct process_iterator *it) {
+int close_process_iterator(struct process_iterator *iter) {
     int ret = 0;
-    if (it == NULL) {
+    if (iter == NULL) {
         return -1;
     }
 
-    if (it->dip != NULL) {
-        if ((ret = closedir(it->dip)) != 0) {
+    if (iter->proc_dir != NULL) {
+        if ((ret = closedir(iter->proc_dir)) != 0) {
             perror("closedir");
         }
-        it->dip = NULL;
+        iter->proc_dir = NULL;
     }
 
-    it->end_of_processes = 0;
-    it->filter = NULL;
+    iter->end_of_processes = 0;
+    iter->filter = NULL;
 
     return ret == 0 ? 0 : -1;
 }

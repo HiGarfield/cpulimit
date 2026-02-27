@@ -130,7 +130,7 @@ static double get_dynamic_time_slot(void) {
 
 /**
  * @brief Send a signal to all processes in a process group
- * @param pgroup Pointer to process group structure containing target
+ * @param proc_group Pointer to process group structure containing target
  *                  processes
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
  * @param verbose If non-zero, print errors when signal delivery fails
@@ -141,16 +141,16 @@ static double get_dynamic_time_slot(void) {
  *
  * @note Safe iteration: stores next node before potential deletion
  */
-static void send_signal_to_processes(struct process_group *pgroup, int sig,
+static void send_signal_to_processes(struct process_group *proc_group, int sig,
                                      int verbose) {
-    struct list_node *node = first_node(pgroup->proclist);
+    struct list_node *node = first_node(proc_group->proc_list);
     while (node != NULL) {
         struct list_node *next_node =
             node->next; /* Save before potential deletion */
         pid_t pid;
         if (node->data == NULL) {
             /* Defensive: skip and remove any NULL-data nodes */
-            delete_node(pgroup->proclist, node);
+            delete_node(proc_group->proc_list, node);
             node = next_node;
             continue;
         }
@@ -168,8 +168,8 @@ static void send_signal_to_processes(struct process_group *pgroup, int sig,
                         sig, (long)pid, strerror(saved_errno));
             }
             /* Remove dead/inaccessible process from tracking */
-            delete_node(pgroup->proclist, node);
-            delete_from_process_table(pgroup->proctable, pid);
+            delete_node(proc_group->proc_list, node);
+            delete_from_process_table(proc_group->proc_table, pid);
         }
         node = next_node;
     }
@@ -228,7 +228,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     if (verbose) {
         printf("Process group of PID %ld: %lu member(s)\n",
                (long)proc_group.target_pid,
-               (unsigned long)get_list_count(proc_group.proclist));
+               (unsigned long)get_list_count(proc_group.proc_list));
     }
 
     /*
@@ -243,7 +243,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         update_process_group(&proc_group);
 
         /* Exit if all target processes have terminated */
-        if (is_empty_list(proc_group.proclist)) {
+        if (is_empty_list(proc_group.proc_list)) {
             if (verbose) {
                 printf("No running target process found.\n");
             }
@@ -300,7 +300,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
                 send_signal_to_processes(&proc_group, SIGCONT, verbose);
                 stopped = 0;
                 /* Recheck process list after signaling */
-                if (is_empty_list(proc_group.proclist)) {
+                if (is_empty_list(proc_group.proc_list)) {
                     break;
                 }
             }
@@ -322,7 +322,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
                 send_signal_to_processes(&proc_group, SIGSTOP, verbose);
                 stopped = 1;
                 /* Recheck process list after signaling */
-                if (is_empty_list(proc_group.proclist)) {
+                if (is_empty_list(proc_group.proc_list)) {
                     break;
                 }
             }
