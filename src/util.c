@@ -58,7 +58,7 @@
 /**
  * @brief Convert nanoseconds to timespec structure
  * @param nsec Number of nanoseconds (can be >= 1 billion)
- * @param ts Pointer to timespec structure to populate
+ * @param result_ts Pointer to timespec structure to populate
  *
  * Splits the nanosecond value into seconds and nanoseconds components.
  * The seconds component is the integer division by 1 billion, and the
@@ -66,23 +66,23 @@
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
  */
-void nsec2timespec(double nsec, struct timespec *ts) {
-    ts->tv_sec = (time_t)(nsec / 1e9);
-    ts->tv_nsec = (long)(nsec - (double)ts->tv_sec * 1e9);
+void nsec2timespec(double nsec, struct timespec *result_ts) {
+    result_ts->tv_sec = (time_t)(nsec / 1e9);
+    result_ts->tv_nsec = (long)(nsec - (double)result_ts->tv_sec * 1e9);
     /* Correct tv_sec when floating-point rounding shifts tv_nsec out of
      * range */
-    if (ts->tv_nsec < 0L) {
-        ts->tv_sec--;
-        ts->tv_nsec += 1000000000L;
-    } else if (ts->tv_nsec >= 1000000000L) {
-        ts->tv_sec++;
-        ts->tv_nsec -= 1000000000L;
+    if (result_ts->tv_nsec < 0L) {
+        result_ts->tv_sec--;
+        result_ts->tv_nsec += 1000000000L;
+    } else if (result_ts->tv_nsec >= 1000000000L) {
+        result_ts->tv_sec++;
+        result_ts->tv_nsec -= 1000000000L;
     }
 }
 
 /**
  * @brief Get a high-resolution timestamp, preferring a monotonic clock
- * @param ts Pointer to timespec structure to receive current time
+ * @param result_ts Pointer to timespec structure to receive current time
  * @return 0 on success, -1 on failure
  *
  * Uses CLOCK_MONOTONIC if available (unaffected by system time changes) to
@@ -90,28 +90,28 @@ void nsec2timespec(double nsec, struct timespec *ts) {
  * gettimeofday() as a final fallback. Provides at least microsecond
  * resolution on all supported platforms.
  */
-int get_current_time(struct timespec *ts) {
+int get_current_time(struct timespec *result_ts) {
 #if defined(CLOCK_MONOTONIC)
     /* Prefer monotonic clock: immune to system time adjustments */
-    return clock_gettime(CLOCK_MONOTONIC, ts);
+    return clock_gettime(CLOCK_MONOTONIC, result_ts);
 #elif defined(CLOCK_REALTIME)
     /* Fall back to real-time clock if monotonic unavailable */
-    return clock_gettime(CLOCK_REALTIME, ts);
+    return clock_gettime(CLOCK_REALTIME, result_ts);
 #else
     /* Final fallback: use gettimeofday and convert to timespec */
-    struct timeval tv;
-    if (gettimeofday(&tv, NULL)) {
+    struct timeval time_val;
+    if (gettimeofday(&time_val, NULL)) {
         return -1;
     }
-    ts->tv_sec = tv.tv_sec;
-    ts->tv_nsec = tv.tv_usec * 1000L;
+    result_ts->tv_sec = time_val.tv_sec;
+    result_ts->tv_nsec = time_val.tv_usec * 1000L;
     return 0;
 #endif
 }
 
 /**
  * @brief Sleep for a specified duration
- * @param ts Pointer to timespec specifying sleep duration
+ * @param duration Pointer to timespec specifying sleep duration
  * @return 0 on success, -1 on error (errno set by underlying call)
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
@@ -120,7 +120,7 @@ int get_current_time(struct timespec *ts) {
  * errno set to EINTR if interrupted by a signal); this function does not
  * automatically resume sleeping in that case.
  */
-int sleep_timespec(const struct timespec *ts) {
+int sleep_timespec(const struct timespec *duration) {
 #if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
     defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(CLOCK_MONOTONIC)
@@ -130,7 +130,7 @@ int sleep_timespec(const struct timespec *ts) {
      * on failure. Convert to -1/errno convention for consistency with
      * nanosleep and the documented return value contract.
      */
-    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, ts, NULL);
+    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, duration, NULL);
     if (ret != 0) {
         errno = ret;
         return -1;
@@ -138,7 +138,7 @@ int sleep_timespec(const struct timespec *ts) {
     return 0;
 #else
     /* Fall back to standard nanosleep */
-    return nanosleep(ts, NULL);
+    return nanosleep(duration, NULL);
 #endif
 }
 
@@ -371,20 +371,22 @@ int get_ncpu(void) {
         /* macOS and FreeBSD: use sysctl interface */
         int ncpu = 0;
         size_t ncpu_size = sizeof(ncpu);
-        int mib[2];
+        int sysctl_mib[2];
 
-        mib[0] = CTL_HW;
+        sysctl_mib[0] = CTL_HW;
 #if defined(HW_AVAILCPU)
         /* Try HW_AVAILCPU first (available CPUs) */
-        mib[1] = HW_AVAILCPU;
+        sysctl_mib[1] = HW_AVAILCPU;
 #else
         /* Fall back to HW_NCPU if HW_AVAILCPU unavailable */
-        mib[1] = HW_NCPU;
+        sysctl_mib[1] = HW_NCPU;
 #endif
-        if (sysctl(mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 || ncpu < 1) {
+        if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
+            ncpu < 1) {
             /* Fallback: try HW_NCPU directly */
-            mib[1] = HW_NCPU;
-            if (sysctl(mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 || ncpu < 1) {
+            sysctl_mib[1] = HW_NCPU;
+            if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
+                ncpu < 1) {
                 ncpu = 1; /* Complete failure; assume 1 CPU */
             }
         }
@@ -426,7 +428,7 @@ int get_ncpu(void) {
  * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
  */
 int cpulimit_getloadavg(double *loadavg, int nelem) {
-    struct sysinfo si;
+    struct sysinfo sys_info;
     int load_idx;
 
     if (nelem < 0) {
@@ -436,7 +438,7 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
         return 0;
     }
 
-    if (sysinfo(&si) != 0) {
+    if (sysinfo(&sys_info) != 0) {
         return -1;
     }
 
@@ -445,7 +447,8 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
 
     /* Convert fixed-point to floating-point using SI_LOAD_SHIFT */
     for (load_idx = 0; load_idx < nelem; load_idx++) {
-        loadavg[load_idx] = (double)si.loads[load_idx] / (1 << SI_LOAD_SHIFT);
+        loadavg[load_idx] =
+            (double)sys_info.loads[load_idx] / (1 << SI_LOAD_SHIFT);
     }
 
     return nelem;
