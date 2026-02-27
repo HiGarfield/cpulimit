@@ -109,7 +109,7 @@ struct process *find_in_process_table(const struct process_table *pt,
 /**
  * @brief Insert a process into the hash table
  * @param pt Pointer to the process table
- * @param p Pointer to the process structure to insert
+ * @param proc Pointer to the process structure to insert
  *
  * Adds the process to the appropriate bucket based on its PID hash.
  * If the bucket doesn't exist, creates a new linked list for it.
@@ -121,12 +121,12 @@ struct process *find_in_process_table(const struct process_table *pt,
  * @note Safe to call when pt is NULL or the table has been destroyed
  *       (pt->table is NULL): the call is a no-op in both cases.
  */
-void add_to_process_table(struct process_table *pt, struct process *p) {
+void add_to_process_table(struct process_table *pt, struct process *proc) {
     size_t idx;
-    if (pt == NULL || pt->table == NULL || p == NULL) {
+    if (pt == NULL || pt->table == NULL || proc == NULL) {
         return;
     }
-    idx = pid_hash(pt, p->pid);
+    idx = pid_hash(pt, proc->pid);
     if (pt->table[idx] == NULL) {
         /* Bucket is empty; create new linked list for this bucket */
         if ((pt->table[idx] = (struct list *)malloc(sizeof(struct list))) ==
@@ -137,9 +137,9 @@ void add_to_process_table(struct process_table *pt, struct process *p) {
         init_list(pt->table[idx]);
     }
     /* Verify process doesn't already exist before adding */
-    if (locate_elem(pt->table[idx], &p->pid, offsetof(struct process, pid),
+    if (locate_elem(pt->table[idx], &proc->pid, offsetof(struct process, pid),
                     sizeof(pid_t)) == NULL) {
-        add_elem(pt->table[idx], p);
+        add_elem(pt->table[idx], proc);
     }
 }
 

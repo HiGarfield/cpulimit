@@ -289,7 +289,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 /**
  * @brief Retrieve process information for a specific PID
  * @param pid Process ID to query
- * @param p Pointer to process structure to populate
+ * @param proc Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure
  *
@@ -298,13 +298,13 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * proc_taskinfo_to_proc(). Used by get_next_process() for both
  * single-process and multi-process iteration.
  */
-static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
+static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     struct proc_taskallinfo ti;
-    memset(p, 0, sizeof(struct process));
+    memset(proc, 0, sizeof(struct process));
     if (get_proc_taskinfo(pid, &ti) != 0) {
         return -1;
     }
-    if (proc_taskinfo_to_proc(&ti, p, read_cmd) != 0) {
+    if (proc_taskinfo_to_proc(&ti, proc, read_cmd) != 0) {
         return -1;
     }
     return 0;
@@ -313,8 +313,8 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
 /**
  * @brief Retrieve the next process matching the filter criteria
  * @param it Pointer to the process_iterator structure
- * @param p Pointer to process structure to populate with process information
- * @return 0 on success with process data in p, -1 if no more processes
+ * @param proc Pointer to process structure to populate with process information
+ * @return 0 on success with process data in proc, -1 if no more processes
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
@@ -325,8 +325,8 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *it, struct process *p) {
-    if (it == NULL || p == NULL || it->filter == NULL) {
+int get_next_process(struct process_iterator *it, struct process *proc) {
+    if (it == NULL || proc == NULL || it->filter == NULL) {
         return -1;
     }
     if (it->current_index >= it->count) {
@@ -334,7 +334,8 @@ int get_next_process(struct process_iterator *it, struct process *p) {
     }
     /* Handle single process without children */
     if (it->filter->pid != 0 && !it->filter->include_children) {
-        if (read_process_info(it->filter->pid, p, it->filter->read_cmd) == 0) {
+        if (read_process_info(it->filter->pid, proc, it->filter->read_cmd) ==
+            0) {
             it->current_index = it->count = 1;
             return 0;
         }
@@ -343,15 +344,15 @@ int get_next_process(struct process_iterator *it, struct process *p) {
     }
     /* Iterate through process ID list, applying filters */
     while (it->current_index < it->count) {
-        if (read_process_info(it->pidlist[it->current_index], p,
+        if (read_process_info(it->pidlist[it->current_index], proc,
                               it->filter->read_cmd) == 0) {
             /*
              * Apply PID filter after reading process info.
              * Accept if: no filter, exact match, or descendant match.
              */
-            if (it->filter->pid == 0 || p->pid == it->filter->pid ||
+            if (it->filter->pid == 0 || proc->pid == it->filter->pid ||
                 (it->filter->include_children &&
-                 is_child_of(p->pid, it->filter->pid))) {
+                 is_child_of(proc->pid, it->filter->pid))) {
                 it->current_index++;
                 return 0;
             }

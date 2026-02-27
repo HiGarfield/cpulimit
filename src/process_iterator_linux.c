@@ -87,7 +87,7 @@ int init_process_iterator(struct process_iterator *it,
 /**
  * @brief Extract process information from Linux /proc filesystem
  * @param pid Process ID to query
- * @param p Pointer to process structure to populate
+ * @param proc Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure or if process is invalid
  *
@@ -103,7 +103,7 @@ int init_process_iterator(struct process_iterator *it,
  * CPU times are converted from clock ticks to milliseconds using
  * sysconf(_SC_CLK_TCK).
  */
-static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
+static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char statfile[64], exefile[64], state;
     char *buffer;
     const char *ptr_start;
@@ -113,8 +113,8 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     FILE *fp;
     size_t len;
 
-    memset(p, 0, sizeof(struct process));
-    p->pid = pid;
+    memset(proc, 0, sizeof(struct process));
+    proc->pid = pid;
 
     /* Parse /proc/[pid]/stat for process state and timing information */
     snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
@@ -139,8 +139,8 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         return -1;
     }
     free(buffer);
-    p->ppid = long2pid_t(ppid);
-    if (p->ppid < 0) {
+    proc->ppid = long2pid_t(ppid);
+    if (proc->ppid < 0) {
         return -1;
     }
     /* Initialize clock ticks per second on first call */
@@ -152,7 +152,7 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
         }
     }
     /* Convert CPU times from clock ticks to milliseconds */
-    p->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
+    proc->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
 
     if (!read_cmd) {
         return 0;
@@ -168,17 +168,17 @@ static int read_process_info(pid_t pid, struct process *p, int read_cmd) {
     if (fp == NULL) {
         return -1;
     }
-    len = fread(p->command, 1, sizeof(p->command) - 1, fp);
+    len = fread(proc->command, 1, sizeof(proc->command) - 1, fp);
     fclose(fp);
     if (len == 0) {
         return -1;
     }
-    p->command[len] = '\0';
+    proc->command[len] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
      */
-    if (p->command[0] == '\0') {
+    if (proc->command[0] == '\0') {
         return -1;
     }
     return 0;
@@ -337,8 +337,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 /**
  * @brief Retrieve the next process matching the filter criteria
  * @param it Pointer to the process_iterator structure
- * @param p Pointer to process structure to populate with process information
- * @return 0 on success with process data in p, -1 if no more processes
+ * @param proc Pointer to process structure to populate with process information
+ * @return 0 on success with process data in proc, -1 if no more processes
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
@@ -349,10 +349,10 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *it, struct process *p) {
+int get_next_process(struct process_iterator *it, struct process *proc) {
     const struct dirent *dir_entry = NULL;
 
-    if (it == NULL || p == NULL || it->filter == NULL) {
+    if (it == NULL || proc == NULL || it->filter == NULL) {
         return -1;
     }
     if (it->end_of_processes) {
@@ -361,7 +361,8 @@ int get_next_process(struct process_iterator *it, struct process *p) {
 
     /* Fast path for single process without children */
     if (it->filter->pid != 0 && !it->filter->include_children) {
-        int ret = read_process_info(it->filter->pid, p, it->filter->read_cmd);
+        int ret =
+            read_process_info(it->filter->pid, proc, it->filter->read_cmd);
         it->end_of_processes = 1;
         return ret == 0 ? 0 : -1;
     }
@@ -397,7 +398,7 @@ int get_next_process(struct process_iterator *it, struct process *p) {
             continue;
         }
         /* Read process info and skip on failure (e.g., process exited) */
-        if (read_process_info(pid, p, it->filter->read_cmd) != 0) {
+        if (read_process_info(pid, proc, it->filter->read_cmd) != 0) {
             continue;
         }
         return 0;

@@ -284,13 +284,13 @@ int close_process_group(struct process_group *pgroup) {
  * @note Calls exit(EXIT_FAILURE) if memory allocation fails
  */
 static struct process *process_dup(const struct process *proc) {
-    struct process *p;
-    if ((p = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    struct process *new_proc;
+    if ((new_proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
         fprintf(stderr, "Memory allocation failed for duplicated process\n");
         exit(EXIT_FAILURE);
     }
-    *p = *proc;
-    return p;
+    *new_proc = *proc;
+    return new_proc;
 }
 
 /**
@@ -380,27 +380,27 @@ void update_process_group(struct process_group *pgroup) {
 
     /* Scan currently running processes and update tracking data */
     while (get_next_process(&it, tmp_process) != -1) {
-        struct process *p =
+        struct process *proc =
             find_in_process_table(pgroup->proctable, tmp_process->pid);
-        if (p == NULL) {
+        if (proc == NULL) {
             /* New process detected: add to hashtable and list */
-            p = process_dup(tmp_process);
+            proc = process_dup(tmp_process);
             /* Mark CPU usage as unknown until we have a time delta */
-            p->cpu_usage = -1;
-            add_to_process_table(pgroup->proctable, p);
-            add_elem(pgroup->proclist, p);
+            proc->cpu_usage = -1;
+            add_to_process_table(pgroup->proctable, proc);
+            add_elem(pgroup->proclist, proc);
         } else {
             double sample;
             /* Existing process: re-add to list for this cycle */
-            add_elem(pgroup->proclist, p);
-            if (tmp_process->cputime < p->cputime) {
+            add_elem(pgroup->proclist, proc);
+            if (tmp_process->cputime < proc->cputime) {
                 /*
                  * CPU time decreased: PID has been reused for a new process.
                  * Reset all historical data.
                  */
-                *p = *tmp_process;
+                *proc = *tmp_process;
                 /* Mark CPU usage as unknown for new process */
-                p->cpu_usage = -1;
+                proc->cpu_usage = -1;
                 continue;
             }
             if (dt < 0) {
@@ -409,9 +409,9 @@ void update_process_group(struct process_group *pgroup) {
                  * correction). Update cputime but don't calculate usage this
                  * cycle.
                  */
-                p->ppid = tmp_process->ppid;
-                p->cputime = tmp_process->cputime;
-                p->cpu_usage = -1;
+                proc->ppid = tmp_process->ppid;
+                proc->cputime = tmp_process->cputime;
+                proc->cpu_usage = -1;
                 continue;
             }
             if (dt < MIN_DT) {
@@ -421,7 +421,7 @@ void update_process_group(struct process_group *pgroup) {
                  * here because it is independent of timing accuracy: the
                  * parent PID is a current kernel value and does not
                  * participate in any time-based delta computation. */
-                p->ppid = tmp_process->ppid;
+                proc->ppid = tmp_process->ppid;
                 continue;
             }
             /*
@@ -429,24 +429,25 @@ void update_process_group(struct process_group *pgroup) {
              * sample = (delta_cputime / delta_walltime)
              * This represents the fraction of one CPU core used.
              */
-            sample = (tmp_process->cputime - p->cputime) / dt;
+            sample = (tmp_process->cputime - proc->cputime) / dt;
             /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
             sample = MIN(sample, (double)ncpu);
-            if (p->cpu_usage < 0) {
+            if (proc->cpu_usage < 0) {
                 /* First valid measurement: initialize directly */
-                p->cpu_usage = sample;
+                proc->cpu_usage = sample;
             } else {
                 /*
                  * Apply exponential moving average for smooth tracking:
                  * new = (1-alpha)*old + alpha*sample
                  * This reduces noise while remaining responsive to changes.
                  */
-                p->cpu_usage = (1.0 - ALPHA) * p->cpu_usage + ALPHA * sample;
+                proc->cpu_usage =
+                    (1.0 - ALPHA) * proc->cpu_usage + ALPHA * sample;
             }
             /* Update stored CPU time and parent PID for next delta calculation
              */
-            p->ppid = tmp_process->ppid;
-            p->cputime = tmp_process->cputime;
+            proc->ppid = tmp_process->ppid;
+            proc->cputime = tmp_process->cputime;
         }
     }
     free(tmp_process);
@@ -495,20 +496,20 @@ double get_process_group_cpu_usage(const struct process_group *pgroup) {
         return -1;
     }
     for (node = first_node(pgroup->proclist); node != NULL; node = node->next) {
-        const struct process *p = (const struct process *)node->data;
+        const struct process *proc = (const struct process *)node->data;
         /* Skip NULL-data nodes (should not occur but defensive) */
-        if (p == NULL) {
+        if (proc == NULL) {
             continue;
         }
         /* Skip processes without valid CPU measurements yet */
-        if (p->cpu_usage < 0) {
+        if (proc->cpu_usage < 0) {
             continue;
         }
         /* Initialize sum on first valid process */
         if (cpu_usage < 0) {
             cpu_usage = 0;
         }
-        cpu_usage += p->cpu_usage;
+        cpu_usage += proc->cpu_usage;
     }
     return cpu_usage;
 }

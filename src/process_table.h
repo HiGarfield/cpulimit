@@ -90,7 +90,7 @@ struct process *find_in_process_table(const struct process_table *pt,
 /**
  * @brief Insert a process into the hash table
  * @param pt Pointer to the process table
- * @param p Pointer to the process structure to insert
+ * @param proc Pointer to the process structure to insert
  *
  * Adds the process to the appropriate bucket based on its PID hash.
  * If the bucket doesn't exist, creates a new linked list for it.
@@ -101,7 +101,7 @@ struct process *find_in_process_table(const struct process_table *pt,
  *       (duplicate PIDs are ignored).
  * @note Safe to call on a destroyed table (does nothing)
  */
-void add_to_process_table(struct process_table *pt, struct process *p);
+void add_to_process_table(struct process_table *pt, struct process *proc);
 
 /**
  * @brief Remove a process from the hash table by PID

@@ -193,7 +193,7 @@ static int kinfo_proc_to_proc(kvm_t *kvm_handle, struct kinfo_proc *kproc,
  * @brief Retrieve information for a single process by PID
  * @param kvm_handle Kernel virtual memory descriptor
  * @param pid Process ID to query
- * @param p Pointer to process structure to populate
+ * @param proc Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure or if process not found
  *
@@ -201,14 +201,14 @@ static int kinfo_proc_to_proc(kvm_t *kvm_handle, struct kinfo_proc *kproc,
  * Returns failure if the process doesn't exist, is a zombie, is a kernel
  * thread, or if conversion fails.
  */
-static int read_process_info(kvm_t *kvm_handle, pid_t pid, struct process *p,
+static int read_process_info(kvm_t *kvm_handle, pid_t pid, struct process *proc,
                              int read_cmd) {
     int count;
     struct kinfo_proc *kproc =
         kvm_getprocs(kvm_handle, KERN_PROC_PID, pid, &count);
     if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
         (kproc->ki_stat == SZOMB) ||
-        kinfo_proc_to_proc(kvm_handle, kproc, p, read_cmd) != 0) {
+        kinfo_proc_to_proc(kvm_handle, kproc, proc, read_cmd) != 0) {
         return -1;
     }
     return 0;
@@ -319,8 +319,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 /**
  * @brief Retrieve the next process matching the filter criteria
  * @param it Pointer to the process_iterator structure
- * @param p Pointer to process structure to populate with process information
- * @return 0 on success with process data in p, -1 if no more processes
+ * @param proc Pointer to process structure to populate with process information
+ * @return 0 on success with process data in proc, -1 if no more processes
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
@@ -331,8 +331,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *it, struct process *p) {
-    if (it == NULL || p == NULL || it->filter == NULL) {
+int get_next_process(struct process_iterator *it, struct process *proc) {
+    if (it == NULL || proc == NULL || it->filter == NULL) {
         return -1;
     }
 
@@ -342,7 +342,7 @@ int get_next_process(struct process_iterator *it, struct process *p) {
 
     /* Handle single process without children */
     if (it->filter->pid != 0 && !it->filter->include_children) {
-        if (read_process_info(it->kvm_handle, it->filter->pid, p,
+        if (read_process_info(it->kvm_handle, it->filter->pid, proc,
                               it->filter->read_cmd) != 0) {
             it->current_index = it->count = 0;
             return -1;
@@ -369,7 +369,7 @@ int get_next_process(struct process_iterator *it, struct process *p) {
         }
 
         /* Convert to platform-independent structure */
-        if (kinfo_proc_to_proc(it->kvm_handle, kproc, p,
+        if (kinfo_proc_to_proc(it->kvm_handle, kproc, proc,
                                it->filter->read_cmd) != 0) {
             continue;
         }
