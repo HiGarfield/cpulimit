@@ -234,6 +234,31 @@ In Ubuntu, the following command SHALL be used:
 
 ---
 
+## Identifiers
+
+- Identifiers MUST be self-descriptive and reflect their intended purpose.
+- Identifiers referring to the same logical entity MUST use a consistent name throughout the codebase.
+- All identifiers MUST follow the dominant naming convention used in the file.
+- Identifiers MUST NOT conflict with:
+  - C language keywords
+  - C++ language keywords
+  - Standard library symbols
+  - Public symbols from core dependencies
+- An identifier MUST NOT share the same name as a struct, union, or enum tag.
+- Variable shadowing MUST NOT be introduced.
+- Identifiers MUST NOT be renamed unless explicitly requested.
+- A rename operation MUST be purely syntactic and MUST NOT change program behavior.
+- All references to a renamed identifier MUST be updated consistently.
+- Renaming MUST NOT introduce:
+  - Shadowing
+  - Symbol collisions
+  - Linkage changes
+  - Visibility changes
+- Renaming MUST NOT be combined with refactoring or logic changes.
+- If a safe and complete rename cannot be guaranteed, the rename MUST NOT be performed.
+
+---
+
 # Style
 
 - Formatting MUST follow `/.clang-format`.
