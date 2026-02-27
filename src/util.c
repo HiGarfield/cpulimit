@@ -170,12 +170,12 @@ double timediff_in_ms(const struct timespec *later,
  * If path is NULL, returns an empty string.
  */
 const char *file_basename(const char *path) {
-    const char *p;
+    const char *last_slash;
     if (path == NULL) {
         return "";
     }
-    p = strrchr(path, '/');
-    return p != NULL ? p + 1 : path;
+    last_slash = strrchr(path, '/');
+    return last_slash != NULL ? last_slash + 1 : path;
 }
 
 /**
@@ -234,7 +234,7 @@ void increase_priority(void) {
  * rejected due to invalid syntax (strtol finds no number).
  */
 static int parse_cpu_range(const char *str) {
-    const char *p = str;
+    const char *pos = str;
     char *endptr;
     int cpu_count = 0;
 
@@ -242,31 +242,31 @@ static int parse_cpu_range(const char *str) {
         return -1;
     }
 
-    while (*p != '\0') {
+    while (*pos != '\0') {
         long start;
         /* Parse first number (strtol automatically skips leading whitespace) */
         errno = 0;
-        start = strtol(p, &endptr, 10);
-        if (endptr == p || errno != 0 || start < 0) {
+        start = strtol(pos, &endptr, 10);
+        if (endptr == pos || errno != 0 || start < 0) {
             return -1; /* Parse error or invalid value */
         }
-        p = endptr;
+        pos = endptr;
 
         /* Skip trailing whitespace after number */
-        while (isspace((unsigned char)*p)) {
-            p++;
+        while (isspace((unsigned char)*pos)) {
+            pos++;
         }
 
-        if (*p == '-') {
+        if (*pos == '-') {
             /* Range format: start-end */
             long end, range_len;
 
-            p++; /* Skip the dash */
+            pos++; /* Skip the dash */
 
             /* Parse end of range */
             errno = 0;
-            end = strtol(p, &endptr, 10);
-            if (endptr == p || errno != 0 || start > end || end < 0) {
+            end = strtol(pos, &endptr, 10);
+            if (endptr == pos || errno != 0 || start > end || end < 0) {
                 return -1; /* Parse error or invalid range */
             }
             /* Compute range length safely (start <= end and both >= 0 here) */
@@ -281,11 +281,11 @@ static int parse_cpu_range(const char *str) {
             }
             cpu_count += (int)(range_len + 1L);
 
-            p = endptr;
+            pos = endptr;
 
             /* Skip trailing whitespace */
-            while (isspace((unsigned char)*p)) {
-                p++;
+            while (isspace((unsigned char)*pos)) {
+                pos++;
             }
         } else {
             /* Single CPU number */
@@ -296,9 +296,9 @@ static int parse_cpu_range(const char *str) {
         }
 
         /* Expect comma or end of string */
-        if (*p == ',') {
-            p++; /* Move past comma to parse next segment */
-        } else if (*p != '\0') {
+        if (*pos == ',') {
+            pos++; /* Move past comma to parse next segment */
+        } else if (*pos != '\0') {
             return -1; /* Unexpected character */
         }
     }

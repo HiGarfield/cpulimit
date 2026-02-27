@@ -110,7 +110,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     double usertime, systime;
     long ppid;
     static long sc_clk_tck = -1;
-    FILE *fp;
+    FILE *cmdline_file;
     size_t len;
 
     memset(proc, 0, sizeof(struct process));
@@ -164,12 +164,12 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * functions naturally stop at the first NUL, giving only argv[0].
      */
     snprintf(exefile, sizeof(exefile), "/proc/%ld/cmdline", (long)pid);
-    fp = fopen(exefile, "r");
-    if (fp == NULL) {
+    cmdline_file = fopen(exefile, "r");
+    if (cmdline_file == NULL) {
         return -1;
     }
-    len = fread(proc->command, 1, sizeof(proc->command) - 1, fp);
-    fclose(fp);
+    len = fread(proc->command, 1, sizeof(proc->command) - 1, cmdline_file);
+    fclose(cmdline_file);
     if (len == 0) {
         return -1;
     }
