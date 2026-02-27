@@ -91,7 +91,7 @@ pid_t find_process_by_pid(pid_t pid) {
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
-    struct process_iterator it;
+    struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
     int full_path_cmp;
@@ -127,14 +127,14 @@ pid_t find_process_by_name(const char *process_name) {
     filter.pid = 0;
     filter.include_children = 0;
     filter.read_cmd = 1;
-    if (init_process_iterator(&it, &filter) != 0) {
+    if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(proc);
         exit(EXIT_FAILURE);
     }
 
     /* Scan all processes to find matching executable */
-    while (get_next_process(&it, proc) != -1) {
+    while (get_next_process(&iter, proc) != -1) {
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : file_basename(proc->command);
         /* Check if this process matches the target name */
@@ -153,7 +153,7 @@ pid_t find_process_by_name(const char *process_name) {
         }
     }
     free(proc);
-    if (close_process_iterator(&it) != 0) {
+    if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
     }
@@ -341,7 +341,7 @@ static struct process *process_dup(const struct process *proc) {
  *       retrieval)
  */
 void update_process_group(struct process_group *pgroup) {
-    struct process_iterator it;
+    struct process_iterator iter;
     struct process *tmp_process;
     struct process_filter filter;
     struct timespec now;
@@ -369,7 +369,7 @@ void update_process_group(struct process_group *pgroup) {
     filter.pid = pgroup->target_pid;
     filter.include_children = pgroup->include_children;
     filter.read_cmd = 0;
-    if (init_process_iterator(&it, &filter) != 0) {
+    if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(tmp_process);
         exit(EXIT_FAILURE);
@@ -379,7 +379,7 @@ void update_process_group(struct process_group *pgroup) {
     clear_list(pgroup->proclist);
 
     /* Scan currently running processes and update tracking data */
-    while (get_next_process(&it, tmp_process) != -1) {
+    while (get_next_process(&iter, tmp_process) != -1) {
         struct process *proc =
             find_in_process_table(pgroup->proctable, tmp_process->pid);
         if (proc == NULL) {
@@ -451,7 +451,7 @@ void update_process_group(struct process_group *pgroup) {
         }
     }
     free(tmp_process);
-    if (close_process_iterator(&it) != 0) {
+    if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
     }

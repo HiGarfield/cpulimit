@@ -206,9 +206,9 @@ struct process_iterator {
 
 /**
  * @brief Initialize a process iterator with specified filter criteria
- * @param it Pointer to the process_iterator structure to initialize
+ * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL it or filter);
+ * @return 0 on success, -1 on failure (including NULL iter or filter);
  *         may call exit() on fatal errors (e.g., out-of-memory)
  *
  * This function prepares the iterator for process enumeration. The behavior
@@ -221,15 +221,15 @@ struct process_iterator {
  * The filter pointer is stored and must remain valid until
  * close_process_iterator() is called.
  */
-int init_process_iterator(struct process_iterator *it,
+int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter);
 
 /**
  * @brief Retrieve the next process matching the filter criteria
- * @param it Pointer to the process_iterator structure
+ * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
  * @return 0 on success with process data in proc, -1 if no more processes or
- *         if it, proc, or it->filter is NULL
+ *         if iter, proc, or iter->filter is NULL
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
@@ -240,11 +240,11 @@ int init_process_iterator(struct process_iterator *it,
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *it, struct process *proc);
+int get_next_process(struct process_iterator *iter, struct process *proc);
 
 /**
  * @brief Close the process iterator and release allocated resources
- * @param it Pointer to the process_iterator structure to close
+ * @param iter Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
  *
  * Releases platform-specific resources allocated during initialization:
@@ -254,7 +254,7 @@ int get_next_process(struct process_iterator *it, struct process *proc);
  *
  * After this call, the iterator must not be used until re-initialized.
  */
-int close_process_iterator(struct process_iterator *it);
+int close_process_iterator(struct process_iterator *iter);
 
 /**
  * @brief Determine if one process is a descendant of another

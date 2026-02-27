@@ -76,9 +76,9 @@ static kvm_t *open_kvm(void) {
 
 /**
  * @brief Initialize a process iterator with specified filter criteria
- * @param it Pointer to the process_iterator structure to initialize
+ * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL it or filter);
+ * @return 0 on success, -1 on failure (including NULL iter or filter);
  *         may call exit() on fatal errors
  *         (e.g., out-of-memory)
  *
@@ -92,32 +92,32 @@ static kvm_t *open_kvm(void) {
  * The filter pointer is stored and must remain valid until
  * close_process_iterator() is called.
  */
-int init_process_iterator(struct process_iterator *it,
+int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
     const struct kinfo_proc *procs;
 
-    if (it == NULL || filter == NULL) {
+    if (iter == NULL || filter == NULL) {
         return -1;
     }
-    it->filter = filter;
+    iter->filter = filter;
 
     /*
      * Open kvm(3) interface to access kernel virtual memory and
      * process information
      */
-    if ((it->kvm_descriptor = open_kvm()) == NULL) {
+    if ((iter->kvm_descriptor = open_kvm()) == NULL) {
         return -1;
     }
 
     /* Optimization for single process without children */
-    if (it->filter->pid != 0 && !it->filter->include_children) {
+    if (iter->filter->pid != 0 && !iter->filter->include_children) {
         /*
          * Skip retrieving full process list when querying a single
          * process; get_next_process() will use kvm_getprocs() directly
          */
-        it->procs = NULL;
-        it->current_index = 0;
-        it->count = 1;
+        iter->procs = NULL;
+        iter->current_index = 0;
+        iter->count = 1;
         return 0;
     }
 
@@ -125,19 +125,19 @@ int init_process_iterator(struct process_iterator *it,
      * Retrieve snapshot of all processes via KERN_PROC_PROC.
      * This returns a pointer to kernel data that must be copied.
      */
-    if ((procs = kvm_getprocs(it->kvm_descriptor, KERN_PROC_PROC, 0,
-                              &it->count)) == NULL) {
-        kvm_close(it->kvm_descriptor);
+    if ((procs = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
+                              &iter->count)) == NULL) {
+        kvm_close(iter->kvm_descriptor);
         return -1;
     }
     /* Copy process list to iterator's own memory */
-    if ((it->procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
-                                                 (size_t)it->count)) == NULL) {
+    if ((iter->procs = (struct kinfo_proc *)malloc(
+             sizeof(struct kinfo_proc) * (size_t)iter->count)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         exit(EXIT_FAILURE);
     }
-    memcpy(it->procs, procs, sizeof(struct kinfo_proc) * (size_t)it->count);
-    it->current_index = 0;
+    memcpy(iter->procs, procs, sizeof(struct kinfo_proc) * (size_t)iter->count);
+    iter->current_index = 0;
     return 0;
 }
 
@@ -150,7 +150,7 @@ int init_process_iterator(struct process_iterator *it,
  * @return 0 on success, -1 on failure
  *
  * Extracts essential process information from FreeBSD's kinfo_proc and
- * converts it to the platform-independent process structure. The ki_runtime
+ * converts iter to the platform-independent process structure. The ki_runtime
  * field (in microseconds) is converted to milliseconds for cputime.
  *
  * When read_cmd is set, retrieves command arguments via kvm_getargv()
@@ -319,7 +319,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 
 /**
  * @brief Retrieve the next process matching the filter criteria
- * @param it Pointer to the process_iterator structure
+ * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
  * @return 0 on success with process data in proc, -1 if no more processes
  *
@@ -332,29 +332,29 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *it, struct process *proc) {
-    if (it == NULL || proc == NULL || it->filter == NULL) {
+int get_next_process(struct process_iterator *iter, struct process *proc) {
+    if (iter == NULL || proc == NULL || iter->filter == NULL) {
         return -1;
     }
 
-    if (it->current_index >= it->count) {
+    if (iter->current_index >= iter->count) {
         return -1;
     }
 
     /* Handle single process without children */
-    if (it->filter->pid != 0 && !it->filter->include_children) {
-        if (read_process_info(it->kvm_descriptor, it->filter->pid, proc,
-                              it->filter->read_cmd) != 0) {
-            it->current_index = it->count = 0;
+    if (iter->filter->pid != 0 && !iter->filter->include_children) {
+        if (read_process_info(iter->kvm_descriptor, iter->filter->pid, proc,
+                              iter->filter->read_cmd) != 0) {
+            iter->current_index = iter->count = 0;
             return -1;
         }
-        it->current_index = it->count = 1;
+        iter->current_index = iter->count = 1;
         return 0;
     }
 
     /* Iterate through process snapshot */
-    while (it->current_index < it->count) {
-        struct kinfo_proc *kproc = &it->procs[it->current_index++];
+    while (iter->current_index < iter->count) {
+        struct kinfo_proc *kproc = &iter->procs[iter->current_index++];
         /* Skip kernel threads and zombie processes */
         if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
             continue;
@@ -363,16 +363,16 @@ int get_next_process(struct process_iterator *it, struct process *proc) {
          * Apply PID filter early using kinfo_proc data before
          * performing expensive conversion and command reading
          */
-        if (it->filter->pid != 0 && it->filter->include_children &&
-            kproc->ki_pid != it->filter->pid &&
-            !is_child_of_kvm_descriptor(it->kvm_descriptor, kproc->ki_pid,
-                                        it->filter->pid)) {
+        if (iter->filter->pid != 0 && iter->filter->include_children &&
+            kproc->ki_pid != iter->filter->pid &&
+            !is_child_of_kvm_descriptor(iter->kvm_descriptor, kproc->ki_pid,
+                                        iter->filter->pid)) {
             continue;
         }
 
         /* Convert to platform-independent structure */
-        if (kinfo_proc_to_proc(it->kvm_descriptor, kproc, proc,
-                               it->filter->read_cmd) != 0) {
+        if (kinfo_proc_to_proc(iter->kvm_descriptor, kproc, proc,
+                               iter->filter->read_cmd) != 0) {
             continue;
         }
 
@@ -384,7 +384,7 @@ int get_next_process(struct process_iterator *it, struct process *proc) {
 
 /**
  * @brief Close the process iterator and release allocated resources
- * @param it Pointer to the process_iterator structure to close
+ * @param iter Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
  *
  * Releases platform-specific resources allocated during initialization:
@@ -394,25 +394,25 @@ int get_next_process(struct process_iterator *it, struct process *proc) {
  *
  * After this call, the iterator must not be used until re-initialized.
  */
-int close_process_iterator(struct process_iterator *it) {
+int close_process_iterator(struct process_iterator *iter) {
     int ret = 0;
-    if (it == NULL) {
+    if (iter == NULL) {
         return -1;
     }
-    if (it->procs != NULL) {
-        free(it->procs);
-        it->procs = NULL;
+    if (iter->procs != NULL) {
+        free(iter->procs);
+        iter->procs = NULL;
     }
-    if (it->kvm_descriptor != NULL) {
-        if (kvm_close(it->kvm_descriptor) != 0) {
+    if (iter->kvm_descriptor != NULL) {
+        if (kvm_close(iter->kvm_descriptor) != 0) {
             perror("kvm_close");
             ret = -1;
         }
-        it->kvm_descriptor = NULL;
+        iter->kvm_descriptor = NULL;
     }
-    it->filter = NULL;
-    it->count = 0;
-    it->current_index = 0;
+    iter->filter = NULL;
+    iter->count = 0;
+    iter->current_index = 0;
     return ret;
 }
 

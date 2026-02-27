@@ -45,9 +45,9 @@
 
 /**
  * @brief Initialize a process iterator with specified filter criteria
- * @param it Pointer to the process_iterator structure to initialize
+ * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL it or filter);
+ * @return 0 on success, -1 on failure (including NULL iter or filter);
  *         may call exit() on fatal errors
  *         (e.g., out-of-memory)
  *
@@ -61,23 +61,23 @@
  * The filter pointer is stored and must remain valid until
  * close_process_iterator() is called.
  */
-int init_process_iterator(struct process_iterator *it,
+int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
-    if (it == NULL || filter == NULL) {
+    if (iter == NULL || filter == NULL) {
         return -1;
     }
-    it->filter = filter;
-    it->end_of_processes = 0;
-    if (it->filter->pid != 0 && !it->filter->include_children) {
+    iter->filter = filter;
+    iter->end_of_processes = 0;
+    if (iter->filter->pid != 0 && !iter->filter->include_children) {
         /*
          * Optimization: when querying a single process without children,
          * we can skip opening /proc directory entirely
          */
-        it->proc_dir = NULL;
+        iter->proc_dir = NULL;
         return 0;
     }
     /* Open /proc directory for iterating process entries */
-    if ((it->proc_dir = opendir("/proc")) == NULL) {
+    if ((iter->proc_dir = opendir("/proc")) == NULL) {
         perror("opendir");
         return -1;
     }
@@ -337,7 +337,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 
 /**
  * @brief Retrieve the next process matching the filter criteria
- * @param it Pointer to the process_iterator structure
+ * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
  * @return 0 on success with process data in proc, -1 if no more processes
  *
@@ -350,26 +350,26 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *it, struct process *proc) {
+int get_next_process(struct process_iterator *iter, struct process *proc) {
     const struct dirent *dir_entry = NULL;
 
-    if (it == NULL || proc == NULL || it->filter == NULL) {
+    if (iter == NULL || proc == NULL || iter->filter == NULL) {
         return -1;
     }
-    if (it->end_of_processes) {
+    if (iter->end_of_processes) {
         return -1;
     }
 
     /* Fast path for single process without children */
-    if (it->filter->pid != 0 && !it->filter->include_children) {
+    if (iter->filter->pid != 0 && !iter->filter->include_children) {
         int ret =
-            read_process_info(it->filter->pid, proc, it->filter->read_cmd);
-        it->end_of_processes = 1;
+            read_process_info(iter->filter->pid, proc, iter->filter->read_cmd);
+        iter->end_of_processes = 1;
         return ret == 0 ? 0 : -1;
     }
 
     /* Iterate through /proc entries to find matching processes */
-    while ((dir_entry = readdir(it->proc_dir)) != NULL) {
+    while ((dir_entry = readdir(iter->proc_dir)) != NULL) {
         pid_t pid;
         char *endptr;
         long tmp_pid;
@@ -394,24 +394,24 @@ int get_next_process(struct process_iterator *it, struct process *proc) {
             continue;
         }
         /* Apply PID filter: match target PID or its descendants */
-        if (it->filter->pid != 0 && it->filter->pid != pid &&
-            !is_child_of(pid, it->filter->pid)) {
+        if (iter->filter->pid != 0 && iter->filter->pid != pid &&
+            !is_child_of(pid, iter->filter->pid)) {
             continue;
         }
         /* Read process info and skip on failure (e.g., process exited) */
-        if (read_process_info(pid, proc, it->filter->read_cmd) != 0) {
+        if (read_process_info(pid, proc, iter->filter->read_cmd) != 0) {
             continue;
         }
         return 0;
     }
     /* Reached end of /proc directory */
-    it->end_of_processes = 1;
+    iter->end_of_processes = 1;
     return -1;
 }
 
 /**
  * @brief Close the process iterator and release allocated resources
- * @param it Pointer to the process_iterator structure to close
+ * @param iter Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
  *
  * Releases platform-specific resources allocated during initialization:
@@ -421,21 +421,21 @@ int get_next_process(struct process_iterator *it, struct process *proc) {
  *
  * After this call, the iterator must not be used until re-initialized.
  */
-int close_process_iterator(struct process_iterator *it) {
+int close_process_iterator(struct process_iterator *iter) {
     int ret = 0;
-    if (it == NULL) {
+    if (iter == NULL) {
         return -1;
     }
 
-    if (it->proc_dir != NULL) {
-        if ((ret = closedir(it->proc_dir)) != 0) {
+    if (iter->proc_dir != NULL) {
+        if ((ret = closedir(iter->proc_dir)) != 0) {
             perror("closedir");
         }
-        it->proc_dir = NULL;
+        iter->proc_dir = NULL;
     }
 
-    it->end_of_processes = 0;
-    it->filter = NULL;
+    iter->end_of_processes = 0;
+    iter->filter = NULL;
 
     return ret == 0 ? 0 : -1;
 }
