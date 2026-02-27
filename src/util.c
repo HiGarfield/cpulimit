@@ -427,7 +427,7 @@ int get_ncpu(void) {
  */
 int cpulimit_getloadavg(double *loadavg, int nelem) {
     struct sysinfo si;
-    int i;
+    int load_idx;
 
     if (nelem < 0) {
         return -1;
@@ -444,8 +444,8 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
     nelem = (nelem > 3) ? 3 : nelem;
 
     /* Convert fixed-point to floating-point using SI_LOAD_SHIFT */
-    for (i = 0; i < nelem; i++) {
-        loadavg[i] = (double)si.loads[i] / (1 << SI_LOAD_SHIFT);
+    for (load_idx = 0; load_idx < nelem; load_idx++) {
+        loadavg[load_idx] = (double)si.loads[load_idx] / (1 << SI_LOAD_SHIFT);
     }
 
     return nelem;

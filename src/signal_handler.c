@@ -85,7 +85,7 @@ static void sig_handler(int sig) {
  */
 void configure_signal_handler(void) {
     struct sigaction sig_action;
-    size_t i;
+    size_t sig_idx;
     /* Array of signals that should trigger graceful termination */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
@@ -101,8 +101,8 @@ void configure_signal_handler(void) {
              .sa_mask); /* Don't block additional signals during handler */
 
     /* Register the same handler for all termination signals */
-    for (i = 0; i < num_sigs; i++) {
-        if (sigaction(term_sigs[i], &sig_action, NULL) != 0) {
+    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
+        if (sigaction(term_sigs[sig_idx], &sig_action, NULL) != 0) {
             perror("Failed to set signal handler");
             exit(EXIT_FAILURE);
         }
