@@ -67,11 +67,12 @@ jobs:
           make clean
           make CHECK=1 CC=clang++
           make clean
-          mkdir build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          make
-          cd ..
+          rm -rf build
+          cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -S . -B build
+          cmake --build build
+          rm -rf build
+          cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -S . -B build
+          cmake --build build
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
             export CFLAGS="${CFLAGS-} -m32"
           fi
@@ -124,11 +125,12 @@ jobs:
             gmake CHECK=1 CC=clang
             gmake clean
             gmake CHECK=1 CC=clang++
-            mkdir build
-            cd build
-            cmake -DCMAKE_BUILD_TYPE=Release ..
-            make
-            cd ..
+            rm -rf build
+            cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -S . -B build
+            cmake --build build
+            rm -rf build
+            cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -S . -B build
+            cmake --build build
             gmake clean
             gmake CHECK=1
             random_folder="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
