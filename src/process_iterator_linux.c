@@ -111,7 +111,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     long ppid;
     static long sc_clk_tck = -1;
     FILE *cmdline_file;
-    size_t len;
+    size_t bytes_read;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -168,12 +168,13 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (cmdline_file == NULL) {
         return -1;
     }
-    len = fread(proc->command, 1, sizeof(proc->command) - 1, cmdline_file);
+    bytes_read =
+        fread(proc->command, 1, sizeof(proc->command) - 1, cmdline_file);
     fclose(cmdline_file);
-    if (len == 0) {
+    if (bytes_read == 0) {
         return -1;
     }
-    proc->command[len] = '\0';
+    proc->command[bytes_read] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")

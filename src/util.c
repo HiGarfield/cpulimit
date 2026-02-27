@@ -370,7 +370,7 @@ int get_ncpu(void) {
 #elif defined(__APPLE__) || defined(__FreeBSD__)
         /* macOS and FreeBSD: use sysctl interface */
         int ncpu = 0;
-        size_t len = sizeof(ncpu);
+        size_t ncpu_size = sizeof(ncpu);
         int mib[2];
 
         mib[0] = CTL_HW;
@@ -381,10 +381,10 @@ int get_ncpu(void) {
         /* Fall back to HW_NCPU if HW_AVAILCPU unavailable */
         mib[1] = HW_NCPU;
 #endif
-        if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1) {
+        if (sysctl(mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 || ncpu < 1) {
             /* Fallback: try HW_NCPU directly */
             mib[1] = HW_NCPU;
-            if (sysctl(mib, 2, &ncpu, &len, NULL, 0) != 0 || ncpu < 1) {
+            if (sysctl(mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 || ncpu < 1) {
                 ncpu = 1; /* Complete failure; assume 1 CPU */
             }
         }
