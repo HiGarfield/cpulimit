@@ -80,6 +80,7 @@ int init_process_iterator(struct process_iterator *iter,
     iter->proc_dir = opendir("/proc");
     if (iter->proc_dir == NULL) {
         perror("opendir");
+        close_process_iterator(iter);
         return -1;
     }
     return 0;
@@ -443,12 +444,8 @@ int close_process_iterator(struct process_iterator *iter) {
         if (ret != 0) {
             perror("closedir");
         }
-        iter->proc_dir = NULL;
     }
-
-    iter->end_of_processes = 0;
-    iter->filter = NULL;
-
+    memset(iter, 0, sizeof(*iter));
     return ret == 0 ? 0 : -1;
 }
 
