@@ -233,34 +233,6 @@ void *locate_elem(const struct list *lst, const void *elem, size_t offset,
 }
 
 /**
- * @brief Helper to remove all nodes, optionally freeing data
- * @param lst Pointer to the list
- * @param free_data If non-zero, frees each node's data pointer; otherwise
- *                  preserves data
- *
- * Traverses the list and frees all nodes. If free_data is non-zero, also
- * calls free() on each data pointer before freeing the node. Resets the
- * list to empty state (first=NULL, last=NULL, count=0).
- */
-static void clear_all_list_nodes(struct list *lst, int free_data) {
-    struct list_node *current, *next;
-    if (lst == NULL || lst->count == 0) {
-        return;
-    }
-    /* Traverse and free all nodes */
-    for (current = lst->first; current != NULL; current = next) {
-        next = current->next;
-        if (free_data && current->data != NULL) {
-            free(current->data);
-        }
-        free(current);
-    }
-    /* Reset list to empty state */
-    lst->first = lst->last = NULL;
-    lst->count = 0;
-}
-
-/**
  * @brief Remove all nodes from the list without freeing node data
  * @param lst Pointer to the list to clear
  *
@@ -272,7 +244,18 @@ static void clear_all_list_nodes(struct list *lst, int free_data) {
  * @note Safe to call with NULL list (does nothing)
  */
 void clear_list(struct list *lst) {
-    clear_all_list_nodes(lst, 0);
+    struct list_node *current, *next;
+    if (lst == NULL || lst->count == 0) {
+        return;
+    }
+    /* Traverse and free all nodes, preserving data pointers */
+    for (current = lst->first; current != NULL; current = next) {
+        next = current->next;
+        free(current);
+    }
+    /* Reset list to empty state */
+    lst->first = lst->last = NULL;
+    lst->count = 0;
 }
 
 /**
@@ -286,5 +269,19 @@ void clear_list(struct list *lst) {
  * @note Safe to call with NULL list (does nothing)
  */
 void destroy_list(struct list *lst) {
-    clear_all_list_nodes(lst, 1);
+    struct list_node *current, *next;
+    if (lst == NULL || lst->count == 0) {
+        return;
+    }
+    /* Traverse and free all nodes and their data */
+    for (current = lst->first; current != NULL; current = next) {
+        next = current->next;
+        if (current->data != NULL) {
+            free(current->data);
+        }
+        free(current);
+    }
+    /* Reset list to empty state */
+    lst->first = lst->last = NULL;
+    lst->count = 0;
 }
