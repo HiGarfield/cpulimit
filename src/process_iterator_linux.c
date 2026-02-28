@@ -374,6 +374,12 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         return ret == 0 ? 0 : -1;
     }
 
+    /* Guard against an uninitialized or failed iterator */
+    if (iter->proc_dir == NULL) {
+        iter->end_of_processes = 1;
+        return -1;
+    }
+
     /* Iterate through /proc entries to find matching processes */
     for (;;) {
         pid_t pid;
