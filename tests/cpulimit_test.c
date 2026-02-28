@@ -1410,7 +1410,7 @@ static void test_process_iterator_filter_edge_cases(void) {
     count = 0;
     ret = init_process_iterator(&iter, &filter);
     assert(ret == 0);
-    while (get_next_process(&iter, proc) == 0 && count < 10) {
+    while (count < 10 && get_next_process(&iter, proc) == 0) {
         /* Just iterate a few processes to verify iter works */
         count++;
     }
@@ -2715,41 +2715,60 @@ static void test_util_read_line_from_file(void) {
 static void test_util_macros(void) {
     /* Use volatile to prevent value-propagation in static analysers while
      * still testing the equal-argument and boundary-value edge cases */
-    volatile int eq1 = 4, eq2 = 4;
     volatile int clamp_low = 0, clamp_high = 10;
-    volatile int clamp_atlow = 0, clamp_athigh = 10;
-    int macro_val;
+    volatile int a, b, val, macro_val;
 
     /* MAX: larger-first, smaller-first, equal */
-    macro_val = MAX(5, 3);
+    a = 5;
+    b = 3;
+    macro_val = MAX(a, b);
     assert(macro_val == 5);
-    macro_val = MAX(3, 5);
+    a = 3;
+    b = 5;
+    macro_val = MAX(a, b);
     assert(macro_val == 5);
-    macro_val = MAX(eq1, eq2);
+    a = 4;
+    b = 4;
+    macro_val = MAX(a, b);
     assert(macro_val == 4);
-    macro_val = MAX(-1, 0);
+    a = -1;
+    b = 0;
+    macro_val = MAX(a, b);
     assert(macro_val == 0);
 
     /* MIN: smaller-first, larger-first, equal */
-    macro_val = MIN(3, 5);
+    a = 3;
+    b = 5;
+    macro_val = MIN(a, b);
     assert(macro_val == 3);
-    macro_val = MIN(5, 3);
+    a = 5;
+    b = 3;
+    macro_val = MIN(a, b);
     assert(macro_val == 3);
-    macro_val = MIN(eq1, eq2);
+    a = 4;
+    b = 4;
+    macro_val = MIN(a, b);
     assert(macro_val == 4);
-    macro_val = MIN(-1, 0);
+    a = -1;
+    b = 0;
+    macro_val = MIN(a, b);
     assert(macro_val == -1);
 
     /* CLAMP: value in range, below low, above high, equals low, equals high */
-    macro_val = CLAMP(5, 0, 10);
+    val = 5;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
     assert(macro_val == 5);
-    macro_val = CLAMP(-1, 0, 10);
+    val = -1;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
     assert(macro_val == 0);
-    macro_val = CLAMP(15, 0, 10);
+    val = 15;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
     assert(macro_val == 10);
-    macro_val = CLAMP(clamp_atlow, clamp_low, clamp_high);
+    val = 0;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
     assert(macro_val == 0);
-    macro_val = CLAMP(clamp_athigh, clamp_low, clamp_high);
+    val = 10;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
     assert(macro_val == 10);
 }
 
@@ -4051,7 +4070,7 @@ static void test_process_iterator_init_all_with_children(void) {
 
     ret = init_process_iterator(&iter, &filter);
     assert(ret == 0);
-    while (get_next_process(&iter, proc) == 0 && count < 5) {
+    while (count < 5 && get_next_process(&iter, proc) == 0) {
         count++;
     }
     assert(count > 0);
