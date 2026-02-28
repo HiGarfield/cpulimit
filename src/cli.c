@@ -234,8 +234,12 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
      * Process all options using getopt_long.
      * Leading '+' stops parsing at first non-option (for COMMAND mode)
      */
-    while ((option_char = getopt_long(argc, argv, "+:p:e:l:vzih", long_options,
-                                      NULL)) != -1) {
+    for (;;) {
+        option_char =
+            getopt_long(argc, argv, "+:p:e:l:vzih", long_options, NULL);
+        if (option_char == -1) {
+            break;
+        }
         switch (option_char) {
         case 'p': /* Process ID target */
             parse_pid_option(optarg, cfg);
