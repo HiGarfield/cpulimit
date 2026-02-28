@@ -234,7 +234,7 @@ pid_t getppid_of(pid_t pid) {
 /**
  * @brief Retrieve process start time from /proc filesystem
  * @param pid Process ID to query
- * @param start_time Pointer to timespec structure to populate
+ * @param start_time Pointer to timespec structure to populate; must not be NULL
  * @return 0 on success, -1 on failure
  *
  * Uses stat() on /proc/[pid] directory to get the modification time,
@@ -250,9 +250,6 @@ static int get_start_time(pid_t pid, struct timespec *start_time) {
     struct stat procfs_stat;
     char procfs_path[64];
     int ret;
-    if (start_time == NULL) {
-        return -1;
-    }
     snprintf(procfs_path, sizeof(procfs_path), "/proc/%ld", (long)pid);
     ret = stat(procfs_path, &procfs_stat);
     if (ret == 0) {

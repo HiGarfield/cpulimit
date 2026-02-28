@@ -149,8 +149,9 @@ int init_process_iterator(struct process_iterator *iter,
 /**
  * @brief Convert FreeBSD kinfo_proc structure to portable process structure
  * @param kvm_descriptor Kernel virtual memory descriptor for kvm_getargv()
- * @param kproc Pointer to source kinfo_proc structure
- * @param proc Pointer to destination process structure to populate
+ * @param kproc Pointer to source kinfo_proc structure; must not be NULL
+ * @param proc Pointer to destination process structure to populate;
+ *             must not be NULL
  * @param read_cmd Whether to read command path (0=skip, 1=read)
  * @return 0 on success, -1 on failure
  *
@@ -165,9 +166,6 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
                               struct process *proc, int read_cmd) {
     char **args;
     size_t len_max;
-    if (kproc == NULL || proc == NULL) {
-        return -1;
-    }
     memset(proc, 0, sizeof(struct process));
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;

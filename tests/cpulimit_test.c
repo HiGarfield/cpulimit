@@ -1410,7 +1410,7 @@ static void test_process_iterator_filter_edge_cases(void) {
     count = 0;
     ret = init_process_iterator(&iter, &filter);
     assert(ret == 0);
-    while (get_next_process(&iter, proc) == 0 && count < 10) {
+    while (count < 10 && get_next_process(&iter, proc) == 0) {
         /* Just iterate a few processes to verify iter works */
         count++;
     }
@@ -2718,7 +2718,7 @@ static void test_util_macros(void) {
     volatile int eq1 = 4, eq2 = 4;
     volatile int clamp_low = 0, clamp_high = 10;
     volatile int clamp_atlow = 0, clamp_athigh = 10;
-    int macro_val;
+    volatile int macro_val;
 
     /* MAX: larger-first, smaller-first, equal */
     macro_val = MAX(5, 3);
@@ -4051,7 +4051,7 @@ static void test_process_iterator_init_all_with_children(void) {
 
     ret = init_process_iterator(&iter, &filter);
     assert(ret == 0);
-    while (get_next_process(&iter, proc) == 0 && count < 5) {
+    while (count < 5 && get_next_process(&iter, proc) == 0) {
         count++;
     }
     assert(count > 0);
