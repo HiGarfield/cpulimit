@@ -58,8 +58,9 @@ void init_process_table(struct process_table *proc_table, size_t hash_size) {
     }
     proc_table->hash_size = hash_size;
     /* Allocate bucket array; calloc initializes all pointers to NULL */
-    if ((proc_table->buckets = (struct list **)calloc(
-             proc_table->hash_size, sizeof(struct list *))) == NULL) {
+    proc_table->buckets =
+        (struct list **)calloc(proc_table->hash_size, sizeof(struct list *));
+    if (proc_table->buckets == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
@@ -132,8 +133,9 @@ void add_to_process_table(struct process_table *proc_table,
     bucket_idx = pid_hash(proc_table, proc->pid);
     if (proc_table->buckets[bucket_idx] == NULL) {
         /* Bucket is empty; create new linked list for this bucket */
-        if ((proc_table->buckets[bucket_idx] =
-                 (struct list *)malloc(sizeof(struct list))) == NULL) {
+        proc_table->buckets[bucket_idx] =
+            (struct list *)malloc(sizeof(struct list));
+        if (proc_table->buckets[bucket_idx] == NULL) {
             fprintf(stderr, "Memory allocation failed for the process list\n");
             exit(EXIT_FAILURE);
         }

@@ -118,7 +118,8 @@ pid_t find_process_by_name(const char *process_name) {
     if (process_cmp_name[0] == '\0') {
         return 0;
     }
-    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    proc = (struct process *)malloc(sizeof(struct process));
+    if (proc == NULL) {
         fprintf(stderr, "Memory allocation failed for the process\n");
         exit(EXIT_FAILURE);
     }
@@ -197,8 +198,9 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
         return -1;
     }
     /* Allocate and initialize hashtable for fast process lookup by PID */
-    if ((proc_group->proc_table = (struct process_table *)malloc(
-             sizeof(struct process_table))) == NULL) {
+    proc_group->proc_table =
+        (struct process_table *)malloc(sizeof(struct process_table));
+    if (proc_group->proc_table == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
@@ -207,8 +209,8 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
     proc_group->include_children = include_children;
 
     /* Allocate and initialize linked list for process iteration */
-    if ((proc_group->proc_list = (struct list *)malloc(sizeof(struct list))) ==
-        NULL) {
+    proc_group->proc_list = (struct list *)malloc(sizeof(struct list));
+    if (proc_group->proc_list == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         destroy_process_table(proc_group->proc_table);
         free(proc_group->proc_table);
@@ -285,7 +287,8 @@ int close_process_group(struct process_group *proc_group) {
  */
 static struct process *process_dup(const struct process *proc) {
     struct process *new_proc;
-    if ((new_proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    new_proc = (struct process *)malloc(sizeof(struct process));
+    if (new_proc == NULL) {
         fprintf(stderr, "Memory allocation failed for duplicated process\n");
         exit(EXIT_FAILURE);
     }
@@ -357,8 +360,8 @@ void update_process_group(struct process_group *proc_group) {
         perror("get_current_time");
         exit(EXIT_FAILURE);
     }
-    if ((scan_proc = (struct process *)malloc(sizeof(struct process))) ==
-        NULL) {
+    scan_proc = (struct process *)malloc(sizeof(struct process));
+    if (scan_proc == NULL) {
         fprintf(stderr, "Memory allocation failed for scan_proc\n");
         exit(EXIT_FAILURE);
     }

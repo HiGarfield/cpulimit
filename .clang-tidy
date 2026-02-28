@@ -22,7 +22,6 @@ Checks: >
   -readability-identifier-naming,
   -readability-magic-numbers,
   -bugprone-easily-swappable-parameters,
-  -bugprone-assignment-in-if-condition,
   -bugprone-reserved-identifier,
   -bugprone-suspicious-include,
   -cert-*-cpp,

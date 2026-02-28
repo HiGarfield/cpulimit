@@ -62,7 +62,8 @@ static kvm_t *open_kvm(void) {
     kvm_t *kvm_descriptor;
     char *errbuf;
     /* Allocate error buffer for kvm interface */
-    if ((errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX)) == NULL) {
+    errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX);
+    if (errbuf == NULL) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);
     }
@@ -105,7 +106,8 @@ int init_process_iterator(struct process_iterator *iter,
      * Open kvm(3) interface to access kernel virtual memory and
      * process information
      */
-    if ((iter->kvm_descriptor = open_kvm()) == NULL) {
+    iter->kvm_descriptor = open_kvm();
+    if (iter->kvm_descriptor == NULL) {
         return -1;
     }
 
@@ -125,14 +127,16 @@ int init_process_iterator(struct process_iterator *iter,
      * Retrieve snapshot of all processes via KERN_PROC_PROC.
      * This returns a pointer to kernel data that must be copied.
      */
-    if ((proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
-                                      &iter->proc_count)) == NULL) {
+    proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
+                                 &iter->proc_count);
+    if (proc_snapshot == NULL) {
         kvm_close(iter->kvm_descriptor);
         return -1;
     }
     /* Copy process list to iterator's own memory */
-    if ((iter->kinfo_procs = (struct kinfo_proc *)malloc(
-             sizeof(struct kinfo_proc) * (size_t)iter->proc_count)) == NULL) {
+    iter->kinfo_procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
+                                                    (size_t)iter->proc_count);
+    if (iter->kinfo_procs == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         exit(EXIT_FAILURE);
     }
@@ -251,7 +255,8 @@ static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
 pid_t getppid_of(pid_t pid) {
     pid_t ppid;
     kvm_t *kvm_descriptor;
-    if ((kvm_descriptor = open_kvm()) == NULL) {
+    kvm_descriptor = open_kvm();
+    if (kvm_descriptor == NULL) {
         return (pid_t)(-1);
     }
     ppid = getppid_via_kvm(kvm_descriptor, pid);
@@ -309,7 +314,8 @@ static int is_child_via_kvm(kvm_t *kvm_descriptor, pid_t child_pid,
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret;
     kvm_t *kvm_descriptor;
-    if ((kvm_descriptor = open_kvm()) == NULL) {
+    kvm_descriptor = open_kvm();
+    if (kvm_descriptor == NULL) {
         exit(EXIT_FAILURE);
     }
     ret = is_child_via_kvm(kvm_descriptor, child_pid, parent_pid);
