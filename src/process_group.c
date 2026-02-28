@@ -197,25 +197,25 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
         return -1;
     }
     /* Allocate and initialize hashtable for fast process lookup by PID */
-    if ((pgroup->proctable = (struct process_table *)malloc(
+    if ((pgroup->proc_table = (struct process_table *)malloc(
              sizeof(struct process_table))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
-    init_process_table(pgroup->proctable, PROCESS_TABLE_HASHSIZE);
+    init_process_table(pgroup->proc_table, PROCESS_TABLE_HASHSIZE);
     pgroup->target_pid = target_pid;
     pgroup->include_children = include_children;
 
     /* Allocate and initialize linked list for process iteration */
-    if ((pgroup->proclist = (struct list *)malloc(sizeof(struct list))) ==
+    if ((pgroup->proc_list = (struct list *)malloc(sizeof(struct list))) ==
         NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
-        destroy_process_table(pgroup->proctable);
-        free(pgroup->proctable);
-        pgroup->proctable = NULL;
+        destroy_process_table(pgroup->proc_table);
+        free(pgroup->proc_table);
+        pgroup->proc_table = NULL;
         exit(EXIT_FAILURE);
     }
-    init_list(pgroup->proclist);
+    init_list(pgroup->proc_list);
 
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&pgroup->last_update) != 0) {
@@ -249,22 +249,22 @@ int close_process_group(struct process_group *pgroup) {
     if (pgroup == NULL) {
         return 0;
     }
-    if (pgroup->proclist != NULL) {
+    if (pgroup->proc_list != NULL) {
         /*
          * Use clear_list (not destroy_list) because the data pointers in
-         * proclist are the same process structs stored in proctable.
+         * proc_list are the same process structs stored in proc_table.
          * destroy_process_table below will free all data exactly once.
          * Using destroy_list here would double-free the process structs.
          */
-        clear_list(pgroup->proclist);
-        free(pgroup->proclist);
-        pgroup->proclist = NULL;
+        clear_list(pgroup->proc_list);
+        free(pgroup->proc_list);
+        pgroup->proc_list = NULL;
     }
 
-    if (pgroup->proctable != NULL) {
-        destroy_process_table(pgroup->proctable);
-        free(pgroup->proctable);
-        pgroup->proctable = NULL;
+    if (pgroup->proc_table != NULL) {
+        destroy_process_table(pgroup->proc_table);
+        free(pgroup->proc_table);
+        pgroup->proc_table = NULL;
     }
 
     /* Zero out remaining fields to prevent stale data after close */
@@ -376,23 +376,23 @@ void update_process_group(struct process_group *pgroup) {
     }
 
     /* Clear process list (will be rebuilt from scratch) */
-    clear_list(pgroup->proclist);
+    clear_list(pgroup->proc_list);
 
     /* Scan currently running processes and update tracking data */
     while (get_next_process(&iter, tmp_process) != -1) {
         struct process *proc =
-            find_in_process_table(pgroup->proctable, tmp_process->pid);
+            find_in_process_table(pgroup->proc_table, tmp_process->pid);
         if (proc == NULL) {
             /* New process detected: add to hashtable and list */
             proc = process_dup(tmp_process);
             /* Mark CPU usage as unknown until we have a time delta */
             proc->cpu_usage = -1;
-            add_to_process_table(pgroup->proctable, proc);
-            add_elem(pgroup->proclist, proc);
+            add_to_process_table(pgroup->proc_table, proc);
+            add_elem(pgroup->proc_list, proc);
         } else {
             double sample;
             /* Existing process: re-add to list for this cycle */
-            add_elem(pgroup->proclist, proc);
+            add_elem(pgroup->proc_list, proc);
             if (tmp_process->cputime < proc->cputime) {
                 /*
                  * CPU time decreased: PID has been reused for a new process.
@@ -457,7 +457,7 @@ void update_process_group(struct process_group *pgroup) {
     }
 
     /* Remove hash table entries for processes that are no longer running */
-    remove_stale_from_process_table(pgroup->proctable, pgroup->proclist);
+    remove_stale_from_process_table(pgroup->proc_table, pgroup->proc_list);
 
     /*
      * Update timestamp only if sufficient time passed for CPU calculation
@@ -481,7 +481,7 @@ void update_process_group(struct process_group *pgroup) {
  * - N = fully utilizing N CPU cores (on multi-core systems)
  *
  * The function:
- * 1. Iterates through all processes in proclist
+ * 1. Iterates through all processes in proc_list
  * 2. Sums cpu_usage for processes with valid measurements (cpu_usage >= 0)
  * 3. Returns -1 if all processes have unknown usage (first update cycle)
  *
@@ -495,7 +495,8 @@ double get_process_group_cpu_usage(const struct process_group *pgroup) {
     if (pgroup == NULL) {
         return -1;
     }
-    for (node = first_node(pgroup->proclist); node != NULL; node = node->next) {
+    for (node = first_node(pgroup->proc_list); node != NULL;
+         node = node->next) {
         const struct process *proc = (const struct process *)node->data;
         /* Skip NULL-data nodes (should not occur but defensive) */
         if (proc == NULL) {

@@ -1453,7 +1453,7 @@ static void test_process_group_rapid_updates(void) {
     for (proc_idx = 0; proc_idx < 20; proc_idx++) {
         size_t list_count;
         update_process_group(&pgroup);
-        list_count = get_list_count(pgroup.proclist);
+        list_count = get_list_count(pgroup.proc_list);
         assert(list_count == 1);
     }
 
@@ -1658,7 +1658,7 @@ static void test_process_group_init_all(void) {
     update_process_group(&pgroup);
 
     /* Count processes in the group */
-    for (node = pgroup.proclist->first; node != NULL; node = node->next) {
+    for (node = pgroup.proc_list->first; node != NULL; node = node->next) {
         const struct process *proc = (const struct process *)node->data;
         if (proc->pid == getpid()) {
             found_self = 1;
@@ -1667,7 +1667,7 @@ static void test_process_group_init_all(void) {
     }
     assert(count > 0);
     assert(found_self == 1);
-    list_cnt = get_list_count(pgroup.proclist);
+    list_cnt = get_list_count(pgroup.proc_list);
     assert(count == list_cnt);
 
     /* Update and verify again */
@@ -1718,10 +1718,10 @@ static void test_process_group_single(int include_children) {
         size_t list_count;
 
         update_process_group(&pgroup);
-        list_count = get_list_count(pgroup.proclist);
+        list_count = get_list_count(pgroup.proc_list);
         assert(list_count == 1);
 
-        for (node = pgroup.proclist->first; node != NULL; node = node->next) {
+        for (node = pgroup.proc_list->first; node != NULL; node = node->next) {
             const struct process *proc = (const struct process *)node->data;
             int cpu_unset;
             int cpu_valid;
@@ -1823,10 +1823,10 @@ static void test_process_group_init_invalid_pid(void) {
     /* Test with PID -1 */
     ret = init_process_group(&pgroup, -1, 0);
     assert(ret == 0);
-    list_count = get_list_count(pgroup.proclist);
+    list_count = get_list_count(pgroup.proc_list);
     assert(list_count == 0);
     update_process_group(&pgroup);
-    list_count = get_list_count(pgroup.proclist);
+    list_count = get_list_count(pgroup.proc_list);
     assert(list_count == 0);
     ret = close_process_group(&pgroup);
     assert(ret == 0);
@@ -1834,10 +1834,10 @@ static void test_process_group_init_invalid_pid(void) {
     /* Test with PID INT_MAX */
     ret = init_process_group(&pgroup, INT_MAX, 0);
     assert(ret == 0);
-    list_count = get_list_count(pgroup.proclist);
+    list_count = get_list_count(pgroup.proc_list);
     assert(list_count == 0);
     update_process_group(&pgroup);
-    list_count = get_list_count(pgroup.proclist);
+    list_count = get_list_count(pgroup.proc_list);
     assert(list_count == 0);
     ret = close_process_group(&pgroup);
     assert(ret == 0);
@@ -2055,7 +2055,7 @@ static void test_limit_process_basic(void) {
                 update_process_group(&pgroup);
 
                 /* Verify all num_procs processes are being monitored */
-                list_count = get_list_count(pgroup.proclist);
+                list_count = get_list_count(pgroup.proc_list);
                 assert(list_count == (size_t)num_procs);
 
                 temp_cpu_usage = get_process_group_cpu_usage(&pgroup);
@@ -2613,7 +2613,7 @@ static void test_process_group_cpu_usage_empty_list(void) {
     /* Initialize with INT_MAX: no such process exists, list stays empty */
     ret = init_process_group(&pgroup, (pid_t)INT_MAX, 0);
     assert(ret == 0);
-    list_count = get_list_count(pgroup.proclist);
+    list_count = get_list_count(pgroup.proc_list);
     assert(list_count == 0);
 
     /* Empty list must yield -1.0 (unknown) */
@@ -2839,7 +2839,7 @@ static void test_process_group_find_by_pid_init(void) {
 
 /**
  * @brief Test limit_process when the target has already exited
- * @note Exercises the empty-proclist early-exit branch in limit_process
+ * @note Exercises the empty-proc_list early-exit branch in limit_process
  */
 static void test_limit_process_exits_early(void) {
     const struct timespec wait_duration = {0, 50000000L}; /* 50 ms */
@@ -4180,8 +4180,8 @@ static void test_process_group_close_null(void) {
     assert(ret == 0);
 
     /* Partially initialised struct (NULL members) must also work */
-    pgroup.proctable = NULL;
-    pgroup.proclist = NULL;
+    pgroup.proc_table = NULL;
+    pgroup.proc_list = NULL;
     ret = close_process_group(&pgroup);
     assert(ret == 0);
 }
@@ -4201,8 +4201,8 @@ static void test_process_group_close_zeros_fields(void) {
     assert(pgroup.include_children == 1);
     ret = close_process_group(&pgroup);
     assert(ret == 0);
-    assert(pgroup.proclist == NULL);
-    assert(pgroup.proctable == NULL);
+    assert(pgroup.proc_list == NULL);
+    assert(pgroup.proc_table == NULL);
     assert(pgroup.target_pid == 0);
     assert(pgroup.include_children == 0);
     assert(pgroup.last_update.tv_sec == 0);
@@ -4354,7 +4354,7 @@ static void test_limiter_run_command_mode_false(void) {
 /**
  * @brief Test run_pid_or_exe_mode with exe mode, non-lazy, immediate exit
  *  via quit flag (verifies the non-lazy quit-flag early-exit path)
- * @note Uses a nonexistent exe so proclist stays empty, quit flag breaks loop
+ * @note Uses a nonexistent exe so proc_list stays empty, quit flag breaks loop
  */
 static void test_limiter_run_pid_or_exe_mode_quit(void) {
     pid_t pid;

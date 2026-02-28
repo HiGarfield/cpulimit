@@ -143,14 +143,14 @@ static double get_dynamic_time_slot(void) {
  */
 static void send_signal_to_processes(struct process_group *pgroup, int sig,
                                      int verbose) {
-    struct list_node *node = first_node(pgroup->proclist);
+    struct list_node *node = first_node(pgroup->proc_list);
     while (node != NULL) {
         struct list_node *next_node =
             node->next; /* Save before potential deletion */
         pid_t pid;
         if (node->data == NULL) {
             /* Defensive: skip and remove any NULL-data nodes */
-            delete_node(pgroup->proclist, node);
+            delete_node(pgroup->proc_list, node);
             node = next_node;
             continue;
         }
@@ -168,8 +168,8 @@ static void send_signal_to_processes(struct process_group *pgroup, int sig,
                         sig, (long)pid, strerror(saved_errno));
             }
             /* Remove dead/inaccessible process from tracking */
-            delete_node(pgroup->proclist, node);
-            delete_from_process_table(pgroup->proctable, pid);
+            delete_node(pgroup->proc_list, node);
+            delete_from_process_table(pgroup->proc_table, pid);
         }
         node = next_node;
     }
@@ -228,7 +228,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     if (verbose) {
         printf("Process group of PID %ld: %lu member(s)\n",
                (long)pgroup.target_pid,
-               (unsigned long)get_list_count(pgroup.proclist));
+               (unsigned long)get_list_count(pgroup.proc_list));
     }
 
     /*
@@ -243,7 +243,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         update_process_group(&pgroup);
 
         /* Exit if all target processes have terminated */
-        if (is_empty_list(pgroup.proclist)) {
+        if (is_empty_list(pgroup.proc_list)) {
             if (verbose) {
                 printf("No running target process found.\n");
             }
@@ -300,7 +300,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
                 send_signal_to_processes(&pgroup, SIGCONT, verbose);
                 stopped = 0;
                 /* Recheck process list after signaling */
-                if (is_empty_list(pgroup.proclist)) {
+                if (is_empty_list(pgroup.proc_list)) {
                     break;
                 }
             }
@@ -322,7 +322,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
                 send_signal_to_processes(&pgroup, SIGSTOP, verbose);
                 stopped = 1;
                 /* Recheck process list after signaling */
-                if (is_empty_list(pgroup.proclist)) {
+                if (is_empty_list(pgroup.proc_list)) {
                     break;
                 }
             }
