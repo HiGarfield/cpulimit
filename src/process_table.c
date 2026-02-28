@@ -58,7 +58,7 @@ void init_process_table(struct process_table *proc_table, size_t hashsize) {
     }
     proc_table->hashsize = hashsize;
     /* Allocate bucket array; calloc initializes all pointers to NULL */
-    if ((proc_table->table = (struct list **)calloc(
+    if ((proc_table->buckets = (struct list **)calloc(
              proc_table->hashsize, sizeof(struct list *))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
@@ -89,21 +89,21 @@ static size_t pid_hash(const struct process_table *proc_table, pid_t pid) {
  *
  * Performs O(1) average-case lookup by hashing the PID to determine the
  * bucket, then searching the linked list in that bucket. Returns NULL if
- * the process table is NULL, the table has been destroyed (proc_table->table is
- * NULL), the bucket is empty, or the PID is not found.
+ * the process table is NULL, the table has been destroyed (proc_table->buckets
+ * is NULL), the bucket is empty, or the PID is not found.
  */
 struct process *find_in_process_table(const struct process_table *proc_table,
                                       pid_t pid) {
     size_t bucket_idx;
-    if (proc_table == NULL || proc_table->table == NULL) {
+    if (proc_table == NULL || proc_table->buckets == NULL) {
         return NULL;
     }
     bucket_idx = pid_hash(proc_table, pid);
-    if (proc_table->table[bucket_idx] == NULL) {
+    if (proc_table->buckets[bucket_idx] == NULL) {
         return NULL;
     }
     /* Search the linked list in this bucket, comparing PIDs */
-    return (struct process *)locate_elem(proc_table->table[bucket_idx], &pid,
+    return (struct process *)locate_elem(proc_table->buckets[bucket_idx], &pid,
                                          offsetof(struct process, pid),
                                          sizeof(pid_t));
 }
@@ -121,28 +121,28 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  *       existing entry is left unchanged and the new process is not inserted
  *       (duplicate PIDs are ignored).
  * @note Safe to call when proc_table is NULL or the table has been destroyed
- *       (proc_table->table is NULL): the call is a no-op in both cases.
+ *       (proc_table->buckets is NULL): the call is a no-op in both cases.
  */
 void add_to_process_table(struct process_table *proc_table,
                           struct process *proc) {
     size_t bucket_idx;
-    if (proc_table == NULL || proc_table->table == NULL || proc == NULL) {
+    if (proc_table == NULL || proc_table->buckets == NULL || proc == NULL) {
         return;
     }
     bucket_idx = pid_hash(proc_table, proc->pid);
-    if (proc_table->table[bucket_idx] == NULL) {
+    if (proc_table->buckets[bucket_idx] == NULL) {
         /* Bucket is empty; create new linked list for this bucket */
-        if ((proc_table->table[bucket_idx] =
+        if ((proc_table->buckets[bucket_idx] =
                  (struct list *)malloc(sizeof(struct list))) == NULL) {
             fprintf(stderr, "Memory allocation failed for the process list\n");
             exit(EXIT_FAILURE);
         }
-        init_list(proc_table->table[bucket_idx]);
+        init_list(proc_table->buckets[bucket_idx]);
     }
     /* Verify process doesn't already exist before adding */
-    if (locate_elem(proc_table->table[bucket_idx], &proc->pid,
+    if (locate_elem(proc_table->buckets[bucket_idx], &proc->pid,
                     offsetof(struct process, pid), sizeof(pid_t)) == NULL) {
-        add_elem(proc_table->table[bucket_idx], proc);
+        add_elem(proc_table->buckets[bucket_idx], proc);
     }
 }
 
@@ -161,24 +161,24 @@ void add_to_process_table(struct process_table *proc_table,
 int delete_from_process_table(struct process_table *proc_table, pid_t pid) {
     struct list_node *node;
     size_t bucket_idx;
-    if (proc_table == NULL || proc_table->table == NULL) {
+    if (proc_table == NULL || proc_table->buckets == NULL) {
         return 1;
     }
     bucket_idx = pid_hash(proc_table, pid);
-    if (proc_table->table[bucket_idx] == NULL) {
+    if (proc_table->buckets[bucket_idx] == NULL) {
         return 1; /* Bucket is empty */
     }
-    node = locate_node(proc_table->table[bucket_idx], &pid,
+    node = locate_node(proc_table->buckets[bucket_idx], &pid,
                        offsetof(struct process, pid), sizeof(pid_t));
     if (node == NULL) {
         return 1; /* Process not found in bucket */
     }
     /* Remove node and free its data */
-    destroy_node(proc_table->table[bucket_idx], node);
+    destroy_node(proc_table->buckets[bucket_idx], node);
     /* If bucket is now empty, free the list structure */
-    if (is_empty_list(proc_table->table[bucket_idx])) {
-        free(proc_table->table[bucket_idx]);
-        proc_table->table[bucket_idx] = NULL;
+    if (is_empty_list(proc_table->buckets[bucket_idx])) {
+        free(proc_table->buckets[bucket_idx]);
+        proc_table->buckets[bucket_idx] = NULL;
     }
     return 0;
 }
@@ -191,42 +191,42 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid) {
  * Iterates through all buckets in the hash table and removes any process
  * entries whose PIDs are not present in the active_list. Also removes any
  * NULL-data nodes encountered. This prevents unbounded growth of the hash
- * table when tracked processes terminate.
+ * buckets when tracked processes terminate.
  * The process data for removed entries is freed.
  *
  * @note Safe to call with NULL pointer (does nothing)
- * @note Safe to call on a destroyed table (proc_table->table is NULL): does
+ * @note Safe to call on a destroyed table (proc_table->buckets is NULL): does
  * nothing
  */
 void remove_stale_from_process_table(struct process_table *proc_table,
                                      const struct list *active_list) {
     size_t bucket_idx;
-    if (proc_table == NULL || proc_table->table == NULL) {
+    if (proc_table == NULL || proc_table->buckets == NULL) {
         return;
     }
     for (bucket_idx = 0; bucket_idx < proc_table->hashsize; bucket_idx++) {
         struct list_node *node, *next_node;
-        if (proc_table->table[bucket_idx] == NULL) {
+        if (proc_table->buckets[bucket_idx] == NULL) {
             continue;
         }
-        for (node = first_node(proc_table->table[bucket_idx]); node != NULL;
+        for (node = first_node(proc_table->buckets[bucket_idx]); node != NULL;
              node = next_node) {
             next_node = node->next;
             if (node->data == NULL) {
                 /* Defensive: remove phantom NULL-data nodes */
-                destroy_node(proc_table->table[bucket_idx], node);
+                destroy_node(proc_table->buckets[bucket_idx], node);
             } else {
                 pid_t pid = ((const struct process *)node->data)->pid;
                 if (locate_elem(active_list, &pid,
                                 offsetof(struct process, pid),
                                 sizeof(pid_t)) == NULL) {
-                    destroy_node(proc_table->table[bucket_idx], node);
+                    destroy_node(proc_table->buckets[bucket_idx], node);
                 }
             }
         }
-        if (is_empty_list(proc_table->table[bucket_idx])) {
-            free(proc_table->table[bucket_idx]);
-            proc_table->table[bucket_idx] = NULL;
+        if (is_empty_list(proc_table->buckets[bucket_idx])) {
+            free(proc_table->buckets[bucket_idx]);
+            proc_table->buckets[bucket_idx] = NULL;
         }
     }
 }
@@ -237,24 +237,24 @@ void remove_stale_from_process_table(struct process_table *proc_table,
  *
  * Iterates through all buckets, destroying each linked list and its
  * contents (including process data), then frees the bucket array itself.
- * After destruction, the table pointer is set to NULL.
+ * After destruction, the buckets array pointer is set to NULL.
  *
  * @note Safe to call with NULL pointer (does nothing)
  */
 void destroy_process_table(struct process_table *proc_table) {
     size_t bucket_idx;
-    if (proc_table == NULL || proc_table->table == NULL) {
+    if (proc_table == NULL || proc_table->buckets == NULL) {
         return;
     }
     /* Free each bucket's linked list and its contents */
     for (bucket_idx = 0; bucket_idx < proc_table->hashsize; bucket_idx++) {
-        if (proc_table->table[bucket_idx] != NULL) {
-            destroy_list(proc_table->table[bucket_idx]);
-            free(proc_table->table[bucket_idx]);
+        if (proc_table->buckets[bucket_idx] != NULL) {
+            destroy_list(proc_table->buckets[bucket_idx]);
+            free(proc_table->buckets[bucket_idx]);
         }
     }
     /* Free the bucket array itself */
-    free((void *)proc_table->table);
-    proc_table->table = NULL;
+    free((void *)proc_table->buckets);
+    proc_table->buckets = NULL;
     proc_table->hashsize = 0;
 }

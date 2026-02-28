@@ -37,10 +37,10 @@ extern "C" {
 
 /**
  * @struct process_table
- * @brief Hash table for efficient process storage and lookup by PID
+ * @brief Hash buckets for efficient process storage and lookup by PID
  *
  * This structure implements a hash table using separate chaining to store
- * process structures. Each bucket in the table contains a linked list that
+ * process structures. Each bucket in the buckets contains a linked list that
  * holds processes whose PIDs hash to the same index. This provides O(1)
  * average-case lookup, insertion, and deletion operations.
  */
@@ -50,7 +50,7 @@ struct process_table {
      * Each bucket is NULL if empty, or points to a linked list of processes.
      * Processes are stored in separate chaining lists to handle collisions.
      */
-    struct list **table;
+    struct list **buckets;
 
     /**
      * Number of buckets in the hash table.
@@ -81,7 +81,7 @@ void init_process_table(struct process_table *proc_table, size_t hashsize);
  *
  * Performs O(1) average-case lookup by hashing the PID to determine the
  * bucket, then searching the linked list in that bucket. Returns NULL if
- * the process table is NULL, the table has been destroyed, the bucket is
+ * the process table is NULL, the buckets has been destroyed, the bucket is
  * empty, or the PID is not found.
  */
 struct process *find_in_process_table(const struct process_table *proc_table,
@@ -126,7 +126,7 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid);
  * Iterates through all buckets in the hash table and removes any process
  * entries whose PIDs are not present in the active_list. Also removes any
  * NULL-data nodes encountered. This prevents unbounded growth of the hash
- * table when tracked processes terminate.
+ * buckets when tracked processes terminate.
  * The process data for removed entries is freed.
  *
  * @note Safe to call with NULL pointer (does nothing)
@@ -141,7 +141,7 @@ void remove_stale_from_process_table(struct process_table *proc_table,
  *
  * Iterates through all buckets, destroying each linked list and its
  * contents (including process data), then frees the bucket array itself.
- * After destruction, the table pointer is set to NULL.
+ * After destruction, the buckets array pointer is set to NULL.
  *
  * @note Safe to call with NULL pointer (does nothing)
  */
