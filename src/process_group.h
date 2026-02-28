@@ -89,7 +89,7 @@ struct process_group {
  * signal permission without actually sending a signal. This is the standard
  * POSIX method for checking process liveness and accessibility.
  */
-pid_t find_process_by_pid(pid_t pid);
+pid_t pgrp_lookup_pid(pid_t pid);
 
 /**
  * @brief Find a running process by its executable name or path
@@ -108,11 +108,11 @@ pid_t find_process_by_pid(pid_t pid);
  *
  * @note Returns 0 immediately for NULL or empty process_name
  * @note Iterates through all processes in the system, which may be slow on
- *       systems with many processes. For known PIDs, use find_process_by_pid().
+ *       systems with many processes. For known PIDs, use pgrp_lookup_pid().
  * @note Calls exit(EXIT_FAILURE) on critical errors (e.g., memory allocation
  *       failure or iterator initialization failure)
  */
-pid_t find_process_by_name(const char *process_name);
+pid_t pgrp_find_exe(const char *process_name);
 
 /**
  * @brief Initialize a process group for monitoring and CPU limiting
@@ -132,8 +132,8 @@ pid_t find_process_by_name(const char *process_name);
  * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
  * @note After return, pgroup is fully initialized and ready for use
  */
-int init_process_group(struct process_group *pgroup, pid_t target_pid,
-                       int include_children);
+int pgrp_init(struct process_group *pgroup, pid_t target_pid,
+              int include_children);
 
 /**
  * @brief Release all resources associated with a process group
@@ -152,7 +152,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * @note After return, pgroup fields should not be accessed without
  *       re-initialization
  */
-int close_process_group(struct process_group *pgroup);
+int pgrp_close(struct process_group *pgroup);
 
 /**
  * @brief Refresh process group state and recalculate CPU usage
@@ -178,7 +178,7 @@ int close_process_group(struct process_group *pgroup);
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
  *       retrieval)
  */
-void update_process_group(struct process_group *pgroup);
+void pgrp_update(struct process_group *pgroup);
 
 /**
  * @brief Calculate aggregate CPU usage across all processes in the group
@@ -201,7 +201,7 @@ void update_process_group(struct process_group *pgroup);
  * @note Thread-safe if pgroup is not being modified concurrently
  * @note Safe to call with NULL pgroup (returns -1)
  */
-double get_process_group_cpu_usage(const struct process_group *pgroup);
+double pgrp_get_cpu(const struct process_group *pgroup);
 
 #ifdef __cplusplus
 }

@@ -129,7 +129,7 @@ void delete_node(struct list *lst, struct list_node *node) {
  * @note Safe to call with NULL list or node (frees node resources without
  *       modifying the list when lst is NULL; does nothing when node is NULL)
  */
-void destroy_node(struct list *lst, struct list_node *node) {
+void free_node(struct list *lst, struct list_node *node) {
     if (node != NULL && node->data != NULL) {
         free(node->data);
     }
@@ -191,8 +191,8 @@ struct list_node *first_node(const struct list *lst) {
  *
  * @note Returns NULL if list is NULL, elem is NULL, or length is 0
  */
-struct list_node *locate_node(const struct list *lst, const void *elem,
-                              size_t offset, size_t length) {
+struct list_node *find_node(const struct list *lst, const void *elem,
+                            size_t offset, size_t length) {
     struct list_node *current_node;
 
     if (lst == NULL || elem == NULL || length == 0) {
@@ -222,13 +222,13 @@ struct list_node *locate_node(const struct list *lst, const void *elem,
  * @param length Number of bytes to compare
  * @return Pointer to the matching element's data, or NULL if not found
  *
- * Convenience wrapper around locate_node() that returns the data pointer
+ * Convenience wrapper around find_node() that returns the data pointer
  * directly rather than the node. Useful when you need the element itself
  * and don't need to manipulate the node.
  */
-void *locate_elem(const struct list *lst, const void *elem, size_t offset,
-                  size_t length) {
-    struct list_node *node = locate_node(lst, elem, offset, length);
+void *find_elem(const struct list *lst, const void *elem, size_t offset,
+                size_t length) {
+    struct list_node *node = find_node(lst, elem, offset, length);
     return node != NULL ? node->data : NULL;
 }
 

@@ -198,8 +198,8 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         }
 
         /* Record time for timeout monitoring during cleanup */
-        if (get_current_time(&start_time) != 0) {
-            perror("get_current_time");
+        if (get_mono_time(&start_time) != 0) {
+            perror("get_mono_time");
             exit(EXIT_FAILURE);
         }
 
@@ -258,8 +258,8 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                 const struct timespec sleep_time = {
                     0, 50000000L}; /* 50 milliseconds */
                 struct timespec current_time;
-                if (get_current_time(&current_time) != 0) {
-                    perror("get_current_time");
+                if (get_mono_time(&current_time) != 0) {
+                    perror("get_mono_time");
                     exit(EXIT_FAILURE);
                 }
 
@@ -329,8 +329,8 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     int exit_status = EXIT_SUCCESS;
 
     while (!is_quit_flag_set()) {
-        pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
-                                   : find_process_by_name(cfg->exe_name);
+        pid_t found_pid = pid_mode ? pgrp_lookup_pid(cfg->target_pid)
+                                   : pgrp_find_exe(cfg->exe_name);
 
         if (found_pid == 0) {
             /* Process does not exist */

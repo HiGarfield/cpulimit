@@ -219,10 +219,10 @@ struct process_iterator {
  *          process
  *
  * The filter pointer is stored and must remain valid until
- * close_process_iterator() is called.
+ * iter_close() is called.
  */
-int init_process_iterator(struct process_iterator *iter,
-                          const struct process_filter *filter);
+int iter_init(struct process_iterator *iter,
+              const struct process_filter *filter);
 
 /**
  * @brief Retrieve the next process matching the filter criteria
@@ -240,7 +240,7 @@ int init_process_iterator(struct process_iterator *iter,
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *iter, struct process *proc);
+int iter_next(struct process_iterator *iter, struct process *proc);
 
 /**
  * @brief Close the process iterator and release allocated resources
@@ -254,7 +254,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc);
  *
  * After this call, the iterator must not be used until re-initialized.
  */
-int close_process_iterator(struct process_iterator *iter);
+int iter_close(struct process_iterator *iter);
 
 /**
  * @brief Determine if one process is a descendant of another
@@ -289,7 +289,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid);
  * Returns -1 if the process does not exist, is a zombie, or if system
  * call fails.
  */
-pid_t getppid_of(pid_t pid);
+pid_t get_ppid_of(pid_t pid);
 
 #ifdef __cplusplus
 }

@@ -90,10 +90,10 @@ static kvm_t *open_kvm(void) {
  *          process
  *
  * The filter pointer is stored and must remain valid until
- * close_process_iterator() is called.
+ * iter_close() is called.
  */
-int init_process_iterator(struct process_iterator *iter,
-                          const struct process_filter *filter) {
+int iter_init(struct process_iterator *iter,
+              const struct process_filter *filter) {
     const struct kinfo_proc *proc_snapshot;
 
     if (iter == NULL || filter == NULL) {
@@ -113,7 +113,7 @@ int init_process_iterator(struct process_iterator *iter,
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         /*
          * Skip retrieving full process list when querying a single
-         * process; get_next_process() will use kvm_getprocs() directly
+         * process; iter_next() will use kvm_getprocs() directly
          */
         iter->kinfo_procs = NULL;
         iter->current_index = 0;
@@ -248,7 +248,7 @@ static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
  * Returns -1 if the process does not exist, is a zombie, or if system
  * call fails.
  */
-pid_t getppid_of(pid_t pid) {
+pid_t get_ppid_of(pid_t pid) {
     pid_t ppid;
     kvm_t *kvm_descriptor;
     if ((kvm_descriptor = open_kvm()) == NULL) {
@@ -332,7 +332,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *iter, struct process *proc) {
+int iter_next(struct process_iterator *iter, struct process *proc) {
     if (iter == NULL || proc == NULL || iter->filter == NULL) {
         return -1;
     }
@@ -394,7 +394,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
  *
  * After this call, the iterator must not be used until re-initialized.
  */
-int close_process_iterator(struct process_iterator *iter) {
+int iter_close(struct process_iterator *iter) {
     int ret = 0;
     if (iter == NULL) {
         return -1;

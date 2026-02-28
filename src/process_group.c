@@ -50,7 +50,7 @@
  * signal permission without actually sending a signal. This is the standard
  * POSIX method for checking process liveness and accessibility.
  */
-pid_t find_process_by_pid(pid_t pid) {
+pid_t pgrp_lookup_pid(pid_t pid) {
     /* Reject invalid PIDs (must be positive) */
     if (pid <= 0) {
         return 0;
@@ -84,11 +84,11 @@ pid_t find_process_by_pid(pid_t pid) {
  * chosen.
  *
  * @note Iterates through all processes in the system, which may be slow on
- *       systems with many processes. For known PIDs, use find_process_by_pid().
+ *       systems with many processes. For known PIDs, use pgrp_lookup_pid().
  * @note Calls exit(EXIT_FAILURE) on critical errors (e.g., memory allocation
  *       failure or iterator initialization failure)
  */
-pid_t find_process_by_name(const char *process_name) {
+pid_t pgrp_find_exe(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
     struct process_iterator iter;
@@ -127,14 +127,14 @@ pid_t find_process_by_name(const char *process_name) {
     filter.pid = 0;
     filter.include_children = 0;
     filter.read_cmd = 1;
-    if (init_process_iterator(&iter, &filter) != 0) {
+    if (iter_init(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(proc);
         exit(EXIT_FAILURE);
     }
 
     /* Scan all processes to find matching executable */
-    while (get_next_process(&iter, proc) != -1) {
+    while (iter_next(&iter, proc) != -1) {
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : file_basename(proc->command);
         /* Check if this process matches the target name */
@@ -153,13 +153,13 @@ pid_t find_process_by_name(const char *process_name) {
         }
     }
     free(proc);
-    if (close_process_iterator(&iter) != 0) {
+    if (iter_close(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
     }
 
     /* Verify the found process still exists and is accessible */
-    return found ? find_process_by_pid(pid) : 0;
+    return found ? pgrp_lookup_pid(pid) : 0;
 }
 
 /**
@@ -191,8 +191,8 @@ pid_t find_process_by_name(const char *process_name) {
  * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
  * @note After return, pgroup is fully initialized and ready for use
  */
-int init_process_group(struct process_group *pgroup, pid_t target_pid,
-                       int include_children) {
+int pgrp_init(struct process_group *pgroup, pid_t target_pid,
+              int include_children) {
     if (pgroup == NULL) {
         return -1;
     }
@@ -202,7 +202,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
-    init_process_table(pgroup->proc_table, PROCESS_TABLE_HASHSIZE);
+    ptbl_init(pgroup->proc_table, PROCESS_TABLE_HASHSIZE);
     pgroup->target_pid = target_pid;
     pgroup->include_children = include_children;
 
@@ -210,7 +210,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
     if ((pgroup->proc_list = (struct list *)malloc(sizeof(struct list))) ==
         NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
-        destroy_process_table(pgroup->proc_table);
+        ptbl_destroy(pgroup->proc_table);
         free(pgroup->proc_table);
         pgroup->proc_table = NULL;
         exit(EXIT_FAILURE);
@@ -218,13 +218,13 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
     init_list(pgroup->proc_list);
 
     /* Record baseline timestamp for CPU usage calculation */
-    if (get_current_time(&pgroup->last_update) != 0) {
-        perror("get_current_time");
-        close_process_group(pgroup);
+    if (get_mono_time(&pgroup->last_update) != 0) {
+        perror("get_mono_time");
+        pgrp_close(pgroup);
         exit(EXIT_FAILURE);
     }
     /* Perform initial scan to populate process list */
-    update_process_group(pgroup);
+    pgrp_update(pgroup);
     return 0;
 }
 
@@ -245,7 +245,7 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * @note After return, pgroup fields should not be accessed without
  *       re-initialization
  */
-int close_process_group(struct process_group *pgroup) {
+int pgrp_close(struct process_group *pgroup) {
     if (pgroup == NULL) {
         return 0;
     }
@@ -253,7 +253,7 @@ int close_process_group(struct process_group *pgroup) {
         /*
          * Use clear_list (not destroy_list) because the data pointers in
          * proc_list are the same process structs stored in proc_table.
-         * destroy_process_table below will free all data exactly once.
+         * ptbl_destroy below will free all data exactly once.
          * Using destroy_list here would double-free the process structs.
          */
         clear_list(pgroup->proc_list);
@@ -262,7 +262,7 @@ int close_process_group(struct process_group *pgroup) {
     }
 
     if (pgroup->proc_table != NULL) {
-        destroy_process_table(pgroup->proc_table);
+        ptbl_destroy(pgroup->proc_table);
         free(pgroup->proc_table);
         pgroup->proc_table = NULL;
     }
@@ -340,7 +340,7 @@ static struct process *process_dup(const struct process *proc) {
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
  *       retrieval)
  */
-void update_process_group(struct process_group *pgroup) {
+void pgrp_update(struct process_group *pgroup) {
     struct process_iterator iter;
     struct process *tmp_process;
     struct process_filter filter;
@@ -353,8 +353,8 @@ void update_process_group(struct process_group *pgroup) {
     ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
 
     /* Get current timestamp for delta calculation */
-    if (get_current_time(&now) != 0) {
-        perror("get_current_time");
+    if (get_mono_time(&now) != 0) {
+        perror("get_mono_time");
         exit(EXIT_FAILURE);
     }
     if ((tmp_process = (struct process *)malloc(sizeof(struct process))) ==
@@ -369,7 +369,7 @@ void update_process_group(struct process_group *pgroup) {
     filter.pid = pgroup->target_pid;
     filter.include_children = pgroup->include_children;
     filter.read_cmd = 0;
-    if (init_process_iterator(&iter, &filter) != 0) {
+    if (iter_init(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(tmp_process);
         exit(EXIT_FAILURE);
@@ -379,15 +379,14 @@ void update_process_group(struct process_group *pgroup) {
     clear_list(pgroup->proc_list);
 
     /* Scan currently running processes and update tracking data */
-    while (get_next_process(&iter, tmp_process) != -1) {
-        struct process *proc =
-            find_in_process_table(pgroup->proc_table, tmp_process->pid);
+    while (iter_next(&iter, tmp_process) != -1) {
+        struct process *proc = ptbl_find(pgroup->proc_table, tmp_process->pid);
         if (proc == NULL) {
             /* New process detected: add to hashtable and list */
             proc = process_dup(tmp_process);
             /* Mark CPU usage as unknown until we have a time delta */
             proc->cpu_usage = -1;
-            add_to_process_table(pgroup->proc_table, proc);
+            ptbl_add(pgroup->proc_table, proc);
             add_elem(pgroup->proc_list, proc);
         } else {
             double sample;
@@ -451,13 +450,13 @@ void update_process_group(struct process_group *pgroup) {
         }
     }
     free(tmp_process);
-    if (close_process_iterator(&iter) != 0) {
+    if (iter_close(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
     }
 
     /* Remove hash table entries for processes that are no longer running */
-    remove_stale_from_process_table(pgroup->proc_table, pgroup->proc_list);
+    ptbl_remove_stale(pgroup->proc_table, pgroup->proc_list);
 
     /*
      * Update timestamp only if sufficient time passed for CPU calculation
@@ -489,7 +488,7 @@ void update_process_group(struct process_group *pgroup) {
  * @note Thread-safe if pgroup is not being modified concurrently
  * @note Safe to call with NULL pgroup (returns -1)
  */
-double get_process_group_cpu_usage(const struct process_group *pgroup) {
+double pgrp_get_cpu(const struct process_group *pgroup) {
     const struct list_node *node;
     double cpu_usage = -1;
     if (pgroup == NULL) {

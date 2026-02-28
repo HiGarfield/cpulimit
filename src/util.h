@@ -98,7 +98,7 @@ void nsec2timespec(double nsec, struct timespec *result_ts);
  * gettimeofday() as a final fallback. Provides at least microsecond
  * resolution on all supported platforms.
  */
-int get_current_time(struct timespec *result_ts);
+int get_mono_time(struct timespec *result_ts);
 
 /**
  * @brief Sleep for a specified duration

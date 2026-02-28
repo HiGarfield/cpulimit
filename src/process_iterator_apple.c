@@ -58,10 +58,10 @@
  *          process
  *
  * The filter pointer is stored and must remain valid until
- * close_process_iterator() is called.
+ * iter_close() is called.
  */
-int init_process_iterator(struct process_iterator *iter,
-                          const struct process_filter *filter) {
+int iter_init(struct process_iterator *iter,
+              const struct process_filter *filter) {
     const int max_retries = 5, min_buffer_size = 1024 * (int)sizeof(pid_t);
     int buffer_size, retries, success = 0;
 
@@ -74,7 +74,7 @@ int init_process_iterator(struct process_iterator *iter,
     /* Optimization: single process without children requires no snapshot */
     if (filter->pid != 0 && !filter->include_children) {
         /*
-         * Skip retrieving process list; get_next_process() will
+         * Skip retrieving process list; iter_next() will
          * query the single process directly
          */
         iter->proc_count = 1;
@@ -245,7 +245,7 @@ static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
  * Returns -1 if the process does not exist, is a zombie, or if system
  * call fails.
  */
-pid_t getppid_of(pid_t pid) {
+pid_t get_ppid_of(pid_t pid) {
     struct proc_taskallinfo task_info;
     if (get_proc_taskinfo(pid, &task_info) == 0) {
         return (pid_t)task_info.pbsd.pbi_ppid;
@@ -279,11 +279,11 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
      * (PID 1)
      */
     if (parent_pid == 1) {
-        return getppid_of(child_pid) != (pid_t)(-1);
+        return get_ppid_of(child_pid) != (pid_t)(-1);
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
-        child_pid = getppid_of(child_pid);
+        child_pid = get_ppid_of(child_pid);
     }
     return child_pid == parent_pid;
 }
@@ -297,7 +297,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  *
  * Internal helper that retrieves task information via get_proc_taskinfo()
  * and converts iter to the platform-independent process structure via
- * proc_taskinfo_to_proc(). Used by get_next_process() for both
+ * proc_taskinfo_to_proc(). Used by iter_next() for both
  * single-process and multi-process iteration.
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
@@ -327,7 +327,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
  * and processes not matching the PID filter criteria.
  */
-int get_next_process(struct process_iterator *iter, struct process *proc) {
+int iter_next(struct process_iterator *iter, struct process *proc) {
     if (iter == NULL || proc == NULL || iter->filter == NULL) {
         return -1;
     }
@@ -376,7 +376,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
  *
  * After this call, the iterator must not be used until re-initialized.
  */
-int close_process_iterator(struct process_iterator *iter) {
+int iter_close(struct process_iterator *iter) {
     if (iter == NULL) {
         return -1;
     }

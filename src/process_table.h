@@ -69,9 +69,9 @@ struct process_table {
  * buckets to NULL. The hash table uses separate chaining for collision
  * resolution. If memory allocation fails, the program exits with an error.
  *
- * @note The caller must call destroy_process_table() to free resources
+ * @note The caller must call ptbl_destroy() to free resources
  */
-void init_process_table(struct process_table *proc_table, size_t hash_size);
+void ptbl_init(struct process_table *proc_table, size_t hash_size);
 
 /**
  * @brief Look up a process in the table by its PID
@@ -84,8 +84,7 @@ void init_process_table(struct process_table *proc_table, size_t hash_size);
  * the process table is NULL, the buckets has been destroyed, the bucket is
  * empty, or the PID is not found.
  */
-struct process *find_in_process_table(const struct process_table *proc_table,
-                                      pid_t pid);
+struct process *ptbl_find(const struct process_table *proc_table, pid_t pid);
 
 /**
  * @brief Insert a process into the hash table
@@ -101,8 +100,7 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  *       (duplicate PIDs are ignored).
  * @note Safe to call on a destroyed table (does nothing)
  */
-void add_to_process_table(struct process_table *proc_table,
-                          struct process *proc);
+void ptbl_add(struct process_table *proc_table, struct process *proc);
 
 /**
  * @brief Remove a process from the hash table by PID
@@ -116,7 +114,7 @@ void add_to_process_table(struct process_table *proc_table,
  * bucket's linked list structure. The process data itself is freed by this
  * operation.
  */
-int delete_from_process_table(struct process_table *proc_table, pid_t pid);
+int ptbl_erase(struct process_table *proc_table, pid_t pid);
 
 /**
  * @brief Remove stale entries from the hash table
@@ -132,8 +130,8 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid);
  * @note Safe to call with NULL pointer (does nothing)
  * @note Safe to call on a destroyed table (does nothing)
  */
-void remove_stale_from_process_table(struct process_table *proc_table,
-                                     const struct list *active_list);
+void ptbl_remove_stale(struct process_table *proc_table,
+                       const struct list *active_list);
 
 /**
  * @brief Destroy the hash table and free all associated memory
@@ -145,7 +143,7 @@ void remove_stale_from_process_table(struct process_table *proc_table,
  *
  * @note Safe to call with NULL pointer (does nothing)
  */
-void destroy_process_table(struct process_table *proc_table);
+void ptbl_destroy(struct process_table *proc_table);
 
 #ifdef __cplusplus
 }

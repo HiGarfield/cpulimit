@@ -90,12 +90,12 @@ static double get_dynamic_time_slot(void) {
 
     /* First call: initialize random seed and timestamp */
     if (!initialized) {
-        if (get_current_time(&last_update) == 0) {
+        if (get_mono_time(&last_update) == 0) {
             /* Seed PRNG with current time for randomization */
             srandom((unsigned int)(last_update.tv_nsec ^ last_update.tv_sec));
             initialized = 1;
         }
-    } else if (get_current_time(&now) == 0 &&
+    } else if (get_mono_time(&now) == 0 &&
                timediff_in_ms(&now, &last_update) >= 1000.0 &&
                getloadavg(&load, 1) == 1) {
         double new_time_slot;
@@ -169,7 +169,7 @@ static void send_signal_to_processes(struct process_group *pgroup, int sig,
             }
             /* Remove dead/inaccessible process from tracking */
             delete_node(pgroup->proc_list, node);
-            delete_from_process_table(pgroup->proc_table, pid);
+            ptbl_erase(pgroup->proc_table, pid);
         }
         node = next_node;
     }
@@ -219,7 +219,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     increase_priority();
 
     /* Initialize process group tracking structure */
-    if (init_process_group(&pgroup, pid, include_children) != 0) {
+    if (pgrp_init(&pgroup, pid, include_children) != 0) {
         fprintf(stderr, "Failed to initialize process group for PID %ld\n",
                 (long)pid);
         exit(EXIT_FAILURE);
@@ -240,7 +240,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         struct timespec work_time, sleep_time;
 
         /* Refresh process list and update CPU usage measurements */
-        update_process_group(&pgroup);
+        pgrp_update(&pgroup);
 
         /* Exit if all target processes have terminated */
         if (is_empty_list(pgroup.proc_list)) {
@@ -251,7 +251,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         }
 
         /* Get current CPU usage of all processes in group */
-        cpu_usage = get_process_group_cpu_usage(&pgroup);
+        cpu_usage = pgrp_get_cpu(&pgroup);
         /*
          * If CPU usage unknown (first samples), assume maximum.
          * This prevents over-execution during initialization.
@@ -356,5 +356,5 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     send_signal_to_processes(&pgroup, SIGCONT, 0);
 
     /* Release process tracking resources */
-    close_process_group(&pgroup);
+    pgrp_close(&pgroup);
 }
