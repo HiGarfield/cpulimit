@@ -94,7 +94,7 @@ static kvm_t *open_kvm(void) {
  */
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
-    const struct kinfo_proc *procs;
+    const struct kinfo_proc *proc_snapshot;
 
     if (iter == NULL || filter == NULL) {
         return -1;
@@ -115,9 +115,9 @@ int init_process_iterator(struct process_iterator *iter,
          * Skip retrieving full process list when querying a single
          * process; get_next_process() will use kvm_getprocs() directly
          */
-        iter->procs = NULL;
+        iter->kinfo_procs = NULL;
         iter->current_index = 0;
-        iter->count = 1;
+        iter->proc_count = 1;
         return 0;
     }
 
@@ -125,18 +125,19 @@ int init_process_iterator(struct process_iterator *iter,
      * Retrieve snapshot of all processes via KERN_PROC_PROC.
      * This returns a pointer to kernel data that must be copied.
      */
-    if ((procs = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
-                              &iter->count)) == NULL) {
+    if ((proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
+                                      &iter->proc_count)) == NULL) {
         kvm_close(iter->kvm_descriptor);
         return -1;
     }
     /* Copy process list to iterator's own memory */
-    if ((iter->procs = (struct kinfo_proc *)malloc(
-             sizeof(struct kinfo_proc) * (size_t)iter->count)) == NULL) {
+    if ((iter->kinfo_procs = (struct kinfo_proc *)malloc(
+             sizeof(struct kinfo_proc) * (size_t)iter->proc_count)) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         exit(EXIT_FAILURE);
     }
-    memcpy(iter->procs, procs, sizeof(struct kinfo_proc) * (size_t)iter->count);
+    memcpy(iter->kinfo_procs, proc_snapshot,
+           sizeof(struct kinfo_proc) * (size_t)iter->proc_count);
     iter->current_index = 0;
     return 0;
 }
@@ -337,7 +338,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         return -1;
     }
 
-    if (iter->current_index >= iter->count) {
+    if (iter->current_index >= iter->proc_count) {
         return -1;
     }
 
@@ -345,16 +346,16 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         if (read_process_info(iter->kvm_descriptor, iter->filter->pid, proc,
                               iter->filter->read_cmd) != 0) {
-            iter->current_index = iter->count = 0;
+            iter->current_index = iter->proc_count = 0;
             return -1;
         }
-        iter->current_index = iter->count = 1;
+        iter->current_index = iter->proc_count = 1;
         return 0;
     }
 
     /* Iterate through process snapshot */
-    while (iter->current_index < iter->count) {
-        struct kinfo_proc *kproc = &iter->procs[iter->current_index++];
+    while (iter->current_index < iter->proc_count) {
+        struct kinfo_proc *kproc = &iter->kinfo_procs[iter->current_index++];
         /* Skip kernel threads and zombie processes */
         if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
             continue;
@@ -399,9 +400,9 @@ int close_process_iterator(struct process_iterator *iter) {
     if (iter == NULL) {
         return -1;
     }
-    if (iter->procs != NULL) {
-        free(iter->procs);
-        iter->procs = NULL;
+    if (iter->kinfo_procs != NULL) {
+        free(iter->kinfo_procs);
+        iter->kinfo_procs = NULL;
     }
     if (iter->kvm_descriptor != NULL) {
         if (kvm_close(iter->kvm_descriptor) != 0) {
@@ -411,7 +412,7 @@ int close_process_iterator(struct process_iterator *iter) {
         iter->kvm_descriptor = NULL;
     }
     iter->filter = NULL;
-    iter->count = 0;
+    iter->proc_count = 0;
     iter->current_index = 0;
     return ret;
 }

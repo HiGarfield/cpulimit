@@ -77,7 +77,7 @@ int init_process_iterator(struct process_iterator *iter,
          * Skip retrieving process list; get_next_process() will
          * query the single process directly
          */
-        iter->count = 1;
+        iter->proc_count = 1;
         return 0;
     }
     /*
@@ -96,12 +96,12 @@ int init_process_iterator(struct process_iterator *iter,
     for (retries = 0; retries < max_retries; retries++) {
         int bytes;
 
-        if ((iter->pidlist = (pid_t *)malloc((size_t)buffer_size)) == NULL) {
+        if ((iter->pid_list = (pid_t *)malloc((size_t)buffer_size)) == NULL) {
             break;
         }
 
         /* Populate buffer with process IDs */
-        bytes = proc_listpids(PROC_ALL_PIDS, 0, iter->pidlist, buffer_size);
+        bytes = proc_listpids(PROC_ALL_PIDS, 0, iter->pid_list, buffer_size);
         if (bytes <= 0) {
             /* System call failed - cannot recover */
             break;
@@ -112,22 +112,22 @@ int init_process_iterator(struct process_iterator *iter,
          * between our allocation and the system call.
          */
         if (bytes < buffer_size) {
-            iter->count = bytes / (int)sizeof(pid_t);
+            iter->proc_count = bytes / (int)sizeof(pid_t);
             success = 1;
             break;
         }
 
         /* Buffer too small - free and retry with larger size */
-        free(iter->pidlist);
-        iter->pidlist = NULL;
+        free(iter->pid_list);
+        iter->pid_list = NULL;
         buffer_size *= 2;
     }
 
     /* Fatal error if all retries exhausted or allocation failed */
     if (!success) {
-        if (iter->pidlist != NULL) {
-            free(iter->pidlist);
-            iter->pidlist = NULL;
+        if (iter->pid_list != NULL) {
+            free(iter->pid_list);
+            iter->pid_list = NULL;
         }
         exit(EXIT_FAILURE);
     }
@@ -331,22 +331,22 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     if (iter == NULL || proc == NULL || iter->filter == NULL) {
         return -1;
     }
-    if (iter->current_index >= iter->count) {
+    if (iter->current_index >= iter->proc_count) {
         return -1;
     }
     /* Handle single process without children */
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         if (read_process_info(iter->filter->pid, proc,
                               iter->filter->read_cmd) == 0) {
-            iter->current_index = iter->count = 1;
+            iter->current_index = iter->proc_count = 1;
             return 0;
         }
-        iter->current_index = iter->count = 0;
+        iter->current_index = iter->proc_count = 0;
         return -1;
     }
     /* Iterate through process ID list, applying filters */
-    while (iter->current_index < iter->count) {
-        if (read_process_info(iter->pidlist[iter->current_index], proc,
+    while (iter->current_index < iter->proc_count) {
+        if (read_process_info(iter->pid_list[iter->current_index], proc,
                               iter->filter->read_cmd) == 0) {
             /*
              * Apply PID filter after reading process info.
@@ -380,12 +380,12 @@ int close_process_iterator(struct process_iterator *iter) {
     if (iter == NULL) {
         return -1;
     }
-    if (iter->pidlist != NULL) {
-        free(iter->pidlist);
-        iter->pidlist = NULL;
+    if (iter->pid_list != NULL) {
+        free(iter->pid_list);
+        iter->pid_list = NULL;
     }
     iter->filter = NULL;
-    iter->count = 0;
+    iter->proc_count = 0;
     iter->current_index = 0;
     return 0;
 }

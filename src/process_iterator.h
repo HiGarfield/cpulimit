@@ -168,33 +168,33 @@ struct process_iterator {
      * Snapshot of all process information structures.
      * Populated by kvm_getprocs() at initialization.
      */
-    struct kinfo_proc *procs;
+    struct kinfo_proc *kinfo_procs;
 
     /**
      * Total number of processes in the snapshot.
      */
-    int count;
+    int proc_count;
 
     /**
-     * Current iteration index into the procs array.
+     * Current iteration index into the kinfo_procs array.
      */
     int current_index;
 #elif defined(__APPLE__)
     /**
-     * Current iteration index into the pidlist array.
+     * Current iteration index into the pid_list array.
      */
     int current_index;
 
     /**
      * Total number of process IDs in the list.
      */
-    int count;
+    int proc_count;
 
     /**
      * Snapshot of all process IDs in the system.
      * Populated by proc_listpids() at initialization.
      */
-    pid_t *pidlist;
+    pid_t *pid_list;
 #endif
 
     /**
