@@ -4226,8 +4226,7 @@ static void test_process_iterator_null_proc_dir_guard(void) {
     ret = get_next_process(&iter, proc);
     assert(ret == -1);
 
-    /* Restore filter for a clean close */
-    filter.pid = getpid();
+    /* close_process_iterator handles a zeroed iterator correctly */
     ret = close_process_iterator(&iter);
     assert(ret == 0);
 
