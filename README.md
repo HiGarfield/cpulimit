@@ -65,22 +65,22 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
   cpulimit -l 50 -p 1234
   ```
 
-- For the process named `myapp`, limit its CPU usage to 50% of one CPU core:
+- For the process named `myprogram`, limit its CPU usage to 50% of one CPU core:
 
   ```sh
-  cpulimit -l 50 -e myapp
+  cpulimit -l 50 -e myprogram
   ```
 
-- Run the command `myapp --option` and limit its CPU usage to 50% of one CPU core:
+- Run the command `myprogram --option` and limit its CPU usage to 50% of one CPU core:
 
   ```sh
-  cpulimit -l 50 -- myapp --option
+  cpulimit -l 50 -- myprogram --option
   ```
 
-- For the process named `myapp` and its child processes, limit their total CPU usage to 50% of one CPU core:
+- For the process named `myprogram` and its child processes, limit their total CPU usage to 50% of one CPU core:
 
   ```sh
-  cpulimit -l 50 -i -e myapp
+  cpulimit -l 50 -i -e myprogram
   ```
 
 ## Get the Latest Source Code
@@ -97,18 +97,29 @@ The latest version of the code is available here:
 
 ### Build and Install
 
-- **On Linux/macOS:**
+To build and install cpulimit from source, use one of the following methods:
+
+- **Build and install with `make` on Linux/macOS:**
 
   ```sh
   make  # For older compilers, try: make NOFLAGS=1
   sudo make install
   ```
 
-- **On FreeBSD:**
+- **Build and install with `gmake` on FreeBSD:**
 
   ```sh
   gmake  # For older compilers, try: gmake NOFLAGS=1
   sudo gmake install
+  ```
+
+- **Build and install with `cmake` on Linux/macOS/FreeBSD (CMake version 3.15 or higher):**
+
+  ```sh
+  rm -rf build
+  cmake -B build -DCMAKE_BUILD_TYPE=Release
+  cmake --build build
+  sudo cmake --install build --prefix /usr/local
   ```
 
 - **Without a build environment:** Use prebuilt binaries from [Releases](https://github.com/HiGarfield/cpulimit/releases/latest)
@@ -120,25 +131,13 @@ The latest version of the code is available here:
 
 ### Uninstall
 
-- **On Linux/macOS:**
-
-  ```sh
-  sudo make uninstall
-  ```
-
-- **On FreeBSD:**
-
-  ```sh
-  sudo gmake uninstall
-  ```
-
-- **Without a build environment:**
-
   ```sh
   sudo rm -f /usr/local/bin/cpulimit
   ```
 
 ### Run Tests
+
+The following examples are demonstrated using the executables built with `make` or `gmake`. If you built with CMake, replace both the `./src/` and `./tests/` directories in the commands below with `./build/`.
 
 - **Run unit tests:**
 
