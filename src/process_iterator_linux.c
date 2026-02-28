@@ -344,7 +344,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * @brief Retrieve the next process matching the filter criteria
  * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
- * @return 0 on success with process data in proc, -1 if no more processes
+ * @return 0 on success with process data in proc, -1 if no more processes or
+ *         if iter, proc, or iter->filter is NULL
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
