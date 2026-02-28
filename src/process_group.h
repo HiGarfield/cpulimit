@@ -116,10 +116,10 @@ pid_t find_process_by_name(const char *process_name);
 
 /**
  * @brief Initialize a process group for monitoring and CPU limiting
- * @param pgroup Pointer to uninitialized process_group structure to set up
+ * @param proc_group Pointer to uninitialized process_group structure to set up
  * @param target_pid PID of the primary process to monitor
  * @param include_children Non-zero to monitor descendants, zero for target only
- * @return 0 on success, -1 if pgroup is NULL; exits on other errors
+ * @return 0 on success, -1 if proc_group is NULL; exits on other errors
  *
  * This function:
  * 1. Allocates and initializes the process hashtable with a fixed number of
@@ -128,16 +128,16 @@ pid_t find_process_by_name(const char *process_name);
  * 3. Records the current time as baseline for CPU calculations
  * 4. Performs initial update to populate the process list
  *
- * @note Returns -1 immediately if pgroup is NULL
+ * @note Returns -1 immediately if proc_group is NULL
  * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
- * @note After return, pgroup is fully initialized and ready for use
+ * @note After return, proc_group is fully initialized and ready for use
  */
-int init_process_group(struct process_group *pgroup, pid_t target_pid,
+int init_process_group(struct process_group *proc_group, pid_t target_pid,
                        int include_children);
 
 /**
  * @brief Release all resources associated with a process group
- * @param pgroup Pointer to the process_group structure to clean up
+ * @param proc_group Pointer to the process_group structure to clean up
  * @return 0 on success (always succeeds)
  *
  * This function:
@@ -145,18 +145,18 @@ int init_process_group(struct process_group *pgroup, pid_t target_pid,
  * 2. Destroys and frees the process hashtable
  * 3. Sets pointers to NULL and zeros numeric fields for safety
  *
- * @note Safe to call with NULL pgroup (returns 0 immediately)
- * @note Safe to call even if pgroup is partially initialized (NULLs are
+ * @note Safe to call with NULL proc_group (returns 0 immediately)
+ * @note Safe to call even if proc_group is partially initialized (NULLs are
  *       handled)
  * @note Does not send any signals to processes; they continue running
- * @note After return, pgroup fields should not be accessed without
+ * @note After return, proc_group fields should not be accessed without
  *       re-initialization
  */
-int close_process_group(struct process_group *pgroup);
+int close_process_group(struct process_group *proc_group);
 
 /**
  * @brief Refresh process group state and recalculate CPU usage
- * @param pgroup Pointer to the process_group structure to update
+ * @param proc_group Pointer to the process_group structure to update
  *
  * This function performs a complete refresh of the process group:
  * 1. Scans /proc (or platform equivalent) for current target and descendants
@@ -173,19 +173,19 @@ int close_process_group(struct process_group *pgroup);
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
- * @note Safe to call with NULL pgroup (returns immediately)
+ * @note Safe to call with NULL proc_group (returns immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
  *       retrieval)
  */
-void update_process_group(struct process_group *pgroup);
+void update_process_group(struct process_group *proc_group);
 
 /**
  * @brief Calculate aggregate CPU usage across all processes in the group
- * @param pgroup Pointer to the process_group structure to query
+ * @param proc_group Pointer to the process_group structure to query
  * @return Sum of CPU usage values for all processes with known usage, or
  *         -1.0 if no processes have valid CPU measurements yet or if
- *         pgroup is NULL
+ *         proc_group is NULL
  *
  * CPU usage is expressed as a fraction of total system CPU capacity:
  * - 0.0 = idle
@@ -198,10 +198,10 @@ void update_process_group(struct process_group *pgroup);
  * 3. Returns -1 if all processes have unknown usage (first update cycle)
  *
  * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
- * @note Thread-safe if pgroup is not being modified concurrently
- * @note Safe to call with NULL pgroup (returns -1)
+ * @note Thread-safe if proc_group is not being modified concurrently
+ * @note Safe to call with NULL proc_group (returns -1)
  */
-double get_process_group_cpu_usage(const struct process_group *pgroup);
+double get_process_group_cpu_usage(const struct process_group *proc_group);
 
 #ifdef __cplusplus
 }

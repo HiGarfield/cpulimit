@@ -375,7 +375,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     while ((dir_entry = readdir(iter->proc_dir)) != NULL) {
         pid_t pid;
         char *endptr;
-        long tmp_pid;
+        long long_pid;
 #ifdef _DIRENT_HAVE_D_TYPE
         /*
          * Optimization: skip non-directories if d_type is available.
@@ -388,11 +388,11 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
 #endif
         /* Process directories have numeric names */
         errno = 0;
-        tmp_pid = strtol(dir_entry->d_name, &endptr, 10);
+        long_pid = strtol(dir_entry->d_name, &endptr, 10);
         if (errno != 0 || endptr == dir_entry->d_name || *endptr != '\0') {
             continue;
         }
-        pid = long2pid_t(tmp_pid);
+        pid = long2pid_t(long_pid);
         if (pid <= 0) {
             continue;
         }

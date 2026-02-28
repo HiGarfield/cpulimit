@@ -130,7 +130,7 @@ static double get_dynamic_time_slot(void) {
 
 /**
  * @brief Send a signal to all processes in a process group
- * @param pgroup Pointer to process group structure containing target
+ * @param proc_group Pointer to process group structure containing target
  *                  processes
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
  * @param verbose If non-zero, print errors when signal delivery fails
@@ -141,16 +141,16 @@ static double get_dynamic_time_slot(void) {
  *
  * @note Safe iteration: stores next node before potential deletion
  */
-static void send_signal_to_processes(struct process_group *pgroup, int sig,
+static void send_signal_to_processes(struct process_group *proc_group, int sig,
                                      int verbose) {
-    struct list_node *node = first_node(pgroup->proc_list);
+    struct list_node *node = first_node(proc_group->proc_list);
     while (node != NULL) {
         struct list_node *next_node =
             node->next; /* Save before potential deletion */
         pid_t pid;
         if (node->data == NULL) {
             /* Defensive: skip and remove any NULL-data nodes */
-            delete_node(pgroup->proc_list, node);
+            delete_node(proc_group->proc_list, node);
             node = next_node;
             continue;
         }
@@ -168,8 +168,8 @@ static void send_signal_to_processes(struct process_group *pgroup, int sig,
                         sig, (long)pid, strerror(saved_errno));
             }
             /* Remove dead/inaccessible process from tracking */
-            delete_node(pgroup->proc_list, node);
-            delete_from_process_table(pgroup->proc_table, pid);
+            delete_node(proc_group->proc_list, node);
+            delete_from_process_table(proc_group->proc_table, pid);
         }
         node = next_node;
     }
@@ -202,7 +202,7 @@ static void send_signal_to_processes(struct process_group *pgroup, int sig,
  * @note Always resumes suspended processes (sends SIGCONT) before returning
  */
 void limit_process(pid_t pid, double limit, int include_children, int verbose) {
-    struct process_group pgroup;
+    struct process_group proc_group;
     int cycle_counter = 0, ncpu = get_ncpu();
     double work_ratio; /* Fraction of time processes should be running */
     int stopped =
@@ -219,7 +219,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     increase_priority();
 
     /* Initialize process group tracking structure */
-    if (init_process_group(&pgroup, pid, include_children) != 0) {
+    if (init_process_group(&proc_group, pid, include_children) != 0) {
         fprintf(stderr, "Failed to initialize process group for PID %ld\n",
                 (long)pid);
         exit(EXIT_FAILURE);
@@ -227,8 +227,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
 
     if (verbose) {
         printf("Process group of PID %ld: %lu member(s)\n",
-               (long)pgroup.target_pid,
-               (unsigned long)get_list_count(pgroup.proc_list));
+               (long)proc_group.target_pid,
+               (unsigned long)get_list_count(proc_group.proc_list));
     }
 
     /*
@@ -240,10 +240,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         struct timespec work_time, sleep_time;
 
         /* Refresh process list and update CPU usage measurements */
-        update_process_group(&pgroup);
+        update_process_group(&proc_group);
 
         /* Exit if all target processes have terminated */
-        if (is_empty_list(pgroup.proc_list)) {
+        if (is_empty_list(proc_group.proc_list)) {
             if (verbose) {
                 printf("No running target process found.\n");
             }
@@ -251,7 +251,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         }
 
         /* Get current CPU usage of all processes in group */
-        cpu_usage = get_process_group_cpu_usage(&pgroup);
+        cpu_usage = get_process_group_cpu_usage(&proc_group);
         /*
          * If CPU usage unknown (first samples), assume maximum.
          * This prevents over-execution during initialization.
@@ -297,10 +297,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
             if (stopped) {
                 /* Resume all stopped processes */
-                send_signal_to_processes(&pgroup, SIGCONT, verbose);
+                send_signal_to_processes(&proc_group, SIGCONT, verbose);
                 stopped = 0;
                 /* Recheck process list after signaling */
-                if (is_empty_list(pgroup.proc_list)) {
+                if (is_empty_list(proc_group.proc_list)) {
                     break;
                 }
             }
@@ -319,10 +319,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
             if (!stopped) {
                 /* Stop all running processes */
-                send_signal_to_processes(&pgroup, SIGSTOP, verbose);
+                send_signal_to_processes(&proc_group, SIGSTOP, verbose);
                 stopped = 1;
                 /* Recheck process list after signaling */
-                if (is_empty_list(pgroup.proc_list)) {
+                if (is_empty_list(proc_group.proc_list)) {
                     break;
                 }
             }
@@ -353,8 +353,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
      * Critical: Always resume any stopped processes before exit.
      * Leaving processes in stopped state would render them unusable.
      */
-    send_signal_to_processes(&pgroup, SIGCONT, 0);
+    send_signal_to_processes(&proc_group, SIGCONT, 0);
 
     /* Release process tracking resources */
-    close_process_group(&pgroup);
+    close_process_group(&proc_group);
 }
