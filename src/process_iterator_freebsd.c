@@ -21,8 +21,8 @@
 
 #ifdef __FreeBSD__
 
-#ifndef CPULIMIT_PROCESS_ITERATOR_FREEBSD_C
-#define CPULIMIT_PROCESS_ITERATOR_FREEBSD_C
+#ifndef CPULIMIT_PROC_ITER_FREEBSD_C
+#define CPULIMIT_PROC_ITER_FREEBSD_C
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -224,7 +224,7 @@ static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
  * Uses an existing kvm descriptor to query PPID. This avoids the overhead
  * of repeatedly opening and closing kvm when checking multiple processes.
  */
-static pid_t getppid_of_kvm_descriptor(kvm_t *kvm_descriptor, pid_t pid) {
+static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
     int count;
     struct kinfo_proc *kproc;
     if (pid <= 0) {
@@ -254,7 +254,7 @@ pid_t getppid_of(pid_t pid) {
     if ((kvm_descriptor = open_kvm()) == NULL) {
         return (pid_t)(-1);
     }
-    ppid = getppid_of_kvm_descriptor(kvm_descriptor, pid);
+    ppid = getppid_via_kvm(kvm_descriptor, pid);
     kvm_close(kvm_descriptor);
     return ppid;
 }
@@ -270,8 +270,8 @@ pid_t getppid_of(pid_t pid) {
  * if parent_pid appears in the ancestry. Uses an existing kvm descriptor to
  * avoid repeated open/close overhead.
  */
-static int is_child_of_kvm_descriptor(kvm_t *kvm_descriptor, pid_t child_pid,
-                                      pid_t parent_pid) {
+static int is_child_via_kvm(kvm_t *kvm_descriptor, pid_t child_pid,
+                            pid_t parent_pid) {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
@@ -280,12 +280,11 @@ static int is_child_of_kvm_descriptor(kvm_t *kvm_descriptor, pid_t child_pid,
      * (PID 1)
      */
     if (parent_pid == 1) {
-        return getppid_of_kvm_descriptor(kvm_descriptor, child_pid) !=
-               (pid_t)(-1);
+        return getppid_via_kvm(kvm_descriptor, child_pid) != (pid_t)(-1);
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
-        child_pid = getppid_of_kvm_descriptor(kvm_descriptor, child_pid);
+        child_pid = getppid_via_kvm(kvm_descriptor, child_pid);
     }
     return child_pid == parent_pid;
 }
@@ -313,7 +312,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     if ((kvm_descriptor = open_kvm()) == NULL) {
         exit(EXIT_FAILURE);
     }
-    ret = is_child_of_kvm_descriptor(kvm_descriptor, child_pid, parent_pid);
+    ret = is_child_via_kvm(kvm_descriptor, child_pid, parent_pid);
     kvm_close(kvm_descriptor);
     return ret;
 }
@@ -366,8 +365,8 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
          */
         if (iter->filter->pid != 0 && iter->filter->include_children &&
             kproc->ki_pid != iter->filter->pid &&
-            !is_child_of_kvm_descriptor(iter->kvm_descriptor, kproc->ki_pid,
-                                        iter->filter->pid)) {
+            !is_child_via_kvm(iter->kvm_descriptor, kproc->ki_pid,
+                              iter->filter->pid)) {
             continue;
         }
 
@@ -417,5 +416,5 @@ int close_process_iterator(struct process_iterator *iter) {
     return ret;
 }
 
-#endif /* CPULIMIT_PROCESS_ITERATOR_FREEBSD_C */
+#endif /* CPULIMIT_PROC_ITER_FREEBSD_C */
 #endif /* __FreeBSD__ */
