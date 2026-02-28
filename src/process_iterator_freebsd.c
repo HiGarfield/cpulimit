@@ -317,7 +317,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     kvm_t *kvm_descriptor;
     kvm_descriptor = open_kvm();
     if (kvm_descriptor == NULL) {
-        exit(EXIT_FAILURE);
+        return 0;
     }
     ret = is_child_via_kvm(kvm_descriptor, child_pid, parent_pid);
     kvm_close(kvm_descriptor);
