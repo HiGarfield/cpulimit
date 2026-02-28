@@ -81,8 +81,8 @@ void init_process_table(struct process_table *proc_table, size_t hash_size);
  *
  * Performs O(1) average-case lookup by hashing the PID to determine the
  * bucket, then searching the linked list in that bucket. Returns NULL if
- * the process table is NULL, the buckets has been destroyed, the bucket is
- * empty, or the PID is not found.
+ * the process table is NULL, the table has been destroyed (proc_table->buckets
+ * is NULL), the bucket is empty, or the PID is not found.
  */
 struct process *find_in_process_table(const struct process_table *proc_table,
                                       pid_t pid);
@@ -99,7 +99,8 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  * @note If a process with the same PID is already present in the table, the
  *       existing entry is left unchanged and the new process is not inserted
  *       (duplicate PIDs are ignored).
- * @note Safe to call on a destroyed table (does nothing)
+ * @note Safe to call when proc_table is NULL or the table has been destroyed
+ *       (proc_table->buckets is NULL): the call is a no-op in both cases.
  */
 void add_to_process_table(struct process_table *proc_table,
                           struct process *proc);
@@ -130,7 +131,8 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid);
  * The process data for removed entries is freed.
  *
  * @note Safe to call with NULL pointer (does nothing)
- * @note Safe to call on a destroyed table (does nothing)
+ * @note Safe to call on a destroyed table (proc_table->buckets is NULL): does
+ * nothing
  */
 void remove_stale_from_process_table(struct process_table *proc_table,
                                      const struct list *active_list);

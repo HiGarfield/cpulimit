@@ -122,8 +122,8 @@ pid_t find_process_by_name(const char *process_name);
  * @return 0 on success, -1 if proc_group is NULL; exits on other errors
  *
  * This function:
- * 1. Allocates and initializes the process hashtable with a fixed number of
- *    buckets
+ * 1. Allocates and initializes the process hashtable (PROCESS_TABLE_HASHSIZE
+ *    buckets)
  * 2. Allocates and initializes the process list
  * 3. Records the current time as baseline for CPU calculations
  * 4. Performs initial update to populate the process list
