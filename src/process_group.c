@@ -213,9 +213,7 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
     proc_group->proc_list = (struct list *)malloc(sizeof(struct list));
     if (proc_group->proc_list == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
-        destroy_process_table(proc_group->proc_table);
-        free(proc_group->proc_table);
-        proc_group->proc_table = NULL;
+        close_process_group(proc_group);
         exit(EXIT_FAILURE);
     }
     init_list(proc_group->proc_list);
