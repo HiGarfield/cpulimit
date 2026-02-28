@@ -126,21 +126,13 @@ void delete_node(struct list *lst, struct list_node *node) {
  * then frees the node structure. Use this only when the data was allocated
  * with malloc() and has no other references.
  *
- * @note Safe to call with NULL list or node (frees node resources without
- *       modifying the list when lst is NULL; does nothing when node is NULL)
+ * @note Safe to call with NULL list or node; does nothing when either is NULL.
  */
 void destroy_node(struct list *lst, struct list_node *node) {
-    if (node != NULL && node->data != NULL) {
-        free(node->data);
-    }
-    if (lst == NULL) {
-        /*
-         * No list to unlink from; free the node struct directly so it
-         * is not leaked.  free(NULL) is safe if node is NULL.
-         */
-        free(node);
+    if (lst == NULL || node == NULL) {
         return;
     }
+    free(node->data);
     delete_node(lst, node);
 }
 
@@ -276,9 +268,7 @@ void destroy_list(struct list *lst) {
     /* Traverse and free all nodes and their data */
     for (current = lst->first; current != NULL; current = next) {
         next = current->next;
-        if (current->data != NULL) {
-            free(current->data);
-        }
+        free(current->data);
         free(current);
     }
     /* Reset list to empty state */
