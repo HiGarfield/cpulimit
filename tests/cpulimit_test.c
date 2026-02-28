@@ -894,7 +894,7 @@ static void test_process_table_remove_stale(void) {
  * member are exposed in the public header, so this access is intentional;
  * the bucket_idx computation mirrors process_table's own pid_hash() formula.
  */
-static void test_process_table_remove_stale_null_data(void) {
+static void test_ptab_stale_null_data(void) {
     struct process_table proc_table;
     struct list active_list;
     struct process *proc1;
@@ -1009,7 +1009,7 @@ static void test_signal_handler_flags(void) {
  * @brief Test is_child_of function
  * @note Tests process ancestry checking
  */
-static void test_process_iterator_is_child_of(void) {
+static void test_iter_is_child_of(void) {
     pid_t child_pid, parent_pid;
     int result;
 
@@ -1251,7 +1251,7 @@ static void test_util_time_edge_cases(void) {
  * @brief Test file_basename with edge cases
  * @note Tests various path formats
  */
-static void test_util_file_basename_edge_cases(void) {
+static void test_util_basename_edges(void) {
     const char *result;
     int cmp_ret;
 
@@ -1354,7 +1354,7 @@ static void test_process_table_collisions(void) {
  * @brief Test process table with empty buckets
  * @note Tests operations when some buckets are empty
  */
-static void test_process_table_empty_buckets(void) {
+static void test_ptab_empty_buckets(void) {
     struct process_table proc_table;
     struct list active_list;
     struct process *proc1, *proc2;
@@ -1392,7 +1392,7 @@ static void test_process_table_empty_buckets(void) {
  * @brief Test process iterator filter edge cases
  * @note Tests various filter configurations
  */
-static void test_process_iterator_filter_edge_cases(void) {
+static void test_iter_filter_edges(void) {
     struct process_iterator iter;
     struct process *proc;
     struct process_filter filter;
@@ -1425,7 +1425,7 @@ static void test_process_iterator_filter_edge_cases(void) {
  * @brief Test process group with rapid updates
  * @note Tests update_process_group called in quick succession
  */
-static void test_process_group_rapid_updates(void) {
+static void test_pg_rapid_updates(void) {
     struct process_group pgroup;
     pid_t child_pid;
     int proc_idx;
@@ -1765,7 +1765,7 @@ static char *argv0 = NULL;
  * @note Verifies that the process iterator can correctly retrieve the
  *  command name of the current process
  */
-static void test_process_iterator_read_command(void) {
+static void test_iter_read_cmd(void) {
     struct process_iterator iter;
     struct process *proc;
     struct process_filter filter;
@@ -1815,7 +1815,7 @@ static void test_process_iterator_read_command(void) {
  * @note Verifies that process group initialization with invalid PIDs (-1 and
  *  INT_MAX) results in empty process lists
  */
-static void test_process_group_init_invalid_pid(void) {
+static void test_pg_init_invalid_pid(void) {
     struct process_group pgroup;
     int ret;
     size_t list_count;
@@ -1945,7 +1945,7 @@ static void test_process_group_find_by_name(void) {
  * @note Verifies that getppid_of returns the correct parent PID for multiple
  *  processes, including the current process
  */
-static void test_process_iterator_getppid_of(void) {
+static void test_iter_getppid_of(void) {
     struct process_iterator iter;
     struct process *proc;
     struct process_filter filter;
@@ -2178,7 +2178,7 @@ static void test_limiter_run_command_mode(void) {
  * @note Verifies that lazy mode exits with EXIT_FAILURE when the target
  *  executable name is not found
  */
-static void test_limiter_run_pid_or_exe_mode(void) {
+static void test_lim_pid_exe_mode(void) {
     pid_t pid;
     int status;
     struct cpulimit_cfg cfg;
@@ -2264,7 +2264,7 @@ static void test_list_null_data_operations(void) {
  *  add_to_process_table(pt,NULL), and duplicate-PID insertion (silently
  * ignored)
  */
-static void test_process_table_null_inputs_and_dup(void) {
+static void test_ptab_null_and_dup(void) {
     struct process_table proc_table;
     struct process *proc1, *proc2;
     const struct process *found;
@@ -2316,7 +2316,7 @@ static void test_process_table_null_inputs_and_dup(void) {
  * @note When active_list is NULL, locate_elem always returns NULL so all
  *  entries are treated as stale and removed
  */
-static void test_process_table_stale_null_list(void) {
+static void test_ptab_stale_null_lst(void) {
     struct process_table proc_table;
     struct process *proc;
     const struct process *pt_found;
@@ -2463,7 +2463,7 @@ static void test_signal_handler_sigpipe(void) {
  * @brief Test init_process_iterator and get_next_process with NULL inputs
  * @note NULL it or NULL filter must return -1 without crashing
  */
-static void test_process_iterator_null_inputs(void) {
+static void test_iter_null_inputs(void) {
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
@@ -2508,7 +2508,7 @@ static void test_process_iterator_null_inputs(void) {
  * @brief Test close_process_iterator with NULL pointer
  * @note Must return -1 without crashing
  */
-static void test_process_iterator_close_null(void) {
+static void test_iter_close_null(void) {
     int ret;
     ret = close_process_iterator(NULL);
     assert(ret == -1);
@@ -2518,7 +2518,7 @@ static void test_process_iterator_close_null(void) {
  * @brief Test getppid_of with boundary and invalid PIDs
  * @note PID 0 and INT_MAX must return -1; current PID must return getppid()
  */
-static void test_process_iterator_getppid_of_edges(void) {
+static void test_iter_getppid_edges(void) {
     pid_t ppid_of_zero;
     pid_t ppid_of_neg;
     pid_t ppid_of_max;
@@ -2546,7 +2546,7 @@ static void test_process_iterator_getppid_of_edges(void) {
  * @brief Test find_process_by_pid with invalid and boundary PIDs
  * @note PID 0 and negative PIDs must return 0; current PID must be found
  */
-static void test_process_group_find_by_pid_edges(void) {
+static void test_pg_find_pid_edges(void) {
     pid_t result;
     pid_t self_pid;
 
@@ -2572,7 +2572,7 @@ static void test_process_group_find_by_pid_edges(void) {
  * @brief Test find_process_by_name with NULL process name
  * @note Must return 0 without crashing
  */
-static void test_process_group_find_by_name_null(void) {
+static void test_pg_find_name_null(void) {
     pid_t found_pid;
     found_pid = find_process_by_name(NULL);
     assert(found_pid == 0);
@@ -2582,7 +2582,7 @@ static void test_process_group_find_by_name_null(void) {
  * @brief Test find_process_by_name with empty string (early-return path)
  * @note Must return 0 immediately without iterating processes
  */
-static void test_process_group_find_by_name_empty_string(void) {
+static void test_pg_find_name_empty(void) {
     pid_t found_pid;
     found_pid = find_process_by_name("");
     assert(found_pid == 0);
@@ -2593,7 +2593,7 @@ static void test_process_group_find_by_name_empty_string(void) {
  * @note The basename of "bin/" is an empty string, so no process can match;
  *  must return 0 without crashing
  */
-static void test_process_group_find_by_name_trailing_slash(void) {
+static void test_pg_find_name_trail_slash(void) {
     pid_t found_pid;
     /* Relative path with trailing slash yields an empty basename */
     found_pid = find_process_by_name("bin/");
@@ -2604,7 +2604,7 @@ static void test_process_group_find_by_name_trailing_slash(void) {
  * @brief Test get_process_group_cpu_usage when process list is empty
  * @note Must return -1.0 when no processes are tracked
  */
-static void test_process_group_cpu_usage_empty_list(void) {
+static void test_pg_cpu_usage_empty(void) {
     struct process_group pgroup;
     double usage;
     int ret;
@@ -2628,7 +2628,7 @@ static void test_process_group_cpu_usage_empty_list(void) {
  * @brief Test get_process_group_cpu_usage with NULL pointer
  * @note Verifies the null guard returns the -1 sentinel without crashing
  */
-static void test_process_group_cpu_usage_null(void) {
+static void test_pg_cpu_usage_null(void) {
     double usage = get_process_group_cpu_usage(NULL);
     assert(usage >= -1.00001 && usage <= -0.99999);
 }
@@ -2791,7 +2791,7 @@ static void test_util_sleep_timespec_zero(void) {
  * @brief Test initial state of signal handler flags before any signal is raised
  * @note Both quit_flag and terminated_by_tty must be 0 before any signal
  */
-static void test_signal_handler_initial_state(void) {
+static void test_signal_init_state(void) {
     pid_t pid;
     int status;
     pid_t waited;
@@ -2827,7 +2827,7 @@ static void test_signal_handler_initial_state(void) {
  * @note PID 1 always exists: returns positive if accessible, -1 if EPERM,
  *  never 0
  */
-static void test_process_group_find_by_pid_init(void) {
+static void test_pg_find_pid_init(void) {
     pid_t result;
     result = find_process_by_pid((pid_t)1);
     assert(result != 0);
@@ -2908,7 +2908,7 @@ static void test_limit_process_verbose(void) {
  * @brief Test run_command_mode with a non-existent binary
  * @note execvp fails in child; parent should exit with EXIT_FAILURE
  */
-static void test_limiter_run_command_mode_nonexistent(void) {
+static void test_lim_cmd_nonexistent(void) {
     pid_t pid;
     int status;
     struct cpulimit_cfg cfg;
@@ -2948,7 +2948,7 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  * @brief Test run_command_mode with verbose=1 and a command that succeeds
  * @note Exercises the verbose printf branches in run_command_mode
  */
-static void test_limiter_run_command_mode_verbose(void) {
+static void test_lim_cmd_verbose(void) {
     pid_t pid;
     int status;
     struct cpulimit_cfg cfg;
@@ -2990,7 +2990,7 @@ static void test_limiter_run_command_mode_verbose(void) {
  * @note Uses INT_MAX which is virtually guaranteed to be non-existent;
  *  lazy_mode=1 -> EXIT_FAILURE
  */
-static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
+static void test_lim_pid_exe_not_found(void) {
     pid_t pid;
     int status;
     struct cpulimit_cfg cfg;
@@ -3590,7 +3590,7 @@ static void test_list_delete_node_empty(void) {
  * @brief Test destroy_node with a NULL list frees node and data without crash
  * @note Exercises the l==NULL fast-path that frees node directly
  */
-static void test_list_destroy_node_null_list(void) {
+static void test_list_destroy_node_null(void) {
     struct list_node *node;
     int *data;
 
@@ -3682,7 +3682,7 @@ static void test_list_destroy_empty(void) {
  * @brief Test nsec2timespec with 0 and sub-second values
  * @note Covers zero input and values < 1e9 ns (sec should be 0)
  */
-static void test_util_nsec2timespec_zero_and_sub(void) {
+static void test_util_nsec2ts_zero_sub(void) {
     struct timespec t;
 
     /* Zero nanoseconds */
@@ -3706,7 +3706,7 @@ static void test_util_nsec2timespec_zero_and_sub(void) {
  * @note Verifies that tv_nsec stays in [0, 999999999] and tv_sec is adjusted
  *       when floating-point rounding pushes tv_nsec out of range
  */
-static void test_util_nsec2timespec_rollover(void) {
+static void test_util_nsec2ts_rollover(void) {
     struct timespec t;
 
     /*
@@ -3756,7 +3756,7 @@ static void test_util_timediff_nsec_only(void) {
  * @brief Test get_current_time returns a non-decreasing timestamp
  * @note Two successive calls must return increasing or equal time
  */
-static void test_util_get_current_time_monotonic(void) {
+static void test_util_get_time_mono(void) {
     struct timespec ts_earlier, ts_later;
     double diff;
     int ret;
@@ -3772,7 +3772,7 @@ static void test_util_get_current_time_monotonic(void) {
  * @brief Test sleep_timespec with a positive (non-zero) duration
  * @note A 1 ms sleep must complete without error
  */
-static void test_util_sleep_timespec_nonzero(void) {
+static void test_util_sleep_ts_nonzero(void) {
     const struct timespec sleep_duration = {0, 1000000L}; /* 1 ms */
     int ret = sleep_timespec(&sleep_duration);
     /* 0 on success; -1 only if EINTR */
@@ -3806,7 +3806,7 @@ static void test_util_file_basename_empty(void) {
  * @brief Test init_process_table with hash_size=0 (forced to 1)
  * @note hash_size=0 must be clamped to 1; add/find/del must still work
  */
-static void test_process_table_init_hashsize_zero(void) {
+static void test_ptab_init_hash_zero(void) {
     struct process_table proc_table;
     struct process *proc;
     const struct process *pt_found;
@@ -3849,7 +3849,7 @@ static void test_process_table_find_null_pt(void) {
  * bucket
  * @note del on a non-empty buckets for a PID in the same bucket must return 1
  */
-static void test_process_table_del_absent_pid(void) {
+static void test_ptab_del_absent_pid(void) {
     struct process_table proc_table;
     struct process *proc;
     int pt_del;
@@ -3881,7 +3881,7 @@ static void test_process_table_del_absent_pid(void) {
  * @brief Test delete_from_process_table on a PID that was never inserted at all
  * @note Empty bucket: returns 1
  */
-static void test_process_table_del_empty_bucket(void) {
+static void test_ptab_del_empty_bucket(void) {
     struct process_table proc_table;
     int pt_del;
 
@@ -3896,7 +3896,7 @@ static void test_process_table_del_empty_bucket(void) {
  * buckets
  * @note NULL must not crash; fresh empty buckets must also not crash
  */
-static void test_process_table_destroy_edge_cases(void) {
+static void test_ptab_destroy_edges(void) {
     struct process_table proc_table;
 
     /* NULL pointer: must be a no-op */
@@ -3916,7 +3916,7 @@ static void test_process_table_destroy_edge_cases(void) {
  *  delete_from_process_table/remove_stale_from_process_table must not
  *  crash even though pt->buckets is NULL and pt->hash_size is 0
  */
-static void test_process_table_ops_after_destroy(void) {
+static void test_ptab_after_destroy(void) {
     struct process_table proc_table;
     struct process *proc;
     const struct process *found;
@@ -4028,7 +4028,7 @@ static void test_signal_handler_sigint(void) {
  * @brief Test init_process_iterator with pid=0 and include_children=1
  * @note Should open /proc and enumerate processes (same as all-process scan)
  */
-static void test_process_iterator_init_all_with_children(void) {
+static void test_iter_init_all_w_children(void) {
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
@@ -4058,7 +4058,7 @@ static void test_process_iterator_init_all_with_children(void) {
  * @brief Test get_next_process after end_of_processes is set
  * @note Must return -1 immediately on every call after first exhaustion
  */
-static void test_process_iterator_exhaust_single(void) {
+static void test_iter_exhaust_single(void) {
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
@@ -4098,7 +4098,7 @@ static void test_process_iterator_exhaust_single(void) {
  * @brief Test process iterator with include_children=1 for current process
  * @note With a child process running, both parent and child must appear
  */
-static void test_process_iterator_with_children(void) {
+static void test_iter_with_children(void) {
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
@@ -4145,7 +4145,7 @@ static void test_process_iterator_with_children(void) {
  * @brief Test close_process_iterator when dip is already NULL
  * @note After init with single-pid filter, dip==NULL; close must return 0
  */
-static void test_process_iterator_close_null_dip(void) {
+static void test_iter_close_null_dip(void) {
     struct process_iterator iter;
     struct process_filter filter;
     int ret;
@@ -4191,7 +4191,7 @@ static void test_process_group_close_null(void) {
  * @brief Test that close_process_group zeros all numeric fields
  * @note After close, target_pid, include_children, and last_update must be 0
  */
-static void test_process_group_close_zeros_fields(void) {
+static void test_pg_close_zeros(void) {
     struct process_group pgroup;
     int ret;
     pid_t self_pid;
@@ -4223,7 +4223,7 @@ static void test_process_group_update_null(void) {
  * @brief Test update_process_group twice in quick succession
  * @note Second call exercises the "insufficient dt" branch
  */
-static void test_process_group_double_update(void) {
+static void test_pg_double_update(void) {
     struct process_group pgroup;
     int ret;
     pid_t self_pid;
@@ -4242,7 +4242,7 @@ static void test_process_group_double_update(void) {
  * @note The test binary name must be found; result > 0 or result is -PID
  *  (EPERM in confined environments)
  */
-static void test_process_group_find_by_name_self(void) {
+static void test_pg_find_name_self(void) {
     const char *self_name;
     pid_t result;
 
@@ -4262,7 +4262,7 @@ static void test_process_group_find_by_name_self(void) {
  * @brief Test get_process_group_cpu_usage after waiting for a valid sample
  * @note After two updates separated by enough time, cpu_usage may be >= 0
  */
-static void test_process_group_cpu_usage_with_usage(void) {
+static void test_pg_cpu_usage_known(void) {
     struct process_group pgroup;
     const struct timespec wait_time = {0, 50000000L}; /* 50 ms */
     double usage;
@@ -4293,7 +4293,7 @@ static void test_process_group_cpu_usage_with_usage(void) {
  * @brief Test limit_process with include_children=1
  * @note Target exits quickly; exercises the children-tracking code path
  */
-static void test_limit_process_include_children(void) {
+static void test_limit_proc_w_children(void) {
     const struct timespec wait_duration = {0, 50000000L}; /* 50 ms */
     pid_t child_pid;
 
@@ -4316,7 +4316,7 @@ static void test_limit_process_include_children(void) {
  * @brief Test run_command_mode with a command that exits non-zero ('false')
  * @note Exit status of 'false' is 1; run_command_mode should propagate it
  */
-static void test_limiter_run_command_mode_false(void) {
+static void test_lim_cmd_false(void) {
     pid_t pid;
     int status;
     struct cpulimit_cfg cfg;
@@ -4357,7 +4357,7 @@ static void test_limiter_run_command_mode_false(void) {
  *  via quit flag (verifies the non-lazy quit-flag early-exit path)
  * @note Uses a nonexistent exe so proc_list stays empty, quit flag breaks loop
  */
-static void test_limiter_run_pid_or_exe_mode_quit(void) {
+static void test_lim_pid_exe_quit(void) {
     pid_t pid;
     int status;
     struct cpulimit_cfg cfg;
@@ -4399,7 +4399,7 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
  *  works correctly when a process is found: the function limits it and exits
  *  with EXIT_SUCCESS when the target terminates naturally.
  */
-static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
+static void test_lim_pid_exe_found(void) {
     pid_t wrapper_pid;
     int wrapper_status;
     const struct timespec target_life = {0, 500000000L}; /* 500 ms */
@@ -4448,7 +4448,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
  * @note When the found PID matches the calling process, run_pid_or_exe_mode
  *  must exit with EXIT_FAILURE to prevent cpulimit from limiting itself.
  */
-static void test_limiter_run_pid_or_exe_mode_self(void) {
+static void test_lim_pid_exe_self(void) {
     pid_t wrapper_pid;
     int wrapper_status;
     pid_t waited;
@@ -4489,7 +4489,7 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
  *  exits cleanly when the target terminates, confirming the verbose code path
  *  (including the "Process found" message guard) does not crash.
  */
-static void test_limiter_run_pid_or_exe_mode_verbose(void) {
+static void test_lim_pid_exe_verbose(void) {
     pid_t wrapper_pid;
     int wrapper_status;
     const struct timespec target_life = {0, 500000000L}; /* 500 ms */
@@ -4541,7 +4541,7 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
  * @brief Test parse_arguments with --include-children long option
  * @note --include-children must set include_children=1
  */
-static void test_cli_long_option_include_children(void) {
+static void test_cli_long_opt_children(void) {
     struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_limit[] = "--limit=50";
@@ -4643,7 +4643,7 @@ static void test_cli_limit_trailing_chars(void) {
  * @brief Test parse_arguments with --lazy and --verbose long options
  * @note Long forms of -z and -v must behave identically to short forms
  */
-static void test_cli_long_options_lazy_verbose(void) {
+static void test_cli_long_opts_lazy(void) {
     struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_limit[] = "--limit=50";
@@ -4736,7 +4736,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_list_add_elem);
     RUN_TEST(test_list_delete_node);
     RUN_TEST(test_list_delete_node_empty);
-    RUN_TEST(test_list_destroy_node_null_list);
+    RUN_TEST(test_list_destroy_node_null);
     RUN_TEST(test_list_destroy_node);
     RUN_TEST(test_list_first_node_nonempty);
     RUN_TEST(test_list_locate);
@@ -4750,10 +4750,10 @@ int main(int argc, char *argv[]) {
     /* Util module tests */
     printf("\n=== UTIL MODULE TESTS ===\n");
     RUN_TEST(test_util_nsec2timespec);
-    RUN_TEST(test_util_nsec2timespec_zero_and_sub);
-    RUN_TEST(test_util_nsec2timespec_rollover);
+    RUN_TEST(test_util_nsec2ts_zero_sub);
+    RUN_TEST(test_util_nsec2ts_rollover);
     RUN_TEST(test_util_time_functions);
-    RUN_TEST(test_util_get_current_time_monotonic);
+    RUN_TEST(test_util_get_time_mono);
     RUN_TEST(test_util_timediff_in_ms);
     RUN_TEST(test_util_timediff_negative);
     RUN_TEST(test_util_timediff_nsec_only);
@@ -4764,12 +4764,12 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_long2pid_t);
     RUN_TEST(test_util_long2pid_t_zero);
     RUN_TEST(test_util_time_edge_cases);
-    RUN_TEST(test_util_file_basename_edge_cases);
+    RUN_TEST(test_util_basename_edges);
     RUN_TEST(test_util_long2pid_t_edge_cases);
     RUN_TEST(test_util_long2pid_t_overflow);
     RUN_TEST(test_util_macros);
     RUN_TEST(test_util_sleep_timespec_zero);
-    RUN_TEST(test_util_sleep_timespec_nonzero);
+    RUN_TEST(test_util_sleep_ts_nonzero);
 #if defined(__linux__)
     RUN_TEST(test_util_read_line_from_file);
 #endif
@@ -4777,24 +4777,24 @@ int main(int argc, char *argv[]) {
     /* Process buckets module tests */
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
     RUN_TEST(test_process_table_init_destroy);
-    RUN_TEST(test_process_table_init_hashsize_zero);
+    RUN_TEST(test_ptab_init_hash_zero);
     RUN_TEST(test_process_table_add_find);
     RUN_TEST(test_process_table_find_null_pt);
     RUN_TEST(test_process_table_del);
-    RUN_TEST(test_process_table_del_absent_pid);
-    RUN_TEST(test_process_table_del_empty_bucket);
+    RUN_TEST(test_ptab_del_absent_pid);
+    RUN_TEST(test_ptab_del_empty_bucket);
     RUN_TEST(test_process_table_remove_stale);
-    RUN_TEST(test_process_table_remove_stale_null_data);
+    RUN_TEST(test_ptab_stale_null_data);
     RUN_TEST(test_process_table_collisions);
-    RUN_TEST(test_process_table_empty_buckets);
-    RUN_TEST(test_process_table_null_inputs_and_dup);
-    RUN_TEST(test_process_table_stale_null_list);
-    RUN_TEST(test_process_table_destroy_edge_cases);
-    RUN_TEST(test_process_table_ops_after_destroy);
+    RUN_TEST(test_ptab_empty_buckets);
+    RUN_TEST(test_ptab_null_and_dup);
+    RUN_TEST(test_ptab_stale_null_lst);
+    RUN_TEST(test_ptab_destroy_edges);
+    RUN_TEST(test_ptab_after_destroy);
 
     /* Signal handler module tests */
     printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
-    RUN_TEST(test_signal_handler_initial_state);
+    RUN_TEST(test_signal_init_state);
     RUN_TEST(test_signal_handler_flags);
     RUN_TEST(test_signal_handler_sigint);
     RUN_TEST(test_signal_handler_sigquit);
@@ -4807,61 +4807,61 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_single);
     RUN_TEST(test_process_iterator_multiple);
     RUN_TEST(test_process_iterator_all);
-    RUN_TEST(test_process_iterator_init_all_with_children);
-    RUN_TEST(test_process_iterator_read_command);
-    RUN_TEST(test_process_iterator_getppid_of);
-    RUN_TEST(test_process_iterator_getppid_of_edges);
-    RUN_TEST(test_process_iterator_is_child_of);
-    RUN_TEST(test_process_iterator_filter_edge_cases);
-    RUN_TEST(test_process_iterator_exhaust_single);
-    RUN_TEST(test_process_iterator_with_children);
-    RUN_TEST(test_process_iterator_close_null_dip);
-    RUN_TEST(test_process_iterator_close_null);
-    RUN_TEST(test_process_iterator_null_inputs);
+    RUN_TEST(test_iter_init_all_w_children);
+    RUN_TEST(test_iter_read_cmd);
+    RUN_TEST(test_iter_getppid_of);
+    RUN_TEST(test_iter_getppid_edges);
+    RUN_TEST(test_iter_is_child_of);
+    RUN_TEST(test_iter_filter_edges);
+    RUN_TEST(test_iter_exhaust_single);
+    RUN_TEST(test_iter_with_children);
+    RUN_TEST(test_iter_close_null_dip);
+    RUN_TEST(test_iter_close_null);
+    RUN_TEST(test_iter_null_inputs);
 
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
     RUN_TEST(test_process_group_init_all);
     RUN_TEST(test_process_group_init_single);
-    RUN_TEST(test_process_group_init_invalid_pid);
+    RUN_TEST(test_pg_init_invalid_pid);
     RUN_TEST(test_process_group_init_null);
     RUN_TEST(test_process_group_close_null);
-    RUN_TEST(test_process_group_close_zeros_fields);
+    RUN_TEST(test_pg_close_zeros);
     RUN_TEST(test_process_group_update_null);
-    RUN_TEST(test_process_group_double_update);
+    RUN_TEST(test_pg_double_update);
     RUN_TEST(test_process_group_find_by_pid);
-    RUN_TEST(test_process_group_find_by_pid_edges);
-    RUN_TEST(test_process_group_find_by_pid_init);
+    RUN_TEST(test_pg_find_pid_edges);
+    RUN_TEST(test_pg_find_pid_init);
     RUN_TEST(test_process_group_find_by_name);
-    RUN_TEST(test_process_group_find_by_name_null);
-    RUN_TEST(test_process_group_find_by_name_empty_string);
-    RUN_TEST(test_process_group_find_by_name_trailing_slash);
-    RUN_TEST(test_process_group_find_by_name_self);
+    RUN_TEST(test_pg_find_name_null);
+    RUN_TEST(test_pg_find_name_empty);
+    RUN_TEST(test_pg_find_name_trail_slash);
+    RUN_TEST(test_pg_find_name_self);
     RUN_TEST(test_process_group_cpu_usage);
-    RUN_TEST(test_process_group_cpu_usage_empty_list);
-    RUN_TEST(test_process_group_cpu_usage_null);
-    RUN_TEST(test_process_group_cpu_usage_with_usage);
-    RUN_TEST(test_process_group_rapid_updates);
+    RUN_TEST(test_pg_cpu_usage_empty);
+    RUN_TEST(test_pg_cpu_usage_null);
+    RUN_TEST(test_pg_cpu_usage_known);
+    RUN_TEST(test_pg_rapid_updates);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
     RUN_TEST(test_limit_process_basic);
     RUN_TEST(test_limit_process_exits_early);
     RUN_TEST(test_limit_process_verbose);
-    RUN_TEST(test_limit_process_include_children);
+    RUN_TEST(test_limit_proc_w_children);
 
     /* Limiter module tests */
     printf("\n=== LIMITER MODULE TESTS ===\n");
     RUN_TEST(test_limiter_run_command_mode);
-    RUN_TEST(test_limiter_run_command_mode_false);
-    RUN_TEST(test_limiter_run_command_mode_nonexistent);
-    RUN_TEST(test_limiter_run_command_mode_verbose);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_quit);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_self);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
+    RUN_TEST(test_lim_cmd_false);
+    RUN_TEST(test_lim_cmd_nonexistent);
+    RUN_TEST(test_lim_cmd_verbose);
+    RUN_TEST(test_lim_pid_exe_mode);
+    RUN_TEST(test_lim_pid_exe_not_found);
+    RUN_TEST(test_lim_pid_exe_quit);
+    RUN_TEST(test_lim_pid_exe_found);
+    RUN_TEST(test_lim_pid_exe_self);
+    RUN_TEST(test_lim_pid_exe_verbose);
 
     /* CLI module tests */
     printf("\n=== CLI MODULE TESTS ===\n");
@@ -4870,8 +4870,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_cli_command_mode);
     RUN_TEST(test_cli_long_options);
     RUN_TEST(test_cli_long_option_exe);
-    RUN_TEST(test_cli_long_option_include_children);
-    RUN_TEST(test_cli_long_options_lazy_verbose);
+    RUN_TEST(test_cli_long_opt_children);
+    RUN_TEST(test_cli_long_opts_lazy);
     RUN_TEST(test_cli_optional_flags);
     RUN_TEST(test_cli_verbose_flag);
     RUN_TEST(test_cli_help);
