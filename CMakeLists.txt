@@ -88,7 +88,6 @@ set(CPULIMIT_C_FLAGS
     -Wextra
     -pedantic
     -Wpedantic
-    -pedantic-errors
 
     # C language feature compliance
     -Wc++-compat
