@@ -198,6 +198,7 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
     if (proc_group == NULL) {
         return -1;
     }
+    memset(proc_group, 0, sizeof(*proc_group));
     /* Allocate and initialize hashtable for fast process lookup by PID */
     proc_group->proc_table =
         (struct process_table *)malloc(sizeof(struct process_table));

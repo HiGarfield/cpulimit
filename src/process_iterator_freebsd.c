@@ -100,6 +100,7 @@ int init_process_iterator(struct process_iterator *iter,
     if (iter == NULL || filter == NULL) {
         return -1;
     }
+    memset(iter, 0, sizeof(*iter));
     iter->filter = filter;
 
     /*

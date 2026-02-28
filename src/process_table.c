@@ -31,6 +31,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 
 /**
@@ -48,6 +49,7 @@ void init_process_table(struct process_table *proc_table, size_t hash_size) {
     if (proc_table == NULL) {
         return;
     }
+    memset(proc_table, 0, sizeof(*proc_table));
     if (hash_size == 0) {
         /*
          * Avoid zero-sized tables because pid_hash() uses modulo hash_size.
