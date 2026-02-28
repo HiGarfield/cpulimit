@@ -4190,6 +4190,51 @@ static void test_process_iterator_close_null_dip(void) {
     assert(ret == 0);
 }
 
+/**
+ * @brief Test that get_next_process handles NULL proc_dir defensively
+ * @note On Linux, the single-PID optimisation leaves proc_dir=NULL.
+ *       Switching the filter to general mode (pid=0) without reinitialising
+ *       exercises the NULL-proc_dir guard added to get_next_process.
+ */
+static void test_process_iterator_null_proc_dir_guard(void) {
+#if defined(__linux__)
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
+    int ret;
+
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
+
+    /*
+     * Initialise with single-PID filter so that the optimisation path
+     * is taken and proc_dir is left as NULL.
+     */
+    filter.pid = getpid();
+    filter.include_children = 0;
+    filter.read_cmd = 0;
+    ret = init_process_iterator(&iter, &filter);
+    assert(ret == 0);
+    assert(iter.proc_dir == NULL);
+
+    /*
+     * Change the filter to general mode (pid=0) without reinitialising.
+     * get_next_process must detect proc_dir==NULL and return -1 without
+     * crashing (the defensive NULL guard).
+     */
+    filter.pid = 0;
+    ret = get_next_process(&iter, proc);
+    assert(ret == -1);
+
+    /* Restore filter for a clean close */
+    filter.pid = getpid();
+    ret = close_process_iterator(&iter);
+    assert(ret == 0);
+
+    free(proc);
+#endif
+}
+
 /***************************************************************************
  * PROCESS_GROUP MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
@@ -4842,6 +4887,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_exhaust_single);
     RUN_TEST(test_process_iterator_with_children);
     RUN_TEST(test_process_iterator_close_null_dip);
+    RUN_TEST(test_process_iterator_null_proc_dir_guard);
     RUN_TEST(test_process_iterator_close_null);
     RUN_TEST(test_process_iterator_null_inputs);
 
