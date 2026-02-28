@@ -165,7 +165,7 @@ static double platform_time_to_ms(double platform_time) {
  * @return 0 on success, -1 on failure
  *
  * Extracts process information from macOS-specific proc_taskallinfo and
- * converts iter to the platform-independent process structure. CPU time is
+ * converts it to the platform-independent process structure. CPU time is
  * calculated as the sum of user and system time, converted to milliseconds.
  *
  * When read_cmd is set, retrieves the executable path via proc_pidpath().
@@ -294,7 +294,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * @return 0 on success, -1 on failure
  *
  * Internal helper that retrieves task information via get_proc_taskinfo()
- * and converts iter to the platform-independent process structure via
+ * and converts it to the platform-independent process structure via
  * proc_taskinfo_to_proc(). Used by get_next_process() for both
  * single-process and multi-process iteration.
  */

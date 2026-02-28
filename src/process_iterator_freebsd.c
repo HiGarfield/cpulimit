@@ -156,7 +156,7 @@ int init_process_iterator(struct process_iterator *iter,
  * @return 0 on success, -1 on failure
  *
  * Extracts essential process information from FreeBSD's kinfo_proc and
- * converts iter to the platform-independent process structure. The ki_runtime
+ * converts it to the platform-independent process structure. The ki_runtime
  * field (in microseconds) is converted to milliseconds for cpu_time.
  *
  * When read_cmd is set, retrieves command arguments via kvm_getargv()
