@@ -148,9 +148,10 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     }
     /* Initialize clock ticks per second on first call */
     if (sc_clk_tck < 0) {
+        errno = 0;
         sc_clk_tck = sysconf(_SC_CLK_TCK);
         if (sc_clk_tck <= 0) {
-            fprintf(stderr, "sysconf(_SC_CLK_TCK) failed\n");
+            perror("sysconf(_SC_CLK_TCK)");
             exit(EXIT_FAILURE);
         }
     }
