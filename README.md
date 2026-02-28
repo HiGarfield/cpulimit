@@ -85,10 +85,6 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 
 ## Get the Latest Source Code
 
-This repository is a fork of:
-
-- Original Repository: <https://github.com/opsengine/cpulimit>
-
 The latest version of the code is available here:
 
 - HiGarfield's Repository: <https://github.com/HiGarfield/cpulimit>
@@ -97,7 +93,7 @@ The latest version of the code is available here:
 
 ### Build and Install
 
-To build and install cpulimit from source, use one of the following methods:
+To build and install cpulimit from source, use **one of** the following methods:
 
 - **Build and install with `make` on Linux/macOS:**
 
@@ -122,7 +118,7 @@ To build and install cpulimit from source, use one of the following methods:
   sudo cmake --install build --prefix /usr/local
   ```
 
-- **Without a build environment:** Use prebuilt binaries from [Releases](https://github.com/HiGarfield/cpulimit/releases/latest)
+- **Without a build environment:** Use prebuilt executables from [Releases](https://github.com/HiGarfield/cpulimit/releases/latest)
   ```sh
   sudo mkdir -p /usr/local/bin
   sudo cp -f cpulimit-* /usr/local/bin/cpulimit
@@ -131,13 +127,35 @@ To build and install cpulimit from source, use one of the following methods:
 
 ### Uninstall
 
+To uninstall cpulimit, use **one of** the following methods:
+
+- **Uninstall with `make` on Linux/macOS:**
+
+  ```sh
+  sudo make uninstall
+  ```
+
+- **Uninstall with `gmake` on FreeBSD:**
+
+  ```sh
+  sudo gmake uninstall
+  ```
+
+- **Uninstall with `cmake` installed executable on Linux/macOS/FreeBSD:**
+
+  ```sh
+  sudo xargs rm -f < build/install_manifest.txt
+  ```
+
+- **Without a build environment:** Remove the executable manually
+
   ```sh
   sudo rm -f /usr/local/bin/cpulimit
   ```
 
 ### Run Tests
 
-The following examples are demonstrated using the executables built with `make` or `gmake`. If you built with CMake, replace both the `./src/` and `./tests/` directories in the commands below with `./build/`.
+The following examples are demonstrated using the executables built with `make` or `gmake`. If you built with `cmake`, replace both the `./src/` and `./tests/` directories in the commands below with `./build/`.
 
 - **Run unit tests:**
 
