@@ -57,7 +57,7 @@
  *
  * @note This function calls exit() and does not return
  */
-void run_command_mode(const struct cpulimitcfg *cfg) {
+void run_command_mode(const struct cpulimit_cfg *cfg) {
     pid_t
         cmd_runner_pid; /* PID of forked child that will execute the command */
     int sync_pipe[2];   /* Pipe for parent-child synchronization */
@@ -322,7 +322,7 @@ void run_command_mode(const struct cpulimitcfg *cfg) {
  *
  * @note This function calls exit() and does not return
  */
-void run_pid_or_exe_mode(const struct cpulimitcfg *cfg) {
+void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     /* Wait interval between search attempts when target not found */
     const struct timespec wait_time = {2, 0}; /* 2 seconds */
     int pid_mode = cfg->target_pid > 0;

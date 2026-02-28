@@ -2140,7 +2140,7 @@ static void test_limit_process_basic(void) {
 static void test_limiter_run_command_mode(void) {
     pid_t pid;
     int status;
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char cmd[] = "true";
     char *args[2];
     pid_t waited;
@@ -2149,7 +2149,7 @@ static void test_limiter_run_command_mode(void) {
 
     args[0] = cmd;
     args[1] = NULL;
-    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
@@ -2181,13 +2181,13 @@ static void test_limiter_run_command_mode(void) {
 static void test_limiter_run_pid_or_exe_mode(void) {
     pid_t pid;
     int status;
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     const char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
     pid_t waited;
     int exited;
     int exit_code;
 
-    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.exe_name = exe_name;
     cfg.limit = 0.5;
@@ -2911,7 +2911,7 @@ static void test_limit_process_verbose(void) {
 static void test_limiter_run_command_mode_nonexistent(void) {
     pid_t pid;
     int status;
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char cmd[] = "/nonexistent_cpulimit_test_binary_xyz";
     char *args[2];
     pid_t waited;
@@ -2920,7 +2920,7 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 
     args[0] = cmd;
     args[1] = NULL;
-    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
@@ -2951,7 +2951,7 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 static void test_limiter_run_command_mode_verbose(void) {
     pid_t pid;
     int status;
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char cmd[] = "true";
     char *args[2];
     pid_t waited;
@@ -2960,7 +2960,7 @@ static void test_limiter_run_command_mode_verbose(void) {
 
     args[0] = cmd;
     args[1] = NULL;
-    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
@@ -2993,12 +2993,12 @@ static void test_limiter_run_command_mode_verbose(void) {
 static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
     pid_t pid;
     int status;
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     pid_t waited;
     int exited;
     int exit_code;
 
-    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.target_pid = (pid_t)INT_MAX;
     cfg.limit = 0.5;
@@ -3034,7 +3034,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
 static int run_parse_in_child(int argc, char **argv) {
     pid_t pid;
     int status;
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     pid_t waited;
     int exited;
 
@@ -3058,7 +3058,7 @@ static int run_parse_in_child(int argc, char **argv) {
  * @note Verifies target_pid, limit fraction, and implied lazy_mode
  */
 static void test_cli_pid_mode(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_l[] = "-l";
     char arg_50[] = "50";
@@ -3093,7 +3093,7 @@ static void test_cli_pid_mode(void) {
  * @note Verifies exe_name, limit fraction; lazy_mode stays 0
  */
 static void test_cli_exe_mode(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_l[] = "-l";
     char arg_25[] = "25";
@@ -3126,7 +3126,7 @@ static void test_cli_exe_mode(void) {
  * @note Verifies command_mode=1, command_args pointer, implied lazy_mode
  */
 static void test_cli_command_mode(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_l[] = "-l";
     char arg_75[] = "75";
@@ -3160,7 +3160,7 @@ static void test_cli_command_mode(void) {
  * @note Long-form options must behave identically to short-form
  */
 static void test_cli_long_options(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_limit[] = "--limit=50";
     char arg_pid_long[48];
@@ -3187,7 +3187,7 @@ static void test_cli_long_options(void) {
  * @note --exe long form must set exe_name correctly
  */
 static void test_cli_long_option_exe(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_limit[] = "--limit=50";
     char arg_exe[] = "--exe=myapp";
@@ -3213,7 +3213,7 @@ static void test_cli_long_option_exe(void) {
  * @note Verifies lazy_mode and include_children are set correctly
  */
 static void test_cli_optional_flags(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_l[] = "-l";
     char arg_50[] = "50";
@@ -3253,7 +3253,7 @@ static void test_cli_verbose_flag(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        struct cpulimitcfg cfg;
+        struct cpulimit_cfg cfg;
         char arg0[] = "cpulimit";
         char arg_l[] = "-l";
         char arg_50[] = "50";
@@ -4319,7 +4319,7 @@ static void test_limit_process_include_children(void) {
 static void test_limiter_run_command_mode_false(void) {
     pid_t pid;
     int status;
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char cmd[] = "false";
     char *args[2];
     pid_t waited;
@@ -4328,7 +4328,7 @@ static void test_limiter_run_command_mode_false(void) {
 
     args[0] = cmd;
     args[1] = NULL;
-    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
@@ -4360,13 +4360,13 @@ static void test_limiter_run_command_mode_false(void) {
 static void test_limiter_run_pid_or_exe_mode_quit(void) {
     pid_t pid;
     int status;
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     const char exe[] = "nonexistent_cpulimit_quit_test_xyz";
     pid_t waited;
     int exited;
     int exit_code;
 
-    memset(&cfg, 0, sizeof(struct cpulimitcfg));
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.exe_name = exe;
     cfg.limit = 0.5;
@@ -4411,7 +4411,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         pid_t target_pid;
-        struct cpulimitcfg cfg;
+        struct cpulimit_cfg cfg;
 
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -4424,7 +4424,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
             _exit(EXIT_SUCCESS);
         }
 
-        memset(&cfg, 0, sizeof(struct cpulimitcfg));
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.target_pid = target_pid;
         cfg.limit = 0.5;
@@ -4458,12 +4458,12 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
-        struct cpulimitcfg cfg;
+        struct cpulimit_cfg cfg;
 
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
 
-        memset(&cfg, 0, sizeof(struct cpulimitcfg));
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.target_pid = getpid(); /* target is the wrapper itself */
         cfg.limit = 0.5;
@@ -4501,7 +4501,7 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         pid_t target_pid;
-        struct cpulimitcfg cfg;
+        struct cpulimit_cfg cfg;
 
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -4514,7 +4514,7 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
             _exit(EXIT_SUCCESS);
         }
 
-        memset(&cfg, 0, sizeof(struct cpulimitcfg));
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.target_pid = target_pid;
         cfg.limit = 0.5;
@@ -4542,7 +4542,7 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
  * @note --include-children must set include_children=1
  */
 static void test_cli_long_option_include_children(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_limit[] = "--limit=50";
     char arg_ic[] = "--include-children";
@@ -4567,7 +4567,7 @@ static void test_cli_long_option_include_children(void) {
  * @note Limit at the boundary must be accepted
  */
 static void test_cli_limit_at_max(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_l[] = "-l";
     char arg_max[32];
@@ -4644,7 +4644,7 @@ static void test_cli_limit_trailing_chars(void) {
  * @note Long forms of -z and -v must behave identically to short forms
  */
 static void test_cli_long_options_lazy_verbose(void) {
-    struct cpulimitcfg cfg;
+    struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_limit[] = "--limit=50";
     char arg_lazy[] = "--lazy";
