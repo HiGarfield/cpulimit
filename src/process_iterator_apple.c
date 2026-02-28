@@ -96,7 +96,8 @@ int init_process_iterator(struct process_iterator *iter,
     for (retries = 0; retries < max_retries; retries++) {
         int bytes;
 
-        if ((iter->pid_list = (pid_t *)malloc((size_t)buffer_size)) == NULL) {
+        iter->pid_list = (pid_t *)malloc((size_t)buffer_size);
+        if (iter->pid_list == NULL) {
             break;
         }
 

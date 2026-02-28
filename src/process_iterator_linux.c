@@ -77,7 +77,8 @@ int init_process_iterator(struct process_iterator *iter,
         return 0;
     }
     /* Open /proc directory for iterating process entries */
-    if ((iter->proc_dir = opendir("/proc")) == NULL) {
+    iter->proc_dir = opendir("/proc");
+    if (iter->proc_dir == NULL) {
         perror("opendir");
         return -1;
     }
@@ -118,7 +119,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
 
     /* Parse /proc/[pid]/stat for process state and timing information */
     snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
-    if ((buffer = read_line_from_file(statfile)) == NULL) {
+    buffer = read_line_from_file(statfile);
+    if (buffer == NULL) {
         return -1;
     }
     /*
@@ -208,7 +210,8 @@ pid_t getppid_of(pid_t pid) {
 
     /* Parse /proc/[pid]/stat for parent process ID */
     snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
-    if ((buffer = read_line_from_file(statfile)) == NULL) {
+    buffer = read_line_from_file(statfile);
+    if (buffer == NULL) {
         return (pid_t)-1;
     }
     /* Find last ')' to handle process names with parentheses */
@@ -251,7 +254,8 @@ static int get_start_time(pid_t pid, struct timespec *start_time) {
         return -1;
     }
     snprintf(procfs_path, sizeof(procfs_path), "/proc/%ld", (long)pid);
-    if ((ret = stat(procfs_path, &procfs_stat)) == 0) {
+    ret = stat(procfs_path, &procfs_stat);
+    if (ret == 0) {
 #if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200809L) ||                \
     (defined(_XOPEN_SOURCE) && _XOPEN_SOURCE >= 700)
         /* Use high-resolution timestamp if available */
@@ -372,10 +376,14 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     }
 
     /* Iterate through /proc entries to find matching processes */
-    while ((dir_entry = readdir(iter->proc_dir)) != NULL) {
+    for (;;) {
         pid_t pid;
         char *endptr;
         long long_pid;
+        dir_entry = readdir(iter->proc_dir);
+        if (dir_entry == NULL) {
+            break;
+        }
 #ifdef _DIRENT_HAVE_D_TYPE
         /*
          * Optimization: skip non-directories if d_type is available.
@@ -431,7 +439,8 @@ int close_process_iterator(struct process_iterator *iter) {
     }
 
     if (iter->proc_dir != NULL) {
-        if ((ret = closedir(iter->proc_dir)) != 0) {
+        ret = closedir(iter->proc_dir);
+        if (ret != 0) {
             perror("closedir");
         }
         iter->proc_dir = NULL;

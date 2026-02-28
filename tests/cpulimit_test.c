@@ -1484,7 +1484,8 @@ static void test_process_iterator_single(void) {
     self_ppid = getppid();
 
     /* Allocate memory for process structure */
-    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    proc = (struct process *)malloc(sizeof(struct process));
+    if (proc == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1557,7 +1558,8 @@ static void test_process_iterator_multiple(void) {
     }
 
     /* Allocate memory for process structure */
-    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    proc = (struct process *)malloc(sizeof(struct process));
+    if (proc == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1613,7 +1615,8 @@ static void test_process_iterator_all(void) {
     filter.read_cmd = 0;
 
     /* Allocate memory for process structure */
-    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    proc = (struct process *)malloc(sizeof(struct process));
+    if (proc == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1777,7 +1780,8 @@ static void test_process_iterator_read_command(void) {
     pid_t self_ppid;
 
     /* Allocate memory for process structure */
-    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    proc = (struct process *)malloc(sizeof(struct process));
+    if (proc == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1881,7 +1885,8 @@ static void test_process_group_find_by_name(void) {
 #endif /* __linux__ */
 
     /* Allocate buffer for modified process names */
-    if ((wrong_name = (char *)malloc(PATH_MAX + 1)) == NULL) {
+    wrong_name = (char *)malloc(PATH_MAX + 1);
+    if (wrong_name == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
@@ -1959,7 +1964,8 @@ static void test_process_iterator_getppid_of(void) {
     filter.read_cmd = 0;
 
     /* Allocate memory for process structure */
-    if ((proc = (struct process *)malloc(sizeof(struct process))) == NULL) {
+    proc = (struct process *)malloc(sizeof(struct process));
+    if (proc == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }

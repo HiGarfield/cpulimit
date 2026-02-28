@@ -476,7 +476,11 @@ char *read_line_from_file(const char *file_name) {
     FILE *input_file;
     char *line = NULL;
     size_t line_size = 0;
-    if (file_name == NULL || (input_file = fopen(file_name, "r")) == NULL) {
+    if (file_name == NULL) {
+        return NULL;
+    }
+    input_file = fopen(file_name, "r");
+    if (input_file == NULL) {
         return NULL;
     }
     if (getline(&line, &line_size, input_file) < 0) {
