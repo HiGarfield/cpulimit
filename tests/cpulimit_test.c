@@ -680,23 +680,23 @@ static void test_util_long2pid_t(void) {
 static void test_process_table_init_destroy(void) {
     struct process_table proc_table;
 
-    /* Test initialization with small hashsize */
+    /* Test initialization with small hash_size */
     init_process_table(&proc_table, 16);
     assert(proc_table.buckets != NULL);
-    assert(proc_table.hashsize == 16);
+    assert(proc_table.hash_size == 16);
     destroy_process_table(&proc_table);
     assert(proc_table.buckets == NULL);
 
-    /* Test initialization with larger hashsize */
+    /* Test initialization with larger hash_size */
     init_process_table(&proc_table, 256);
     assert(proc_table.buckets != NULL);
-    assert(proc_table.hashsize == 256);
+    assert(proc_table.hash_size == 256);
     destroy_process_table(&proc_table);
 
-    /* Test zero hashsize fallback (must avoid division by zero in hashing) */
+    /* Test zero hash_size fallback (must avoid division by zero in hashing) */
     init_process_table(&proc_table, 0);
     assert(proc_table.buckets != NULL);
-    assert(proc_table.hashsize == 1);
+    assert(proc_table.hash_size == 1);
     destroy_process_table(&proc_table);
 
     /* Test destroy with NULL (should not crash) */
@@ -724,15 +724,15 @@ static void test_process_table_add_find(void) {
 
     proc1->pid = 100;
     proc1->ppid = 1;
-    proc1->cputime = 0.0;
+    proc1->cpu_time = 0.0;
 
     proc2->pid = 200;
     proc2->ppid = 1;
-    proc2->cputime = 0.0;
+    proc2->cpu_time = 0.0;
 
     proc3->pid = 300;
     proc3->ppid = 1;
-    proc3->cputime = 0.0;
+    proc3->cpu_time = 0.0;
 
     /* Test find on empty buckets */
     found = find_in_process_table(&proc_table, 100);
@@ -913,7 +913,7 @@ static void test_process_table_remove_stale_null_data(void) {
 
     /*
      * Inject a NULL-data node into the same bucket.
-     * bucket_idx mirrors process_table's pid_hash(): (size_t)pid % hashsize.
+     * bucket_idx mirrors process_table's pid_hash(): (size_t)pid % hash_size.
      */
     bucket_idx = (size_t)101 % 16;
     assert(proc_table.buckets[bucket_idx] != NULL);
@@ -1501,7 +1501,7 @@ static void test_process_iterator_single(void) {
     while (get_next_process(&iter, proc) == 0) {
         assert(proc->pid == self_pid);
         assert(proc->ppid == self_ppid);
-        assert(proc->cputime >= 0);
+        assert(proc->cpu_time >= 0);
         count++;
     }
     assert(count == 1);
@@ -1519,7 +1519,7 @@ static void test_process_iterator_single(void) {
     while (get_next_process(&iter, proc) == 0) {
         assert(proc->pid == self_pid);
         assert(proc->ppid == self_ppid);
-        assert(proc->cputime >= 0);
+        assert(proc->cpu_time >= 0);
         count++;
     }
     assert(count == 1);
@@ -1580,7 +1580,7 @@ static void test_process_iterator_multiple(void) {
         } else {
             assert(0);
         }
-        assert(proc->cputime >= 0);
+        assert(proc->cpu_time >= 0);
         count++;
     }
     assert(count == 2);
@@ -1625,7 +1625,7 @@ static void test_process_iterator_all(void) {
     while (get_next_process(&iter, proc) == 0) {
         if (proc->pid == getpid()) {
             assert(proc->ppid == self_ppid);
-            assert(proc->cputime >= 0);
+            assert(proc->cpu_time >= 0);
             found_self = 1;
         }
         count++;
@@ -2281,7 +2281,7 @@ static void test_process_table_null_inputs_and_dup(void) {
     assert(proc1 != NULL);
     proc1->pid = 100;
     proc1->ppid = 1;
-    proc1->cputime = 0.0;
+    proc1->cpu_time = 0.0;
     add_to_process_table(NULL, proc1);
 
     /* add_to_process_table with NULL process must not crash */
@@ -2299,7 +2299,7 @@ static void test_process_table_null_inputs_and_dup(void) {
     assert(proc2 != NULL);
     proc2->pid = 100; /* same PID as proc1 */
     proc2->ppid = 1;
-    proc2->cputime = 0.0;
+    proc2->cpu_time = 0.0;
     add_to_process_table(&proc_table, proc2);
     found = find_in_process_table(&proc_table, 100);
     assert(found == proc1); /* proc1 must still be the stored entry */
@@ -2327,7 +2327,7 @@ static void test_process_table_stale_null_list(void) {
     assert(proc != NULL);
     proc->pid = 100;
     proc->ppid = 1;
-    proc->cputime = 0.0;
+    proc->cpu_time = 0.0;
     add_to_process_table(&proc_table, proc);
     pt_found = find_in_process_table(&proc_table, 100);
     assert(pt_found == proc);
@@ -3803,8 +3803,8 @@ static void test_util_file_basename_empty(void) {
  ***************************************************************************/
 
 /**
- * @brief Test init_process_table with hashsize=0 (forced to 1)
- * @note hashsize=0 must be clamped to 1; add/find/del must still work
+ * @brief Test init_process_table with hash_size=0 (forced to 1)
+ * @note hash_size=0 must be clamped to 1; add/find/del must still work
  */
 static void test_process_table_init_hashsize_zero(void) {
     struct process_table proc_table;
@@ -3813,14 +3813,14 @@ static void test_process_table_init_hashsize_zero(void) {
     int pt_del;
 
     init_process_table(&proc_table, 0);
-    assert(proc_table.hashsize == 1);
+    assert(proc_table.hash_size == 1);
     assert(proc_table.buckets != NULL);
 
     proc = (struct process *)malloc(sizeof(struct process));
     assert(proc != NULL);
     proc->pid = 77;
     proc->ppid = 1;
-    proc->cputime = 0.0;
+    proc->cpu_time = 0.0;
     proc->cpu_usage = -1.0;
 
     add_to_process_table(&proc_table, proc);
@@ -3855,14 +3855,14 @@ static void test_process_table_del_absent_pid(void) {
     int pt_del;
     const struct process *pt_found;
 
-    /* Use hashsize=1 so all PIDs go to bucket 0 */
+    /* Use hash_size=1 so all PIDs go to bucket 0 */
     init_process_table(&proc_table, 1);
 
     proc = (struct process *)malloc(sizeof(struct process));
     assert(proc != NULL);
     proc->pid = 5;
     proc->ppid = 1;
-    proc->cputime = 0.0;
+    proc->cpu_time = 0.0;
     proc->cpu_usage = -1.0;
     add_to_process_table(&proc_table, proc);
 
@@ -3914,7 +3914,7 @@ static void test_process_table_destroy_edge_cases(void) {
  * @note After destroy_process_table,
  * find_in_process_table/add_to_process_table/
  *  delete_from_process_table/remove_stale_from_process_table must not
- *  crash even though pt->buckets is NULL and pt->hashsize is 0
+ *  crash even though pt->buckets is NULL and pt->hash_size is 0
  */
 static void test_process_table_ops_after_destroy(void) {
     struct process_table proc_table;
@@ -3924,7 +3924,7 @@ static void test_process_table_ops_after_destroy(void) {
 
     init_process_table(&proc_table, 16);
     destroy_process_table(&proc_table);
-    /* proc_table->buckets is now NULL, proc_table->hashsize is now 0 */
+    /* proc_table->buckets is now NULL, proc_table->hash_size is now 0 */
 
     /* find must return NULL without crashing */
     found = find_in_process_table(&proc_table, 100);
@@ -3935,7 +3935,7 @@ static void test_process_table_ops_after_destroy(void) {
     assert(proc != NULL);
     proc->pid = 100;
     proc->ppid = 1;
-    proc->cputime = 0.0;
+    proc->cpu_time = 0.0;
     proc->cpu_usage = -1.0;
     add_to_process_table(&proc_table, proc);
     free(proc); /* p was never added to the buckets; must be freed manually */

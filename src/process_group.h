@@ -169,7 +169,7 @@ int close_process_group(struct process_group *pgroup);
  * CPU usage calculation:
  * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
  * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
- * - Detects PID reuse when cputime decreases (resets history)
+ * - Detects PID reuse when cpu_time decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *

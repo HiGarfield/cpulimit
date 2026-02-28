@@ -144,7 +144,7 @@ int init_process_iterator(struct process_iterator *iter,
  * the timebase ratio (numer/denom) from mach_timebase_info(). This
  * function caches the conversion factor on first call.
  *
- * The result is in milliseconds to match the cputime field of the
+ * The result is in milliseconds to match the cpu_time field of the
  * process structure.
  */
 static double platform_time_to_ms(double platform_time) {
@@ -177,7 +177,7 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
     proc->pid = (pid_t)task_info->pbsd.pbi_pid;
     proc->ppid = (pid_t)task_info->pbsd.pbi_ppid;
     /* Sum user and system CPU time, convert to milliseconds */
-    proc->cputime =
+    proc->cpu_time =
         platform_time_to_ms((double)task_info->ptinfo.pti_total_user) +
         platform_time_to_ms((double)task_info->ptinfo.pti_total_system);
     if (!read_cmd) {
@@ -321,7 +321,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cputime
+ * - Always populated: pid, ppid, cpu_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),

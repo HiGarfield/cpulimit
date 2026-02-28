@@ -331,7 +331,7 @@ static struct process *process_dup(const struct process *proc) {
  * CPU usage calculation:
  * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
  * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
- * - Detects PID reuse when cputime decreases (resets history)
+ * - Detects PID reuse when cpu_time decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
@@ -393,7 +393,7 @@ void update_process_group(struct process_group *pgroup) {
             double sample;
             /* Existing process: re-add to list for this cycle */
             add_elem(pgroup->proc_list, proc);
-            if (tmp_process->cputime < proc->cputime) {
+            if (tmp_process->cpu_time < proc->cpu_time) {
                 /*
                  * CPU time decreased: PID has been reused for a new process.
                  * Reset all historical data.
@@ -406,17 +406,17 @@ void update_process_group(struct process_group *pgroup) {
             if (elapsed_ms < 0) {
                 /*
                  * Time moved backwards (system clock adjustment, NTP
-                 * correction). Update cputime but don't calculate usage this
+                 * correction). Update cpu_time but don't calculate usage this
                  * cycle.
                  */
                 proc->ppid = tmp_process->ppid;
-                proc->cputime = tmp_process->cputime;
+                proc->cpu_time = tmp_process->cpu_time;
                 proc->cpu_usage = -1;
                 continue;
             }
             if (elapsed_ms < MIN_DT) {
                 /* Time delta too small for accurate CPU measurement; keep
-                 * cputime unchanged so the next valid update accumulates
+                 * cpu_time unchanged so the next valid update accumulates
                  * the full delta over the interval. Updating ppid is safe
                  * here because it is independent of timing accuracy: the
                  * parent PID is a current kernel value and does not
@@ -429,7 +429,7 @@ void update_process_group(struct process_group *pgroup) {
              * sample = (delta_cputime / delta_walltime)
              * This represents the fraction of one CPU core used.
              */
-            sample = (tmp_process->cputime - proc->cputime) / elapsed_ms;
+            sample = (tmp_process->cpu_time - proc->cpu_time) / elapsed_ms;
             /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
             sample = MIN(sample, (double)ncpu);
             if (proc->cpu_usage < 0) {
@@ -447,7 +447,7 @@ void update_process_group(struct process_group *pgroup) {
             /* Update stored CPU time and parent PID for next delta calculation
              */
             proc->ppid = tmp_process->ppid;
-            proc->cputime = tmp_process->cputime;
+            proc->cpu_time = tmp_process->cpu_time;
         }
     }
     free(tmp_process);

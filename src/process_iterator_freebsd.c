@@ -152,7 +152,7 @@ int init_process_iterator(struct process_iterator *iter,
  *
  * Extracts essential process information from FreeBSD's kinfo_proc and
  * converts iter to the platform-independent process structure. The ki_runtime
- * field (in microseconds) is converted to milliseconds for cputime.
+ * field (in microseconds) is converted to milliseconds for cpu_time.
  *
  * When read_cmd is set, retrieves command arguments via kvm_getargv()
  * and uses the first argument (argv[0]) as the command path.
@@ -168,7 +168,7 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;
     /* Convert runtime from microseconds to milliseconds */
-    proc->cputime = (double)kproc->ki_runtime / 1000.0;
+    proc->cpu_time = (double)kproc->ki_runtime / 1000.0;
     if (!read_cmd) {
         return 0;
     }
@@ -327,7 +327,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cputime
+ * - Always populated: pid, ppid, cpu_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),

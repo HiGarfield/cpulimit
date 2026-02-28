@@ -107,7 +107,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char statfile[64], cmdline_path[64], state;
     char *buffer;
     const char *stat_fields_start;
-    double usertime, systime;
+    double user_time, sys_time;
     long ppid;
     static long sc_clk_tck = -1;
     FILE *cmdline_file;
@@ -132,9 +132,9 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     }
     if (sscanf(stat_fields_start,
                ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf", &state,
-               &ppid, &usertime, &systime) != 4 ||
+               &ppid, &user_time, &sys_time) != 4 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0 || usertime < 0 || systime < 0) {
+        ppid <= 0 || user_time < 0 || sys_time < 0) {
         free(buffer);
         return -1;
     }
@@ -152,7 +152,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         }
     }
     /* Convert CPU times from clock ticks to milliseconds */
-    proc->cputime = (usertime + systime) * 1000.0 / (double)sc_clk_tck;
+    proc->cpu_time = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
 
     if (!read_cmd) {
         return 0;
@@ -347,7 +347,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cputime
+ * - Always populated: pid, ppid, cpu_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),

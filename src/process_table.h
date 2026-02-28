@@ -57,13 +57,13 @@ struct process_table {
      * PIDs are hashed modulo this value to determine bucket placement.
      * Larger sizes reduce collision probability but increase memory usage.
      */
-    size_t hashsize;
+    size_t hash_size;
 };
 
 /**
  * @brief Initialize a process table with specified hash size
  * @param proc_table Pointer to the process table structure to initialize
- * @param hashsize Number of buckets to allocate in the hash table
+ * @param hash_size Number of buckets to allocate in the hash table
  *
  * Allocates memory for the hash table bucket array and initializes all
  * buckets to NULL. The hash table uses separate chaining for collision
@@ -71,7 +71,7 @@ struct process_table {
  *
  * @note The caller must call destroy_process_table() to free resources
  */
-void init_process_table(struct process_table *proc_table, size_t hashsize);
+void init_process_table(struct process_table *proc_table, size_t hash_size);
 
 /**
  * @brief Look up a process in the table by its PID

@@ -36,7 +36,7 @@
 /**
  * @brief Initialize a process table with specified hash size
  * @param proc_table Pointer to the process table structure to initialize
- * @param hashsize Number of buckets to allocate in the hash table
+ * @param hash_size Number of buckets to allocate in the hash table
  *
  * Allocates memory for the hash table bucket array and initializes all
  * buckets to NULL. The hash table uses separate chaining for collision
@@ -44,22 +44,22 @@
  *
  * @note The caller must call destroy_process_table() to free resources
  */
-void init_process_table(struct process_table *proc_table, size_t hashsize) {
+void init_process_table(struct process_table *proc_table, size_t hash_size) {
     if (proc_table == NULL) {
         return;
     }
-    if (hashsize == 0) {
+    if (hash_size == 0) {
         /*
-         * Avoid zero-sized tables because pid_hash() uses modulo hashsize.
+         * Avoid zero-sized tables because pid_hash() uses modulo hash_size.
          * A single bucket still provides valid behavior for callers that
          * accidentally request size 0.
          */
-        hashsize = 1;
+        hash_size = 1;
     }
-    proc_table->hashsize = hashsize;
+    proc_table->hash_size = hash_size;
     /* Allocate bucket array; calloc initializes all pointers to NULL */
     if ((proc_table->buckets = (struct list **)calloc(
-             proc_table->hashsize, sizeof(struct list *))) == NULL) {
+             proc_table->hash_size, sizeof(struct list *))) == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
@@ -69,16 +69,16 @@ void init_process_table(struct process_table *proc_table, size_t hashsize) {
  * @brief Compute hash bucket index for a given PID
  * @param proc_table Pointer to the process table
  * @param pid Process ID to hash
- * @return Bucket index in range [0, hashsize-1]
+ * @return Bucket index in range [0, hash_size-1]
  *
  * Uses simple modulo hashing. The PID is cast to size_t to ensure
  * positive values before taking the modulo.
  *
- * @pre proc_table->hashsize must be > 0 (callers must guard against destroyed
+ * @pre proc_table->hash_size must be > 0 (callers must guard against destroyed
  * tables)
  */
 static size_t pid_hash(const struct process_table *proc_table, pid_t pid) {
-    return (size_t)pid % proc_table->hashsize;
+    return (size_t)pid % proc_table->hash_size;
 }
 
 /**
@@ -204,7 +204,7 @@ void remove_stale_from_process_table(struct process_table *proc_table,
     if (proc_table == NULL || proc_table->buckets == NULL) {
         return;
     }
-    for (bucket_idx = 0; bucket_idx < proc_table->hashsize; bucket_idx++) {
+    for (bucket_idx = 0; bucket_idx < proc_table->hash_size; bucket_idx++) {
         struct list_node *node, *next_node;
         if (proc_table->buckets[bucket_idx] == NULL) {
             continue;
@@ -247,7 +247,7 @@ void destroy_process_table(struct process_table *proc_table) {
         return;
     }
     /* Free each bucket's linked list and its contents */
-    for (bucket_idx = 0; bucket_idx < proc_table->hashsize; bucket_idx++) {
+    for (bucket_idx = 0; bucket_idx < proc_table->hash_size; bucket_idx++) {
         if (proc_table->buckets[bucket_idx] != NULL) {
             destroy_list(proc_table->buckets[bucket_idx]);
             free(proc_table->buckets[bucket_idx]);
@@ -256,5 +256,5 @@ void destroy_process_table(struct process_table *proc_table) {
     /* Free the bucket array itself */
     free((void *)proc_table->buckets);
     proc_table->buckets = NULL;
-    proc_table->hashsize = 0;
+    proc_table->hash_size = 0;
 }
