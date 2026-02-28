@@ -138,7 +138,8 @@ int init_process_iterator(struct process_iterator *iter,
                                                     (size_t)iter->proc_count);
     if (iter->kinfo_procs == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
-        exit(EXIT_FAILURE);
+        close_process_iterator(iter);
+        return -1;
     }
     memcpy(iter->kinfo_procs, proc_snapshot,
            sizeof(struct kinfo_proc) * (size_t)iter->proc_count);
@@ -405,20 +406,12 @@ int close_process_iterator(struct process_iterator *iter) {
     if (iter == NULL) {
         return -1;
     }
-    if (iter->kinfo_procs != NULL) {
-        free(iter->kinfo_procs);
-        iter->kinfo_procs = NULL;
+    free(iter->kinfo_procs);
+    if (iter->kvm_descriptor != NULL && kvm_close(iter->kvm_descriptor) != 0) {
+        perror("kvm_close");
+        ret = -1;
     }
-    if (iter->kvm_descriptor != NULL) {
-        if (kvm_close(iter->kvm_descriptor) != 0) {
-            perror("kvm_close");
-            ret = -1;
-        }
-        iter->kvm_descriptor = NULL;
-    }
-    iter->filter = NULL;
-    iter->proc_count = 0;
-    iter->current_index = 0;
+    memset(iter, 0, sizeof(*iter));
     return ret;
 }
 

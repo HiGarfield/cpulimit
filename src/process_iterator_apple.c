@@ -126,11 +126,8 @@ int init_process_iterator(struct process_iterator *iter,
 
     /* Fatal error if all retries exhausted or allocation failed */
     if (!success) {
-        if (iter->pid_list != NULL) {
-            free(iter->pid_list);
-            iter->pid_list = NULL;
-        }
-        exit(EXIT_FAILURE);
+        close_process_iterator(iter);
+        return -1;
     }
 
     return 0;
@@ -381,13 +378,8 @@ int close_process_iterator(struct process_iterator *iter) {
     if (iter == NULL) {
         return -1;
     }
-    if (iter->pid_list != NULL) {
-        free(iter->pid_list);
-        iter->pid_list = NULL;
-    }
-    iter->filter = NULL;
-    iter->proc_count = 0;
-    iter->current_index = 0;
+    free(iter->pid_list);
+    memset(iter, 0, sizeof(*iter));
     return 0;
 }
 
