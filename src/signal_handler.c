@@ -51,13 +51,22 @@ static volatile sig_atomic_t tty_quit_flag = 0;
 /**
  * @brief Compile-time assertion: sig_atomic_t can hold values up to 127.
  *
- * POSIX.1-2001 requires SIG_ATOMIC_MAX >= 127, guaranteeing that all
- * standard POSIX signal numbers (which are positive integers no greater
- * than 31 on supported platforms) fit without truncation or overflow.
- * This typedef causes a compile error (negative array size) on any
- * non-conforming implementation where sig_atomic_t cannot hold 127.
+ * POSIX.1-2001 requires SIG_ATOMIC_MAX >= 127, so any value in the range
+ * [0, 127] can be stored in a sig_atomic_t without truncation or overflow.
+ * In this module we only store a small set of termination signal numbers
+ * (SIGHUP, SIGINT, SIGQUIT, SIGPIPE, SIGTERM) in quit_signal_num, all of
+ * which are well within that guaranteed range.
+ * When SIG_ATOMIC_MAX is available as a preprocessor constant, a direct
+ * #if check is used; otherwise a C89-compatible typedef (negative array
+ * size trick) provides the equivalent guarantee.
  */
+#ifdef SIG_ATOMIC_MAX
+#if SIG_ATOMIC_MAX < 127
+#error "sig_atomic_t cannot hold the value 127"
+#endif
+#else
 typedef char sig_atomic_large_enough[((sig_atomic_t)127 == 127) ? 1 : -1];
+#endif
 
 /**
  * @brief Signal number of the first termination signal received
@@ -65,9 +74,9 @@ typedef char sig_atomic_large_enough[((sig_atomic_t)127 == 127) ? 1 : -1];
  * Records the signal number that caused the quit flag to be set.
  * Initialized to 0 (no signal). Set once when the first termination
  * signal is received; subsequent signals do not overwrite it.
- * All stored signal numbers (SIGHUP=1, SIGINT=2, SIGQUIT=3,
- * SIGPIPE=13, SIGTERM=15) are <= 15, safely within the POSIX.1-2001
- * guaranteed sig_atomic_t range [0, 127].
+ * All stored signal numbers for the handled signals (SIGHUP, SIGINT,
+ * SIGQUIT, SIGPIPE, SIGTERM) are expected to fall within the
+ * POSIX.1-2001 guaranteed sig_atomic_t range [0, 127].
  */
 static volatile sig_atomic_t quit_signal_num = 0;
 
