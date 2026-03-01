@@ -1,1 +1,0 @@
-/usr/bin/cc -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/multi_process_busy.dir/link.d CMakeFiles/multi_process_busy.dir/tests/multi_process_busy.c.o CMakeFiles/multi_process_busy.dir/src/signal_handler.c.o CMakeFiles/multi_process_busy.dir/src/util.c.o -o multi_process_busy  -lrt

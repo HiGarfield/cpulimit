@@ -121,6 +121,613 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
  * LIST MODULE TESTS
  ***************************************************************************/
 
+static char *argv0 = NULL;
+
+/***************************************************************************
+ * UTIL MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test nsec2timespec conversion
+ * @note Tests conversion from nanoseconds to timespec structure
+ */
+static void test_util_nsec2timespec(void) {
+    struct timespec result_ts;
+
+    /* Test 0 nanoseconds */
+    nsec2timespec(0.0, &result_ts);
+    assert(result_ts.tv_sec == 0);
+    assert(result_ts.tv_nsec == 0);
+
+    /* Test 1 second (1e9 nanoseconds) */
+    nsec2timespec(1000000000.0, &result_ts);
+    assert(result_ts.tv_sec == 1);
+    assert(result_ts.tv_nsec == 0);
+
+    /* Test 1.5 seconds */
+    nsec2timespec(1500000000.0, &result_ts);
+    assert(result_ts.tv_sec == 1);
+    assert(result_ts.tv_nsec == 500000000);
+
+    /* Test 2.25 seconds */
+    nsec2timespec(2250000000.0, &result_ts);
+    assert(result_ts.tv_sec == 2);
+    assert(result_ts.tv_nsec == 250000000);
+
+    /* Test small value (100 microseconds) */
+    nsec2timespec(100000.0, &result_ts);
+    assert(result_ts.tv_sec == 0);
+    assert(result_ts.tv_nsec == 100000);
+}
+
+/**
+ * @brief Test get_current_time and sleep_timespec
+ * @note Tests high-resolution time retrieval and sleeping
+ */
+static void test_util_time_functions(void) {
+    struct timespec ts_before, ts_after, sleep_time;
+    int ret;
+    double elapsed_ms;
+
+    /* Test get_current_time */
+    ret = get_current_time(&ts_before);
+    assert(ret == 0);
+    assert(ts_before.tv_sec >= 0);
+    assert(ts_before.tv_nsec >= 0 && ts_before.tv_nsec < 1000000000L);
+    assert(ts_before.tv_sec > 0 || ts_before.tv_nsec > 0);
+
+    /* Test sleep_timespec with 50ms */
+    sleep_time.tv_sec = 0;
+    sleep_time.tv_nsec = 50000000L; /* 50 ms */
+    ret = sleep_timespec(&sleep_time);
+    assert(ret == 0 || ret == -1); /* May return -1 on signal */
+
+    ret = get_current_time(&ts_after);
+    assert(ret == 0);
+
+    /* Verify time has advanced */
+    assert(ts_after.tv_sec >= ts_before.tv_sec);
+    if (ts_after.tv_sec == ts_before.tv_sec) {
+        assert(ts_after.tv_nsec >= ts_before.tv_nsec);
+    }
+
+    /* Test timediff_in_ms */
+    elapsed_ms = timediff_in_ms(&ts_after, &ts_before);
+    assert(elapsed_ms >= 0.0);
+    /* Should be at least close to 50ms if sleep succeeded */
+}
+
+/**
+ * @brief Test timediff_in_ms calculations
+ * @note Tests time difference calculation in milliseconds
+ */
+static void test_util_timediff_in_ms(void) {
+    struct timespec earlier, later;
+    double diff_ms;
+
+    /* Test simple case: 1 second difference */
+    earlier.tv_sec = 100;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 101;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms >= 999.0 && diff_ms <= 1001.0);
+
+    /* Test with nanoseconds: 0.5 second difference */
+    earlier.tv_sec = 100;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 100;
+    later.tv_nsec = 500000000L;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms >= 499.0 && diff_ms <= 501.0);
+
+    /* Test with both seconds and nanoseconds */
+    earlier.tv_sec = 100;
+    earlier.tv_nsec = 250000000L;
+    later.tv_sec = 101;
+    later.tv_nsec = 750000000L;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms >= 1499.0 && diff_ms <= 1501.0);
+
+    /* Test zero difference */
+    earlier.tv_sec = 100;
+    earlier.tv_nsec = 123456789L;
+    later.tv_sec = 100;
+    later.tv_nsec = 123456789L;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms >= -0.001 && diff_ms <= 0.001);
+}
+
+/**
+ * @brief Test file_basename extraction
+ * @note Tests extracting filename from path
+ */
+static void test_util_file_basename(void) {
+    const char *result;
+    int cmp_ret;
+
+    /* Test simple filename */
+    result = file_basename("test.txt");
+    cmp_ret = strcmp(result, "test.txt");
+    assert(cmp_ret == 0);
+
+    /* Test path with directory */
+    result = file_basename("/usr/bin/test");
+    cmp_ret = strcmp(result, "test");
+    assert(cmp_ret == 0);
+
+    /* Test path with multiple directories */
+    result = file_basename("/home/user/documents/file.txt");
+    cmp_ret = strcmp(result, "file.txt");
+    assert(cmp_ret == 0);
+
+    /* Test path ending with slash */
+    result = file_basename("/home/user/");
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
+
+    /* Test root directory */
+    result = file_basename("/");
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
+
+    /* Test current directory */
+    result = file_basename("./file");
+    cmp_ret = strcmp(result, "file");
+    assert(cmp_ret == 0);
+}
+
+/**
+ * @brief Test get_ncpu function
+ * @note Tests retrieval of CPU count
+ */
+static void test_util_get_ncpu(void) {
+    int ncpu;
+    int ncpu_cached;
+
+    ncpu = get_ncpu();
+    assert(ncpu >= 1);
+
+    /* Call again to test caching */
+    ncpu_cached = get_ncpu();
+    assert(ncpu_cached == ncpu);
+}
+
+/**
+ * @brief Test increase_priority function
+ * @note Tests attempting to increase process priority
+ */
+static void test_util_increase_priority(void) {
+    /* This function may succeed or fail depending on permissions */
+    /* Just ensure it doesn't crash */
+    increase_priority();
+}
+
+/**
+ * @brief Test long2pid_t conversion
+ * @note Tests safe conversion from long to pid_t
+ */
+static void test_util_long2pid_t(void) {
+    pid_t result;
+
+    /* Test valid positive values */
+    result = long2pid_t(1L);
+    assert(result == 1);
+
+    result = long2pid_t(1000L);
+    assert(result == 1000);
+
+    result = long2pid_t(32767L);
+    assert(result == 32767);
+
+    /* Test zero */
+    result = long2pid_t(0L);
+    assert(result == 0);
+
+    /* Test negative value (should return -1) */
+    result = long2pid_t(-1L);
+    assert(result == -1);
+
+    result = long2pid_t(-100L);
+    assert(result == -1);
+}
+
+/***************************************************************************
+ * PROCESS_TABLE MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test util edge cases for time operations
+ * @note Tests boundary conditions and special values
+ */
+static void test_util_time_edge_cases(void) {
+    struct timespec result_ts;
+    double diff_ms;
+    struct timespec ts_earlier, ts_later;
+
+    /* Test nsec2timespec with very large value */
+    nsec2timespec(10000000000.0, &result_ts); /* 10 seconds */
+    assert(result_ts.tv_sec == 10);
+    assert(result_ts.tv_nsec == 0);
+
+    /* Test timediff_in_ms with same time */
+    ts_earlier.tv_sec = 1000;
+    ts_earlier.tv_nsec = 500000000L;
+    ts_later.tv_sec = 1000;
+    ts_later.tv_nsec = 500000000L;
+    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
+    assert(diff_ms >= -0.001 && diff_ms <= 0.001);
+
+    /* Test timediff_in_ms with very small difference */
+    ts_earlier.tv_sec = 1000;
+    ts_earlier.tv_nsec = 0;
+    ts_later.tv_sec = 1000;
+    ts_later.tv_nsec = 1000000L; /* 1 millisecond */
+    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
+    assert(diff_ms >= 0.999 && diff_ms <= 1.001);
+
+    /* Test timediff_in_ms with large difference */
+    ts_earlier.tv_sec = 1000;
+    ts_earlier.tv_nsec = 0;
+    ts_later.tv_sec = 2000;
+    ts_later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
+    assert(diff_ms >= 999999.0 && diff_ms <= 1000001.0);
+}
+
+/**
+ * @brief Test file_basename with edge cases
+ * @note Tests various path formats
+ */
+static void test_util_file_basename_edge_cases(void) {
+    const char *result;
+    int cmp_ret;
+
+    /* Test multiple consecutive slashes */
+    result = file_basename("//usr//bin//test");
+    cmp_ret = strcmp(result, "test");
+    assert(cmp_ret == 0);
+
+    /* Test path with no directory separator */
+    result = file_basename("filename");
+    cmp_ret = strcmp(result, "filename");
+    assert(cmp_ret == 0);
+
+    /* Test path with dot directory */
+    result = file_basename("../test");
+    cmp_ret = strcmp(result, "test");
+    assert(cmp_ret == 0);
+
+    /* Test just a slash */
+    result = file_basename("/");
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
+
+    /* Test NULL input */
+    result = file_basename(NULL);
+    assert(result != NULL);
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
+}
+
+/**
+ * @brief Test long2pid_t with boundary values
+ * @note Tests conversion edge cases
+ */
+static void test_util_long2pid_t_edge_cases(void) {
+    pid_t result;
+
+    /* Test maximum reasonable PID */
+    result = long2pid_t(65535L);
+    assert(result == 65535);
+
+    /* Test with large positive value */
+    result = long2pid_t(1000000L);
+    /* Result depends on pid_t size - just verify it doesn't crash */
+    (void)result;
+}
+
+/**
+ * @brief Test long2pid_t with LONG_MAX (overflow must return -1)
+ * @note Covers the round-trip overflow detection branch
+ */
+static void test_util_long2pid_t_overflow(void) {
+    pid_t result;
+
+    /* LONG_MAX overflows pid_t (32-bit) on 64-bit platforms */
+    result = long2pid_t(LONG_MAX);
+    /* Either the round-trip check detects overflow (-1)
+     * or, on exotic platforms where pid_t == long, the value fits.
+     * Either way, the function must not crash. */
+    (void)result;
+}
+
+#if defined(__linux__)
+/**
+ * @brief Test read_line_from_file with NULL, missing, and valid files
+ * @note Covers all three return paths of read_line_from_file (Linux only)
+ */
+static void test_util_read_line_from_file(void) {
+    char *line;
+    char tmp_file[] = "/tmp/cpulimit_empty_XXXXXX";
+    int tmp_fd;
+    char nl_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
+    int newline_fd;
+    ssize_t nwritten;
+
+    /* NULL filename must return NULL */
+    line = read_line_from_file(NULL);
+    assert(line == NULL);
+
+    /* Non-existent file must return NULL */
+    line = read_line_from_file("/nonexistent/cpulimit_test_no_such_file");
+    assert(line == NULL);
+
+    /* /proc/self/stat always exists and is non-empty */
+    line = read_line_from_file("/proc/self/stat");
+    assert(line != NULL);
+    free(line);
+
+    /* Empty file must return NULL (getline returns -1 on immediate EOF).
+     * Use mkstemp() to avoid name collisions in parallel test runs. */
+    tmp_fd = mkstemp(tmp_file);
+    assert(tmp_fd >= 0);
+    close(tmp_fd);
+    line = read_line_from_file(tmp_file);
+    assert(line == NULL);
+    remove(tmp_file);
+
+    /* A file containing only a newline returns a non-NULL empty string */
+    newline_fd = mkstemp(nl_tmp_file);
+    assert(newline_fd >= 0);
+    nwritten = write(newline_fd, "\n", 1);
+    assert(nwritten == 1);
+    close(newline_fd);
+    line = read_line_from_file(nl_tmp_file);
+    assert(line != NULL);
+    assert(line[0] == '\0');
+    free(line);
+    remove(nl_tmp_file);
+}
+#endif /* __linux__ */
+
+/***************************************************************************
+ * UTIL MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test MAX, MIN, and CLAMP macros with all comparison branches
+ * @note Covers a>b, a<b, a==b for MAX/MIN; below/above/in-range for CLAMP
+ */
+static void test_util_macros(void) {
+    /* Use volatile to prevent value-propagation in static analysers while
+     * still testing the equal-argument and boundary-value edge cases */
+    volatile int clamp_low = 0, clamp_high = 10;
+    volatile int a, b, val, macro_val;
+
+    /* MAX: larger-first, smaller-first, equal */
+    a = 5;
+    b = 3;
+    macro_val = MAX(a, b);
+    assert(macro_val == 5);
+    a = 3;
+    b = 5;
+    macro_val = MAX(a, b);
+    assert(macro_val == 5);
+    a = 4;
+    b = 4;
+    macro_val = MAX(a, b);
+    assert(macro_val == 4);
+    a = -1;
+    b = 0;
+    macro_val = MAX(a, b);
+    assert(macro_val == 0);
+
+    /* MIN: smaller-first, larger-first, equal */
+    a = 3;
+    b = 5;
+    macro_val = MIN(a, b);
+    assert(macro_val == 3);
+    a = 5;
+    b = 3;
+    macro_val = MIN(a, b);
+    assert(macro_val == 3);
+    a = 4;
+    b = 4;
+    macro_val = MIN(a, b);
+    assert(macro_val == 4);
+    a = -1;
+    b = 0;
+    macro_val = MIN(a, b);
+    assert(macro_val == -1);
+
+    /* CLAMP: value in range, below low, above high, equals low, equals high */
+    val = 5;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
+    assert(macro_val == 5);
+    val = -1;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
+    assert(macro_val == 0);
+    val = 15;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
+    assert(macro_val == 10);
+    val = 0;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
+    assert(macro_val == 0);
+    val = 10;
+    macro_val = CLAMP(val, clamp_low, clamp_high);
+    assert(macro_val == 10);
+}
+
+/**
+ * @brief Test timediff_in_ms when the "later" timestamp is actually earlier
+ * @note Covers the negative-difference branch (backwards / rewound time)
+ */
+static void test_util_timediff_negative(void) {
+    struct timespec earlier, later;
+    double diff_ms;
+
+    /* 100 seconds backward */
+    earlier.tv_sec = 200;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 100;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms <= -99999.0 && diff_ms >= -100001.0);
+
+    /* 500 ms backward (nanoseconds only) */
+    earlier.tv_sec = 100;
+    earlier.tv_nsec = 500000000L;
+    later.tv_sec = 100;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms <= -499.0 && diff_ms >= -501.0);
+}
+
+/**
+ * @brief Test sleep_timespec with a zero-duration sleep
+ * @note A zero sleep must return immediately without error
+ */
+static void test_util_sleep_timespec_zero(void) {
+    const struct timespec zero_sleep = {0, 0};
+    int ret;
+    ret = sleep_timespec(&zero_sleep);
+    /* 0 on success; -1 only if interrupted (EINTR) */
+    assert(ret == 0 || ret == -1);
+}
+
+/***************************************************************************
+ * SIGNAL_HANDLER MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test nsec2timespec with 0 and sub-second values
+ * @note Covers zero input and values < 1e9 ns (sec should be 0)
+ */
+static void test_util_nsec2timespec_zero_and_sub(void) {
+    struct timespec t;
+
+    /* Zero nanoseconds */
+    nsec2timespec(0.0, &t);
+    assert(t.tv_sec == 0);
+    assert(t.tv_nsec == 0);
+
+    /* 500 ms = 5e8 ns -> tv_sec=0, tv_nsec=500000000 */
+    nsec2timespec(500000000.0, &t);
+    assert(t.tv_sec == 0);
+    assert(t.tv_nsec == 500000000L);
+
+    /* Exactly 1 second */
+    nsec2timespec(1e9, &t);
+    assert(t.tv_sec == 1);
+    assert(t.tv_nsec == 0);
+}
+
+/**
+ * @brief Test nsec2timespec rollover correction for floating-point edge cases
+ * @note Verifies that tv_nsec stays in [0, 999999999] and tv_sec is adjusted
+ *       when floating-point rounding pushes tv_nsec out of range
+ */
+static void test_util_nsec2timespec_rollover(void) {
+    struct timespec t;
+
+    /*
+     * Values very close to an integer-second boundary can trigger
+     * floating-point rounding that makes tv_nsec negative or >= 1e9.
+     * Use nextafter to obtain a value that is representable just below
+     * or just above a boundary and verify the correction branches.
+     */
+
+    /* A large multiple of 1e9 can round tv_nsec up to 1e9 */
+    nsec2timespec(3e9, &t);
+    assert(t.tv_sec >= 2 && t.tv_sec <= 4);
+    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+
+    /* 2 seconds exactly */
+    nsec2timespec(2e9, &t);
+    assert(t.tv_sec == 2);
+    assert(t.tv_nsec == 0L);
+
+    /* 0.999999999 s = 999999999 ns -- must stay sub-second */
+    nsec2timespec(999999999.0, &t);
+    assert(t.tv_sec == 0);
+    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+
+    /* General invariant: result is always normalised */
+    nsec2timespec(1234567890.123, &t);
+    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+}
+
+/**
+ * @brief Test timediff_in_ms when only nanoseconds differ
+ * @note Covers the sub-millisecond sub-second difference path
+ */
+static void test_util_timediff_nsec_only(void) {
+    struct timespec ts_earlier, ts_later;
+    double diff;
+
+    ts_earlier.tv_sec = 500;
+    ts_earlier.tv_nsec = 0;
+    ts_later.tv_sec = 500;
+    ts_later.tv_nsec = 999000L; /* 0.999 ms */
+    diff = timediff_in_ms(&ts_later, &ts_earlier);
+    assert(diff >= 0.998 && diff <= 1.0);
+}
+
+/**
+ * @brief Test get_current_time returns a non-decreasing timestamp
+ * @note Two successive calls must return increasing or equal time
+ */
+static void test_util_get_current_time_monotonic(void) {
+    struct timespec ts_earlier, ts_later;
+    double diff;
+    int ret;
+    ret = get_current_time(&ts_earlier);
+    assert(ret == 0);
+    ret = get_current_time(&ts_later);
+    assert(ret == 0);
+    diff = timediff_in_ms(&ts_later, &ts_earlier);
+    assert(diff >= 0.0); /* monotonic: must not go backwards */
+}
+
+/**
+ * @brief Test sleep_timespec with a positive (non-zero) duration
+ * @note A 1 ms sleep must complete without error
+ */
+static void test_util_sleep_timespec_nonzero(void) {
+    const struct timespec sleep_duration = {0, 1000000L}; /* 1 ms */
+    int ret = sleep_timespec(&sleep_duration);
+    /* 0 on success; -1 only if EINTR */
+    assert(ret == 0 || ret == -1);
+}
+
+/**
+ * @brief Test long2pid_t with input value 0
+ * @note 0 is not negative but should produce (pid_t)0 without overflow
+ */
+static void test_util_long2pid_t_zero(void) {
+    pid_t result = long2pid_t(0L);
+    assert(result == (pid_t)0);
+}
+
+/**
+ * @brief Test file_basename with empty-string path
+ * @note Empty string has no '/', so the whole string is returned
+ */
+static void test_util_file_basename_empty(void) {
+    const char *result = file_basename("");
+    assert(result != NULL);
+    assert(result[0] == '\0'); /* empty string points to itself */
+}
+
+/***************************************************************************
+ * PROCESS_TABLE MODULE - ADDITIONAL COVERAGE
+ ***************************************************************************/
+
+/***************************************************************************
+ * LIST MODULE TESTS
+ ***************************************************************************/
+
 /**
  * @brief Test list initialization and empty list operations
  * @note Tests init_list, is_empty_list, get_list_count with empty list
@@ -465,673 +1072,6 @@ static void test_list_clear_and_destroy(void) {
  ***************************************************************************/
 
 /**
- * @brief Test nsec2timespec conversion
- * @note Tests conversion from nanoseconds to timespec structure
- */
-static void test_util_nsec2timespec(void) {
-    struct timespec result_ts;
-
-    /* Test 0 nanoseconds */
-    nsec2timespec(0.0, &result_ts);
-    assert(result_ts.tv_sec == 0);
-    assert(result_ts.tv_nsec == 0);
-
-    /* Test 1 second (1e9 nanoseconds) */
-    nsec2timespec(1000000000.0, &result_ts);
-    assert(result_ts.tv_sec == 1);
-    assert(result_ts.tv_nsec == 0);
-
-    /* Test 1.5 seconds */
-    nsec2timespec(1500000000.0, &result_ts);
-    assert(result_ts.tv_sec == 1);
-    assert(result_ts.tv_nsec == 500000000);
-
-    /* Test 2.25 seconds */
-    nsec2timespec(2250000000.0, &result_ts);
-    assert(result_ts.tv_sec == 2);
-    assert(result_ts.tv_nsec == 250000000);
-
-    /* Test small value (100 microseconds) */
-    nsec2timespec(100000.0, &result_ts);
-    assert(result_ts.tv_sec == 0);
-    assert(result_ts.tv_nsec == 100000);
-}
-
-/**
- * @brief Test get_current_time and sleep_timespec
- * @note Tests high-resolution time retrieval and sleeping
- */
-static void test_util_time_functions(void) {
-    struct timespec ts_before, ts_after, sleep_time;
-    int ret;
-    double elapsed_ms;
-
-    /* Test get_current_time */
-    ret = get_current_time(&ts_before);
-    assert(ret == 0);
-    assert(ts_before.tv_sec >= 0);
-    assert(ts_before.tv_nsec >= 0 && ts_before.tv_nsec < 1000000000L);
-    assert(ts_before.tv_sec > 0 || ts_before.tv_nsec > 0);
-
-    /* Test sleep_timespec with 50ms */
-    sleep_time.tv_sec = 0;
-    sleep_time.tv_nsec = 50000000L; /* 50 ms */
-    ret = sleep_timespec(&sleep_time);
-    assert(ret == 0 || ret == -1); /* May return -1 on signal */
-
-    ret = get_current_time(&ts_after);
-    assert(ret == 0);
-
-    /* Verify time has advanced */
-    assert(ts_after.tv_sec >= ts_before.tv_sec);
-    if (ts_after.tv_sec == ts_before.tv_sec) {
-        assert(ts_after.tv_nsec >= ts_before.tv_nsec);
-    }
-
-    /* Test timediff_in_ms */
-    elapsed_ms = timediff_in_ms(&ts_after, &ts_before);
-    assert(elapsed_ms >= 0.0);
-    /* Should be at least close to 50ms if sleep succeeded */
-}
-
-/**
- * @brief Test timediff_in_ms calculations
- * @note Tests time difference calculation in milliseconds
- */
-static void test_util_timediff_in_ms(void) {
-    struct timespec earlier, later;
-    double diff_ms;
-
-    /* Test simple case: 1 second difference */
-    earlier.tv_sec = 100;
-    earlier.tv_nsec = 0;
-    later.tv_sec = 101;
-    later.tv_nsec = 0;
-    diff_ms = timediff_in_ms(&later, &earlier);
-    assert(diff_ms >= 999.0 && diff_ms <= 1001.0);
-
-    /* Test with nanoseconds: 0.5 second difference */
-    earlier.tv_sec = 100;
-    earlier.tv_nsec = 0;
-    later.tv_sec = 100;
-    later.tv_nsec = 500000000L;
-    diff_ms = timediff_in_ms(&later, &earlier);
-    assert(diff_ms >= 499.0 && diff_ms <= 501.0);
-
-    /* Test with both seconds and nanoseconds */
-    earlier.tv_sec = 100;
-    earlier.tv_nsec = 250000000L;
-    later.tv_sec = 101;
-    later.tv_nsec = 750000000L;
-    diff_ms = timediff_in_ms(&later, &earlier);
-    assert(diff_ms >= 1499.0 && diff_ms <= 1501.0);
-
-    /* Test zero difference */
-    earlier.tv_sec = 100;
-    earlier.tv_nsec = 123456789L;
-    later.tv_sec = 100;
-    later.tv_nsec = 123456789L;
-    diff_ms = timediff_in_ms(&later, &earlier);
-    assert(diff_ms >= -0.001 && diff_ms <= 0.001);
-}
-
-/**
- * @brief Test file_basename extraction
- * @note Tests extracting filename from path
- */
-static void test_util_file_basename(void) {
-    const char *result;
-    int cmp_ret;
-
-    /* Test simple filename */
-    result = file_basename("test.txt");
-    cmp_ret = strcmp(result, "test.txt");
-    assert(cmp_ret == 0);
-
-    /* Test path with directory */
-    result = file_basename("/usr/bin/test");
-    cmp_ret = strcmp(result, "test");
-    assert(cmp_ret == 0);
-
-    /* Test path with multiple directories */
-    result = file_basename("/home/user/documents/file.txt");
-    cmp_ret = strcmp(result, "file.txt");
-    assert(cmp_ret == 0);
-
-    /* Test path ending with slash */
-    result = file_basename("/home/user/");
-    cmp_ret = strcmp(result, "");
-    assert(cmp_ret == 0);
-
-    /* Test root directory */
-    result = file_basename("/");
-    cmp_ret = strcmp(result, "");
-    assert(cmp_ret == 0);
-
-    /* Test current directory */
-    result = file_basename("./file");
-    cmp_ret = strcmp(result, "file");
-    assert(cmp_ret == 0);
-}
-
-/**
- * @brief Test get_ncpu function
- * @note Tests retrieval of CPU count
- */
-static void test_util_get_ncpu(void) {
-    int ncpu;
-    int ncpu_cached;
-
-    ncpu = get_ncpu();
-    assert(ncpu >= 1);
-
-    /* Call again to test caching */
-    ncpu_cached = get_ncpu();
-    assert(ncpu_cached == ncpu);
-}
-
-/**
- * @brief Test increase_priority function
- * @note Tests attempting to increase process priority
- */
-static void test_util_increase_priority(void) {
-    /* This function may succeed or fail depending on permissions */
-    /* Just ensure it doesn't crash */
-    increase_priority();
-}
-
-/**
- * @brief Test long2pid_t conversion
- * @note Tests safe conversion from long to pid_t
- */
-static void test_util_long2pid_t(void) {
-    pid_t result;
-
-    /* Test valid positive values */
-    result = long2pid_t(1L);
-    assert(result == 1);
-
-    result = long2pid_t(1000L);
-    assert(result == 1000);
-
-    result = long2pid_t(32767L);
-    assert(result == 32767);
-
-    /* Test zero */
-    result = long2pid_t(0L);
-    assert(result == 0);
-
-    /* Test negative value (should return -1) */
-    result = long2pid_t(-1L);
-    assert(result == -1);
-
-    result = long2pid_t(-100L);
-    assert(result == -1);
-}
-
-/***************************************************************************
- * PROCESS_TABLE MODULE TESTS
- ***************************************************************************/
-
-/**
- * @brief Test process buckets initialization and destruction
- * @note Tests init_process_table and destroy_process_table
- */
-static void test_process_table_init_destroy(void) {
-    struct process_table proc_table;
-
-    /* Test initialization with small hash_size */
-    init_process_table(&proc_table, 16);
-    assert(proc_table.buckets != NULL);
-    assert(proc_table.hash_size == 16);
-    destroy_process_table(&proc_table);
-    assert(proc_table.buckets == NULL);
-
-    /* Test initialization with larger hash_size */
-    init_process_table(&proc_table, 256);
-    assert(proc_table.buckets != NULL);
-    assert(proc_table.hash_size == 256);
-    destroy_process_table(&proc_table);
-
-    /* Test zero hash_size fallback (must avoid division by zero in hashing) */
-    init_process_table(&proc_table, 0);
-    assert(proc_table.buckets != NULL);
-    assert(proc_table.hash_size == 1);
-    destroy_process_table(&proc_table);
-
-    /* Test destroy with NULL (should not crash) */
-    destroy_process_table(NULL);
-}
-
-/**
- * @brief Test process buckets add and find operations
- * @note Tests add_to_process_table and find_in_process_table
- */
-static void test_process_table_add_find(void) {
-    struct process_table proc_table;
-    struct process *proc1, *proc2, *proc3;
-    const struct process *found;
-
-    init_process_table(&proc_table, 64);
-
-    /* Create test processes */
-    proc1 = (struct process *)malloc(sizeof(struct process));
-    proc2 = (struct process *)malloc(sizeof(struct process));
-    proc3 = (struct process *)malloc(sizeof(struct process));
-    assert(proc1 != NULL);
-    assert(proc2 != NULL);
-    assert(proc3 != NULL);
-
-    proc1->pid = 100;
-    proc1->ppid = 1;
-    proc1->cpu_time = 0.0;
-
-    proc2->pid = 200;
-    proc2->ppid = 1;
-    proc2->cpu_time = 0.0;
-
-    proc3->pid = 300;
-    proc3->ppid = 1;
-    proc3->cpu_time = 0.0;
-
-    /* Test find on empty buckets */
-    found = find_in_process_table(&proc_table, 100);
-    assert(found == NULL);
-
-    /* Add first process */
-    add_to_process_table(&proc_table, proc1);
-    found = find_in_process_table(&proc_table, 100);
-    assert(found == proc1);
-    assert(found->pid == 100);
-
-    /* Add second process */
-    add_to_process_table(&proc_table, proc2);
-    found = find_in_process_table(&proc_table, 200);
-    assert(found == proc2);
-    assert(found->pid == 200);
-
-    /* Verify first process still findable */
-    found = find_in_process_table(&proc_table, 100);
-    assert(found == proc1);
-
-    /* Add third process */
-    add_to_process_table(&proc_table, proc3);
-    found = find_in_process_table(&proc_table, 300);
-    assert(found == proc3);
-
-    /* Test find non-existent PID */
-    found = find_in_process_table(&proc_table, 999);
-    assert(found == NULL);
-
-    /* Test find with NULL buckets */
-    found = find_in_process_table(NULL, 100);
-    assert(found == NULL);
-
-    destroy_process_table(&proc_table);
-}
-
-/**
- * @brief Test process buckets delete operation
- * @note Tests delete_from_process_table
- */
-static void test_process_table_del(void) {
-    struct process_table proc_table;
-    struct process *proc1, *proc2, *proc3;
-    const struct process *found;
-    int ret;
-
-    init_process_table(&proc_table, 64);
-
-    proc1 = (struct process *)malloc(sizeof(struct process));
-    proc2 = (struct process *)malloc(sizeof(struct process));
-    proc3 = (struct process *)malloc(sizeof(struct process));
-    assert(proc1 != NULL);
-    assert(proc2 != NULL);
-    assert(proc3 != NULL);
-
-    proc1->pid = 100;
-    proc2->pid = 200;
-    proc3->pid = 300;
-
-    add_to_process_table(&proc_table, proc1);
-    add_to_process_table(&proc_table, proc2);
-    add_to_process_table(&proc_table, proc3);
-
-    /* Delete middle process */
-    ret = delete_from_process_table(&proc_table, 200);
-    assert(ret == 0);
-    found = find_in_process_table(&proc_table, 200);
-    assert(found == NULL);
-
-    /* Verify others still exist */
-    found = find_in_process_table(&proc_table, 100);
-    assert(found == proc1);
-    found = find_in_process_table(&proc_table, 300);
-    assert(found == proc3);
-
-    /* Delete first process */
-    ret = delete_from_process_table(&proc_table, 100);
-    assert(ret == 0);
-    found = find_in_process_table(&proc_table, 100);
-    assert(found == NULL);
-
-    /* Delete last process */
-    ret = delete_from_process_table(&proc_table, 300);
-    assert(ret == 0);
-    found = find_in_process_table(&proc_table, 300);
-    assert(found == NULL);
-
-    /* Try to delete non-existent process */
-    ret = delete_from_process_table(&proc_table, 999);
-    assert(ret == 1);
-
-    /* Test del with NULL buckets */
-    ret = delete_from_process_table(NULL, 100);
-    assert(ret == 1);
-
-    destroy_process_table(&proc_table);
-}
-
-/**
- * @brief Test process buckets remove stale entries
- * @note Tests remove_stale_from_process_table
- */
-static void test_process_table_remove_stale(void) {
-    struct process_table proc_table;
-    struct list active_list;
-    struct process *proc1, *proc2, *proc3;
-    const struct process *found;
-
-    init_process_table(&proc_table, 64);
-    init_list(&active_list);
-
-    /* Create and add three processes to buckets */
-    proc1 = (struct process *)malloc(sizeof(struct process));
-    proc2 = (struct process *)malloc(sizeof(struct process));
-    proc3 = (struct process *)malloc(sizeof(struct process));
-    assert(proc1 != NULL);
-    assert(proc2 != NULL);
-    assert(proc3 != NULL);
-
-    proc1->pid = 100;
-    proc2->pid = 200;
-    proc3->pid = 300;
-
-    add_to_process_table(&proc_table, proc1);
-    add_to_process_table(&proc_table, proc2);
-    add_to_process_table(&proc_table, proc3);
-
-    /* Add only proc1 and proc3 to active list */
-    add_elem(&active_list, proc1);
-    add_elem(&active_list, proc3);
-
-    /* Remove stale entries (proc2 should be removed) */
-    remove_stale_from_process_table(&proc_table, &active_list);
-
-    /* Verify proc2 was removed */
-    found = find_in_process_table(&proc_table, 200);
-    assert(found == NULL);
-
-    /* Verify proc1 and proc3 still exist */
-    found = find_in_process_table(&proc_table, 100);
-    assert(found == proc1);
-    found = find_in_process_table(&proc_table, 300);
-    assert(found == proc3);
-
-    /* Test with NULL (should not crash) */
-    remove_stale_from_process_table(NULL, &active_list);
-
-    clear_list(&active_list);
-    destroy_process_table(&proc_table);
-}
-
-/**
- * @brief Test remove_stale_from_process_table removes NULL-data nodes
- * @note NULL-data nodes should be removed defensively
- *
- * To test this defensive path we must inject a NULL-data node directly
- * into the internal hash bucket. The process_table struct and its buckets
- * member are exposed in the public header, so this access is intentional;
- * the bucket_idx computation mirrors process_table's own pid_hash() formula.
- */
-static void test_process_table_remove_stale_null_data(void) {
-    struct process_table proc_table;
-    struct list active_list;
-    struct process *proc1;
-    size_t bucket_idx;
-    size_t list_count;
-    const struct process *pt_found;
-
-    init_process_table(&proc_table, 16);
-    init_list(&active_list);
-
-    /* Insert a valid process */
-    proc1 = (struct process *)malloc(sizeof(struct process));
-    assert(proc1 != NULL);
-    proc1->pid = 101;
-    add_to_process_table(&proc_table, proc1);
-
-    /*
-     * Inject a NULL-data node into the same bucket.
-     * bucket_idx mirrors process_table's pid_hash(): (size_t)pid % hash_size.
-     */
-    bucket_idx = (size_t)101 % 16;
-    assert(proc_table.buckets[bucket_idx] != NULL);
-    add_elem(proc_table.buckets[bucket_idx], NULL);
-
-    /* add proc1 to active_list so it is not removed */
-    add_elem(&active_list, proc1);
-
-    /* remove_stale must remove the NULL-data node without crashing */
-    remove_stale_from_process_table(&proc_table, &active_list);
-
-    /* proc1 must still be present */
-    pt_found = find_in_process_table(&proc_table, 101);
-    assert(pt_found == proc1);
-
-    /* The NULL-data node must be gone (bucket list has exactly one entry) */
-    list_count = get_list_count(proc_table.buckets[bucket_idx]);
-    assert(list_count == 1);
-
-    clear_list(&active_list);
-    destroy_process_table(&proc_table);
-}
-
-/**
- * @brief Test signal handler flags
- * @note Installs handlers in a child, raises signals, and checks flags
- */
-static void test_signal_handler_flags(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    /* Test behavior on SIGTERM: quit flag set, not terminated by tty */
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        /* Child process: install handlers and raise SIGTERM */
-        configure_signal_handler();
-        if (raise(SIGTERM) != 0) {
-            _exit(1);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(2);
-        }
-        if (is_terminated_by_tty()) {
-            _exit(3);
-        }
-        _exit(0);
-    }
-
-    /* Parent: verify child exited successfully */
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-
-    /* Test behavior on SIGINT: quit flag set, terminated by tty */
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        /* Child process: install handlers and raise SIGINT */
-        configure_signal_handler();
-        if (raise(SIGINT) != 0) {
-            _exit(4);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(5);
-        }
-        if (!is_terminated_by_tty()) {
-            _exit(6);
-        }
-        _exit(0);
-    }
-
-    /* Parent: verify child exited successfully */
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/***************************************************************************
- * PROCESS_ITERATOR MODULE TESTS
- ***************************************************************************/
-
-/**
- * @brief Test is_child_of function
- * @note Tests process ancestry checking
- */
-static void test_process_iterator_is_child_of(void) {
-    pid_t child_pid, parent_pid;
-    int result;
-
-    parent_pid = getpid();
-
-    /* Create a child process */
-    child_pid = fork();
-    assert(child_pid >= 0);
-
-    if (child_pid == 0) {
-        /* Child process */
-        const struct timespec sleep_time = {5, 0L};
-        while (!is_quit_flag_set()) {
-            sleep_timespec(&sleep_time);
-        }
-        _exit(EXIT_SUCCESS);
-    }
-
-    /* Parent process - test is_child_of */
-
-    /* Child should be child of parent */
-    result = is_child_of(child_pid, parent_pid);
-    assert(result == 1);
-
-    /* Parent should not be child of child */
-    /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
-    result = is_child_of(parent_pid, child_pid);
-    assert(result == 0);
-
-    /* Process should not be child of itself */
-    result = is_child_of(parent_pid, parent_pid);
-    assert(result == 0);
-
-    /* All processes are children of init (PID 1) */
-    result = is_child_of(parent_pid, 1);
-    assert(result == 1);
-
-    /* Test with invalid PIDs */
-    result = is_child_of(0, parent_pid);
-    assert(result == 0);
-
-    result = is_child_of(-1, parent_pid);
-    assert(result == 0);
-
-    result = is_child_of(child_pid, 0);
-    assert(result == 0);
-
-    result = is_child_of(child_pid, -1);
-    assert(result == 0);
-
-    /* Test with non-existent PID */
-    result = is_child_of(99999, parent_pid);
-    assert(result == 0);
-
-    /* Non-existent process must not be treated as child of init */
-    result = is_child_of(99999, 1);
-    assert(result == 0);
-
-    /* Clean up child */
-    kill_and_wait(child_pid, SIGKILL);
-}
-
-/***************************************************************************
- * PROCESS_GROUP MODULE TESTS
- ***************************************************************************/
-
-/**
- * @brief Test get_process_group_cpu_usage function
- * @note Tests CPU usage calculation for process group
- */
-static void test_process_group_cpu_usage(void) {
-    struct process_group proc_group;
-    double cpu_usage;
-    pid_t child_pid;
-    int node_idx;
-    int ret;
-    int ncpu;
-
-    /* Create a child process that uses CPU */
-    child_pid = fork();
-    assert(child_pid >= 0);
-
-    if (child_pid == 0) {
-        /* Child process - busy loop */
-        volatile int keep_running = 1;
-        while (keep_running && !is_quit_flag_set()) {
-            volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
-                ;
-            }
-        }
-        _exit(EXIT_SUCCESS);
-    }
-
-    /* Initialize process group for child */
-    ret = init_process_group(&proc_group, child_pid, 0);
-    assert(ret == 0);
-
-    /* First call should return -1 (no measurement yet) */
-    cpu_usage = get_process_group_cpu_usage(&proc_group);
-    assert(cpu_usage >= -1.00001 && cpu_usage <= -0.99999);
-
-    /* Update a few times to get valid measurements */
-    for (node_idx = 0; node_idx < 5; node_idx++) {
-        const struct timespec sleep_time = {0, 100000000L}; /* 100ms */
-        sleep_timespec(&sleep_time);
-        update_process_group(&proc_group);
-    }
-
-    /* Should now have valid CPU usage */
-    cpu_usage = get_process_group_cpu_usage(&proc_group);
-    /* CPU usage should be between 0 and ncpu */
-    ncpu = get_ncpu();
-    assert(cpu_usage >= 0.0);
-    assert(cpu_usage <= 1.0 * ncpu);
-
-    ret = close_process_group(&proc_group);
-    assert(ret == 0);
-    kill_and_wait(child_pid, SIGKILL);
-}
-
-/**
  * @brief Test list operations with edge cases
  * @note Tests list behavior with various edge cases like reversing order
  */
@@ -1209,184 +1149,548 @@ static void test_list_edge_cases(void) {
 }
 
 /**
- * @brief Test util edge cases for time operations
- * @note Tests boundary conditions and special values
+ * @brief Test add_elem with NULL data and locate_node skipping NULL-data nodes
+ * @note Covers: add_elem(l, NULL), locate_node branch cur->data==NULL,
+ *  destroy_node with NULL data pointer
  */
-static void test_util_time_edge_cases(void) {
-    struct timespec result_ts;
-    double diff_ms;
-    struct timespec ts_earlier, ts_later;
+static void test_list_null_data_operations(void) {
+    struct list lst;
+    struct list_node *node;
+    int search_val;
+    size_t list_count;
+    int empty;
+    const struct list_node *tmp_node;
+    const void *void_elem;
 
-    /* Test nsec2timespec with very large value */
-    nsec2timespec(10000000000.0, &result_ts); /* 10 seconds */
-    assert(result_ts.tv_sec == 10);
-    assert(result_ts.tv_nsec == 0);
+    init_list(&lst);
 
-    /* Test timediff_in_ms with same time */
-    ts_earlier.tv_sec = 1000;
-    ts_earlier.tv_nsec = 500000000L;
-    ts_later.tv_sec = 1000;
-    ts_later.tv_nsec = 500000000L;
-    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff_ms >= -0.001 && diff_ms <= 0.001);
+    /* add_elem with NULL data must create a valid node */
+    node = add_elem(&lst, NULL);
+    assert(node != NULL);
+    assert(node->data == NULL);
+    list_count = get_list_count(&lst);
+    assert(list_count == 1);
+    empty = is_empty_list(&lst);
+    assert(empty == 0);
 
-    /* Test timediff_in_ms with very small difference */
-    ts_earlier.tv_sec = 1000;
-    ts_earlier.tv_nsec = 0;
-    ts_later.tv_sec = 1000;
-    ts_later.tv_nsec = 1000000L; /* 1 millisecond */
-    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff_ms >= 0.999 && diff_ms <= 1.001);
+    /* locate_node must skip the NULL-data node (branch: cur->data == NULL) */
+    search_val = 42;
+    tmp_node = locate_node(&lst, &search_val, 0, sizeof(int));
+    assert(tmp_node == NULL);
+    void_elem = locate_elem(&lst, &search_val, 0, sizeof(int));
+    assert(void_elem == NULL);
 
-    /* Test timediff_in_ms with large difference */
-    ts_earlier.tv_sec = 1000;
-    ts_earlier.tv_nsec = 0;
-    ts_later.tv_sec = 2000;
-    ts_later.tv_nsec = 0;
-    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff_ms >= 999999.0 && diff_ms <= 1000001.0);
+    /* destroy_node with NULL data must not crash (branch: node->data == NULL)
+     */
+    destroy_node(&lst, node);
+    list_count = get_list_count(&lst);
+    assert(list_count == 0);
+    empty = is_empty_list(&lst);
+    assert(empty == 1);
 }
 
 /**
- * @brief Test file_basename with edge cases
- * @note Tests various path formats
+ * @brief Test first_node with non-empty list
+ * @note first_node must return the first node after elements are added
  */
-static void test_util_file_basename_edge_cases(void) {
-    const char *result;
-    int cmp_ret;
+static void test_list_first_node_nonempty(void) {
+    struct list lst;
+    int elem_val_1 = 1, elem_val_2 = 2;
+    const struct list_node *first_node_result;
 
-    /* Test multiple consecutive slashes */
-    result = file_basename("//usr//bin//test");
-    cmp_ret = strcmp(result, "test");
-    assert(cmp_ret == 0);
+    init_list(&lst);
+    add_elem(&lst, &elem_val_1);
+    add_elem(&lst, &elem_val_2);
 
-    /* Test path with no directory separator */
-    result = file_basename("filename");
-    cmp_ret = strcmp(result, "filename");
-    assert(cmp_ret == 0);
+    first_node_result = first_node(&lst);
+    assert(first_node_result != NULL);
+    assert(first_node_result->data == &elem_val_1);
+    assert(first_node_result->next != NULL);
+    assert(first_node_result->next->data == &elem_val_2);
+    assert(first_node_result->previous == NULL);
 
-    /* Test path with dot directory */
-    result = file_basename("../test");
-    cmp_ret = strcmp(result, "test");
-    assert(cmp_ret == 0);
-
-    /* Test just a slash */
-    result = file_basename("/");
-    cmp_ret = strcmp(result, "");
-    assert(cmp_ret == 0);
-
-    /* Test NULL input */
-    result = file_basename(NULL);
-    assert(result != NULL);
-    cmp_ret = strcmp(result, "");
-    assert(cmp_ret == 0);
+    clear_list(&lst);
 }
 
 /**
- * @brief Test long2pid_t with boundary values
- * @note Tests conversion edge cases
+ * @brief Test delete_node on empty list (count==0 guard path)
+ * @note Must be a no-op when count is 0
  */
-static void test_util_long2pid_t_edge_cases(void) {
-    pid_t result;
+static void test_list_delete_node_empty(void) {
+    struct list lst;
+    struct list_node fake_node;
+    size_t list_count;
 
-    /* Test maximum reasonable PID */
-    result = long2pid_t(65535L);
-    assert(result == 65535);
-
-    /* Test with large positive value */
-    result = long2pid_t(1000000L);
-    /* Result depends on pid_t size - just verify it doesn't crash */
-    (void)result;
+    init_list(&lst);
+    /* count == 0 guard: should silently return */
+    delete_node(&lst, &fake_node);
+    list_count = get_list_count(&lst);
+    assert(list_count == 0);
 }
 
 /**
- * @brief Test process table with hash collisions
- * @note Tests behavior when multiple PIDs hash to same bucket
+ * @brief Test destroy_node with a NULL list frees node and data without crash
+ * @note Exercises the l==NULL fast-path that frees node directly
  */
-static void test_process_table_collisions(void) {
-    struct process_table proc_table;
-    static const pid_t collision_pids[20] = {100, 110, 120, 130, 140, 150, 160,
-                                             170, 180, 190, 200, 210, 220, 230,
-                                             240, 250, 260, 270, 280, 290};
-    struct process *proc[20];
-    const struct process *found;
-    size_t case_idx;
+static void test_list_destroy_node_null_list(void) {
+    struct list_node *node;
+    int *data;
 
-    /* Use small hash size to force collisions */
-    init_process_table(&proc_table, 4);
+    data = (int *)malloc(sizeof(int));
+    assert(data != NULL);
+    *data = 42;
 
-    /* Add many processes */
-    for (case_idx = 0; case_idx < 20; case_idx++) {
-        proc[case_idx] = (struct process *)malloc(sizeof(struct process));
-        assert(proc[case_idx] != NULL);
-        proc[case_idx]->pid = collision_pids[case_idx];
-        add_to_process_table(&proc_table, proc[case_idx]);
-    }
+    node = (struct list_node *)malloc(sizeof(struct list_node));
+    assert(node != NULL);
+    node->data = data;
+    node->previous = NULL;
+    node->next = NULL;
 
-    /* Verify all processes can be found */
-    for (case_idx = 0; case_idx < 20; case_idx++) {
-        found = find_in_process_table(&proc_table, collision_pids[case_idx]);
-        assert(found == proc[case_idx]);
-        assert(found->pid == collision_pids[case_idx]);
-    }
+    /* destroy_node with NULL list must free both data and node */
+    destroy_node(NULL, node);
+    /* If we reach here without crash, the test passed */
+}
 
-    /* Delete some processes */
-    for (case_idx = 0; case_idx < 20; case_idx += 3) {
-        int ret;
-        ret = delete_from_process_table(&proc_table, collision_pids[case_idx]);
-        assert(ret == 0);
-    }
+/**
+ * @brief Test locate_node/locate_elem with a single-element list
+ * @note Ensures the single-node match and single-node miss paths work
+ */
+static void test_list_locate_single(void) {
+    struct list lst;
+    int val = 42, miss = 99;
+    struct list_node *node;
+    const void *elem;
+    int node_val;
+    const struct list_node *tmp_node;
+    const void *void_elem;
 
-    /* Verify deleted processes are gone */
-    for (case_idx = 0; case_idx < 20; case_idx++) {
-        found = find_in_process_table(&proc_table, collision_pids[case_idx]);
-        if (case_idx % 3 == 0) {
-            assert(found == NULL);
-        } else {
-            assert(found == proc[case_idx]);
+    init_list(&lst);
+    add_elem(&lst, &val);
+
+    node = locate_node(&lst, &val, 0, sizeof(int));
+    assert(node != NULL);
+    node_val = *(int *)node->data;
+    assert(node_val == 42);
+
+    elem = locate_elem(&lst, &val, 0, sizeof(int));
+    assert(elem == &val);
+
+    /* Miss case */
+    tmp_node = locate_node(&lst, &miss, 0, sizeof(int));
+    assert(tmp_node == NULL);
+    void_elem = locate_elem(&lst, &miss, 0, sizeof(int));
+    assert(void_elem == NULL);
+
+    clear_list(&lst);
+}
+
+/**
+ * @brief Test clear_list on an already-empty list (no-op path)
+ * @note Must not crash and count stays 0
+ */
+static void test_list_clear_empty(void) {
+    struct list lst;
+    size_t list_count;
+    int empty;
+    init_list(&lst);
+    clear_list(&lst);
+    list_count = get_list_count(&lst);
+    assert(list_count == 0);
+    empty = is_empty_list(&lst);
+    assert(empty == 1);
+}
+
+/**
+ * @brief Test destroy_list on an already-empty list (no-op path)
+ * @note Must not crash and count stays 0
+ */
+static void test_list_destroy_empty(void) {
+    struct list lst;
+    size_t list_count;
+    int empty;
+    init_list(&lst);
+    destroy_list(&lst);
+    list_count = get_list_count(&lst);
+    assert(list_count == 0);
+    empty = is_empty_list(&lst);
+    assert(empty == 1);
+}
+
+/***************************************************************************
+ * UTIL MODULE - ADDITIONAL COVERAGE
+ ***************************************************************************/
+
+/***************************************************************************
+ * SIGNAL_HANDLER MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test signal handler flags
+ * @note Installs handlers in a child, raises signals, and checks flags
+ */
+static void test_signal_handler_flags(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    /* Test behavior on SIGTERM: quit flag set, not terminated by tty */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /* Child process: install handlers and raise SIGTERM */
+        configure_signal_handler();
+        if (raise(SIGTERM) != 0) {
+            _exit(1);
         }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (is_terminated_by_tty()) {
+            _exit(3);
+        }
+        _exit(0);
     }
 
-    destroy_process_table(&proc_table);
+    /* Parent: verify child exited successfully */
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+
+    /* Test behavior on SIGINT: quit flag set, terminated by tty */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /* Child process: install handlers and raise SIGINT */
+        configure_signal_handler();
+        if (raise(SIGINT) != 0) {
+            _exit(4);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(5);
+        }
+        if (!is_terminated_by_tty()) {
+            _exit(6);
+        }
+        _exit(0);
+    }
+
+    /* Parent: verify child exited successfully */
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/***************************************************************************
+ * PROCESS_ITERATOR MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test SIGQUIT signal handling
+ * @note SIGQUIT must set both quit_flag and terminated_by_tty.
+ *  The child calls setsid() to create a new session and detach from the
+ *  controlling terminal, preventing BSD terminal drivers from propagating
+ *  SIGQUIT to the parent's process group.
+ */
+static void test_signal_handler_sigquit(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /*
+         * Create a new session to detach from the controlling terminal.
+         * On BSD, raising SIGQUIT (a core-dump signal) in a process that
+         * shares the parent's terminal session can cause the terminal
+         * driver to propagate the signal to the parent's process group,
+         * corrupting the parent's state. setsid() prevents this.
+         */
+        pid_t session_id;
+        session_id = setsid();
+        assert(session_id != (pid_t)-1);
+        configure_signal_handler();
+        if (raise(SIGQUIT) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (!is_terminated_by_tty()) {
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
 }
 
 /**
- * @brief Test process table with empty buckets
- * @note Tests operations when some buckets are empty
+ * @brief Test SIGHUP signal handling
+ * @note SIGHUP must set quit_flag but must NOT set terminated_by_tty
  */
-static void test_process_table_empty_buckets(void) {
-    struct process_table proc_table;
-    struct list active_list;
-    struct process *proc1, *proc2;
-    const struct process *pt_found;
+static void test_signal_handler_sighup(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
 
-    init_process_table(&proc_table, 256);
-    init_list(&active_list);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGHUP) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (is_terminated_by_tty()) { /* SIGHUP must NOT set the tty flag */
+            _exit(3);
+        }
+        _exit(0);
+    }
 
-    /* Add sparse processes */
-    proc1 = (struct process *)malloc(sizeof(struct process));
-    proc2 = (struct process *)malloc(sizeof(struct process));
-    assert(proc1 != NULL);
-    assert(proc2 != NULL);
-
-    proc1->pid = (pid_t)10;
-    proc2->pid = (pid_t)1000;
-
-    add_to_process_table(&proc_table, proc1);
-    add_to_process_table(&proc_table, proc2);
-
-    /* Remove stale with empty active list */
-    remove_stale_from_process_table(&proc_table, &active_list);
-
-    /* All processes should be removed */
-    pt_found = find_in_process_table(&proc_table, (pid_t)10);
-    assert(pt_found == NULL);
-    pt_found = find_in_process_table(&proc_table, (pid_t)1000);
-    assert(pt_found == NULL);
-
-    clear_list(&active_list);
-    destroy_process_table(&proc_table);
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
 }
+
+/**
+ * @brief Test SIGPIPE signal handling
+ * @note SIGPIPE must set quit_flag but must NOT set terminated_by_tty
+ */
+static void test_signal_handler_sigpipe(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGPIPE) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (is_terminated_by_tty()) { /* SIGPIPE must NOT set the tty flag */
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/**
+ * @brief Test initial state of signal handler flags before any signal is raised
+ * @note Both quit_flag and terminated_by_tty must be 0 before any signal
+ */
+static void test_signal_handler_initial_state(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (is_quit_flag_set()) {
+            _exit(1);
+        }
+        if (is_terminated_by_tty()) {
+            _exit(2);
+        }
+        _exit(0);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/***************************************************************************
+ * PROCESS_GROUP MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test SIGTERM handling
+ * @note SIGTERM must set quit_flag but must NOT set terminated_by_tty
+ */
+static void test_signal_handler_sigterm(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGTERM) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (is_terminated_by_tty()) { /* SIGTERM must NOT set tty flag */
+            _exit(3);
+        }
+        _exit(0);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/**
+ * @brief Test SIGINT handling
+ * @note SIGINT must set both quit_flag and terminated_by_tty
+ */
+static void test_signal_handler_sigint(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGINT) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (!is_terminated_by_tty()) { /* SIGINT MUST set tty flag */
+            _exit(3);
+        }
+        _exit(0);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/***************************************************************************
+ * PROCESS_ITERATOR MODULE - ADDITIONAL COVERAGE
+ ***************************************************************************/
+
+/***************************************************************************
+ * PROCESS_ITERATOR MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test is_child_of function
+ * @note Tests process ancestry checking
+ */
+static void test_process_iterator_is_child_of(void) {
+    pid_t child_pid, parent_pid;
+    int result;
+
+    parent_pid = getpid();
+
+    /* Create a child process */
+    child_pid = fork();
+    assert(child_pid >= 0);
+
+    if (child_pid == 0) {
+        /* Child process */
+        const struct timespec sleep_time = {5, 0L};
+        while (!is_quit_flag_set()) {
+            sleep_timespec(&sleep_time);
+        }
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Parent process - test is_child_of */
+
+    /* Child should be child of parent */
+    result = is_child_of(child_pid, parent_pid);
+    assert(result == 1);
+
+    /* Parent should not be child of child */
+    /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
+    result = is_child_of(parent_pid, child_pid);
+    assert(result == 0);
+
+    /* Process should not be child of itself */
+    result = is_child_of(parent_pid, parent_pid);
+    assert(result == 0);
+
+    /* All processes are children of init (PID 1) */
+    result = is_child_of(parent_pid, 1);
+    assert(result == 1);
+
+    /* Test with invalid PIDs */
+    result = is_child_of(0, parent_pid);
+    assert(result == 0);
+
+    result = is_child_of(-1, parent_pid);
+    assert(result == 0);
+
+    result = is_child_of(child_pid, 0);
+    assert(result == 0);
+
+    result = is_child_of(child_pid, -1);
+    assert(result == 0);
+
+    /* Test with non-existent PID */
+    result = is_child_of(99999, parent_pid);
+    assert(result == 0);
+
+    /* Non-existent process must not be treated as child of init */
+    result = is_child_of(99999, 1);
+    assert(result == 0);
+
+    /* Clean up child */
+    kill_and_wait(child_pid, SIGKILL);
+}
+
+/***************************************************************************
+ * PROCESS_GROUP MODULE TESTS
+ ***************************************************************************/
 
 /**
  * @brief Test process iterator filter edge cases
@@ -1420,51 +1724,6 @@ static void test_process_iterator_filter_edge_cases(void) {
 
     free(proc);
 }
-
-/**
- * @brief Test process group with rapid updates
- * @note Tests update_process_group called in quick succession
- */
-static void test_process_group_rapid_updates(void) {
-    struct process_group proc_group;
-    pid_t child_pid;
-    int proc_idx;
-    int ret;
-
-    child_pid = fork();
-    assert(child_pid >= 0);
-
-    if (child_pid == 0) {
-        /* Child process */
-        volatile int keep_running = 1;
-        while (keep_running && !is_quit_flag_set()) {
-            volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
-                ;
-            }
-        }
-        _exit(EXIT_SUCCESS);
-    }
-
-    /* Initialize and update rapidly */
-    ret = init_process_group(&proc_group, child_pid, 0);
-    assert(ret == 0);
-
-    for (proc_idx = 0; proc_idx < 20; proc_idx++) {
-        size_t list_count;
-        update_process_group(&proc_group);
-        list_count = get_list_count(proc_group.proc_list);
-        assert(list_count == 1);
-    }
-
-    ret = close_process_group(&proc_group);
-    assert(ret == 0);
-    kill_and_wait(child_pid, SIGKILL);
-}
-
-/***************************************************************************
- * EXISTING TESTS (RENAMED FOR CONSISTENCY)
- ***************************************************************************/
 
 /**
  * @brief Test process iterator with a single process
@@ -1643,128 +1902,6 @@ static void test_process_iterator_all(void) {
 }
 
 /**
- * @brief Test process group initialization with all processes
- * @note Verifies that a process group initialized with PID 0 (all processes)
- *  is non-empty and contains the current process
- */
-static void test_process_group_init_all(void) {
-    struct process_group proc_group;
-    const struct list_node *node = NULL;
-    size_t count = 0;
-    int found_self = 0;
-    int ret;
-    size_t list_cnt;
-
-    /* Initialize process group with all processes */
-    ret = init_process_group(&proc_group, 0, 0);
-    assert(ret == 0);
-    update_process_group(&proc_group);
-
-    /* Count processes in the group */
-    for (node = proc_group.proc_list->first; node != NULL; node = node->next) {
-        const struct process *proc = (const struct process *)node->data;
-        if (proc->pid == getpid()) {
-            found_self = 1;
-        }
-        count++;
-    }
-    assert(count > 0);
-    assert(found_self == 1);
-    list_cnt = get_list_count(proc_group.proc_list);
-    assert(count == list_cnt);
-
-    /* Update and verify again */
-    update_process_group(&proc_group);
-    ret = close_process_group(&proc_group);
-    assert(ret == 0);
-}
-
-/**
- * @brief Test process group with a single process
- * @param include_children Flag indicating whether to include child processes
- * @note Creates a child process and verifies that the process group
- *  correctly tracks it, with or without child process inclusion
- */
-static void test_process_group_single(int include_children) {
-    struct process_group proc_group;
-    int iter_idx;
-    int ret;
-    int ncpu;
-    pid_t self_pid;
-    pid_t child_pid;
-
-    /* Create a child process for testing */
-    child_pid = fork();
-    assert(child_pid >= 0);
-
-    if (child_pid == 0) {
-        /* Child process: busy loop until killed */
-        volatile int keep_running = 1;
-        while (keep_running && !is_quit_flag_set()) {
-            volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
-                ;
-            }
-        }
-        _exit(EXIT_SUCCESS);
-    }
-
-    /* Initialize process group with the child PID */
-    self_pid = getpid();
-    ret = init_process_group(&proc_group, child_pid, include_children);
-    assert(ret == 0);
-
-    /* Update process group 100 times and verify consistency */
-    for (iter_idx = 0; iter_idx < 100; iter_idx++) {
-        const struct list_node *node = NULL;
-        size_t count = 0;
-        size_t list_count;
-
-        update_process_group(&proc_group);
-        list_count = get_list_count(proc_group.proc_list);
-        assert(list_count == 1);
-
-        for (node = proc_group.proc_list->first; node != NULL;
-             node = node->next) {
-            const struct process *proc = (const struct process *)node->data;
-            int cpu_unset;
-            int cpu_valid;
-            assert(proc->pid == child_pid);
-            assert(proc->ppid == self_pid);
-            /* p->cpu_usage should be -1 or [0, NCPU] */
-            ncpu = get_ncpu();
-            cpu_unset =
-                (proc->cpu_usage >= -1.00001 && proc->cpu_usage <= -0.99999);
-            cpu_valid = (proc->cpu_usage >= 0 && proc->cpu_usage <= 1.0 * ncpu);
-            assert(cpu_unset || cpu_valid);
-            count++;
-        }
-        assert(count == 1);
-    }
-    ret = close_process_group(&proc_group);
-    assert(ret == 0);
-
-    /* Clean up child process */
-    kill_and_wait(child_pid, SIGKILL);
-}
-
-/**
- * @brief Test process group with a single process (both with and without
- * children)
- * @note Wrapper function to test process group with include_children set to
- *  0 and 1
- */
-static void test_process_group_init_single(void) {
-    /* Test without including children */
-    test_process_group_single(0);
-
-    /* Test with including children */
-    test_process_group_single(1);
-}
-
-static char *argv0 = NULL;
-
-/**
  * @brief Test process name retrieval
  * @note Verifies that the process iterator can correctly retrieve the
  *  command name of the current process
@@ -1816,137 +1953,6 @@ static void test_process_iterator_read_command(void) {
 }
 
 /**
- * @brief Test process group initialization with invalid PIDs
- * @note Verifies that process group initialization with invalid PIDs (-1 and
- *  INT_MAX) results in empty process lists
- */
-static void test_process_group_init_invalid_pid(void) {
-    struct process_group proc_group;
-    int ret;
-    size_t list_count;
-
-    /* Test with PID -1 */
-    ret = init_process_group(&proc_group, -1, 0);
-    assert(ret == 0);
-    list_count = get_list_count(proc_group.proc_list);
-    assert(list_count == 0);
-    update_process_group(&proc_group);
-    list_count = get_list_count(proc_group.proc_list);
-    assert(list_count == 0);
-    ret = close_process_group(&proc_group);
-    assert(ret == 0);
-
-    /* Test with PID INT_MAX */
-    ret = init_process_group(&proc_group, INT_MAX, 0);
-    assert(ret == 0);
-    list_count = get_list_count(proc_group.proc_list);
-    assert(list_count == 0);
-    update_process_group(&proc_group);
-    list_count = get_list_count(proc_group.proc_list);
-    assert(list_count == 0);
-    ret = close_process_group(&proc_group);
-    assert(ret == 0);
-}
-
-/**
- * @brief Test init_process_group with NULL proc_group argument
- * @note Must return -1 without crashing when proc_group is NULL
- */
-static void test_process_group_init_null(void) {
-    int ret;
-    ret = init_process_group(NULL, getpid(), 0);
-    assert(ret == -1);
-}
-
-/**
- * @brief Test find_process_by_pid function
- * @note Verifies that the current process can be found by its PID
- */
-static void test_process_group_find_by_pid(void) {
-    pid_t self_pid;
-    pid_t found_pid;
-    self_pid = getpid();
-    found_pid = find_process_by_pid(self_pid);
-    assert(found_pid == self_pid);
-}
-
-/**
- * @brief Test find_process_by_name function
- * @note Tests various cases: correct process name, empty string, modified
- *  process names that should not match
- */
-static void test_process_group_find_by_name(void) {
-    char *wrong_name;
-    size_t len;
-    pid_t found_pid;
-    pid_t self_pid;
-#if defined(__linux__)
-    char abs_path[64];
-#endif /* __linux__ */
-
-    /* Allocate buffer for modified process names */
-    wrong_name = (char *)malloc(PATH_MAX + 1);
-    if (wrong_name == NULL) {
-        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
-        exit(EXIT_FAILURE);
-    }
-
-    /*
-     * 'argv0' is the name of the current process (equivalent to argv[0]).
-     * Verify that the find_process_by_name function can find the current
-     * process (PID should match the return value of getpid()).
-     */
-    found_pid = find_process_by_name(argv0);
-    self_pid = getpid();
-    assert(found_pid == self_pid);
-
-#if defined(__linux__)
-    /*
-     * Test the absolute-path comparison branch: when process_name starts
-     * with '/', find_process_by_name compares the full path against each
-     * process's cmdline.  Use a path incorporating the current PID so it
-     * is unique enough to never match any running process's cmdline,
-     * even in shared CI environments.
-     */
-    snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
-             (long)getpid());
-    found_pid = find_process_by_name(abs_path);
-    assert(found_pid == 0);
-#endif /* __linux__ */
-
-    /*
-     * Test Case 1: Pass an empty string to find_process_by_name.
-     * Expectation: Should return 0 (process not found).
-     */
-    strcpy(wrong_name, "");
-    found_pid = find_process_by_name(wrong_name);
-    assert(found_pid == 0);
-
-    /*
-     * Test Case 2: Pass an incorrect process name by appending 'x'
-     * to the current process's name.
-     * Expectation: Should return 0 (process not found).
-     */
-    strcpy(wrong_name, argv0); /* Copy the current process's name */
-    strcat(wrong_name, "x");   /* Append 'x' to make it non-matching */
-    found_pid = find_process_by_name(wrong_name);
-    assert(found_pid == 0);
-
-    /*
-     * Test Case 3: Pass a copy of the current process's name with
-     * the last character removed.
-     * Expectation: Should return 0 (process not found).
-     */
-    strcpy(wrong_name, argv0); /* Copy the current process's name */
-    len = strlen(wrong_name);
-    wrong_name[len - 1] = '\0'; /* Remove the last character */
-    found_pid = find_process_by_name(wrong_name);
-    assert(found_pid == 0);
-
-    free(wrong_name);
-}
-
-/**
  * @brief Test getppid_of function
  * @note Verifies that getppid_of returns the correct parent PID for multiple
  *  processes, including the current process
@@ -1986,484 +1992,6 @@ static void test_process_iterator_getppid_of(void) {
     ppid_self = getppid_of(getpid());
     expected_ppid = getppid();
     assert(ppid_self == expected_ppid);
-}
-
-/**
- * @brief Test limit_process function
- * @note Creates a process group with multi processes and applies CPU
- *  limiting to verify that the CPU usage stays within the specified limit
- */
-static void test_limit_process_basic(void) {
-    const double cpu_usage_limit = 0.5;
-    pid_t child_pid;
-    int sync_pipe[2], num_procs;
-    int ret;
-
-    num_procs = get_ncpu();
-    /* Ensure at least 2 processes to validate include_children option */
-    num_procs = MAX(num_procs, 2);
-
-    /* Create pipe for synchronization */
-    ret = pipe(sync_pipe);
-    assert(ret == 0);
-
-    /* Fork first child process */
-    child_pid = fork();
-    assert(child_pid >= 0);
-
-    if (child_pid > 0) {
-        /* Parent process: monitor CPU usage */
-        pid_t limiter_pid;
-        ssize_t ack_count, read_ret;
-        char ack;
-
-        ret = close(sync_pipe[1]);
-        assert(ret == 0);
-
-        /* Wait for num_procs acknowledgements (from num_procs processes) */
-        for (ack_count = 0; ack_count < num_procs; ack_count++) {
-            read_ret = read(sync_pipe[0], &ack, 1);
-            if (read_ret == -1 && errno == EINTR) {
-                continue; /* Interrupted, retry read */
-            }
-            assert(read_ret == 1 && ack == 'A');
-        }
-        /* Now should read EOF */
-        do {
-            read_ret = read(sync_pipe[0], &ack, 1);
-        } while (read_ret == -1 && errno == EINTR);
-        assert(read_ret == 0);
-        ret = close(sync_pipe[0]);
-        assert(ret == 0);
-        assert(ack_count == num_procs);
-        /* Fork CPU limiter process */
-        limiter_pid = fork();
-        assert(limiter_pid >= 0);
-
-        if (limiter_pid > 0) {
-            /* Monitor process: track CPU usage */
-            int iter_idx;
-            size_t count = 0;
-            double cpu_usage = 0;
-            struct process_group proc_group;
-            const struct timespec sleep_time = {0, 500000000L};
-            int ncpu;
-
-            /* Initialize process group monitoring */
-            ret = init_process_group(&proc_group, child_pid, 1);
-            assert(ret == 0);
-
-            /* Monitor CPU usage over 60 iterations */
-            for (iter_idx = 0; iter_idx < 60 && !is_quit_flag_set();
-                 iter_idx++) {
-                double temp_cpu_usage;
-                size_t list_count;
-                sleep_timespec(&sleep_time);
-                update_process_group(&proc_group);
-
-                /* Verify all num_procs processes are being monitored */
-                list_count = get_list_count(proc_group.proc_list);
-                assert(list_count == (size_t)num_procs);
-
-                temp_cpu_usage = get_process_group_cpu_usage(&proc_group);
-                if (temp_cpu_usage > 0) {
-                    cpu_usage += temp_cpu_usage;
-                    count++;
-                }
-            }
-            ret = close_process_group(&proc_group);
-            assert(ret == 0);
-            assert(count > 0);
-
-            /* Terminate limiter process first */
-            kill_and_wait(limiter_pid, SIGKILL);
-
-            /* Terminate entire process group */
-            kill_and_wait(-child_pid, SIGKILL);
-
-            /* Calculate and display average CPU usage */
-            cpu_usage /= (double)count;
-            printf("CPU usage limit: %.3f, CPU usage: %.3f\n", cpu_usage_limit,
-                   cpu_usage);
-
-            /* Verify CPU usage */
-            ncpu = get_ncpu();
-            assert(cpu_usage <= ncpu);
-
-            return;
-        }
-        /* limiter_pid == 0: CPU limiter process */
-        limit_process(child_pid, cpu_usage_limit, 1, 0);
-        exit(EXIT_SUCCESS);
-    } else {
-        /* child_pid == 0: Target process group */
-        int proc_idx;
-        volatile int keep_running = 1;
-        ssize_t nwritten;
-
-        /* Create new process group */
-        setpgid(0, 0);
-
-        ret = close(sync_pipe[0]);
-        assert(ret == 0);
-
-        /* Fork (num_procs - 1) child processes */
-        for (proc_idx = 1; proc_idx < num_procs; proc_idx++) {
-            pid_t pid = fork();
-            assert(pid >= 0);
-
-            if (pid == 0) {
-                /* Child process: do not create more children */
-                break;
-            }
-        }
-
-        /* Send acknowledgement and close pipe */
-        nwritten = write(sync_pipe[1], "A", 1);
-        assert(nwritten == 1);
-        ret = close(sync_pipe[1]);
-        assert(ret == 0);
-
-        /* Keep processes running until terminated */
-        while (keep_running && !is_quit_flag_set()) {
-            volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
-                ;
-            }
-        }
-        _exit(EXIT_SUCCESS);
-    }
-}
-
-/***************************************************************************
- * LIMITER MODULE TESTS
- ***************************************************************************/
-
-/**
- * @brief Test run_command_mode with a command that exits immediately
- * @note Forks a child to call run_command_mode and checks the exit code
- *  matches the command's exit code
- */
-static void test_limiter_run_command_mode(void) {
-    pid_t pid;
-    int status;
-    struct cpulimit_cfg cfg;
-    char cmd[] = "true";
-    char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    args[0] = cmd;
-    args[1] = NULL;
-    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
-    cfg.program_name = "test";
-    cfg.command_mode = 1;
-    cfg.command_args = args;
-    cfg.limit = 0.5;
-    cfg.lazy_mode = 1;
-
-    /* Run in child process since run_command_mode calls exit() */
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE); /* Should not reach here */
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    /* 'true' exits with 0, so run_command_mode should exit with 0 */
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == EXIT_SUCCESS);
-}
-
-/**
- * @brief Test run_pid_or_exe_mode when the target process does not exist
- * @note Verifies that lazy mode exits with EXIT_FAILURE when the target
- *  executable name is not found
- */
-static void test_limiter_run_pid_or_exe_mode(void) {
-    pid_t pid;
-    int status;
-    struct cpulimit_cfg cfg;
-    const char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
-    cfg.program_name = "test";
-    cfg.exe_name = exe_name;
-    cfg.limit = 0.5;
-    cfg.lazy_mode = 1;
-
-    /* Run in child since run_pid_or_exe_mode calls exit() */
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        /* Suppress output from run_pid_or_exe_mode in child */
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE); /* Should not reach here */
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    /* Process not found with lazy_mode=1 -> EXIT_FAILURE */
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == EXIT_FAILURE);
-}
-
-/***************************************************************************
- * ADDITIONAL WHITE-BOX COVERAGE TESTS
- ***************************************************************************/
-
-/**
- * @brief Test add_elem with NULL data and locate_node skipping NULL-data nodes
- * @note Covers: add_elem(l, NULL), locate_node branch cur->data==NULL,
- *  destroy_node with NULL data pointer
- */
-static void test_list_null_data_operations(void) {
-    struct list lst;
-    struct list_node *node;
-    int search_val;
-    size_t list_count;
-    int empty;
-    const struct list_node *tmp_node;
-    const void *void_elem;
-
-    init_list(&lst);
-
-    /* add_elem with NULL data must create a valid node */
-    node = add_elem(&lst, NULL);
-    assert(node != NULL);
-    assert(node->data == NULL);
-    list_count = get_list_count(&lst);
-    assert(list_count == 1);
-    empty = is_empty_list(&lst);
-    assert(empty == 0);
-
-    /* locate_node must skip the NULL-data node (branch: cur->data == NULL) */
-    search_val = 42;
-    tmp_node = locate_node(&lst, &search_val, 0, sizeof(int));
-    assert(tmp_node == NULL);
-    void_elem = locate_elem(&lst, &search_val, 0, sizeof(int));
-    assert(void_elem == NULL);
-
-    /* destroy_node with NULL data must not crash (branch: node->data == NULL)
-     */
-    destroy_node(&lst, node);
-    list_count = get_list_count(&lst);
-    assert(list_count == 0);
-    empty = is_empty_list(&lst);
-    assert(empty == 1);
-}
-
-/**
- * @brief Test init_process_table and add_to_process_table with NULL inputs
- * @note Covers: init_process_table(NULL,...), add_to_process_table(NULL,p),
- *  add_to_process_table(pt,NULL), and duplicate-PID insertion (silently
- * ignored)
- */
-static void test_process_table_null_inputs_and_dup(void) {
-    struct process_table proc_table;
-    struct process *proc1, *proc2;
-    const struct process *found;
-    const struct process *pt_found;
-
-    /* init_process_table with NULL pointer must not crash */
-    init_process_table(NULL, 16);
-
-    /* Set up a valid buckets for the remaining sub-tests */
-    init_process_table(&proc_table, 16);
-
-    /* add_to_process_table with NULL buckets must not crash */
-    proc1 = (struct process *)malloc(sizeof(struct process));
-    assert(proc1 != NULL);
-    proc1->pid = 100;
-    proc1->ppid = 1;
-    proc1->cpu_time = 0.0;
-    add_to_process_table(NULL, proc1);
-
-    /* add_to_process_table with NULL process must not crash */
-    add_to_process_table(&proc_table, NULL);
-    pt_found = find_in_process_table(&proc_table, 100);
-    assert(pt_found == NULL);
-
-    /* Normal add */
-    add_to_process_table(&proc_table, proc1);
-    found = find_in_process_table(&proc_table, 100);
-    assert(found == proc1);
-
-    /* Duplicate-PID insertion must be silently ignored: proc1 stays */
-    proc2 = (struct process *)malloc(sizeof(struct process));
-    assert(proc2 != NULL);
-    proc2->pid = 100; /* same PID as proc1 */
-    proc2->ppid = 1;
-    proc2->cpu_time = 0.0;
-    add_to_process_table(&proc_table, proc2);
-    found = find_in_process_table(&proc_table, 100);
-    assert(found == proc1); /* proc1 must still be the stored entry */
-
-    /* proc2 was never added to the buckets; free it manually */
-    free(proc2);
-
-    /* proc1 will be freed by destroy_process_table */
-    destroy_process_table(&proc_table);
-}
-
-/**
- * @brief Test remove_stale_from_process_table with NULL active_list
- * @note When active_list is NULL, locate_elem always returns NULL so all
- *  entries are treated as stale and removed
- */
-static void test_process_table_stale_null_list(void) {
-    struct process_table proc_table;
-    struct process *proc;
-    const struct process *pt_found;
-
-    init_process_table(&proc_table, 16);
-
-    proc = (struct process *)malloc(sizeof(struct process));
-    assert(proc != NULL);
-    proc->pid = 100;
-    proc->ppid = 1;
-    proc->cpu_time = 0.0;
-    add_to_process_table(&proc_table, proc);
-    pt_found = find_in_process_table(&proc_table, 100);
-    assert(pt_found == proc);
-
-    /* NULL active_list: every entry lacks a match, so all are removed */
-    remove_stale_from_process_table(&proc_table, NULL);
-    pt_found = find_in_process_table(&proc_table, 100);
-    assert(pt_found == NULL);
-
-    /* p was freed by remove_stale_from_process_table via destroy_node */
-    destroy_process_table(&proc_table);
-}
-
-/**
- * @brief Test SIGQUIT signal handling
- * @note SIGQUIT must set both quit_flag and terminated_by_tty.
- *  The child calls setsid() to create a new session and detach from the
- *  controlling terminal, preventing BSD terminal drivers from propagating
- *  SIGQUIT to the parent's process group.
- */
-static void test_signal_handler_sigquit(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        /*
-         * Create a new session to detach from the controlling terminal.
-         * On BSD, raising SIGQUIT (a core-dump signal) in a process that
-         * shares the parent's terminal session can cause the terminal
-         * driver to propagate the signal to the parent's process group,
-         * corrupting the parent's state. setsid() prevents this.
-         */
-        pid_t session_id;
-        session_id = setsid();
-        assert(session_id != (pid_t)-1);
-        configure_signal_handler();
-        if (raise(SIGQUIT) != 0) {
-            _exit(1);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(2);
-        }
-        if (!is_terminated_by_tty()) {
-            _exit(3);
-        }
-        _exit(0);
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/**
- * @brief Test SIGHUP signal handling
- * @note SIGHUP must set quit_flag but must NOT set terminated_by_tty
- */
-static void test_signal_handler_sighup(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        configure_signal_handler();
-        if (raise(SIGHUP) != 0) {
-            _exit(1);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(2);
-        }
-        if (is_terminated_by_tty()) { /* SIGHUP must NOT set the tty flag */
-            _exit(3);
-        }
-        _exit(0);
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/**
- * @brief Test SIGPIPE signal handling
- * @note SIGPIPE must set quit_flag but must NOT set terminated_by_tty
- */
-static void test_signal_handler_sigpipe(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        configure_signal_handler();
-        if (raise(SIGPIPE) != 0) {
-            _exit(1);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(2);
-        }
-        if (is_terminated_by_tty()) { /* SIGPIPE must NOT set the tty flag */
-            _exit(3);
-        }
-        _exit(0);
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
 }
 
 /**
@@ -2550,501 +2078,192 @@ static void test_process_iterator_getppid_of_edges(void) {
 }
 
 /**
- * @brief Test find_process_by_pid with invalid and boundary PIDs
- * @note PID 0 and negative PIDs must return 0; current PID must be found
+ * @brief Test init_process_iterator with pid=0 and include_children=1
+ * @note Should open /proc and enumerate processes (same as all-process scan)
  */
-static void test_process_group_find_by_pid_edges(void) {
-    pid_t result;
+static void test_process_iterator_init_all_with_children(void) {
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
+    int count = 0;
+    int ret;
+
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
+
+    filter.pid = 0;
+    filter.include_children = 1;
+    filter.read_cmd = 0;
+
+    ret = init_process_iterator(&iter, &filter);
+    assert(ret == 0);
+    while (count < 5 && get_next_process(&iter, proc) == 0) {
+        count++;
+    }
+    assert(count > 0);
+    ret = close_process_iterator(&iter);
+    assert(ret == 0);
+
+    free(proc);
+}
+
+/**
+ * @brief Test get_next_process after end_of_processes is set
+ * @note Must return -1 immediately on every call after first exhaustion
+ */
+static void test_process_iterator_exhaust_single(void) {
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
+    int ret;
     pid_t self_pid;
 
-    /* PID 0 is rejected before kill() */
-    result = find_process_by_pid((pid_t)0);
-    assert(result == 0);
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
 
-    /* Negative PID is rejected before kill() */
-    result = find_process_by_pid((pid_t)-1);
-    assert(result == 0);
-
-    /* INT_MAX: virtually guaranteed non-existent PID */
-    result = find_process_by_pid((pid_t)INT_MAX);
-    assert(result == 0);
-
-    /* Current process must be found */
     self_pid = getpid();
-    result = find_process_by_pid(self_pid);
-    assert(result == self_pid);
-}
+    filter.pid = getpid();
+    filter.include_children = 0;
+    filter.read_cmd = 0;
 
-/**
- * @brief Test find_process_by_name with NULL process name
- * @note Must return 0 without crashing
- */
-static void test_process_group_find_by_name_null(void) {
-    pid_t found_pid;
-    found_pid = find_process_by_name(NULL);
-    assert(found_pid == 0);
-}
-
-/**
- * @brief Test find_process_by_name with empty string (early-return path)
- * @note Must return 0 immediately without iterating processes
- */
-static void test_process_group_find_by_name_empty_string(void) {
-    pid_t found_pid;
-    found_pid = find_process_by_name("");
-    assert(found_pid == 0);
-}
-
-/**
- * @brief Test find_process_by_name with a relative path ending in '/'
- * @note The basename of "bin/" is an empty string, so no process can match;
- *  must return 0 without crashing
- */
-static void test_process_group_find_by_name_trailing_slash(void) {
-    pid_t found_pid;
-    /* Relative path with trailing slash yields an empty basename */
-    found_pid = find_process_by_name("bin/");
-    assert(found_pid == 0);
-}
-
-/**
- * @brief Test get_process_group_cpu_usage when process list is empty
- * @note Must return -1.0 when no processes are tracked
- */
-static void test_process_group_cpu_usage_empty_list(void) {
-    struct process_group proc_group;
-    double usage;
-    int ret;
-    size_t list_count;
-
-    /* Initialize with INT_MAX: no such process exists, list stays empty */
-    ret = init_process_group(&proc_group, (pid_t)INT_MAX, 0);
+    ret = init_process_iterator(&iter, &filter);
     assert(ret == 0);
-    list_count = get_list_count(proc_group.proc_list);
-    assert(list_count == 0);
 
-    /* Empty list must yield -1.0 (unknown) */
-    usage = get_process_group_cpu_usage(&proc_group);
-    assert(usage >= -1.00001 && usage <= -0.99999);
-
-    ret = close_process_group(&proc_group);
+    /* First call: returns the process */
+    ret = get_next_process(&iter, proc);
     assert(ret == 0);
+    assert(proc->pid == self_pid);
+
+    /* Second call: end_of_processes=1, must return -1 */
+    ret = get_next_process(&iter, proc);
+    assert(ret == -1);
+
+    /* Third call: still -1 */
+    ret = get_next_process(&iter, proc);
+    assert(ret == -1);
+
+    ret = close_process_iterator(&iter);
+    assert(ret == 0);
+    free(proc);
 }
 
 /**
- * @brief Test get_process_group_cpu_usage with NULL pointer
- * @note Verifies the null guard returns the -1 sentinel without crashing
+ * @brief Test process iterator with include_children=1 for current process
+ * @note With a child process running, both parent and child must appear
  */
-static void test_process_group_cpu_usage_null(void) {
-    double usage = get_process_group_cpu_usage(NULL);
-    assert(usage >= -1.00001 && usage <= -0.99999);
-}
-
-/**
- * @brief Test long2pid_t with LONG_MAX (overflow must return -1)
- * @note Covers the round-trip overflow detection branch
- */
-static void test_util_long2pid_t_overflow(void) {
-    pid_t result;
-
-    /* LONG_MAX overflows pid_t (32-bit) on 64-bit platforms */
-    result = long2pid_t(LONG_MAX);
-    /* Either the round-trip check detects overflow (-1)
-     * or, on exotic platforms where pid_t == long, the value fits.
-     * Either way, the function must not crash. */
-    (void)result;
-}
-
-#if defined(__linux__)
-/**
- * @brief Test read_line_from_file with NULL, missing, and valid files
- * @note Covers all three return paths of read_line_from_file (Linux only)
- */
-static void test_util_read_line_from_file(void) {
-    char *line;
-    char tmp_file[] = "/tmp/cpulimit_empty_XXXXXX";
-    int tmp_fd;
-    char nl_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
-    int newline_fd;
-    ssize_t nwritten;
-
-    /* NULL filename must return NULL */
-    line = read_line_from_file(NULL);
-    assert(line == NULL);
-
-    /* Non-existent file must return NULL */
-    line = read_line_from_file("/nonexistent/cpulimit_test_no_such_file");
-    assert(line == NULL);
-
-    /* /proc/self/stat always exists and is non-empty */
-    line = read_line_from_file("/proc/self/stat");
-    assert(line != NULL);
-    free(line);
-
-    /* Empty file must return NULL (getline returns -1 on immediate EOF).
-     * Use mkstemp() to avoid name collisions in parallel test runs. */
-    tmp_fd = mkstemp(tmp_file);
-    assert(tmp_fd >= 0);
-    close(tmp_fd);
-    line = read_line_from_file(tmp_file);
-    assert(line == NULL);
-    remove(tmp_file);
-
-    /* A file containing only a newline returns a non-NULL empty string */
-    newline_fd = mkstemp(nl_tmp_file);
-    assert(newline_fd >= 0);
-    nwritten = write(newline_fd, "\n", 1);
-    assert(nwritten == 1);
-    close(newline_fd);
-    line = read_line_from_file(nl_tmp_file);
-    assert(line != NULL);
-    assert(line[0] == '\0');
-    free(line);
-    remove(nl_tmp_file);
-}
-#endif /* __linux__ */
-
-/***************************************************************************
- * UTIL MODULE ADDITIONAL TESTS
- ***************************************************************************/
-
-/**
- * @brief Test MAX, MIN, and CLAMP macros with all comparison branches
- * @note Covers a>b, a<b, a==b for MAX/MIN; below/above/in-range for CLAMP
- */
-static void test_util_macros(void) {
-    /* Use volatile to prevent value-propagation in static analysers while
-     * still testing the equal-argument and boundary-value edge cases */
-    volatile int clamp_low = 0, clamp_high = 10;
-    volatile int a, b, val, macro_val;
-
-    /* MAX: larger-first, smaller-first, equal */
-    a = 5;
-    b = 3;
-    macro_val = MAX(a, b);
-    assert(macro_val == 5);
-    a = 3;
-    b = 5;
-    macro_val = MAX(a, b);
-    assert(macro_val == 5);
-    a = 4;
-    b = 4;
-    macro_val = MAX(a, b);
-    assert(macro_val == 4);
-    a = -1;
-    b = 0;
-    macro_val = MAX(a, b);
-    assert(macro_val == 0);
-
-    /* MIN: smaller-first, larger-first, equal */
-    a = 3;
-    b = 5;
-    macro_val = MIN(a, b);
-    assert(macro_val == 3);
-    a = 5;
-    b = 3;
-    macro_val = MIN(a, b);
-    assert(macro_val == 3);
-    a = 4;
-    b = 4;
-    macro_val = MIN(a, b);
-    assert(macro_val == 4);
-    a = -1;
-    b = 0;
-    macro_val = MIN(a, b);
-    assert(macro_val == -1);
-
-    /* CLAMP: value in range, below low, above high, equals low, equals high */
-    val = 5;
-    macro_val = CLAMP(val, clamp_low, clamp_high);
-    assert(macro_val == 5);
-    val = -1;
-    macro_val = CLAMP(val, clamp_low, clamp_high);
-    assert(macro_val == 0);
-    val = 15;
-    macro_val = CLAMP(val, clamp_low, clamp_high);
-    assert(macro_val == 10);
-    val = 0;
-    macro_val = CLAMP(val, clamp_low, clamp_high);
-    assert(macro_val == 0);
-    val = 10;
-    macro_val = CLAMP(val, clamp_low, clamp_high);
-    assert(macro_val == 10);
-}
-
-/**
- * @brief Test timediff_in_ms when the "later" timestamp is actually earlier
- * @note Covers the negative-difference branch (backwards / rewound time)
- */
-static void test_util_timediff_negative(void) {
-    struct timespec earlier, later;
-    double diff_ms;
-
-    /* 100 seconds backward */
-    earlier.tv_sec = 200;
-    earlier.tv_nsec = 0;
-    later.tv_sec = 100;
-    later.tv_nsec = 0;
-    diff_ms = timediff_in_ms(&later, &earlier);
-    assert(diff_ms <= -99999.0 && diff_ms >= -100001.0);
-
-    /* 500 ms backward (nanoseconds only) */
-    earlier.tv_sec = 100;
-    earlier.tv_nsec = 500000000L;
-    later.tv_sec = 100;
-    later.tv_nsec = 0;
-    diff_ms = timediff_in_ms(&later, &earlier);
-    assert(diff_ms <= -499.0 && diff_ms >= -501.0);
-}
-
-/**
- * @brief Test sleep_timespec with a zero-duration sleep
- * @note A zero sleep must return immediately without error
- */
-static void test_util_sleep_timespec_zero(void) {
-    const struct timespec zero_sleep = {0, 0};
-    int ret;
-    ret = sleep_timespec(&zero_sleep);
-    /* 0 on success; -1 only if interrupted (EINTR) */
-    assert(ret == 0 || ret == -1);
-}
-
-/***************************************************************************
- * SIGNAL_HANDLER MODULE ADDITIONAL TESTS
- ***************************************************************************/
-
-/**
- * @brief Test initial state of signal handler flags before any signal is raised
- * @note Both quit_flag and terminated_by_tty must be 0 before any signal
- */
-static void test_signal_handler_initial_state(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        configure_signal_handler();
-        if (is_quit_flag_set()) {
-            _exit(1);
-        }
-        if (is_terminated_by_tty()) {
-            _exit(2);
-        }
-        _exit(0);
-    }
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/***************************************************************************
- * PROCESS_GROUP MODULE ADDITIONAL TESTS
- ***************************************************************************/
-
-/**
- * @brief Test find_process_by_pid with PID 1 (init/systemd)
- * @note PID 1 always exists: returns positive if accessible, -1 if EPERM,
- *  never 0
- */
-static void test_process_group_find_by_pid_init(void) {
-    pid_t result;
-    result = find_process_by_pid((pid_t)1);
-    assert(result != 0);
-}
-
-/***************************************************************************
- * LIMIT_PROCESS MODULE ADDITIONAL TESTS
- ***************************************************************************/
-
-/**
- * @brief Test limit_process when the target has already exited
- * @note Exercises the empty-proc_list early-exit branch in limit_process
- */
-static void test_limit_process_exits_early(void) {
-    const struct timespec wait_duration = {0, 50000000L}; /* 50 ms */
+static void test_process_iterator_with_children(void) {
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
     pid_t child_pid;
+    int found_parent = 0, found_child = 0;
+    int ret;
 
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
+        const struct timespec wait_duration = {5, 0};
+        sleep_timespec(&wait_duration);
         _exit(EXIT_SUCCESS);
     }
 
-    /* Allow child time to exit so /proc entry is gone */
-    sleep_timespec(&wait_duration);
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
 
-    /* limit_process must handle an already-gone process gracefully */
-    limit_process(child_pid, 0.5, 0, 0);
+    filter.pid = getpid();
+    filter.include_children = 1;
+    filter.read_cmd = 0;
 
-    /* Reap any remaining zombie */
-    waitpid(child_pid, NULL, WNOHANG);
+    ret = init_process_iterator(&iter, &filter);
+    assert(ret == 0);
+    while (get_next_process(&iter, proc) == 0) {
+        if (proc->pid == getpid()) {
+            found_parent = 1;
+        }
+        if (proc->pid == child_pid) {
+            found_child = 1;
+        }
+    }
+    ret = close_process_iterator(&iter);
+    assert(ret == 0);
+
+    assert(found_parent == 1);
+    assert(found_child == 1);
+
+    free(proc);
+    kill_and_wait(child_pid, SIGKILL);
 }
 
 /**
- * @brief Test limit_process with verbose=1
- * @note Exercises the verbose printf branches; output suppressed via fork
+ * @brief Test close_process_iterator when dip is already NULL
+ * @note After init with single-pid filter, dip==NULL; close must return 0
  */
-static void test_limit_process_verbose(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+static void test_process_iterator_close_null_dip(void) {
+    struct process_iterator iter;
+    struct process_filter filter;
+    int ret;
 
-    wrapper_pid = fork();
-    assert(wrapper_pid >= 0);
-    if (wrapper_pid == 0) {
-        const struct timespec wait_duration = {0, 50000000L};
-        pid_t child_pid;
+    filter.pid = getpid();
+    filter.include_children = 0;
+    filter.read_cmd = 0;
 
-        close(STDOUT_FILENO); /* Suppress verbose output */
+    ret = init_process_iterator(&iter, &filter);
+    assert(ret == 0);
+#if defined(__linux__)
+    /* dip is NULL because single-PID optimisation skips opendir() */
+    assert(iter.proc_dir == NULL);
+#endif
+    ret = close_process_iterator(&iter);
+    assert(ret == 0);
+}
 
-        child_pid = fork();
-        assert(child_pid >= 0);
-        if (child_pid == 0) {
-            _exit(EXIT_SUCCESS);
-        }
+/**
+ * @brief Test that get_next_process handles NULL proc_dir defensively
+ * @note On Linux, the single-PID optimisation leaves proc_dir=NULL.
+ *       Switching the filter to general mode (pid=0) without reinitialising
+ *       exercises the NULL-proc_dir guard added to get_next_process.
+ */
+static void test_process_iterator_null_proc_dir_guard(void) {
+#if defined(__linux__)
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
+    int ret;
 
-        sleep_timespec(&wait_duration);
-        limit_process(child_pid, 0.5, 0, 1); /* verbose = 1 */
-        waitpid(child_pid, NULL, WNOHANG);
-        _exit(EXIT_SUCCESS);
-    }
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
 
-    waited = waitpid(wrapper_pid, &wrapper_status, 0);
-    assert(waited == wrapper_pid);
-    w_exited = WIFEXITED(wrapper_status);
-    assert(w_exited);
-    w_exit_code = WEXITSTATUS(wrapper_status);
-    assert(w_exit_code == EXIT_SUCCESS);
+    /*
+     * Initialise with single-PID filter so that the optimisation path
+     * is taken and proc_dir is left as NULL.
+     */
+    filter.pid = getpid();
+    filter.include_children = 0;
+    filter.read_cmd = 0;
+    ret = init_process_iterator(&iter, &filter);
+    assert(ret == 0);
+    assert(iter.proc_dir == NULL);
+
+    /*
+     * Change the filter to general mode (pid=0) without reinitialising.
+     * get_next_process must detect proc_dir==NULL and return -1 without
+     * crashing (the defensive NULL guard).
+     */
+    filter.pid = 0;
+    ret = get_next_process(&iter, proc);
+    assert(ret == -1);
+
+    /* close_process_iterator handles a zeroed iterator correctly */
+    ret = close_process_iterator(&iter);
+    assert(ret == 0);
+
+    free(proc);
+#endif
 }
 
 /***************************************************************************
- * LIMITER MODULE ADDITIONAL TESTS
+ * PROCESS_GROUP MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
-
-/**
- * @brief Test run_command_mode with a non-existent binary
- * @note execvp fails in child; parent should exit with EXIT_FAILURE
- */
-static void test_limiter_run_command_mode_nonexistent(void) {
-    pid_t pid;
-    int status;
-    struct cpulimit_cfg cfg;
-    char cmd[] = "/nonexistent_cpulimit_test_binary_xyz";
-    char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    args[0] = cmd;
-    args[1] = NULL;
-    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
-    cfg.program_name = "test";
-    cfg.command_mode = 1;
-    cfg.command_args = args;
-    cfg.limit = 0.5;
-    cfg.lazy_mode = 1;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == EXIT_FAILURE);
-}
-
-/**
- * @brief Test run_command_mode with verbose=1 and a command that succeeds
- * @note Exercises the verbose printf branches in run_command_mode
- */
-static void test_limiter_run_command_mode_verbose(void) {
-    pid_t pid;
-    int status;
-    struct cpulimit_cfg cfg;
-    char cmd[] = "true";
-    char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    args[0] = cmd;
-    args[1] = NULL;
-    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
-    cfg.program_name = "test";
-    cfg.command_mode = 1;
-    cfg.command_args = args;
-    cfg.limit = 0.5;
-    cfg.lazy_mode = 1;
-    cfg.verbose = 1;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == EXIT_SUCCESS);
-}
-
-/**
- * @brief Test run_pid_or_exe_mode with a PID (pid_mode=1) that does not exist
- * @note Uses INT_MAX which is virtually guaranteed to be non-existent;
- *  lazy_mode=1 -> EXIT_FAILURE
- */
-static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
-    pid_t pid;
-    int status;
-    struct cpulimit_cfg cfg;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
-    cfg.program_name = "test";
-    cfg.target_pid = (pid_t)INT_MAX;
-    cfg.limit = 0.5;
-    cfg.lazy_mode = 1;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        close(STDOUT_FILENO);
-        run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE);
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == EXIT_FAILURE);
-}
 
 /***************************************************************************
  * CLI MODULE TESTS (parse_arguments)
@@ -3574,259 +2793,596 @@ static void test_cli_missing_arg(void) {
  ***************************************************************************/
 
 /**
- * @brief Test first_node with non-empty list
- * @note first_node must return the first node after elements are added
+ * @brief Test parse_arguments with --include-children long option
+ * @note --include-children must set include_children=1
  */
-static void test_list_first_node_nonempty(void) {
-    struct list lst;
-    int elem_val_1 = 1, elem_val_2 = 2;
-    const struct list_node *first_node_result;
+static void test_cli_long_option_include_children(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_limit[] = "--limit=50";
+    char arg_ic[] = "--include-children";
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char *test_argv[6];
 
-    init_list(&lst);
-    add_elem(&lst, &elem_val_1);
-    add_elem(&lst, &elem_val_2);
+    test_argv[0] = arg0;
+    test_argv[1] = arg_limit;
+    test_argv[2] = arg_ic;
+    test_argv[3] = arg_e;
+    test_argv[4] = arg_exe;
+    test_argv[5] = NULL;
 
-    first_node_result = first_node(&lst);
-    assert(first_node_result != NULL);
-    assert(first_node_result->data == &elem_val_1);
-    assert(first_node_result->next != NULL);
-    assert(first_node_result->next->data == &elem_val_2);
-    assert(first_node_result->previous == NULL);
-
-    clear_list(&lst);
+    memset(&cfg, 0, sizeof(cfg));
+    parse_arguments(5, test_argv, &cfg);
+    assert(cfg.include_children == 1);
 }
 
 /**
- * @brief Test delete_node on empty list (count==0 guard path)
- * @note Must be a no-op when count is 0
+ * @brief Test parse_arguments with limit exactly equal to 100*ncpu (maximum)
+ * @note Limit at the boundary must be accepted
  */
-static void test_list_delete_node_empty(void) {
-    struct list lst;
-    struct list_node fake_node;
-    size_t list_count;
+static void test_cli_limit_at_max(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_max[32];
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char *test_argv[6];
+    int ncpu = get_ncpu();
 
-    init_list(&lst);
-    /* count == 0 guard: should silently return */
-    delete_node(&lst, &fake_node);
-    list_count = get_list_count(&lst);
-    assert(list_count == 0);
+    snprintf(arg_max, sizeof(arg_max), "%d", 100 * ncpu);
+    test_argv[0] = arg0;
+    test_argv[1] = arg_l;
+    test_argv[2] = arg_max;
+    test_argv[3] = arg_e;
+    test_argv[4] = arg_exe;
+    test_argv[5] = NULL;
+
+    memset(&cfg, 0, sizeof(cfg));
+    parse_arguments(5, test_argv, &cfg);
+    /* Limit stored as fraction: 100*ncpu/100 == ncpu */
+    assert(cfg.limit >= (double)ncpu - 0.001 &&
+           cfg.limit <= (double)ncpu + 0.001);
 }
 
 /**
- * @brief Test destroy_node with a NULL list frees node and data without crash
- * @note Exercises the l==NULL fast-path that frees node directly
+ * @brief Test parse_arguments with minimum valid PID (>1; try 2)
+ * @note PID 2 is valid if it exists; test parse path only (fork to isolate)
  */
-static void test_list_destroy_node_null_list(void) {
-    struct list_node *node;
-    int *data;
+static void test_cli_pid_minimum_valid(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_p[] = "-p";
+    char arg_pid2[] = "2";
+    char *test_argv[6];
+    int ret;
 
-    data = (int *)malloc(sizeof(int));
-    assert(data != NULL);
-    *data = 42;
+    test_argv[0] = arg0;
+    test_argv[1] = arg_l;
+    test_argv[2] = arg_50;
+    test_argv[3] = arg_p;
+    test_argv[4] = arg_pid2;
+    test_argv[5] = NULL;
 
-    node = (struct list_node *)malloc(sizeof(struct list_node));
-    assert(node != NULL);
-    node->data = data;
-    node->previous = NULL;
-    node->next = NULL;
-
-    /* destroy_node with NULL list must free both data and node */
-    destroy_node(NULL, node);
-    /* If we reach here without crash, the test passed */
+    /* PID 2 is syntactically valid (> 1); parse must succeed (exit code 99) */
+    ret = run_parse_in_child(5, test_argv);
+    assert(ret == 99);
 }
 
 /**
- * @brief Test locate_node/locate_elem with a single-element list
- * @note Ensures the single-node match and single-node miss paths work
+ * @brief Test parse_arguments with a limit value that has trailing whitespace
+ * @note "50 " (trailing space) has trailing chars after strtod; must fail
  */
-static void test_list_locate_single(void) {
-    struct list lst;
-    int val = 42, miss = 99;
-    struct list_node *node;
-    const void *elem;
-    int node_val;
-    const struct list_node *tmp_node;
-    const void *void_elem;
+static void test_cli_limit_trailing_chars(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_lim[] = "50 "; /* trailing space */
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char *test_argv[6];
+    int parse_ret;
 
-    init_list(&lst);
-    add_elem(&lst, &val);
-
-    node = locate_node(&lst, &val, 0, sizeof(int));
-    assert(node != NULL);
-    node_val = *(int *)node->data;
-    assert(node_val == 42);
-
-    elem = locate_elem(&lst, &val, 0, sizeof(int));
-    assert(elem == &val);
-
-    /* Miss case */
-    tmp_node = locate_node(&lst, &miss, 0, sizeof(int));
-    assert(tmp_node == NULL);
-    void_elem = locate_elem(&lst, &miss, 0, sizeof(int));
-    assert(void_elem == NULL);
-
-    clear_list(&lst);
+    test_argv[0] = arg0;
+    test_argv[1] = arg_l;
+    test_argv[2] = arg_lim;
+    test_argv[3] = arg_e;
+    test_argv[4] = arg_exe;
+    test_argv[5] = NULL;
+    parse_ret = run_parse_in_child(5, test_argv);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
- * @brief Test clear_list on an already-empty list (no-op path)
- * @note Must not crash and count stays 0
+ * @brief Test parse_arguments with --lazy and --verbose long options
+ * @note Long forms of -z and -v must behave identically to short forms
  */
-static void test_list_clear_empty(void) {
-    struct list lst;
-    size_t list_count;
-    int empty;
-    init_list(&lst);
-    clear_list(&lst);
-    list_count = get_list_count(&lst);
-    assert(list_count == 0);
-    empty = is_empty_list(&lst);
-    assert(empty == 1);
-}
+static void test_cli_long_options_lazy_verbose(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_limit[] = "--limit=50";
+    char arg_lazy[] = "--lazy";
+    char arg_verbose[] = "--verbose";
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char *test_argv[7];
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
 
-/**
- * @brief Test destroy_list on an already-empty list (no-op path)
- * @note Must not crash and count stays 0
- */
-static void test_list_destroy_empty(void) {
-    struct list lst;
-    size_t list_count;
-    int empty;
-    init_list(&lst);
-    destroy_list(&lst);
-    list_count = get_list_count(&lst);
-    assert(list_count == 0);
-    empty = is_empty_list(&lst);
-    assert(empty == 1);
+    test_argv[0] = arg0;
+    test_argv[1] = arg_limit;
+    test_argv[2] = arg_lazy;
+    test_argv[3] = arg_verbose;
+    test_argv[4] = arg_e;
+    test_argv[5] = arg_exe;
+    test_argv[6] = NULL;
+
+    /* verbose prints to stdout; suppress it */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        memset(&cfg, 0, sizeof(cfg));
+        parse_arguments(6, test_argv, &cfg);
+        if (cfg.lazy_mode != 1) {
+            _exit(1);
+        }
+        if (cfg.verbose != 1) {
+            _exit(2);
+        }
+        _exit(0);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
 }
 
 /***************************************************************************
- * UTIL MODULE - ADDITIONAL COVERAGE
+ * PROCESS_TABLE MODULE TESTS
  ***************************************************************************/
 
 /**
- * @brief Test nsec2timespec with 0 and sub-second values
- * @note Covers zero input and values < 1e9 ns (sec should be 0)
+ * @brief Test process buckets initialization and destruction
+ * @note Tests init_process_table and destroy_process_table
  */
-static void test_util_nsec2timespec_zero_and_sub(void) {
-    struct timespec t;
+static void test_process_table_init_destroy(void) {
+    struct process_table proc_table;
 
-    /* Zero nanoseconds */
-    nsec2timespec(0.0, &t);
-    assert(t.tv_sec == 0);
-    assert(t.tv_nsec == 0);
+    /* Test initialization with small hash_size */
+    init_process_table(&proc_table, 16);
+    assert(proc_table.buckets != NULL);
+    assert(proc_table.hash_size == 16);
+    destroy_process_table(&proc_table);
+    assert(proc_table.buckets == NULL);
 
-    /* 500 ms = 5e8 ns -> tv_sec=0, tv_nsec=500000000 */
-    nsec2timespec(500000000.0, &t);
-    assert(t.tv_sec == 0);
-    assert(t.tv_nsec == 500000000L);
+    /* Test initialization with larger hash_size */
+    init_process_table(&proc_table, 256);
+    assert(proc_table.buckets != NULL);
+    assert(proc_table.hash_size == 256);
+    destroy_process_table(&proc_table);
 
-    /* Exactly 1 second */
-    nsec2timespec(1e9, &t);
-    assert(t.tv_sec == 1);
-    assert(t.tv_nsec == 0);
+    /* Test zero hash_size fallback (must avoid division by zero in hashing) */
+    init_process_table(&proc_table, 0);
+    assert(proc_table.buckets != NULL);
+    assert(proc_table.hash_size == 1);
+    destroy_process_table(&proc_table);
+
+    /* Test destroy with NULL (should not crash) */
+    destroy_process_table(NULL);
 }
 
 /**
- * @brief Test nsec2timespec rollover correction for floating-point edge cases
- * @note Verifies that tv_nsec stays in [0, 999999999] and tv_sec is adjusted
- *       when floating-point rounding pushes tv_nsec out of range
+ * @brief Test process buckets add and find operations
+ * @note Tests add_to_process_table and find_in_process_table
  */
-static void test_util_nsec2timespec_rollover(void) {
-    struct timespec t;
+static void test_process_table_add_find(void) {
+    struct process_table proc_table;
+    struct process *proc1, *proc2, *proc3;
+    const struct process *found;
+
+    init_process_table(&proc_table, 64);
+
+    /* Create test processes */
+    proc1 = (struct process *)malloc(sizeof(struct process));
+    proc2 = (struct process *)malloc(sizeof(struct process));
+    proc3 = (struct process *)malloc(sizeof(struct process));
+    assert(proc1 != NULL);
+    assert(proc2 != NULL);
+    assert(proc3 != NULL);
+
+    proc1->pid = 100;
+    proc1->ppid = 1;
+    proc1->cpu_time = 0.0;
+
+    proc2->pid = 200;
+    proc2->ppid = 1;
+    proc2->cpu_time = 0.0;
+
+    proc3->pid = 300;
+    proc3->ppid = 1;
+    proc3->cpu_time = 0.0;
+
+    /* Test find on empty buckets */
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == NULL);
+
+    /* Add first process */
+    add_to_process_table(&proc_table, proc1);
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == proc1);
+    assert(found->pid == 100);
+
+    /* Add second process */
+    add_to_process_table(&proc_table, proc2);
+    found = find_in_process_table(&proc_table, 200);
+    assert(found == proc2);
+    assert(found->pid == 200);
+
+    /* Verify first process still findable */
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == proc1);
+
+    /* Add third process */
+    add_to_process_table(&proc_table, proc3);
+    found = find_in_process_table(&proc_table, 300);
+    assert(found == proc3);
+
+    /* Test find non-existent PID */
+    found = find_in_process_table(&proc_table, 999);
+    assert(found == NULL);
+
+    /* Test find with NULL buckets */
+    found = find_in_process_table(NULL, 100);
+    assert(found == NULL);
+
+    destroy_process_table(&proc_table);
+}
+
+/**
+ * @brief Test process buckets delete operation
+ * @note Tests delete_from_process_table
+ */
+static void test_process_table_del(void) {
+    struct process_table proc_table;
+    struct process *proc1, *proc2, *proc3;
+    const struct process *found;
+    int ret;
+
+    init_process_table(&proc_table, 64);
+
+    proc1 = (struct process *)malloc(sizeof(struct process));
+    proc2 = (struct process *)malloc(sizeof(struct process));
+    proc3 = (struct process *)malloc(sizeof(struct process));
+    assert(proc1 != NULL);
+    assert(proc2 != NULL);
+    assert(proc3 != NULL);
+
+    proc1->pid = 100;
+    proc2->pid = 200;
+    proc3->pid = 300;
+
+    add_to_process_table(&proc_table, proc1);
+    add_to_process_table(&proc_table, proc2);
+    add_to_process_table(&proc_table, proc3);
+
+    /* Delete middle process */
+    ret = delete_from_process_table(&proc_table, 200);
+    assert(ret == 0);
+    found = find_in_process_table(&proc_table, 200);
+    assert(found == NULL);
+
+    /* Verify others still exist */
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == proc1);
+    found = find_in_process_table(&proc_table, 300);
+    assert(found == proc3);
+
+    /* Delete first process */
+    ret = delete_from_process_table(&proc_table, 100);
+    assert(ret == 0);
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == NULL);
+
+    /* Delete last process */
+    ret = delete_from_process_table(&proc_table, 300);
+    assert(ret == 0);
+    found = find_in_process_table(&proc_table, 300);
+    assert(found == NULL);
+
+    /* Try to delete non-existent process */
+    ret = delete_from_process_table(&proc_table, 999);
+    assert(ret == 1);
+
+    /* Test del with NULL buckets */
+    ret = delete_from_process_table(NULL, 100);
+    assert(ret == 1);
+
+    destroy_process_table(&proc_table);
+}
+
+/**
+ * @brief Test process buckets remove stale entries
+ * @note Tests remove_stale_from_process_table
+ */
+static void test_process_table_remove_stale(void) {
+    struct process_table proc_table;
+    struct list active_list;
+    struct process *proc1, *proc2, *proc3;
+    const struct process *found;
+
+    init_process_table(&proc_table, 64);
+    init_list(&active_list);
+
+    /* Create and add three processes to buckets */
+    proc1 = (struct process *)malloc(sizeof(struct process));
+    proc2 = (struct process *)malloc(sizeof(struct process));
+    proc3 = (struct process *)malloc(sizeof(struct process));
+    assert(proc1 != NULL);
+    assert(proc2 != NULL);
+    assert(proc3 != NULL);
+
+    proc1->pid = 100;
+    proc2->pid = 200;
+    proc3->pid = 300;
+
+    add_to_process_table(&proc_table, proc1);
+    add_to_process_table(&proc_table, proc2);
+    add_to_process_table(&proc_table, proc3);
+
+    /* Add only proc1 and proc3 to active list */
+    add_elem(&active_list, proc1);
+    add_elem(&active_list, proc3);
+
+    /* Remove stale entries (proc2 should be removed) */
+    remove_stale_from_process_table(&proc_table, &active_list);
+
+    /* Verify proc2 was removed */
+    found = find_in_process_table(&proc_table, 200);
+    assert(found == NULL);
+
+    /* Verify proc1 and proc3 still exist */
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == proc1);
+    found = find_in_process_table(&proc_table, 300);
+    assert(found == proc3);
+
+    /* Test with NULL (should not crash) */
+    remove_stale_from_process_table(NULL, &active_list);
+
+    clear_list(&active_list);
+    destroy_process_table(&proc_table);
+}
+
+/**
+ * @brief Test remove_stale_from_process_table removes NULL-data nodes
+ * @note NULL-data nodes should be removed defensively
+ *
+ * To test this defensive path we must inject a NULL-data node directly
+ * into the internal hash bucket. The process_table struct and its buckets
+ * member are exposed in the public header, so this access is intentional;
+ * the bucket_idx computation mirrors process_table's own pid_hash() formula.
+ */
+static void test_process_table_remove_stale_null_data(void) {
+    struct process_table proc_table;
+    struct list active_list;
+    struct process *proc1;
+    size_t bucket_idx;
+    size_t list_count;
+    const struct process *pt_found;
+
+    init_process_table(&proc_table, 16);
+    init_list(&active_list);
+
+    /* Insert a valid process */
+    proc1 = (struct process *)malloc(sizeof(struct process));
+    assert(proc1 != NULL);
+    proc1->pid = 101;
+    add_to_process_table(&proc_table, proc1);
 
     /*
-     * Values very close to an integer-second boundary can trigger
-     * floating-point rounding that makes tv_nsec negative or >= 1e9.
-     * Use nextafter to obtain a value that is representable just below
-     * or just above a boundary and verify the correction branches.
+     * Inject a NULL-data node into the same bucket.
+     * bucket_idx mirrors process_table's pid_hash(): (size_t)pid % hash_size.
      */
+    bucket_idx = (size_t)101 % 16;
+    assert(proc_table.buckets[bucket_idx] != NULL);
+    add_elem(proc_table.buckets[bucket_idx], NULL);
 
-    /* A large multiple of 1e9 can round tv_nsec up to 1e9 */
-    nsec2timespec(3e9, &t);
-    assert(t.tv_sec >= 2 && t.tv_sec <= 4);
-    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+    /* add proc1 to active_list so it is not removed */
+    add_elem(&active_list, proc1);
 
-    /* 2 seconds exactly */
-    nsec2timespec(2e9, &t);
-    assert(t.tv_sec == 2);
-    assert(t.tv_nsec == 0L);
+    /* remove_stale must remove the NULL-data node without crashing */
+    remove_stale_from_process_table(&proc_table, &active_list);
 
-    /* 0.999999999 s = 999999999 ns -- must stay sub-second */
-    nsec2timespec(999999999.0, &t);
-    assert(t.tv_sec == 0);
-    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+    /* proc1 must still be present */
+    pt_found = find_in_process_table(&proc_table, 101);
+    assert(pt_found == proc1);
 
-    /* General invariant: result is always normalised */
-    nsec2timespec(1234567890.123, &t);
-    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
+    /* The NULL-data node must be gone (bucket list has exactly one entry) */
+    list_count = get_list_count(proc_table.buckets[bucket_idx]);
+    assert(list_count == 1);
+
+    clear_list(&active_list);
+    destroy_process_table(&proc_table);
 }
 
 /**
- * @brief Test timediff_in_ms when only nanoseconds differ
- * @note Covers the sub-millisecond sub-second difference path
+ * @brief Test process table with hash collisions
+ * @note Tests behavior when multiple PIDs hash to same bucket
  */
-static void test_util_timediff_nsec_only(void) {
-    struct timespec ts_earlier, ts_later;
-    double diff;
+static void test_process_table_collisions(void) {
+    struct process_table proc_table;
+    static const pid_t collision_pids[20] = {100, 110, 120, 130, 140, 150, 160,
+                                             170, 180, 190, 200, 210, 220, 230,
+                                             240, 250, 260, 270, 280, 290};
+    struct process *proc[20];
+    const struct process *found;
+    size_t case_idx;
 
-    ts_earlier.tv_sec = 500;
-    ts_earlier.tv_nsec = 0;
-    ts_later.tv_sec = 500;
-    ts_later.tv_nsec = 999000L; /* 0.999 ms */
-    diff = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff >= 0.998 && diff <= 1.0);
+    /* Use small hash size to force collisions */
+    init_process_table(&proc_table, 4);
+
+    /* Add many processes */
+    for (case_idx = 0; case_idx < 20; case_idx++) {
+        proc[case_idx] = (struct process *)malloc(sizeof(struct process));
+        assert(proc[case_idx] != NULL);
+        proc[case_idx]->pid = collision_pids[case_idx];
+        add_to_process_table(&proc_table, proc[case_idx]);
+    }
+
+    /* Verify all processes can be found */
+    for (case_idx = 0; case_idx < 20; case_idx++) {
+        found = find_in_process_table(&proc_table, collision_pids[case_idx]);
+        assert(found == proc[case_idx]);
+        assert(found->pid == collision_pids[case_idx]);
+    }
+
+    /* Delete some processes */
+    for (case_idx = 0; case_idx < 20; case_idx += 3) {
+        int ret;
+        ret = delete_from_process_table(&proc_table, collision_pids[case_idx]);
+        assert(ret == 0);
+    }
+
+    /* Verify deleted processes are gone */
+    for (case_idx = 0; case_idx < 20; case_idx++) {
+        found = find_in_process_table(&proc_table, collision_pids[case_idx]);
+        if (case_idx % 3 == 0) {
+            assert(found == NULL);
+        } else {
+            assert(found == proc[case_idx]);
+        }
+    }
+
+    destroy_process_table(&proc_table);
 }
 
 /**
- * @brief Test get_current_time returns a non-decreasing timestamp
- * @note Two successive calls must return increasing or equal time
+ * @brief Test process table with empty buckets
+ * @note Tests operations when some buckets are empty
  */
-static void test_util_get_current_time_monotonic(void) {
-    struct timespec ts_earlier, ts_later;
-    double diff;
-    int ret;
-    ret = get_current_time(&ts_earlier);
-    assert(ret == 0);
-    ret = get_current_time(&ts_later);
-    assert(ret == 0);
-    diff = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff >= 0.0); /* monotonic: must not go backwards */
+static void test_process_table_empty_buckets(void) {
+    struct process_table proc_table;
+    struct list active_list;
+    struct process *proc1, *proc2;
+    const struct process *pt_found;
+
+    init_process_table(&proc_table, 256);
+    init_list(&active_list);
+
+    /* Add sparse processes */
+    proc1 = (struct process *)malloc(sizeof(struct process));
+    proc2 = (struct process *)malloc(sizeof(struct process));
+    assert(proc1 != NULL);
+    assert(proc2 != NULL);
+
+    proc1->pid = (pid_t)10;
+    proc2->pid = (pid_t)1000;
+
+    add_to_process_table(&proc_table, proc1);
+    add_to_process_table(&proc_table, proc2);
+
+    /* Remove stale with empty active list */
+    remove_stale_from_process_table(&proc_table, &active_list);
+
+    /* All processes should be removed */
+    pt_found = find_in_process_table(&proc_table, (pid_t)10);
+    assert(pt_found == NULL);
+    pt_found = find_in_process_table(&proc_table, (pid_t)1000);
+    assert(pt_found == NULL);
+
+    clear_list(&active_list);
+    destroy_process_table(&proc_table);
 }
 
 /**
- * @brief Test sleep_timespec with a positive (non-zero) duration
- * @note A 1 ms sleep must complete without error
+ * @brief Test init_process_table and add_to_process_table with NULL inputs
+ * @note Covers: init_process_table(NULL,...), add_to_process_table(NULL,p),
+ *  add_to_process_table(pt,NULL), and duplicate-PID insertion (silently
+ * ignored)
  */
-static void test_util_sleep_timespec_nonzero(void) {
-    const struct timespec sleep_duration = {0, 1000000L}; /* 1 ms */
-    int ret = sleep_timespec(&sleep_duration);
-    /* 0 on success; -1 only if EINTR */
-    assert(ret == 0 || ret == -1);
+static void test_process_table_null_inputs_and_dup(void) {
+    struct process_table proc_table;
+    struct process *proc1, *proc2;
+    const struct process *found;
+    const struct process *pt_found;
+
+    /* init_process_table with NULL pointer must not crash */
+    init_process_table(NULL, 16);
+
+    /* Set up a valid buckets for the remaining sub-tests */
+    init_process_table(&proc_table, 16);
+
+    /* add_to_process_table with NULL buckets must not crash */
+    proc1 = (struct process *)malloc(sizeof(struct process));
+    assert(proc1 != NULL);
+    proc1->pid = 100;
+    proc1->ppid = 1;
+    proc1->cpu_time = 0.0;
+    add_to_process_table(NULL, proc1);
+
+    /* add_to_process_table with NULL process must not crash */
+    add_to_process_table(&proc_table, NULL);
+    pt_found = find_in_process_table(&proc_table, 100);
+    assert(pt_found == NULL);
+
+    /* Normal add */
+    add_to_process_table(&proc_table, proc1);
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == proc1);
+
+    /* Duplicate-PID insertion must be silently ignored: proc1 stays */
+    proc2 = (struct process *)malloc(sizeof(struct process));
+    assert(proc2 != NULL);
+    proc2->pid = 100; /* same PID as proc1 */
+    proc2->ppid = 1;
+    proc2->cpu_time = 0.0;
+    add_to_process_table(&proc_table, proc2);
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == proc1); /* proc1 must still be the stored entry */
+
+    /* proc2 was never added to the buckets; free it manually */
+    free(proc2);
+
+    /* proc1 will be freed by destroy_process_table */
+    destroy_process_table(&proc_table);
 }
 
 /**
- * @brief Test long2pid_t with input value 0
- * @note 0 is not negative but should produce (pid_t)0 without overflow
+ * @brief Test remove_stale_from_process_table with NULL active_list
+ * @note When active_list is NULL, locate_elem always returns NULL so all
+ *  entries are treated as stale and removed
  */
-static void test_util_long2pid_t_zero(void) {
-    pid_t result = long2pid_t(0L);
-    assert(result == (pid_t)0);
-}
+static void test_process_table_stale_null_list(void) {
+    struct process_table proc_table;
+    struct process *proc;
+    const struct process *pt_found;
 
-/**
- * @brief Test file_basename with empty-string path
- * @note Empty string has no '/', so the whole string is returned
- */
-static void test_util_file_basename_empty(void) {
-    const char *result = file_basename("");
-    assert(result != NULL);
-    assert(result[0] == '\0'); /* empty string points to itself */
-}
+    init_process_table(&proc_table, 16);
 
-/***************************************************************************
- * PROCESS_TABLE MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
+    proc->pid = 100;
+    proc->ppid = 1;
+    proc->cpu_time = 0.0;
+    add_to_process_table(&proc_table, proc);
+    pt_found = find_in_process_table(&proc_table, 100);
+    assert(pt_found == proc);
+
+    /* NULL active_list: every entry lacks a match, so all are removed */
+    remove_stale_from_process_table(&proc_table, NULL);
+    pt_found = find_in_process_table(&proc_table, 100);
+    assert(pt_found == NULL);
+
+    /* p was freed by remove_stale_from_process_table via destroy_node */
+    destroy_process_table(&proc_table);
+}
 
 /**
  * @brief Test init_process_table with hash_size=0 (forced to 1)
@@ -3978,264 +3534,465 @@ static void test_process_table_ops_after_destroy(void) {
  * SIGNAL_HANDLER MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
-/**
- * @brief Test SIGTERM handling
- * @note SIGTERM must set quit_flag but must NOT set terminated_by_tty
- */
-static void test_signal_handler_sigterm(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        configure_signal_handler();
-        if (raise(SIGTERM) != 0) {
-            _exit(1);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(2);
-        }
-        if (is_terminated_by_tty()) { /* SIGTERM must NOT set tty flag */
-            _exit(3);
-        }
-        _exit(0);
-    }
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/**
- * @brief Test SIGINT handling
- * @note SIGINT must set both quit_flag and terminated_by_tty
- */
-static void test_signal_handler_sigint(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        configure_signal_handler();
-        if (raise(SIGINT) != 0) {
-            _exit(1);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(2);
-        }
-        if (!is_terminated_by_tty()) { /* SIGINT MUST set tty flag */
-            _exit(3);
-        }
-        _exit(0);
-    }
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
 /***************************************************************************
- * PROCESS_ITERATOR MODULE - ADDITIONAL COVERAGE
+ * PROCESS_GROUP MODULE TESTS
  ***************************************************************************/
 
 /**
- * @brief Test init_process_iterator with pid=0 and include_children=1
- * @note Should open /proc and enumerate processes (same as all-process scan)
+ * @brief Test get_process_group_cpu_usage function
+ * @note Tests CPU usage calculation for process group
  */
-static void test_process_iterator_init_all_with_children(void) {
-    struct process_iterator iter;
-    struct process_filter filter;
-    struct process *proc;
-    int count = 0;
-    int ret;
-
-    proc = (struct process *)malloc(sizeof(struct process));
-    assert(proc != NULL);
-
-    filter.pid = 0;
-    filter.include_children = 1;
-    filter.read_cmd = 0;
-
-    ret = init_process_iterator(&iter, &filter);
-    assert(ret == 0);
-    while (count < 5 && get_next_process(&iter, proc) == 0) {
-        count++;
-    }
-    assert(count > 0);
-    ret = close_process_iterator(&iter);
-    assert(ret == 0);
-
-    free(proc);
-}
-
-/**
- * @brief Test get_next_process after end_of_processes is set
- * @note Must return -1 immediately on every call after first exhaustion
- */
-static void test_process_iterator_exhaust_single(void) {
-    struct process_iterator iter;
-    struct process_filter filter;
-    struct process *proc;
-    int ret;
-    pid_t self_pid;
-
-    proc = (struct process *)malloc(sizeof(struct process));
-    assert(proc != NULL);
-
-    self_pid = getpid();
-    filter.pid = getpid();
-    filter.include_children = 0;
-    filter.read_cmd = 0;
-
-    ret = init_process_iterator(&iter, &filter);
-    assert(ret == 0);
-
-    /* First call: returns the process */
-    ret = get_next_process(&iter, proc);
-    assert(ret == 0);
-    assert(proc->pid == self_pid);
-
-    /* Second call: end_of_processes=1, must return -1 */
-    ret = get_next_process(&iter, proc);
-    assert(ret == -1);
-
-    /* Third call: still -1 */
-    ret = get_next_process(&iter, proc);
-    assert(ret == -1);
-
-    ret = close_process_iterator(&iter);
-    assert(ret == 0);
-    free(proc);
-}
-
-/**
- * @brief Test process iterator with include_children=1 for current process
- * @note With a child process running, both parent and child must appear
- */
-static void test_process_iterator_with_children(void) {
-    struct process_iterator iter;
-    struct process_filter filter;
-    struct process *proc;
+static void test_process_group_cpu_usage(void) {
+    struct process_group proc_group;
+    double cpu_usage;
     pid_t child_pid;
-    int found_parent = 0, found_child = 0;
+    int node_idx;
     int ret;
+    int ncpu;
 
+    /* Create a child process that uses CPU */
     child_pid = fork();
     assert(child_pid >= 0);
+
     if (child_pid == 0) {
-        const struct timespec wait_duration = {5, 0};
-        sleep_timespec(&wait_duration);
+        /* Child process - busy loop */
+        volatile int keep_running = 1;
+        while (keep_running && !is_quit_flag_set()) {
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
+        }
         _exit(EXIT_SUCCESS);
     }
 
-    proc = (struct process *)malloc(sizeof(struct process));
-    assert(proc != NULL);
-
-    filter.pid = getpid();
-    filter.include_children = 1;
-    filter.read_cmd = 0;
-
-    ret = init_process_iterator(&iter, &filter);
+    /* Initialize process group for child */
+    ret = init_process_group(&proc_group, child_pid, 0);
     assert(ret == 0);
-    while (get_next_process(&iter, proc) == 0) {
-        if (proc->pid == getpid()) {
-            found_parent = 1;
-        }
-        if (proc->pid == child_pid) {
-            found_child = 1;
-        }
+
+    /* First call should return -1 (no measurement yet) */
+    cpu_usage = get_process_group_cpu_usage(&proc_group);
+    assert(cpu_usage >= -1.00001 && cpu_usage <= -0.99999);
+
+    /* Update a few times to get valid measurements */
+    for (node_idx = 0; node_idx < 5; node_idx++) {
+        const struct timespec sleep_time = {0, 100000000L}; /* 100ms */
+        sleep_timespec(&sleep_time);
+        update_process_group(&proc_group);
     }
-    ret = close_process_iterator(&iter);
+
+    /* Should now have valid CPU usage */
+    cpu_usage = get_process_group_cpu_usage(&proc_group);
+    /* CPU usage should be between 0 and ncpu */
+    ncpu = get_ncpu();
+    assert(cpu_usage >= 0.0);
+    assert(cpu_usage <= 1.0 * ncpu);
+
+    ret = close_process_group(&proc_group);
     assert(ret == 0);
-
-    assert(found_parent == 1);
-    assert(found_child == 1);
-
-    free(proc);
     kill_and_wait(child_pid, SIGKILL);
 }
 
 /**
- * @brief Test close_process_iterator when dip is already NULL
- * @note After init with single-pid filter, dip==NULL; close must return 0
+ * @brief Test process group with rapid updates
+ * @note Tests update_process_group called in quick succession
  */
-static void test_process_iterator_close_null_dip(void) {
-    struct process_iterator iter;
-    struct process_filter filter;
+static void test_process_group_rapid_updates(void) {
+    struct process_group proc_group;
+    pid_t child_pid;
+    int proc_idx;
     int ret;
 
-    filter.pid = getpid();
-    filter.include_children = 0;
-    filter.read_cmd = 0;
+    child_pid = fork();
+    assert(child_pid >= 0);
 
-    ret = init_process_iterator(&iter, &filter);
+    if (child_pid == 0) {
+        /* Child process */
+        volatile int keep_running = 1;
+        while (keep_running && !is_quit_flag_set()) {
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
+        }
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Initialize and update rapidly */
+    ret = init_process_group(&proc_group, child_pid, 0);
     assert(ret == 0);
-#if defined(__linux__)
-    /* dip is NULL because single-PID optimisation skips opendir() */
-    assert(iter.proc_dir == NULL);
-#endif
-    ret = close_process_iterator(&iter);
+
+    for (proc_idx = 0; proc_idx < 20; proc_idx++) {
+        size_t list_count;
+        update_process_group(&proc_group);
+        list_count = get_list_count(proc_group.proc_list);
+        assert(list_count == 1);
+    }
+
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+    kill_and_wait(child_pid, SIGKILL);
+}
+
+/***************************************************************************
+ * EXISTING TESTS (RENAMED FOR CONSISTENCY)
+ ***************************************************************************/
+
+/**
+ * @brief Test process group initialization with all processes
+ * @note Verifies that a process group initialized with PID 0 (all processes)
+ *  is non-empty and contains the current process
+ */
+static void test_process_group_init_all(void) {
+    struct process_group proc_group;
+    const struct list_node *node = NULL;
+    size_t count = 0;
+    int found_self = 0;
+    int ret;
+    size_t list_cnt;
+
+    /* Initialize process group with all processes */
+    ret = init_process_group(&proc_group, 0, 0);
+    assert(ret == 0);
+    update_process_group(&proc_group);
+
+    /* Count processes in the group */
+    for (node = proc_group.proc_list->first; node != NULL; node = node->next) {
+        const struct process *proc = (const struct process *)node->data;
+        if (proc->pid == getpid()) {
+            found_self = 1;
+        }
+        count++;
+    }
+    assert(count > 0);
+    assert(found_self == 1);
+    list_cnt = get_list_count(proc_group.proc_list);
+    assert(count == list_cnt);
+
+    /* Update and verify again */
+    update_process_group(&proc_group);
+    ret = close_process_group(&proc_group);
     assert(ret == 0);
 }
 
 /**
- * @brief Test that get_next_process handles NULL proc_dir defensively
- * @note On Linux, the single-PID optimisation leaves proc_dir=NULL.
- *       Switching the filter to general mode (pid=0) without reinitialising
- *       exercises the NULL-proc_dir guard added to get_next_process.
+ * @brief Test process group with a single process
+ * @param include_children Flag indicating whether to include child processes
+ * @note Creates a child process and verifies that the process group
+ *  correctly tracks it, with or without child process inclusion
  */
-static void test_process_iterator_null_proc_dir_guard(void) {
-#if defined(__linux__)
-    struct process_iterator iter;
-    struct process_filter filter;
-    struct process *proc;
+static void test_process_group_single(int include_children) {
+    struct process_group proc_group;
+    int iter_idx;
     int ret;
+    int ncpu;
+    pid_t self_pid;
+    pid_t child_pid;
 
-    proc = (struct process *)malloc(sizeof(struct process));
-    assert(proc != NULL);
+    /* Create a child process for testing */
+    child_pid = fork();
+    assert(child_pid >= 0);
 
-    /*
-     * Initialise with single-PID filter so that the optimisation path
-     * is taken and proc_dir is left as NULL.
-     */
-    filter.pid = getpid();
-    filter.include_children = 0;
-    filter.read_cmd = 0;
-    ret = init_process_iterator(&iter, &filter);
+    if (child_pid == 0) {
+        /* Child process: busy loop until killed */
+        volatile int keep_running = 1;
+        while (keep_running && !is_quit_flag_set()) {
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
+        }
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Initialize process group with the child PID */
+    self_pid = getpid();
+    ret = init_process_group(&proc_group, child_pid, include_children);
     assert(ret == 0);
-    assert(iter.proc_dir == NULL);
 
-    /*
-     * Change the filter to general mode (pid=0) without reinitialising.
-     * get_next_process must detect proc_dir==NULL and return -1 without
-     * crashing (the defensive NULL guard).
-     */
-    filter.pid = 0;
-    ret = get_next_process(&iter, proc);
+    /* Update process group 100 times and verify consistency */
+    for (iter_idx = 0; iter_idx < 100; iter_idx++) {
+        const struct list_node *node = NULL;
+        size_t count = 0;
+        size_t list_count;
+
+        update_process_group(&proc_group);
+        list_count = get_list_count(proc_group.proc_list);
+        assert(list_count == 1);
+
+        for (node = proc_group.proc_list->first; node != NULL;
+             node = node->next) {
+            const struct process *proc = (const struct process *)node->data;
+            int cpu_unset;
+            int cpu_valid;
+            assert(proc->pid == child_pid);
+            assert(proc->ppid == self_pid);
+            /* p->cpu_usage should be -1 or [0, NCPU] */
+            ncpu = get_ncpu();
+            cpu_unset =
+                (proc->cpu_usage >= -1.00001 && proc->cpu_usage <= -0.99999);
+            cpu_valid = (proc->cpu_usage >= 0 && proc->cpu_usage <= 1.0 * ncpu);
+            assert(cpu_unset || cpu_valid);
+            count++;
+        }
+        assert(count == 1);
+    }
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+
+    /* Clean up child process */
+    kill_and_wait(child_pid, SIGKILL);
+}
+
+/**
+ * @brief Test process group with a single process (both with and without
+ * children)
+ * @note Wrapper function to test process group with include_children set to
+ *  0 and 1
+ */
+static void test_process_group_init_single(void) {
+    /* Test without including children */
+    test_process_group_single(0);
+
+    /* Test with including children */
+    test_process_group_single(1);
+}
+
+/**
+ * @brief Test process group initialization with invalid PIDs
+ * @note Verifies that process group initialization with invalid PIDs (-1 and
+ *  INT_MAX) results in empty process lists
+ */
+static void test_process_group_init_invalid_pid(void) {
+    struct process_group proc_group;
+    int ret;
+    size_t list_count;
+
+    /* Test with PID -1 */
+    ret = init_process_group(&proc_group, -1, 0);
+    assert(ret == 0);
+    list_count = get_list_count(proc_group.proc_list);
+    assert(list_count == 0);
+    update_process_group(&proc_group);
+    list_count = get_list_count(proc_group.proc_list);
+    assert(list_count == 0);
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+
+    /* Test with PID INT_MAX */
+    ret = init_process_group(&proc_group, INT_MAX, 0);
+    assert(ret == 0);
+    list_count = get_list_count(proc_group.proc_list);
+    assert(list_count == 0);
+    update_process_group(&proc_group);
+    list_count = get_list_count(proc_group.proc_list);
+    assert(list_count == 0);
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+}
+
+/**
+ * @brief Test init_process_group with NULL proc_group argument
+ * @note Must return -1 without crashing when proc_group is NULL
+ */
+static void test_process_group_init_null(void) {
+    int ret;
+    ret = init_process_group(NULL, getpid(), 0);
     assert(ret == -1);
+}
 
-    /* close_process_iterator handles a zeroed iterator correctly */
-    ret = close_process_iterator(&iter);
+/**
+ * @brief Test find_process_by_pid function
+ * @note Verifies that the current process can be found by its PID
+ */
+static void test_process_group_find_by_pid(void) {
+    pid_t self_pid;
+    pid_t found_pid;
+    self_pid = getpid();
+    found_pid = find_process_by_pid(self_pid);
+    assert(found_pid == self_pid);
+}
+
+/**
+ * @brief Test find_process_by_name function
+ * @note Tests various cases: correct process name, empty string, modified
+ *  process names that should not match
+ */
+static void test_process_group_find_by_name(void) {
+    char *wrong_name;
+    size_t len;
+    pid_t found_pid;
+    pid_t self_pid;
+#if defined(__linux__)
+    char abs_path[64];
+#endif /* __linux__ */
+
+    /* Allocate buffer for modified process names */
+    wrong_name = (char *)malloc(PATH_MAX + 1);
+    if (wrong_name == NULL) {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
+
+    /*
+     * 'argv0' is the name of the current process (equivalent to argv[0]).
+     * Verify that the find_process_by_name function can find the current
+     * process (PID should match the return value of getpid()).
+     */
+    found_pid = find_process_by_name(argv0);
+    self_pid = getpid();
+    assert(found_pid == self_pid);
+
+#if defined(__linux__)
+    /*
+     * Test the absolute-path comparison branch: when process_name starts
+     * with '/', find_process_by_name compares the full path against each
+     * process's cmdline.  Use a path incorporating the current PID so it
+     * is unique enough to never match any running process's cmdline,
+     * even in shared CI environments.
+     */
+    snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
+             (long)getpid());
+    found_pid = find_process_by_name(abs_path);
+    assert(found_pid == 0);
+#endif /* __linux__ */
+
+    /*
+     * Test Case 1: Pass an empty string to find_process_by_name.
+     * Expectation: Should return 0 (process not found).
+     */
+    strcpy(wrong_name, "");
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
+
+    /*
+     * Test Case 2: Pass an incorrect process name by appending 'x'
+     * to the current process's name.
+     * Expectation: Should return 0 (process not found).
+     */
+    strcpy(wrong_name, argv0); /* Copy the current process's name */
+    strcat(wrong_name, "x");   /* Append 'x' to make it non-matching */
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
+
+    /*
+     * Test Case 3: Pass a copy of the current process's name with
+     * the last character removed.
+     * Expectation: Should return 0 (process not found).
+     */
+    strcpy(wrong_name, argv0); /* Copy the current process's name */
+    len = strlen(wrong_name);
+    wrong_name[len - 1] = '\0'; /* Remove the last character */
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
+
+    free(wrong_name);
+}
+
+/**
+ * @brief Test find_process_by_pid with invalid and boundary PIDs
+ * @note PID 0 and negative PIDs must return 0; current PID must be found
+ */
+static void test_process_group_find_by_pid_edges(void) {
+    pid_t result;
+    pid_t self_pid;
+
+    /* PID 0 is rejected before kill() */
+    result = find_process_by_pid((pid_t)0);
+    assert(result == 0);
+
+    /* Negative PID is rejected before kill() */
+    result = find_process_by_pid((pid_t)-1);
+    assert(result == 0);
+
+    /* INT_MAX: virtually guaranteed non-existent PID */
+    result = find_process_by_pid((pid_t)INT_MAX);
+    assert(result == 0);
+
+    /* Current process must be found */
+    self_pid = getpid();
+    result = find_process_by_pid(self_pid);
+    assert(result == self_pid);
+}
+
+/**
+ * @brief Test find_process_by_name with NULL process name
+ * @note Must return 0 without crashing
+ */
+static void test_process_group_find_by_name_null(void) {
+    pid_t found_pid;
+    found_pid = find_process_by_name(NULL);
+    assert(found_pid == 0);
+}
+
+/**
+ * @brief Test find_process_by_name with empty string (early-return path)
+ * @note Must return 0 immediately without iterating processes
+ */
+static void test_process_group_find_by_name_empty_string(void) {
+    pid_t found_pid;
+    found_pid = find_process_by_name("");
+    assert(found_pid == 0);
+}
+
+/**
+ * @brief Test find_process_by_name with a relative path ending in '/'
+ * @note The basename of "bin/" is an empty string, so no process can match;
+ *  must return 0 without crashing
+ */
+static void test_process_group_find_by_name_trailing_slash(void) {
+    pid_t found_pid;
+    /* Relative path with trailing slash yields an empty basename */
+    found_pid = find_process_by_name("bin/");
+    assert(found_pid == 0);
+}
+
+/**
+ * @brief Test get_process_group_cpu_usage when process list is empty
+ * @note Must return -1.0 when no processes are tracked
+ */
+static void test_process_group_cpu_usage_empty_list(void) {
+    struct process_group proc_group;
+    double usage;
+    int ret;
+    size_t list_count;
+
+    /* Initialize with INT_MAX: no such process exists, list stays empty */
+    ret = init_process_group(&proc_group, (pid_t)INT_MAX, 0);
     assert(ret == 0);
+    list_count = get_list_count(proc_group.proc_list);
+    assert(list_count == 0);
 
-    free(proc);
-#endif
+    /* Empty list must yield -1.0 (unknown) */
+    usage = get_process_group_cpu_usage(&proc_group);
+    assert(usage >= -1.00001 && usage <= -0.99999);
+
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+}
+
+/**
+ * @brief Test get_process_group_cpu_usage with NULL pointer
+ * @note Verifies the null guard returns the -1 sentinel without crashing
+ */
+static void test_process_group_cpu_usage_null(void) {
+    double usage = get_process_group_cpu_usage(NULL);
+    assert(usage >= -1.00001 && usage <= -0.99999);
+}
+
+/**
+ * @brief Test find_process_by_pid with PID 1 (init/systemd)
+ * @note PID 1 always exists: returns positive if accessible, -1 if EPERM,
+ *  never 0
+ */
+static void test_process_group_find_by_pid_init(void) {
+    pid_t result;
+    result = find_process_by_pid((pid_t)1);
+    assert(result != 0);
 }
 
 /***************************************************************************
- * PROCESS_GROUP MODULE - ADDITIONAL COVERAGE
+ * LIMIT_PROCESS MODULE ADDITIONAL TESTS
  ***************************************************************************/
 
 /**
@@ -4359,6 +4116,228 @@ static void test_process_group_cpu_usage_with_usage(void) {
  * LIMIT_PROCESS MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
+/***************************************************************************
+ * LIMIT_PROCESS MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test limit_process function
+ * @note Creates a process group with multi processes and applies CPU
+ *  limiting to verify that the CPU usage stays within the specified limit
+ */
+static void test_limit_process_basic(void) {
+    const double cpu_usage_limit = 0.5;
+    pid_t child_pid;
+    int sync_pipe[2], num_procs;
+    int ret;
+
+    num_procs = get_ncpu();
+    /* Ensure at least 2 processes to validate include_children option */
+    num_procs = MAX(num_procs, 2);
+
+    /* Create pipe for synchronization */
+    ret = pipe(sync_pipe);
+    assert(ret == 0);
+
+    /* Fork first child process */
+    child_pid = fork();
+    assert(child_pid >= 0);
+
+    if (child_pid > 0) {
+        /* Parent process: monitor CPU usage */
+        pid_t limiter_pid;
+        ssize_t ack_count, read_ret;
+        char ack;
+
+        ret = close(sync_pipe[1]);
+        assert(ret == 0);
+
+        /* Wait for num_procs acknowledgements (from num_procs processes) */
+        for (ack_count = 0; ack_count < num_procs; ack_count++) {
+            read_ret = read(sync_pipe[0], &ack, 1);
+            if (read_ret == -1 && errno == EINTR) {
+                continue; /* Interrupted, retry read */
+            }
+            assert(read_ret == 1 && ack == 'A');
+        }
+        /* Now should read EOF */
+        do {
+            read_ret = read(sync_pipe[0], &ack, 1);
+        } while (read_ret == -1 && errno == EINTR);
+        assert(read_ret == 0);
+        ret = close(sync_pipe[0]);
+        assert(ret == 0);
+        assert(ack_count == num_procs);
+        /* Fork CPU limiter process */
+        limiter_pid = fork();
+        assert(limiter_pid >= 0);
+
+        if (limiter_pid > 0) {
+            /* Monitor process: track CPU usage */
+            int iter_idx;
+            size_t count = 0;
+            double cpu_usage = 0;
+            struct process_group proc_group;
+            const struct timespec sleep_time = {0, 500000000L};
+            int ncpu;
+
+            /* Initialize process group monitoring */
+            ret = init_process_group(&proc_group, child_pid, 1);
+            assert(ret == 0);
+
+            /* Monitor CPU usage over 60 iterations */
+            for (iter_idx = 0; iter_idx < 60 && !is_quit_flag_set();
+                 iter_idx++) {
+                double temp_cpu_usage;
+                size_t list_count;
+                sleep_timespec(&sleep_time);
+                update_process_group(&proc_group);
+
+                /* Verify all num_procs processes are being monitored */
+                list_count = get_list_count(proc_group.proc_list);
+                assert(list_count == (size_t)num_procs);
+
+                temp_cpu_usage = get_process_group_cpu_usage(&proc_group);
+                if (temp_cpu_usage > 0) {
+                    cpu_usage += temp_cpu_usage;
+                    count++;
+                }
+            }
+            ret = close_process_group(&proc_group);
+            assert(ret == 0);
+            assert(count > 0);
+
+            /* Terminate limiter process first */
+            kill_and_wait(limiter_pid, SIGKILL);
+
+            /* Terminate entire process group */
+            kill_and_wait(-child_pid, SIGKILL);
+
+            /* Calculate and display average CPU usage */
+            cpu_usage /= (double)count;
+            printf("CPU usage limit: %.3f, CPU usage: %.3f\n", cpu_usage_limit,
+                   cpu_usage);
+
+            /* Verify CPU usage */
+            ncpu = get_ncpu();
+            assert(cpu_usage <= ncpu);
+
+            return;
+        }
+        /* limiter_pid == 0: CPU limiter process */
+        limit_process(child_pid, cpu_usage_limit, 1, 0);
+        exit(EXIT_SUCCESS);
+    } else {
+        /* child_pid == 0: Target process group */
+        int proc_idx;
+        volatile int keep_running = 1;
+        ssize_t nwritten;
+
+        /* Create new process group */
+        setpgid(0, 0);
+
+        ret = close(sync_pipe[0]);
+        assert(ret == 0);
+
+        /* Fork (num_procs - 1) child processes */
+        for (proc_idx = 1; proc_idx < num_procs; proc_idx++) {
+            pid_t pid = fork();
+            assert(pid >= 0);
+
+            if (pid == 0) {
+                /* Child process: do not create more children */
+                break;
+            }
+        }
+
+        /* Send acknowledgement and close pipe */
+        nwritten = write(sync_pipe[1], "A", 1);
+        assert(nwritten == 1);
+        ret = close(sync_pipe[1]);
+        assert(ret == 0);
+
+        /* Keep processes running until terminated */
+        while (keep_running && !is_quit_flag_set()) {
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
+        }
+        _exit(EXIT_SUCCESS);
+    }
+}
+
+/***************************************************************************
+ * LIMITER MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test limit_process when the target has already exited
+ * @note Exercises the empty-proc_list early-exit branch in limit_process
+ */
+static void test_limit_process_exits_early(void) {
+    const struct timespec wait_duration = {0, 50000000L}; /* 50 ms */
+    pid_t child_pid;
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Allow child time to exit so /proc entry is gone */
+    sleep_timespec(&wait_duration);
+
+    /* limit_process must handle an already-gone process gracefully */
+    limit_process(child_pid, 0.5, 0, 0);
+
+    /* Reap any remaining zombie */
+    waitpid(child_pid, NULL, WNOHANG);
+}
+
+/**
+ * @brief Test limit_process with verbose=1
+ * @note Exercises the verbose printf branches; output suppressed via fork
+ */
+static void test_limit_process_verbose(void) {
+    pid_t wrapper_pid;
+    int wrapper_status;
+    pid_t waited;
+    int w_exited;
+    int w_exit_code;
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        const struct timespec wait_duration = {0, 50000000L};
+        pid_t child_pid;
+
+        close(STDOUT_FILENO); /* Suppress verbose output */
+
+        child_pid = fork();
+        assert(child_pid >= 0);
+        if (child_pid == 0) {
+            _exit(EXIT_SUCCESS);
+        }
+
+        sleep_timespec(&wait_duration);
+        limit_process(child_pid, 0.5, 0, 1); /* verbose = 1 */
+        waitpid(child_pid, NULL, WNOHANG);
+        _exit(EXIT_SUCCESS);
+    }
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    assert(w_exited);
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    assert(w_exit_code == EXIT_SUCCESS);
+}
+
+/***************************************************************************
+ * LIMITER MODULE ADDITIONAL TESTS
+ ***************************************************************************/
+
 /**
  * @brief Test limit_process with include_children=1
  * @note Target exits quickly; exercises the children-tracking code path
@@ -4380,6 +4359,215 @@ static void test_limit_process_include_children(void) {
 
 /***************************************************************************
  * LIMITER MODULE - ADDITIONAL COVERAGE
+ ***************************************************************************/
+
+/***************************************************************************
+ * LIMITER MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test run_command_mode with a command that exits immediately
+ * @note Forks a child to call run_command_mode and checks the exit code
+ *  matches the command's exit code
+ */
+static void test_limiter_run_command_mode(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    char cmd[] = "true";
+    char *args[2];
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    /* Run in child process since run_command_mode calls exit() */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE); /* Should not reach here */
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    /* 'true' exits with 0, so run_command_mode should exit with 0 */
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_SUCCESS);
+}
+
+/**
+ * @brief Test run_pid_or_exe_mode when the target process does not exist
+ * @note Verifies that lazy mode exits with EXIT_FAILURE when the target
+ *  executable name is not found
+ */
+static void test_limiter_run_pid_or_exe_mode(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    const char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.exe_name = exe_name;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    /* Run in child since run_pid_or_exe_mode calls exit() */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        /* Suppress output from run_pid_or_exe_mode in child */
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_pid_or_exe_mode(&cfg);
+        _exit(EXIT_FAILURE); /* Should not reach here */
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    /* Process not found with lazy_mode=1 -> EXIT_FAILURE */
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_FAILURE);
+}
+
+/***************************************************************************
+ * ADDITIONAL WHITE-BOX COVERAGE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test run_command_mode with a non-existent binary
+ * @note execvp fails in child; parent should exit with EXIT_FAILURE
+ */
+static void test_limiter_run_command_mode_nonexistent(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    char cmd[] = "/nonexistent_cpulimit_test_binary_xyz";
+    char *args[2];
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test run_command_mode with verbose=1 and a command that succeeds
+ * @note Exercises the verbose printf branches in run_command_mode
+ */
+static void test_limiter_run_command_mode_verbose(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    char cmd[] = "true";
+    char *args[2];
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+    cfg.verbose = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_SUCCESS);
+}
+
+/**
+ * @brief Test run_pid_or_exe_mode with a PID (pid_mode=1) that does not exist
+ * @note Uses INT_MAX which is virtually guaranteed to be non-existent;
+ *  lazy_mode=1 -> EXIT_FAILURE
+ */
+static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.target_pid = (pid_t)INT_MAX;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        run_pid_or_exe_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_FAILURE);
+}
+
+/***************************************************************************
+ * CLI MODULE TESTS (parse_arguments)
  ***************************************************************************/
 
 /**
@@ -4608,158 +4796,6 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
  ***************************************************************************/
 
 /**
- * @brief Test parse_arguments with --include-children long option
- * @note --include-children must set include_children=1
- */
-static void test_cli_long_option_include_children(void) {
-    struct cpulimit_cfg cfg;
-    char arg0[] = "cpulimit";
-    char arg_limit[] = "--limit=50";
-    char arg_ic[] = "--include-children";
-    char arg_e[] = "-e";
-    char arg_exe[] = "foo";
-    char *test_argv[6];
-
-    test_argv[0] = arg0;
-    test_argv[1] = arg_limit;
-    test_argv[2] = arg_ic;
-    test_argv[3] = arg_e;
-    test_argv[4] = arg_exe;
-    test_argv[5] = NULL;
-
-    memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(5, test_argv, &cfg);
-    assert(cfg.include_children == 1);
-}
-
-/**
- * @brief Test parse_arguments with limit exactly equal to 100*ncpu (maximum)
- * @note Limit at the boundary must be accepted
- */
-static void test_cli_limit_at_max(void) {
-    struct cpulimit_cfg cfg;
-    char arg0[] = "cpulimit";
-    char arg_l[] = "-l";
-    char arg_max[32];
-    char arg_e[] = "-e";
-    char arg_exe[] = "foo";
-    char *test_argv[6];
-    int ncpu = get_ncpu();
-
-    snprintf(arg_max, sizeof(arg_max), "%d", 100 * ncpu);
-    test_argv[0] = arg0;
-    test_argv[1] = arg_l;
-    test_argv[2] = arg_max;
-    test_argv[3] = arg_e;
-    test_argv[4] = arg_exe;
-    test_argv[5] = NULL;
-
-    memset(&cfg, 0, sizeof(cfg));
-    parse_arguments(5, test_argv, &cfg);
-    /* Limit stored as fraction: 100*ncpu/100 == ncpu */
-    assert(cfg.limit >= (double)ncpu - 0.001 &&
-           cfg.limit <= (double)ncpu + 0.001);
-}
-
-/**
- * @brief Test parse_arguments with minimum valid PID (>1; try 2)
- * @note PID 2 is valid if it exists; test parse path only (fork to isolate)
- */
-static void test_cli_pid_minimum_valid(void) {
-    char arg0[] = "cpulimit";
-    char arg_l[] = "-l";
-    char arg_50[] = "50";
-    char arg_p[] = "-p";
-    char arg_pid2[] = "2";
-    char *test_argv[6];
-    int ret;
-
-    test_argv[0] = arg0;
-    test_argv[1] = arg_l;
-    test_argv[2] = arg_50;
-    test_argv[3] = arg_p;
-    test_argv[4] = arg_pid2;
-    test_argv[5] = NULL;
-
-    /* PID 2 is syntactically valid (> 1); parse must succeed (exit code 99) */
-    ret = run_parse_in_child(5, test_argv);
-    assert(ret == 99);
-}
-
-/**
- * @brief Test parse_arguments with a limit value that has trailing whitespace
- * @note "50 " (trailing space) has trailing chars after strtod; must fail
- */
-static void test_cli_limit_trailing_chars(void) {
-    char arg0[] = "cpulimit";
-    char arg_l[] = "-l";
-    char arg_lim[] = "50 "; /* trailing space */
-    char arg_e[] = "-e";
-    char arg_exe[] = "foo";
-    char *test_argv[6];
-    int parse_ret;
-
-    test_argv[0] = arg0;
-    test_argv[1] = arg_l;
-    test_argv[2] = arg_lim;
-    test_argv[3] = arg_e;
-    test_argv[4] = arg_exe;
-    test_argv[5] = NULL;
-    parse_ret = run_parse_in_child(5, test_argv);
-    assert(parse_ret == EXIT_FAILURE);
-}
-
-/**
- * @brief Test parse_arguments with --lazy and --verbose long options
- * @note Long forms of -z and -v must behave identically to short forms
- */
-static void test_cli_long_options_lazy_verbose(void) {
-    struct cpulimit_cfg cfg;
-    char arg0[] = "cpulimit";
-    char arg_limit[] = "--limit=50";
-    char arg_lazy[] = "--lazy";
-    char arg_verbose[] = "--verbose";
-    char arg_e[] = "-e";
-    char arg_exe[] = "foo";
-    char *test_argv[7];
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    test_argv[0] = arg0;
-    test_argv[1] = arg_limit;
-    test_argv[2] = arg_lazy;
-    test_argv[3] = arg_verbose;
-    test_argv[4] = arg_e;
-    test_argv[5] = arg_exe;
-    test_argv[6] = NULL;
-
-    /* verbose prints to stdout; suppress it */
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        close(STDOUT_FILENO);
-        memset(&cfg, 0, sizeof(cfg));
-        parse_arguments(6, test_argv, &cfg);
-        if (cfg.lazy_mode != 1) {
-            _exit(1);
-        }
-        if (cfg.verbose != 1) {
-            _exit(2);
-        }
-        _exit(0);
-    }
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/**
  * @brief Robust test function invocation.
  * Ensures that the test function is called exactly once and cannot be inlined
  * or optimized away.
@@ -4800,119 +4836,143 @@ int main(int argc, char *argv[]) {
     configure_signal_handler();
     printf("Starting tests...\n");
 
+    /* Util module tests */
+    printf("\n=== UTIL MODULE TESTS ===\n");
+    RUN_TEST(test_util_nsec2timespec);
+    RUN_TEST(test_util_time_functions);
+    RUN_TEST(test_util_timediff_in_ms);
+    RUN_TEST(test_util_file_basename);
+    RUN_TEST(test_util_get_ncpu);
+    RUN_TEST(test_util_increase_priority);
+    RUN_TEST(test_util_long2pid_t);
+    RUN_TEST(test_util_time_edge_cases);
+    RUN_TEST(test_util_file_basename_edge_cases);
+    RUN_TEST(test_util_long2pid_t_edge_cases);
+    RUN_TEST(test_util_long2pid_t_overflow);
+#if defined(__linux__)
+    RUN_TEST(test_util_read_line_from_file);
+#endif
+    RUN_TEST(test_util_macros);
+    RUN_TEST(test_util_timediff_negative);
+    RUN_TEST(test_util_sleep_timespec_zero);
+    RUN_TEST(test_util_nsec2timespec_zero_and_sub);
+    RUN_TEST(test_util_nsec2timespec_rollover);
+    RUN_TEST(test_util_timediff_nsec_only);
+    RUN_TEST(test_util_get_current_time_monotonic);
+    RUN_TEST(test_util_sleep_timespec_nonzero);
+    RUN_TEST(test_util_long2pid_t_zero);
+    RUN_TEST(test_util_file_basename_empty);
+
     /* List module tests */
     printf("\n=== LIST MODULE TESTS ===\n");
     RUN_TEST(test_list_init_and_empty);
     RUN_TEST(test_list_add_elem);
     RUN_TEST(test_list_delete_node);
-    RUN_TEST(test_list_delete_node_empty);
-    RUN_TEST(test_list_destroy_node_null_list);
     RUN_TEST(test_list_destroy_node);
-    RUN_TEST(test_list_first_node_nonempty);
     RUN_TEST(test_list_locate);
-    RUN_TEST(test_list_locate_single);
     RUN_TEST(test_list_clear_and_destroy);
-    RUN_TEST(test_list_clear_empty);
-    RUN_TEST(test_list_destroy_empty);
     RUN_TEST(test_list_edge_cases);
     RUN_TEST(test_list_null_data_operations);
+    RUN_TEST(test_list_first_node_nonempty);
+    RUN_TEST(test_list_delete_node_empty);
+    RUN_TEST(test_list_destroy_node_null_list);
+    RUN_TEST(test_list_locate_single);
+    RUN_TEST(test_list_clear_empty);
+    RUN_TEST(test_list_destroy_empty);
 
-    /* Util module tests */
-    printf("\n=== UTIL MODULE TESTS ===\n");
-    RUN_TEST(test_util_nsec2timespec);
-    RUN_TEST(test_util_nsec2timespec_zero_and_sub);
-    RUN_TEST(test_util_nsec2timespec_rollover);
-    RUN_TEST(test_util_time_functions);
-    RUN_TEST(test_util_get_current_time_monotonic);
-    RUN_TEST(test_util_timediff_in_ms);
-    RUN_TEST(test_util_timediff_negative);
-    RUN_TEST(test_util_timediff_nsec_only);
-    RUN_TEST(test_util_file_basename);
-    RUN_TEST(test_util_file_basename_empty);
-    RUN_TEST(test_util_get_ncpu);
-    RUN_TEST(test_util_increase_priority);
-    RUN_TEST(test_util_long2pid_t);
-    RUN_TEST(test_util_long2pid_t_zero);
-    RUN_TEST(test_util_time_edge_cases);
-    RUN_TEST(test_util_file_basename_edge_cases);
-    RUN_TEST(test_util_long2pid_t_edge_cases);
-    RUN_TEST(test_util_long2pid_t_overflow);
-    RUN_TEST(test_util_macros);
-    RUN_TEST(test_util_sleep_timespec_zero);
-    RUN_TEST(test_util_sleep_timespec_nonzero);
-#if defined(__linux__)
-    RUN_TEST(test_util_read_line_from_file);
-#endif
+    /* Signal handler module tests */
+    printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
+    RUN_TEST(test_signal_handler_flags);
+    RUN_TEST(test_signal_handler_sigquit);
+    RUN_TEST(test_signal_handler_sighup);
+    RUN_TEST(test_signal_handler_sigpipe);
+    RUN_TEST(test_signal_handler_initial_state);
+    RUN_TEST(test_signal_handler_sigterm);
+    RUN_TEST(test_signal_handler_sigint);
 
-    /* Process buckets module tests */
+    /* Process iterator module tests */
+    printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
+    RUN_TEST(test_process_iterator_is_child_of);
+    RUN_TEST(test_process_iterator_filter_edge_cases);
+    RUN_TEST(test_process_iterator_single);
+    RUN_TEST(test_process_iterator_multiple);
+    RUN_TEST(test_process_iterator_all);
+    RUN_TEST(test_process_iterator_read_command);
+    RUN_TEST(test_process_iterator_getppid_of);
+    RUN_TEST(test_process_iterator_null_inputs);
+    RUN_TEST(test_process_iterator_close_null);
+    RUN_TEST(test_process_iterator_getppid_of_edges);
+    RUN_TEST(test_process_iterator_init_all_with_children);
+    RUN_TEST(test_process_iterator_exhaust_single);
+    RUN_TEST(test_process_iterator_with_children);
+    RUN_TEST(test_process_iterator_close_null_dip);
+    RUN_TEST(test_process_iterator_null_proc_dir_guard);
+
+    /* CLI module tests */
+    printf("\n=== CLI MODULE TESTS ===\n");
+    RUN_TEST(test_cli_pid_mode);
+    RUN_TEST(test_cli_exe_mode);
+    RUN_TEST(test_cli_command_mode);
+    RUN_TEST(test_cli_long_options);
+    RUN_TEST(test_cli_long_option_exe);
+    RUN_TEST(test_cli_optional_flags);
+    RUN_TEST(test_cli_verbose_flag);
+    RUN_TEST(test_cli_help);
+    RUN_TEST(test_cli_missing_limit);
+    RUN_TEST(test_cli_invalid_limits);
+    RUN_TEST(test_cli_invalid_pids);
+    RUN_TEST(test_cli_empty_exe);
+    RUN_TEST(test_cli_no_target);
+    RUN_TEST(test_cli_multiple_targets);
+    RUN_TEST(test_cli_unknown_option);
+    RUN_TEST(test_cli_missing_arg);
+    RUN_TEST(test_cli_long_option_include_children);
+    RUN_TEST(test_cli_limit_at_max);
+    RUN_TEST(test_cli_pid_minimum_valid);
+    RUN_TEST(test_cli_limit_trailing_chars);
+    RUN_TEST(test_cli_long_options_lazy_verbose);
+
+    /* Process table module tests */
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
     RUN_TEST(test_process_table_init_destroy);
-    RUN_TEST(test_process_table_init_hashsize_zero);
     RUN_TEST(test_process_table_add_find);
-    RUN_TEST(test_process_table_find_null_pt);
     RUN_TEST(test_process_table_del);
-    RUN_TEST(test_process_table_del_absent_pid);
-    RUN_TEST(test_process_table_del_empty_bucket);
     RUN_TEST(test_process_table_remove_stale);
     RUN_TEST(test_process_table_remove_stale_null_data);
     RUN_TEST(test_process_table_collisions);
     RUN_TEST(test_process_table_empty_buckets);
     RUN_TEST(test_process_table_null_inputs_and_dup);
     RUN_TEST(test_process_table_stale_null_list);
+    RUN_TEST(test_process_table_init_hashsize_zero);
+    RUN_TEST(test_process_table_find_null_pt);
+    RUN_TEST(test_process_table_del_absent_pid);
+    RUN_TEST(test_process_table_del_empty_bucket);
     RUN_TEST(test_process_table_destroy_edge_cases);
     RUN_TEST(test_process_table_ops_after_destroy);
 
-    /* Signal handler module tests */
-    printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
-    RUN_TEST(test_signal_handler_initial_state);
-    RUN_TEST(test_signal_handler_flags);
-    RUN_TEST(test_signal_handler_sigint);
-    RUN_TEST(test_signal_handler_sigquit);
-    RUN_TEST(test_signal_handler_sigterm);
-    RUN_TEST(test_signal_handler_sighup);
-    RUN_TEST(test_signal_handler_sigpipe);
-
-    /* Process iterator module tests */
-    printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
-    RUN_TEST(test_process_iterator_single);
-    RUN_TEST(test_process_iterator_multiple);
-    RUN_TEST(test_process_iterator_all);
-    RUN_TEST(test_process_iterator_init_all_with_children);
-    RUN_TEST(test_process_iterator_read_command);
-    RUN_TEST(test_process_iterator_getppid_of);
-    RUN_TEST(test_process_iterator_getppid_of_edges);
-    RUN_TEST(test_process_iterator_is_child_of);
-    RUN_TEST(test_process_iterator_filter_edge_cases);
-    RUN_TEST(test_process_iterator_exhaust_single);
-    RUN_TEST(test_process_iterator_with_children);
-    RUN_TEST(test_process_iterator_close_null_dip);
-    RUN_TEST(test_process_iterator_null_proc_dir_guard);
-    RUN_TEST(test_process_iterator_close_null);
-    RUN_TEST(test_process_iterator_null_inputs);
-
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
+    RUN_TEST(test_process_group_cpu_usage);
+    RUN_TEST(test_process_group_rapid_updates);
     RUN_TEST(test_process_group_init_all);
     RUN_TEST(test_process_group_init_single);
     RUN_TEST(test_process_group_init_invalid_pid);
     RUN_TEST(test_process_group_init_null);
+    RUN_TEST(test_process_group_find_by_pid);
+    RUN_TEST(test_process_group_find_by_name);
+    RUN_TEST(test_process_group_find_by_pid_edges);
+    RUN_TEST(test_process_group_find_by_name_null);
+    RUN_TEST(test_process_group_find_by_name_empty_string);
+    RUN_TEST(test_process_group_find_by_name_trailing_slash);
+    RUN_TEST(test_process_group_cpu_usage_empty_list);
+    RUN_TEST(test_process_group_cpu_usage_null);
+    RUN_TEST(test_process_group_find_by_pid_init);
     RUN_TEST(test_process_group_close_null);
     RUN_TEST(test_process_group_close_zeros_fields);
     RUN_TEST(test_process_group_update_null);
     RUN_TEST(test_process_group_double_update);
-    RUN_TEST(test_process_group_find_by_pid);
-    RUN_TEST(test_process_group_find_by_pid_edges);
-    RUN_TEST(test_process_group_find_by_pid_init);
-    RUN_TEST(test_process_group_find_by_name);
-    RUN_TEST(test_process_group_find_by_name_null);
-    RUN_TEST(test_process_group_find_by_name_empty_string);
-    RUN_TEST(test_process_group_find_by_name_trailing_slash);
     RUN_TEST(test_process_group_find_by_name_self);
-    RUN_TEST(test_process_group_cpu_usage);
-    RUN_TEST(test_process_group_cpu_usage_empty_list);
-    RUN_TEST(test_process_group_cpu_usage_null);
     RUN_TEST(test_process_group_cpu_usage_with_usage);
-    RUN_TEST(test_process_group_rapid_updates);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
@@ -4924,40 +4984,15 @@ int main(int argc, char *argv[]) {
     /* Limiter module tests */
     printf("\n=== LIMITER MODULE TESTS ===\n");
     RUN_TEST(test_limiter_run_command_mode);
-    RUN_TEST(test_limiter_run_command_mode_false);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
     RUN_TEST(test_limiter_run_command_mode_verbose);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
+    RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_quit);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_self);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
-
-    /* CLI module tests */
-    printf("\n=== CLI MODULE TESTS ===\n");
-    RUN_TEST(test_cli_pid_mode);
-    RUN_TEST(test_cli_exe_mode);
-    RUN_TEST(test_cli_command_mode);
-    RUN_TEST(test_cli_long_options);
-    RUN_TEST(test_cli_long_option_exe);
-    RUN_TEST(test_cli_long_option_include_children);
-    RUN_TEST(test_cli_long_options_lazy_verbose);
-    RUN_TEST(test_cli_optional_flags);
-    RUN_TEST(test_cli_verbose_flag);
-    RUN_TEST(test_cli_help);
-    RUN_TEST(test_cli_missing_limit);
-    RUN_TEST(test_cli_invalid_limits);
-    RUN_TEST(test_cli_limit_at_max);
-    RUN_TEST(test_cli_limit_trailing_chars);
-    RUN_TEST(test_cli_invalid_pids);
-    RUN_TEST(test_cli_pid_minimum_valid);
-    RUN_TEST(test_cli_empty_exe);
-    RUN_TEST(test_cli_no_target);
-    RUN_TEST(test_cli_multiple_targets);
-    RUN_TEST(test_cli_unknown_option);
-    RUN_TEST(test_cli_missing_arg);
-
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;
