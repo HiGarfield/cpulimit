@@ -205,8 +205,15 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         if (is_quit_flag_set()) {
             int fwd_sig = get_quit_signal();
             /*
-             * Forward the actual received signal. If for any reason the
-             * recorded signal is SIGPIPE or unknown (0), use SIGTERM.
+             * Forward the actual received signal. Two special cases:
+             * - fwd_sig == 0: theoretically unreachable here because
+             *   is_quit_flag_set() is true, meaning a signal was already
+             *   delivered and recorded; however, guard defensively.
+             * - fwd_sig == SIGPIPE: SIGPIPE is an internal broken-pipe
+             *   signal relevant only to the writing process; forwarding it
+             *   to the child group could cause unintended termination of
+             *   children that write to unrelated pipes. Map it to SIGTERM
+             *   so the child group is asked to exit gracefully.
              * Negative PID targets the process group: -PGID.
              */
             if (fwd_sig == SIGPIPE || fwd_sig == 0) {

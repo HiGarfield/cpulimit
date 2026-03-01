@@ -4845,6 +4845,17 @@ static void test_limiter_run_command_mode_with_fork(void) {
 }
 
 /**
+ * @brief Delay for signal-forwarding tests to allow wrapper to start
+ *
+ * Both test_limiter_run_command_mode_quit_signal and
+ * test_limiter_run_command_mode_signal_forwarding sleep for this duration
+ * before sending a signal, giving the wrapper process time to fork the
+ * command child, complete setpgid() synchronization, and enter
+ * limit_process().
+ */
+static const struct timespec cmd_mode_startup_delay = {0, 200000000L};
+
+/**
  * @brief Test run_command_mode forwards SIGTERM when quit flag is set
  * @note Sends SIGTERM to the wrapper process while it is running a long-lived
  *  command ('sleep 60').  run_command_mode must forward SIGTERM to the command
@@ -4853,7 +4864,6 @@ static void test_limiter_run_command_mode_with_fork(void) {
 static void test_limiter_run_command_mode_quit_signal(void) {
     pid_t wrapper_pid;
     int wrapper_status;
-    const struct timespec start_sleep = {0, 200000000L}; /* 200 ms */
     pid_t waited;
     int w_exited;
     int w_exit_code;
@@ -4883,7 +4893,7 @@ static void test_limiter_run_command_mode_quit_signal(void) {
     }
 
     /* Allow wrapper to start and enter limit_process */
-    sleep_timespec(&start_sleep);
+    sleep_timespec(&cmd_mode_startup_delay);
 
     /* Request termination: wrapper's signal handler sets quit_flag */
     kill(wrapper_pid, SIGTERM);
@@ -4910,7 +4920,6 @@ static void test_limiter_run_command_mode_quit_signal(void) {
 static void test_limiter_run_command_mode_signal_forwarding(void) {
     pid_t wrapper_pid;
     int wrapper_status;
-    const struct timespec start_sleep = {0, 200000000L}; /* 200 ms */
     pid_t waited;
     int w_exited;
     int w_exit_code;
@@ -4940,7 +4949,7 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
     }
 
     /* Allow wrapper to start and enter limit_process */
-    sleep_timespec(&start_sleep);
+    sleep_timespec(&cmd_mode_startup_delay);
 
     /* Send SIGINT (Ctrl+C equivalent) to the wrapper */
     kill(wrapper_pid, SIGINT);
