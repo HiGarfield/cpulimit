@@ -258,7 +258,7 @@ void destroy_process_table(struct process_table *proc_table) {
         }
     }
     /* Free the bucket array itself */
-    free(proc_table->buckets);
+    free((void *)proc_table->buckets);
     proc_table->buckets = NULL;
     proc_table->hash_size = 0;
 }

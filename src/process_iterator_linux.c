@@ -99,8 +99,11 @@ int init_process_iterator(struct process_iterator *iter,
  * command path.
  *
  * The function rejects:
+ * - Processes with malformed or missing /proc/[pid]/stat data
+ * - Processes with a non-alphabetic state field
  * - Zombie processes (state Z, X, or x)
- * - Processes with invalid PPID (<= 0)
+ * - Processes with invalid PPID (<= 0 or overflows pid_t)
+ * - Processes with empty cmdline (when read_cmd is set)
  *
  * CPU times are converted from clock ticks to milliseconds using
  * sysconf(_SC_CLK_TCK).
@@ -109,7 +112,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char statfile[64], cmdline_path[64], state;
     char *buffer;
     const char *stat_fields_start;
-    unsigned long user_ticks, sys_ticks;
+    unsigned long utime_ticks, stime_ticks;
     long ppid;
     static long sc_clk_tck = -1;
     FILE *cmdline_file;
@@ -140,7 +143,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      */
     if (sscanf(stat_fields_start,
                ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lu %lu", &state,
-               &ppid, &user_ticks, &sys_ticks) != 4 ||
+               &ppid, &utime_ticks, &stime_ticks) != 4 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
         ppid <= 0) {
         free(buffer);
@@ -161,8 +164,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         }
     }
     /* Convert CPU times from clock ticks to milliseconds */
-    proc->cpu_time =
-        ((double)user_ticks + (double)sys_ticks) * 1000.0 / (double)sc_clk_tck;
+    proc->cpu_time = ((double)utime_ticks + (double)stime_ticks) * 1000.0 /
+                     (double)sc_clk_tck;
 
     if (!read_cmd) {
         return 0;
