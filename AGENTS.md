@@ -119,6 +119,7 @@ In Ubuntu, the following command SHALL be used:
 - Signed/unsigned comparisons MUST be handled carefully.
 - Integer overflow MUST be avoided.
 - Pointer arithmetic MUST be safe and validated.
+- Double and multi-level pointers passed to the `free` function MUST be explicitly cast to `(void *)` to avoid compiler warnings.
 - All memory allocations MUST be checked for failure.
 - All system calls MUST have return values checked.
 - Errors or warnings MUST NOT occur across all compiler optimization levels.
