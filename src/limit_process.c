@@ -88,12 +88,12 @@ static double get_dynamic_time_slot(void) {
     struct timespec now;
     double load;
 
-    /* First call: initialize random seed and timestamp */
+    /* First call: initialize timestamp and seed PRNG for jitter */
     if (!initialized) {
+        initialized = 1;
         if (get_current_time(&last_update) == 0) {
             /* Seed PRNG with current time for randomization */
             srandom((unsigned int)(last_update.tv_nsec ^ last_update.tv_sec));
-            initialized = 1;
         }
     } else if (get_current_time(&now) == 0 &&
                timediff_in_ms(&now, &last_update) >= 1000.0 &&
