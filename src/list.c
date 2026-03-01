@@ -42,8 +42,6 @@ void init_list(struct list *lst) {
         return;
     }
     memset(lst, 0, sizeof(*lst));
-    lst->first = lst->last = NULL;
-    lst->count = 0;
 }
 
 /**
