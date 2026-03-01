@@ -4805,7 +4805,7 @@ static void test_limiter_run_command_mode_with_fork(void) {
     char cmd[] = "sh";
     char arg1[] = "-c";
     /* Fork a short-lived background child; the shell exits immediately */
-    char arg2[] = "sleep 2 &";
+    char arg2[] = "sleep 1 &";
     char *args[4];
     pid_t waited;
     int exited;

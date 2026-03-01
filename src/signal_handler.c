@@ -61,9 +61,9 @@ static volatile sig_atomic_t quit_signal_num = 0;
  * @brief Unified signal handler for termination signals
  * @param sig Signal number that triggered this handler
  *
- * Handles SIGINT, SIGQUIT, SIGTERM, and SIGHUP by setting the quit flag.
- * For terminal-originated signals (SIGINT from Ctrl+C, SIGQUIT from Ctrl+\),
- * also sets the TTY termination flag to distinguish these from other
+ * Handles SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE by setting the quit
+ * flag. For terminal-originated signals (SIGINT from Ctrl+C, SIGQUIT from
+ * Ctrl+\), also sets the TTY termination flag to distinguish these from other
  * termination requests. Records the first received signal number for later
  * forwarding. Uses only async-signal-safe operations.
  */

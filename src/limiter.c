@@ -146,6 +146,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         int found_cmd_runner = 0;   /* 1 if successfully reaped child PID */
         struct timespec start_time; /* Timestamp when termination starts */
         ssize_t n_read;             /* Bytes read from pipe */
+        pid_t wait_res;             /* Return value of waitpid in error path */
 
         /* Close unused write end of pipe */
         close(sync_pipe[1]);
@@ -175,7 +176,18 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
              * the subsequent blocking waitpid() will complete quickly.
              */
             kill(cmd_runner_pid, SIGKILL);
-            waitpid(cmd_runner_pid, NULL, 0);
+            /*
+             * Robustly reap the child: retry waitpid() on EINTR so that
+             * a signal delivered to the parent during the wait does not
+             * leave the child as a zombie. For any other error, log it and
+             * proceed with the fatal exit.
+             */
+            do {
+                wait_res = waitpid(cmd_runner_pid, NULL, 0);
+            } while (wait_res == -1 && errno == EINTR);
+            if (wait_res == -1) {
+                perror("waitpid");
+            }
             exit(EXIT_FAILURE);
         }
         close(sync_pipe[0]);
