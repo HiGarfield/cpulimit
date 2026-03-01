@@ -157,6 +157,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
             n_read = read(sync_pipe[0], &sync_ack, 1);
         } while (n_read < 0 && errno == EINTR);
         if (n_read != 1 || sync_ack != 'A') {
+            pid_t wait_res; /* Return value of waitpid in error path */
             if (n_read < 0) {
                 perror("read sync");
             } else if (n_read == 0) {
@@ -167,8 +168,26 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                         "Unexpected synchronization value from child\n");
             }
             close(sync_pipe[0]);
-            /* Reap child to prevent zombie */
-            waitpid(cmd_runner_pid, NULL, 0);
+            /*
+             * Kill child to prevent it from becoming an orphan, then reap
+             * it to prevent zombie. SIGKILL is used because the child may
+             * have failed in an unknown state and cannot be trusted to
+             * respond to SIGTERM. SIGKILL cannot be caught or ignored, so
+             * the subsequent blocking waitpid() will complete quickly.
+             */
+            kill(cmd_runner_pid, SIGKILL);
+            /*
+             * Robustly reap the child: retry waitpid() on EINTR so that
+             * a signal delivered to the parent during the wait does not
+             * leave the child as a zombie. For any other error, log it and
+             * proceed with the fatal exit.
+             */
+            do {
+                wait_res = waitpid(cmd_runner_pid, NULL, 0);
+            } while (wait_res == -1 && errno == EINTR);
+            if (wait_res == -1) {
+                perror("waitpid");
+            }
             exit(EXIT_FAILURE);
         }
         close(sync_pipe[0]);
@@ -187,14 +206,32 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
 
         /*
          * Check if user requested termination via signal (Ctrl+C, SIGTERM,
-         * etc). If so, gracefully terminate the entire process group.
+         * etc). If so, gracefully terminate the entire process group by
+         * forwarding the exact received signal. This ensures behavior is
+         * consistent with a standard shell: for example, Ctrl+C (SIGINT)
+         * is forwarded as SIGINT so the child exits with status 130
+         * (128+SIGINT), not 143 (128+SIGTERM).
+         * SIGPIPE is an internal pipe-break signal; map it to SIGTERM to
+         * avoid unexpected behavior in child processes that do not handle it.
          */
         if (is_quit_flag_set()) {
+            int fwd_sig = get_quit_signal();
             /*
-             * Send SIGTERM to all processes in child's process group.
-             * Negative PID targets the process group: -PGID
+             * Forward the actual received signal. Two special cases:
+             * - fwd_sig == 0: theoretically unreachable here because
+             *   is_quit_flag_set() is true, meaning a signal was already
+             *   delivered and recorded; however, guard defensively.
+             * - fwd_sig == SIGPIPE: SIGPIPE is an internal broken-pipe
+             *   signal relevant only to the writing process; forwarding it
+             *   to the child group could cause unintended termination of
+             *   children that write to unrelated pipes. Map it to SIGTERM
+             *   so the child group is asked to exit gracefully.
+             * Negative PID targets the process group: -PGID.
              */
-            kill(-cmd_runner_pid, SIGTERM);
+            if (fwd_sig == SIGPIPE || fwd_sig == 0) {
+                fwd_sig = SIGTERM;
+            }
+            kill(-cmd_runner_pid, fwd_sig);
         }
 
         /* Record time for timeout monitoring during cleanup */
@@ -218,7 +255,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
             pid_t wpid = waitpid(-cmd_runner_pid, &status, WNOHANG);
 
             if (wpid == cmd_runner_pid) {
-                /* Primary child process has terminated */
+                /* Primary child process has terminated; record exit status */
                 found_cmd_runner = 1;
 
                 if (WIFEXITED(status)) {
@@ -249,8 +286,16 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                     }
                     child_exit_status = EXIT_FAILURE;
                 }
-
-            } else if (wpid == 0) {
+                /*
+                 * Primary child reaped: exit the loop immediately.
+                 * Any grandchildren that cmd_runner_pid forked are not
+                 * direct children of this process and cannot be waited
+                 * on here; they are reparented to init when their direct
+                 * parent exits, matching standard shell semantics.
+                 */
+                break;
+            }
+            if (wpid == 0) {
                 /*
                  * No state changes yet (WNOHANG returned immediately).
                  * Check if we've exceeded timeout for graceful termination.
@@ -291,14 +336,6 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                 /* ECHILD means no more children, exit loop */
                 break;
             }
-            /*
-             * Implicit else: wpid > 0 but wpid != cmd_runner_pid.
-             * waitpid(-pgid) only returns direct children of this process
-             * in the specified process group. Since cmd_runner_pid is the
-             * only direct child in the group, this branch is not expected
-             * to be reached during normal operation. Handle it defensively
-             * by continuing to wait for cmd_runner_pid.
-             */
         }
 
         /*
