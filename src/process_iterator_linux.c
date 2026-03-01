@@ -101,7 +101,6 @@ int init_process_iterator(struct process_iterator *iter,
  * The function rejects:
  * - Zombie processes (state Z, X, or x)
  * - Processes with invalid PPID (<= 0)
- * - Processes with negative CPU times
  *
  * CPU times are converted from clock ticks to milliseconds using
  * sysconf(_SC_CLK_TCK).
@@ -110,7 +109,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char statfile[64], cmdline_path[64], state;
     char *buffer;
     const char *stat_fields_start;
-    double user_time, sys_time;
+    unsigned long user_ticks, sys_ticks;
     long ppid;
     static long sc_clk_tck = -1;
     FILE *cmdline_file;
@@ -134,11 +133,16 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         free(buffer);
         return -1;
     }
+    /*
+     * utime and stime are unsigned long (%lu) in /proc/[pid]/stat.
+     * Using %lu with unsigned long variables is semantically correct
+     * and avoids floating-point parsing of integer fields.
+     */
     if (sscanf(stat_fields_start,
-               ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf", &state,
-               &ppid, &user_time, &sys_time) != 4 ||
+               ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lu %lu", &state,
+               &ppid, &user_ticks, &sys_ticks) != 4 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0 || user_time < 0 || sys_time < 0) {
+        ppid <= 0) {
         free(buffer);
         return -1;
     }
@@ -157,7 +161,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         }
     }
     /* Convert CPU times from clock ticks to milliseconds */
-    proc->cpu_time = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
+    proc->cpu_time =
+        ((double)user_ticks + (double)sys_ticks) * 1000.0 / (double)sc_clk_tck;
 
     if (!read_cmd) {
         return 0;
