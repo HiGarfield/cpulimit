@@ -249,6 +249,13 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                     }
                     child_exit_status = EXIT_FAILURE;
                 }
+                /*
+                 * Primary child reaped. Since cmd_runner_pid is the only
+                 * direct child of this process in the group, exit the loop.
+                 * Any further descendants were reparented to init when their
+                 * direct parent exited and will be reaped by init.
+                 */
+                break;
 
             } else if (wpid == 0) {
                 /*
@@ -291,14 +298,6 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                 /* ECHILD means no more children, exit loop */
                 break;
             }
-            /*
-             * Implicit else: wpid > 0 but wpid != cmd_runner_pid.
-             * waitpid(-pgid) only returns direct children of this process
-             * in the specified process group. Since cmd_runner_pid is the
-             * only direct child in the group, this branch is not expected
-             * to be reached during normal operation. Handle it defensively
-             * by continuing to wait for cmd_runner_pid.
-             */
         }
 
         /*
