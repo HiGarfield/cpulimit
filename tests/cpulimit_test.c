@@ -1613,6 +1613,93 @@ static void test_signal_handler_sigint(void) {
     assert(exit_code == 0);
 }
 
+/**
+ * @brief Test get_quit_signal before and after receiving signals
+ * @note Before any signal: returns 0.  After SIGTERM: returns SIGTERM.
+ *  After SIGINT: returns SIGINT.  First signal wins; subsequent signals
+ *  do not overwrite the recorded number.
+ */
+static void test_signal_handler_get_quit_signal(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+    int sig_val;
+
+    /* Sub-test 1: before any signal, get_quit_signal() returns 0 */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        sig_val = get_quit_signal();
+        _exit(sig_val == 0 ? 0 : 1);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+
+    /* Sub-test 2: after SIGTERM, get_quit_signal() returns SIGTERM */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGTERM) != 0) {
+            _exit(1);
+        }
+        sig_val = get_quit_signal();
+        _exit(sig_val == SIGTERM ? 0 : 1);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+
+    /* Sub-test 3: after SIGINT, get_quit_signal() returns SIGINT */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGINT) != 0) {
+            _exit(1);
+        }
+        sig_val = get_quit_signal();
+        _exit(sig_val == SIGINT ? 0 : 1);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+
+    /* Sub-test 4: first signal wins; SIGTERM then SIGINT keeps SIGTERM */
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGTERM) != 0) {
+            _exit(1);
+        }
+        if (raise(SIGINT) != 0) {
+            _exit(2);
+        }
+        sig_val = get_quit_signal();
+        _exit(sig_val == SIGTERM ? 0 : 1);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
 /***************************************************************************
  * PROCESS_ITERATOR MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
@@ -4611,6 +4698,266 @@ static void test_limiter_run_command_mode_false(void) {
 }
 
 /**
+ * @brief Test run_command_mode exit status when command is killed by SIGTERM
+ * @note Shell convention: exit status = 128 + signal_number.
+ *  'sh -c "kill -TERM $$"' causes the shell to send SIGTERM to itself;
+ *  run_command_mode must propagate exit status 128 + SIGTERM.
+ */
+static void test_limiter_run_command_mode_signal_term(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    char cmd[] = "sh";
+    char arg1[] = "-c";
+    char arg2[] = "kill -TERM $$";
+    char *args[4];
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    args[0] = cmd;
+    args[1] = arg1;
+    args[2] = arg2;
+    args[3] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(99);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    /* Shell killed by SIGTERM -> exit status 128 + SIGTERM */
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 128 + SIGTERM);
+}
+
+/**
+ * @brief Test run_command_mode exit status when command is killed by SIGKILL
+ * @note Shell convention: exit status = 128 + signal_number.
+ *  'sh -c "kill -KILL $$"' causes the shell to send SIGKILL to itself;
+ *  run_command_mode must propagate exit status 128 + SIGKILL.
+ */
+static void test_limiter_run_command_mode_signal_kill(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    char cmd[] = "sh";
+    char arg1[] = "-c";
+    char arg2[] = "kill -9 $$";
+    char *args[4];
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    args[0] = cmd;
+    args[1] = arg1;
+    args[2] = arg2;
+    args[3] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(99);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    /* Shell killed by SIGKILL -> exit status 128 + SIGKILL */
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 128 + SIGKILL);
+}
+
+/**
+ * @brief Test run_command_mode when the command forks a background grandchild
+ * @note Verifies that run_command_mode exits correctly (with the shell's exit
+ *  status) even when the executed command itself forks a child process that
+ *  outlives it.  The grandchild is reparented to init and does not affect
+ *  the parent's wait loop, matching standard POSIX shell semantics.
+ */
+static void test_limiter_run_command_mode_with_fork(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    char cmd[] = "sh";
+    char arg1[] = "-c";
+    /* Fork a short-lived background child; the shell exits immediately */
+    char arg2[] = "sleep 2 &";
+    char *args[4];
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    args[0] = cmd;
+    args[1] = arg1;
+    args[2] = arg2;
+    args[3] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(99);
+    }
+
+    /*
+     * The shell exits immediately after forking the background child.
+     * run_command_mode must not block waiting for the grandchild;
+     * it should exit promptly with the shell's exit status (0).
+     */
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_SUCCESS);
+}
+
+/**
+ * @brief Test run_command_mode forwards SIGTERM when quit flag is set
+ * @note Sends SIGTERM to the wrapper process while it is running a long-lived
+ *  command ('sleep 60').  run_command_mode must forward SIGTERM to the command
+ *  process group and exit with 128 + SIGTERM = 143.
+ */
+static void test_limiter_run_command_mode_quit_signal(void) {
+    pid_t wrapper_pid;
+    int wrapper_status;
+    const struct timespec start_sleep = {0, 200000000L}; /* 200 ms */
+    pid_t waited;
+    int w_exited;
+    int w_exit_code;
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        struct cpulimit_cfg cfg;
+        char cmd[] = "sleep";
+        char arg1[] = "60";
+        char *args[3];
+
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+
+        args[0] = cmd;
+        args[1] = arg1;
+        args[2] = NULL;
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.command_mode = 1;
+        cfg.command_args = args;
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 1;
+        run_command_mode(&cfg);
+        _exit(99);
+    }
+
+    /* Allow wrapper to start and enter limit_process */
+    sleep_timespec(&start_sleep);
+
+    /* Request termination: wrapper's signal handler sets quit_flag */
+    kill(wrapper_pid, SIGTERM);
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    assert(w_exited);
+    /*
+     * wrapper forwards SIGTERM to 'sleep 60'; sleep exits with SIGTERM.
+     * run_command_mode exits with 128 + SIGTERM.
+     */
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    assert(w_exit_code == 128 + SIGTERM);
+}
+
+/**
+ * @brief Test run_command_mode forwards the exact received signal (SIGINT)
+ * @note Sends SIGINT to the wrapper process while it runs 'sleep 60'.
+ *  With correct signal forwarding, the command receives SIGINT and exits
+ *  with 128 + SIGINT = 130 (matching standard shell Ctrl+C behavior).
+ *  Without the fix, the command would receive SIGTERM and exit with 143.
+ */
+static void test_limiter_run_command_mode_signal_forwarding(void) {
+    pid_t wrapper_pid;
+    int wrapper_status;
+    const struct timespec start_sleep = {0, 200000000L}; /* 200 ms */
+    pid_t waited;
+    int w_exited;
+    int w_exit_code;
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        struct cpulimit_cfg cfg;
+        char cmd[] = "sleep";
+        char arg1[] = "60";
+        char *args[3];
+
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+
+        args[0] = cmd;
+        args[1] = arg1;
+        args[2] = NULL;
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.command_mode = 1;
+        cfg.command_args = args;
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 1;
+        run_command_mode(&cfg);
+        _exit(99);
+    }
+
+    /* Allow wrapper to start and enter limit_process */
+    sleep_timespec(&start_sleep);
+
+    /* Send SIGINT (Ctrl+C equivalent) to the wrapper */
+    kill(wrapper_pid, SIGINT);
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    assert(w_exited);
+    /*
+     * Wrapper must forward SIGINT (not SIGTERM) to the command group.
+     * 'sleep 60' exits with SIGINT -> exit status 128 + SIGINT = 130.
+     */
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    assert(w_exit_code == 128 + SIGINT);
+}
+
+/**
  * @brief Test run_pid_or_exe_mode with exe mode, non-lazy, immediate exit
  *  via quit flag (verifies the non-lazy quit-flag early-exit path)
  * @note Uses a nonexistent exe so proc_list stays empty, quit flag breaks loop
@@ -4889,6 +5236,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_initial_state);
     RUN_TEST(test_signal_handler_sigterm);
     RUN_TEST(test_signal_handler_sigint);
+    RUN_TEST(test_signal_handler_get_quit_signal);
 
     /* Process iterator module tests */
     printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
@@ -4989,6 +5337,11 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_command_mode_false);
+    RUN_TEST(test_limiter_run_command_mode_signal_term);
+    RUN_TEST(test_limiter_run_command_mode_signal_kill);
+    RUN_TEST(test_limiter_run_command_mode_with_fork);
+    RUN_TEST(test_limiter_run_command_mode_quit_signal);
+    RUN_TEST(test_limiter_run_command_mode_signal_forwarding);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_quit);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_self);

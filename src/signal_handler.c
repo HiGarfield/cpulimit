@@ -49,13 +49,23 @@ static volatile sig_atomic_t quit_flag = 0;
 static volatile sig_atomic_t tty_quit_flag = 0;
 
 /**
+ * @brief Signal number of the first termination signal received
+ *
+ * Records the signal number that caused the quit flag to be set.
+ * Initialized to 0 (no signal). Set once when the first termination
+ * signal is received; subsequent signals do not overwrite it.
+ */
+static volatile sig_atomic_t quit_signal_num = 0;
+
+/**
  * @brief Unified signal handler for termination signals
  * @param sig Signal number that triggered this handler
  *
  * Handles SIGINT, SIGQUIT, SIGTERM, and SIGHUP by setting the quit flag.
  * For terminal-originated signals (SIGINT from Ctrl+C, SIGQUIT from Ctrl+\),
  * also sets the TTY termination flag to distinguish these from other
- * termination requests. Uses only async-signal-safe operations.
+ * termination requests. Records the first received signal number for later
+ * forwarding. Uses only async-signal-safe operations.
  */
 static void sig_handler(int sig) {
     /* Mark TTY-originated signals for special handling */
@@ -66,6 +76,10 @@ static void sig_handler(int sig) {
         break;
     default:
         break;
+    }
+    /* Record signal number of first received termination signal */
+    if (quit_signal_num == 0) {
+        quit_signal_num = (sig_atomic_t)sig;
     }
     /* Set global quit flag to initiate graceful shutdown */
     quit_flag = 1;
@@ -131,4 +145,19 @@ int is_quit_flag_set(void) {
  */
 int is_terminated_by_tty(void) {
     return !!tty_quit_flag;
+}
+
+/**
+ * @brief Get the signal number that caused the quit flag to be set
+ * @return Signal number (e.g. SIGTERM, SIGINT) of the first received
+ *         termination signal, or 0 if no termination signal has been
+ *         received yet
+ *
+ * Returns the signal number recorded when the first termination signal
+ * was delivered to the process. This allows callers to forward the exact
+ * received signal to child processes, ensuring consistent behavior with
+ * a standard shell (e.g., Ctrl+C sends SIGINT to the child, not SIGTERM).
+ */
+int get_quit_signal(void) {
+    return (int)quit_signal_num;
 }

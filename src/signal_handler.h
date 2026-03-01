@@ -64,6 +64,19 @@ int is_quit_flag_set(void);
  */
 int is_terminated_by_tty(void);
 
+/**
+ * @brief Get the signal number that caused the quit flag to be set
+ * @return Signal number (e.g. SIGTERM, SIGINT) of the first received
+ *         termination signal, or 0 if no termination signal has been
+ *         received yet
+ *
+ * Returns the signal number recorded when the first termination signal
+ * was delivered to the process. This allows callers to forward the exact
+ * received signal to child processes, ensuring consistent behavior with
+ * a standard shell (e.g., Ctrl+C sends SIGINT to the child, not SIGTERM).
+ */
+int get_quit_signal(void);
+
 #ifdef __cplusplus
 }
 #endif
