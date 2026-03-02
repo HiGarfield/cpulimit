@@ -35,6 +35,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -95,6 +96,10 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          * This block executes in the child process.
          * The child will become the command specified by the user.
          */
+        struct sigaction def_action;
+        /* Signals installed by configure_signal_handler() */
+        const int reset_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
+        size_t sig_idx;
 
         /*
          * Create new process group with child as leader.
@@ -106,6 +111,29 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
             close(sync_pipe[0]);
             close(sync_pipe[1]);
             _exit(EXIT_FAILURE);
+        }
+
+        /*
+         * Reset inherited signal handlers to SIG_DFL before notifying
+         * the parent.  After fork(), this child inherits the parent's
+         * configured handlers.  execvp() resets them, but on systems
+         * where exec takes measurable time (e.g., macOS 10.15+ with
+         * library validation), a signal forwarded by the parent between
+         * reading the sync byte and exec completing would be silently
+         * caught by the inherited handler instead of terminating this
+         * process.  Resetting here closes that race window.
+         */
+        memset(&def_action, 0, sizeof(def_action));
+        def_action.sa_handler = SIG_DFL;
+        sigemptyset(&def_action.sa_mask);
+        for (sig_idx = 0; sig_idx < sizeof(reset_sigs) / sizeof(*reset_sigs);
+             sig_idx++) {
+            if (sigaction(reset_sigs[sig_idx], &def_action, NULL) != 0) {
+                perror("sigaction reset");
+                close(sync_pipe[0]);
+                close(sync_pipe[1]);
+                _exit(EXIT_FAILURE);
+            }
         }
 
         /* Close unused read end of pipe */
