@@ -485,10 +485,13 @@ char *read_line_from_file(const char *file_name) {
     }
     if (getline(&line, &line_size, input_file) < 0) {
         free(line);
-        fclose(input_file);
+        (void)fclose(input_file);
         return NULL;
     }
-    fclose(input_file);
+    if (fclose(input_file) != 0) {
+        perror("fclose");
+        /* The stream is closed regardless; the data read is still valid */
+    }
     /* Strip trailing newline characters */
     line[strcspn(line, "\r\n")] = '\0';
     return line;
