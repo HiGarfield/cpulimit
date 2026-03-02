@@ -241,21 +241,26 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         }
 
         /*
-         * Cleanup loop: reap all child processes whose process group matches
-         * the command's process group. This waits only on our own children;
-         * descendants further down the tree are reparented (typically to init)
-         * when their direct parent exits and are reaped by that ancestor.
+         * Cleanup loop: wait for the command child process to exit.
+         * waitpid() can only reap direct children of this process.
+         * Any grandchildren (forked by cmd_runner_pid) are not direct
+         * children of this process; they are reparented to init when
+         * cmd_runner_pid exits, matching standard shell semantics.
+         * Use a positive PID — the negative-PGID form waitpid(-pgid)
+         * would also only return cmd_runner_pid since it is our only
+         * direct child, but using the positive form is clearer and
+         * eliminates a dead code branch.
          */
         while (1) {
             int status;
             /*
-             * Wait for any process in child's group without blocking.
+             * Check for child state change without blocking.
              * WNOHANG allows checking timeout and other conditions.
              */
-            pid_t wpid = waitpid(-cmd_runner_pid, &status, WNOHANG);
+            pid_t wpid = waitpid(cmd_runner_pid, &status, WNOHANG);
 
             if (wpid == cmd_runner_pid) {
-                /* Primary child process has terminated; record exit status */
+                /* Child process has terminated; record exit status */
                 found_cmd_runner = 1;
 
                 if (WIFEXITED(status)) {
@@ -286,13 +291,6 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                     }
                     child_exit_status = EXIT_FAILURE;
                 }
-                /*
-                 * Primary child reaped: exit the loop immediately.
-                 * Any grandchildren that cmd_runner_pid forked are not
-                 * direct children of this process and cannot be waited
-                 * on here; they are reparented to init when their direct
-                 * parent exits, matching standard shell semantics.
-                 */
                 break;
             }
             if (wpid == 0) {
@@ -311,6 +309,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                 /*
                  * After 5 seconds, forcefully kill any remaining processes.
                  * This handles cases where processes ignore SIGTERM.
+                 * Send SIGKILL to the entire process group (-pgid) to also
+                 * terminate any descendants that are still running, even
+                 * though we cannot wait() on them directly.
                  */
                 if (timediff_in_ms(&current_time, &start_time) > 5000.0) {
                     if (cfg->verbose) {
@@ -323,8 +324,8 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                 /* Brief sleep to avoid busy-waiting */
                 sleep_timespec(&sleep_time);
 
-            } else if (wpid < 0) {
-                /* waitpid() encountered an error */
+            } else {
+                /* wpid < 0: waitpid() encountered an error */
                 if (errno == EINTR) {
                     /* Interrupted by signal, retry immediately */
                     continue;
@@ -333,7 +334,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
                     /* Real error (not just "no children") */
                     perror("waitpid");
                 }
-                /* ECHILD means no more children, exit loop */
+                /* ECHILD means child already reaped or no children */
                 break;
             }
         }
