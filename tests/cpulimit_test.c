@@ -4358,6 +4358,7 @@ static void test_limit_process_basic(void) {
  */
 static void test_limit_process_exits_early(void) {
     pid_t child_pid;
+    pid_t waited_pid;
 
     child_pid = fork();
     assert(child_pid >= 0);
@@ -4366,7 +4367,10 @@ static void test_limit_process_exits_early(void) {
     }
 
     /* Wait for child to exit completely */
-    waitpid(child_pid, NULL, 0);
+    do {
+        waited_pid = waitpid(child_pid, NULL, 0);
+    } while (waited_pid == -1 && errno == EINTR);
+    assert(waited_pid == child_pid);
 
     /* limit_process must handle an already-gone process gracefully */
     limit_process(child_pid, 0.5, 0, 0);
@@ -4387,6 +4391,7 @@ static void test_limit_process_verbose(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         pid_t child_pid;
+        pid_t waited_pid;
 
         close(STDOUT_FILENO); /* Suppress verbose output */
 
@@ -4396,7 +4401,10 @@ static void test_limit_process_verbose(void) {
             _exit(EXIT_SUCCESS);
         }
 
-        waitpid(child_pid, NULL, 0);
+        do {
+            waited_pid = waitpid(child_pid, NULL, 0);
+        } while (waited_pid == -1 && errno == EINTR);
+        assert(waited_pid == child_pid);
         limit_process(child_pid, 0.5, 0, 1); /* verbose = 1 */
         _exit(EXIT_SUCCESS);
     }
@@ -4419,6 +4427,7 @@ static void test_limit_process_verbose(void) {
  */
 static void test_limit_process_include_children(void) {
     pid_t child_pid;
+    pid_t waited_pid;
 
     child_pid = fork();
     assert(child_pid >= 0);
@@ -4427,7 +4436,10 @@ static void test_limit_process_include_children(void) {
     }
 
     /* Wait for child to exit completely */
-    waitpid(child_pid, NULL, 0);
+    do {
+        waited_pid = waitpid(child_pid, NULL, 0);
+    } while (waited_pid == -1 && errno == EINTR);
+    assert(waited_pid == child_pid);
     limit_process(child_pid, 0.5, 1, 0); /* include_children=1 */
 }
 
@@ -4859,7 +4871,8 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         char arg1[] = "60";
         char *args[3];
 
-        close(ready_pipe[0]);
+        ret = close(ready_pipe[0]);
+        assert(ret == 0);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
 
@@ -4874,21 +4887,24 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         cfg.lazy_mode = 1;
         /* Notify test that wrapper is ready to call run_command_mode */
         if (write(ready_pipe[1], "A", 1) != 1) {
-            close(ready_pipe[1]);
+            (void)close(ready_pipe[1]);
             _exit(EXIT_FAILURE);
         }
-        close(ready_pipe[1]);
+        ret = close(ready_pipe[1]);
+        assert(ret == 0);
         run_command_mode(&cfg);
         _exit(99);
     }
 
     /* Wait for wrapper to signal readiness */
-    close(ready_pipe[1]);
+    ret = close(ready_pipe[1]);
+    assert(ret == 0);
     do {
         n_read = read(ready_pipe[0], &ready_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'A');
-    close(ready_pipe[0]);
+    ret = close(ready_pipe[0]);
+    assert(ret == 0);
 
     /* Request termination: wrapper's signal handler sets quit_flag */
     kill(wrapper_pid, SIGTERM);
@@ -4934,7 +4950,8 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         char arg1[] = "60";
         char *args[3];
 
-        close(ready_pipe[0]);
+        ret = close(ready_pipe[0]);
+        assert(ret == 0);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
 
@@ -4949,21 +4966,24 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         cfg.lazy_mode = 1;
         /* Notify test that wrapper is ready to call run_command_mode */
         if (write(ready_pipe[1], "A", 1) != 1) {
-            close(ready_pipe[1]);
+            (void)close(ready_pipe[1]);
             _exit(EXIT_FAILURE);
         }
-        close(ready_pipe[1]);
+        ret = close(ready_pipe[1]);
+        assert(ret == 0);
         run_command_mode(&cfg);
         _exit(99);
     }
 
     /* Wait for wrapper to signal readiness */
-    close(ready_pipe[1]);
+    ret = close(ready_pipe[1]);
+    assert(ret == 0);
     do {
         n_read = read(ready_pipe[0], &ready_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'A');
-    close(ready_pipe[0]);
+    ret = close(ready_pipe[0]);
+    assert(ret == 0);
 
     /* Send SIGINT (Ctrl+C equivalent) to the wrapper */
     kill(wrapper_pid, SIGINT);
