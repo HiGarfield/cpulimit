@@ -177,7 +177,9 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     bytes_read =
         fread(proc->command, 1, sizeof(proc->command) - 1, cmdline_file);
     if (fclose(cmdline_file) != 0) {
-        return -1;
+        perror("fclose");
+        /* The file descriptor is closed regardless; the data read is
+         * still valid */
     }
     if (bytes_read == 0) {
         return -1;

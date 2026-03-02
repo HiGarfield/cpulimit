@@ -254,8 +254,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         while (1) {
             int status;
             /*
-             * Check for child state change without blocking.
-             * WNOHANG allows checking timeout and other conditions.
+             * Poll for child state change without blocking (WNOHANG).
+             * Returns 0 if no state change has occurred yet, child's
+             * PID if it has changed state, or -1 on error.
              */
             pid_t wpid = waitpid(cmd_runner_pid, &status, WNOHANG);
 
