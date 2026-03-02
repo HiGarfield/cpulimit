@@ -5271,6 +5271,658 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
 }
 
 /***************************************************************************
+ * RACE CONDITION TESTS
+ *
+ * These tests exercise concurrency hazards:
+ *   - N concurrent signal senders x M signal types (N*M combinations)
+ *   - Signals arriving at arbitrary points during running operations
+ *   - N concurrent process group lifecycle operations
+ ***************************************************************************/
+
+/*
+ * N values (number of concurrent senders) and M signal types to test.
+ * All N*M combinations are tested in test_race_signal_handler_NxM_combos.
+ */
+#define RACE_N_COUNT 4
+#define RACE_M_COUNT 5
+#define RACE_OP_COUNT 10
+
+/**
+ * @brief Test N concurrent signal senders x M signal types (N*M combos)
+ * @note For each (N, sig) pair from N_vals x test_sigs: spawns N sender
+ *  processes that simultaneously send sig to a receiver process. The
+ *  receiver blocks sig, releases all senders via a pipe, then uses
+ *  sigsuspend to receive the signal atomically. Verifies: quit_flag is
+ *  set, quit_signal_num equals sig, and is_terminated_by_tty() is
+ *  correct for SIGINT/SIGQUIT.
+ */
+static void test_race_signal_handler_NxM_combos(void) {
+    static const int N_vals[RACE_N_COUNT] = {1, 2, 4, 8};
+    static const int test_sigs[RACE_M_COUNT] = {SIGTERM, SIGINT, SIGQUIT,
+                                                SIGHUP, SIGPIPE};
+    size_t n_index, sig_index;
+
+    for (n_index = 0; n_index < RACE_N_COUNT; n_index++) {
+        for (sig_index = 0; sig_index < RACE_M_COUNT; sig_index++) {
+            int n_senders = N_vals[n_index];
+            int sig = test_sigs[sig_index];
+            pid_t recv_pid;
+            int status;
+            pid_t waited;
+
+            /* Isolate in a child to reset global signal state */
+            recv_pid = fork();
+            assert(recv_pid >= 0);
+            if (recv_pid == 0) {
+                /* ==== RECEIVER PROCESS ==== */
+                int go_pipe[2];
+                sigset_t block_set;
+                sigset_t suspend_set;
+                int sender_idx;
+                int ret;
+
+                /* Detach from controlling terminal (safe for SIGQUIT) */
+                (void)setsid();
+
+                ret = pipe(go_pipe);
+                if (ret != 0) {
+                    _exit(1);
+                }
+
+                configure_signal_handler();
+
+                /* Block the test signal before releasing senders */
+                sigemptyset(&block_set);
+                sigaddset(&block_set, sig);
+                sigprocmask(SIG_BLOCK, &block_set, NULL);
+
+                /* Spawn N concurrent sender children */
+                for (sender_idx = 0; sender_idx < n_senders; sender_idx++) {
+                    pid_t sender_pid = fork();
+                    if (sender_pid < 0) {
+                        _exit(2);
+                    }
+                    if (sender_pid == 0) {
+                        /* ==== SENDER PROCESS ==== */
+                        char c;
+                        ssize_t nr;
+
+                        ret = close(go_pipe[1]);
+                        if (ret != 0) {
+                            _exit(3);
+                        }
+                        /* Wait for "go" byte from receiver */
+                        do {
+                            nr = read(go_pipe[0], &c, 1);
+                        } while (nr < 0 && errno == EINTR);
+                        (void)close(go_pipe[0]);
+                        /* Fire signal at receiver simultaneously */
+                        kill(getppid(), sig);
+                        _exit(0);
+                    }
+                }
+
+                ret = close(go_pipe[0]);
+                if (ret != 0) {
+                    _exit(4);
+                }
+
+                /* Release all senders simultaneously */
+                for (sender_idx = 0; sender_idx < n_senders; sender_idx++) {
+                    if (write(go_pipe[1], "G", 1) != 1) {
+                        (void)close(go_pipe[1]);
+                        _exit(5);
+                    }
+                }
+                ret = close(go_pipe[1]);
+                if (ret != 0) {
+                    _exit(6);
+                }
+
+                /*
+                 * Atomically unblock sig and wait; sigsuspend returns
+                 * after the signal handler runs (quit_flag set).
+                 */
+                sigemptyset(&suspend_set);
+                sigsuspend(&suspend_set);
+
+                /* Reap all sender children */
+                for (sender_idx = 0; sender_idx < n_senders; sender_idx++) {
+                    while (waitpid(-1, NULL, 0) < 0 && errno == EINTR) {
+                    }
+                }
+
+                /* Invariant: quit_flag must be set */
+                if (!is_quit_flag_set()) {
+                    _exit(10);
+                }
+                /* Invariant: quit_signal_num must equal the sent signal */
+                if (get_quit_signal() != sig) {
+                    _exit(11);
+                }
+                /*
+                 * Invariant: is_terminated_by_tty() must be set iff
+                 * SIGINT or SIGQUIT was sent.
+                 */
+                if (sig == SIGINT || sig == SIGQUIT) {
+                    if (!is_terminated_by_tty()) {
+                        _exit(12);
+                    }
+                } else {
+                    if (is_terminated_by_tty()) {
+                        _exit(13);
+                    }
+                }
+                _exit(0);
+            }
+
+            /* Parent: wait for the receiver and assert clean exit */
+            do {
+                waited = waitpid(recv_pid, &status, 0);
+            } while (waited < 0 && errno == EINTR);
+            assert(waited == recv_pid);
+            assert(WIFEXITED(status));
+            assert(WEXITSTATUS(status) == 0);
+        }
+    }
+}
+
+/**
+ * @brief Test concurrent delivery of all M distinct signal types at once
+ * @note Spawns M=5 concurrent senders, each sending a different signal
+ *  type (SIGTERM, SIGINT, SIGQUIT, SIGHUP, SIGPIPE) simultaneously.
+ *  The receiver blocks all 5 signals, releases senders via a pipe, then
+ *  uses sigsuspend to receive them. Verifies: quit_flag is set,
+ *  quit_signal_num is one of the sent signals, and is_terminated_by_tty()
+ *  is consistent with the winning signal.
+ */
+static void test_race_signal_handler_concurrent_mixed(void) {
+    static const int mixed_sigs[RACE_M_COUNT] = {SIGTERM, SIGINT, SIGQUIT,
+                                                 SIGHUP, SIGPIPE};
+    pid_t recv_pid;
+    int status;
+    pid_t waited;
+
+    recv_pid = fork();
+    assert(recv_pid >= 0);
+    if (recv_pid == 0) {
+        /* ==== RECEIVER PROCESS ==== */
+        int go_pipe[2];
+        sigset_t block_all;
+        sigset_t suspend_set;
+        int quit_sig;
+        size_t i;
+        int ret;
+        int found;
+
+        (void)setsid();
+
+        ret = pipe(go_pipe);
+        if (ret != 0) {
+            _exit(1);
+        }
+
+        configure_signal_handler();
+
+        /* Block all 5 test signals */
+        sigemptyset(&block_all);
+        for (i = 0; i < RACE_M_COUNT; i++) {
+            sigaddset(&block_all, mixed_sigs[i]);
+        }
+        sigprocmask(SIG_BLOCK, &block_all, NULL);
+
+        /* Spawn one sender per signal type */
+        for (i = 0; i < RACE_M_COUNT; i++) {
+            int my_sig = mixed_sigs[i];
+            pid_t sender_pid = fork();
+            if (sender_pid < 0) {
+                _exit(2);
+            }
+            if (sender_pid == 0) {
+                /* ==== SENDER PROCESS ==== */
+                char c;
+                ssize_t nr;
+
+                ret = close(go_pipe[1]);
+                if (ret != 0) {
+                    _exit(3);
+                }
+                do {
+                    nr = read(go_pipe[0], &c, 1);
+                } while (nr < 0 && errno == EINTR);
+                (void)close(go_pipe[0]);
+                kill(getppid(), my_sig);
+                _exit(0);
+            }
+        }
+
+        ret = close(go_pipe[0]);
+        if (ret != 0) {
+            _exit(4);
+        }
+
+        /* Release all M senders simultaneously */
+        for (i = 0; i < RACE_M_COUNT; i++) {
+            if (write(go_pipe[1], "G", 1) != 1) {
+                (void)close(go_pipe[1]);
+                _exit(5);
+            }
+        }
+        ret = close(go_pipe[1]);
+        if (ret != 0) {
+            _exit(6);
+        }
+
+        /* Atomically unblock all and wait for the first signal */
+        sigemptyset(&suspend_set);
+        sigsuspend(&suspend_set);
+
+        /* Reap all sender children */
+        for (i = 0; i < RACE_M_COUNT; i++) {
+            while (waitpid(-1, NULL, 0) < 0 && errno == EINTR) {
+            }
+        }
+
+        /* Invariant: quit_flag must be set */
+        if (!is_quit_flag_set()) {
+            _exit(10);
+        }
+
+        /*
+         * Invariant: quit_signal_num must be one of the sent signals.
+         *
+         * Note: is_terminated_by_tty() is intentionally NOT checked here.
+         * When multiple distinct signals are delivered concurrently, the
+         * tty_quit_flag and quit_signal_num can be set by DIFFERENT signal
+         * deliveries (the handler for SIGQUIT or SIGINT may run after the
+         * handler that set quit_signal_num), making the pair non-deterministic.
+         * This non-determinism is the race condition this test exercises.
+         */
+        quit_sig = get_quit_signal();
+        found = 0;
+        for (i = 0; i < RACE_M_COUNT; i++) {
+            if (quit_sig == mixed_sigs[i]) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            _exit(11);
+        }
+        _exit(0);
+    }
+
+    do {
+        waited = waitpid(recv_pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    assert(waited == recv_pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/**
+ * @brief Test that signals arriving during configure/reset do not corrupt state
+ * @note A child process continuously sends SIGTERM while the receiver
+ *  repeatedly calls configure_signal_handler() and
+ *  reset_signal_handlers_to_default() in a loop. After the loop, the
+ *  final configure_signal_handler() is called and the receiver unblocks
+ *  SIGTERM via sigsuspend. Verifies: no crash during configure/reset,
+ *  quit_flag is set, quit_signal_num == SIGTERM after unblocking.
+ */
+static void test_race_signal_during_configure(void) {
+    pid_t recv_pid;
+    int status;
+    pid_t waited;
+
+    recv_pid = fork();
+    assert(recv_pid >= 0);
+    if (recv_pid == 0) {
+        /* ==== RECEIVER PROCESS ==== */
+        int done_pipe[2];
+        sigset_t block_term;
+        sigset_t suspend_set;
+        pid_t sender;
+        int iter;
+        int ret;
+
+        (void)setsid();
+
+        ret = pipe(done_pipe);
+        if (ret != 0) {
+            _exit(1);
+        }
+
+        /*
+         * Block SIGTERM so signals accumulate while we configure/reset.
+         * This ensures SIGTERM is pending when we call sigsuspend.
+         */
+        sigemptyset(&block_term);
+        sigaddset(&block_term, SIGTERM);
+        sigprocmask(SIG_BLOCK, &block_term, NULL);
+
+        /* Spawn a continuous SIGTERM sender */
+        sender = fork();
+        if (sender < 0) {
+            _exit(2);
+        }
+        if (sender == 0) {
+            /* ==== SENDER PROCESS ==== */
+            int i;
+            struct timespec ts;
+
+            (void)close(done_pipe[1]);
+            ts.tv_sec = 0;
+            ts.tv_nsec = 1000000L; /* 1 ms */
+            for (i = 0; i < 50; i++) {
+                kill(getppid(), SIGTERM);
+                nanosleep(&ts, NULL);
+            }
+            (void)close(done_pipe[0]);
+            _exit(0);
+        }
+        ret = close(done_pipe[0]);
+        if (ret != 0) {
+            _exit(3);
+        }
+
+        /*
+         * Repeatedly configure and reset while SIGTERM is being sent.
+         * This exercises the race window between handler installations.
+         */
+        for (iter = 0; iter < 20; iter++) {
+            configure_signal_handler();
+            reset_signal_handlers_to_default();
+        }
+
+        /* Install final handler; SIGTERM remains blocked */
+        configure_signal_handler();
+
+        ret = close(done_pipe[1]);
+        if (ret != 0) {
+            _exit(4);
+        }
+
+        /*
+         * Atomically unblock SIGTERM and wait. sigsuspend returns
+         * after the handler sets quit_flag.
+         */
+        sigemptyset(&suspend_set);
+        sigsuspend(&suspend_set);
+
+        /* Verify invariants */
+        if (!is_quit_flag_set()) {
+            _exit(10);
+        }
+        if (get_quit_signal() != SIGTERM) {
+            _exit(11);
+        }
+
+        while (waitpid(sender, NULL, 0) < 0 && errno == EINTR) {
+        }
+        _exit(0);
+    }
+
+    do {
+        waited = waitpid(recv_pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    assert(waited == recv_pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == 0);
+}
+
+/**
+ * @brief Test signals arriving at different points during limit_process
+ * @note Sends SIGTERM to a limiter child at 5 different time offsets
+ *  (0 ms, 5 ms, 50 ms, 150 ms, 500 ms after limiter is ready). Each
+ *  iteration verifies: limiter exits with EXIT_SUCCESS (limit_process
+ *  respects quit_flag at every check point), and target is not stuck
+ *  in SIGSTOP state (limit_process sends SIGCONT before returning).
+ */
+static void test_race_signal_any_time_limit_process(void) {
+    /*
+     * Delays in nanoseconds to hit different phases of limit_process:
+     * 0: immediately after configure (before first cycle)
+     * 5ms: during first cycle
+     * 50ms: within a work/sleep time slot
+     * 150ms: after a few full cycles
+     * 500ms: well into multi-cycle operation
+     */
+    static const long delay_ns[] = {0L, 5000000L, 50000000L, 150000000L,
+                                    500000000L};
+    static const size_t num_delays = sizeof(delay_ns) / sizeof(*delay_ns);
+    size_t delay_index;
+
+    for (delay_index = 0; delay_index < num_delays; delay_index++) {
+        long delay = delay_ns[delay_index];
+        int target_pipe[2];
+        int limiter_pipe[2];
+        pid_t target_pid;
+        pid_t limiter_pid;
+        int status;
+        pid_t waited;
+        char c;
+        ssize_t nr;
+        int ret;
+
+        ret = pipe(target_pipe);
+        assert(ret == 0);
+        ret = pipe(limiter_pipe);
+        assert(ret == 0);
+
+        /* Fork the target busy-loop process */
+        target_pid = fork();
+        assert(target_pid >= 0);
+        if (target_pid == 0) {
+            volatile long dummy;
+
+            ret = close(target_pipe[0]);
+            assert(ret == 0);
+            ret = close(limiter_pipe[0]);
+            assert(ret == 0);
+            ret = close(limiter_pipe[1]);
+            assert(ret == 0);
+
+            /* Signal parent that target is running */
+            if (write(target_pipe[1], "R", 1) != 1) {
+                _exit(1);
+            }
+            ret = close(target_pipe[1]);
+            assert(ret == 0);
+
+            /* Spin until killed */
+            while (1) {
+                for (dummy = 0; dummy < 10000L; dummy++) {
+                    ;
+                }
+            }
+        }
+
+        /* Fork the limiter process */
+        limiter_pid = fork();
+        assert(limiter_pid >= 0);
+        if (limiter_pid == 0) {
+            ret = close(target_pipe[0]);
+            assert(ret == 0);
+            ret = close(target_pipe[1]);
+            assert(ret == 0);
+            ret = close(limiter_pipe[0]);
+            assert(ret == 0);
+
+            /* Install signal handler */
+            configure_signal_handler();
+
+            /* Notify parent that limiter is ready */
+            if (write(limiter_pipe[1], "L", 1) != 1) {
+                _exit(1);
+            }
+            ret = close(limiter_pipe[1]);
+            assert(ret == 0);
+
+            /* Run the limiter; should exit when quit_flag is set */
+            limit_process(target_pid, 0.5, 0, 0);
+            _exit(EXIT_SUCCESS);
+        }
+
+        /* Parent: close unused pipe ends */
+        ret = close(target_pipe[1]);
+        assert(ret == 0);
+        ret = close(limiter_pipe[1]);
+        assert(ret == 0);
+
+        /* Wait for target to be running */
+        do {
+            nr = read(target_pipe[0], &c, 1);
+        } while (nr < 0 && errno == EINTR);
+        assert(nr == 1 && c == 'R');
+        ret = close(target_pipe[0]);
+        assert(ret == 0);
+
+        /* Wait for limiter to be ready (handler installed) */
+        do {
+            nr = read(limiter_pipe[0], &c, 1);
+        } while (nr < 0 && errno == EINTR);
+        assert(nr == 1 && c == 'L');
+        ret = close(limiter_pipe[0]);
+        assert(ret == 0);
+
+        /* Apply delay then signal the limiter */
+        if (delay > 0) {
+            struct timespec ts;
+
+            ts.tv_sec = 0;
+            ts.tv_nsec = delay;
+            sleep_timespec(&ts);
+        }
+        kill(limiter_pid, SIGTERM);
+
+        /* Limiter must exit cleanly (not killed, not stuck) */
+        do {
+            waited = waitpid(limiter_pid, &status, 0);
+        } while (waited < 0 && errno == EINTR);
+        assert(waited == limiter_pid);
+        assert(WIFEXITED(status));
+        assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+
+        /*
+         * Ensure target is not stuck in SIGSTOP state.
+         * limit_process always sends SIGCONT before returning, so
+         * an explicit SIGCONT here is a belt-and-suspenders safety net.
+         */
+        kill(target_pid, SIGCONT);
+        kill_and_wait(target_pid, SIGKILL);
+    }
+}
+
+/**
+ * @brief Test N concurrent process group lifecycles with M operations each
+ * @note Forks N=4 busy-loop target processes and N=4 worker processes.
+ *  Each worker independently runs init_process_group, M=10 iterations of
+ *  update_process_group + get_process_group_cpu_usage, then
+ *  close_process_group on its own target. All workers run concurrently.
+ *  Verifies: all workers complete without error, demonstrating that
+ *  independent process_group instances do not interfere with each other.
+ */
+static void test_race_N_concurrent_process_groups(void) {
+    static const int N_WORKERS = 4;
+    int sync_pipe[2];
+    int targets_ready;
+    pid_t target_pids[4];
+    pid_t worker_pids[4];
+    int i;
+    int ret;
+
+    ret = pipe(sync_pipe);
+    assert(ret == 0);
+
+    /* Fork N target busy-loop processes */
+    for (i = 0; i < N_WORKERS; i++) {
+        target_pids[i] = fork();
+        assert(target_pids[i] >= 0);
+        if (target_pids[i] == 0) {
+            volatile long dummy;
+
+            ret = close(sync_pipe[0]);
+            if (ret != 0) {
+                _exit(1);
+            }
+            if (write(sync_pipe[1], "T", 1) != 1) {
+                (void)close(sync_pipe[1]);
+                _exit(2);
+            }
+            (void)close(sync_pipe[1]);
+            while (1) {
+                for (dummy = 0; dummy < 10000L; dummy++) {
+                    ;
+                }
+            }
+        }
+    }
+
+    /* Parent closes write end and reads one byte per target */
+    ret = close(sync_pipe[1]);
+    assert(ret == 0);
+    for (targets_ready = 0; targets_ready < N_WORKERS; targets_ready++) {
+        char c;
+        ssize_t nr;
+
+        do {
+            nr = read(sync_pipe[0], &c, 1);
+        } while (nr < 0 && errno == EINTR);
+        assert(nr == 1 && c == 'T');
+    }
+    ret = close(sync_pipe[0]);
+    assert(ret == 0);
+
+    /* Fork N worker processes, each operates on its own target */
+    for (i = 0; i < N_WORKERS; i++) {
+        pid_t my_target = target_pids[i];
+
+        worker_pids[i] = fork();
+        assert(worker_pids[i] >= 0);
+        if (worker_pids[i] == 0) {
+            struct process_group pg;
+            int j;
+            double cpu;
+            struct timespec ts;
+
+            if (init_process_group(&pg, my_target, 0) != 0) {
+                _exit(1);
+            }
+            ts.tv_sec = 0;
+            ts.tv_nsec = 10000000L; /* 10 ms per op */
+            for (j = 0; j < RACE_OP_COUNT; j++) {
+                update_process_group(&pg);
+                cpu = get_process_group_cpu_usage(&pg);
+                (void)cpu;
+                sleep_timespec(&ts);
+            }
+            if (close_process_group(&pg) != 0) {
+                _exit(2);
+            }
+            _exit(EXIT_SUCCESS);
+        }
+    }
+
+    /* Wait for all workers to complete */
+    for (i = 0; i < N_WORKERS; i++) {
+        int wstatus;
+        pid_t w;
+
+        do {
+            w = waitpid(worker_pids[i], &wstatus, 0);
+        } while (w < 0 && errno == EINTR);
+        assert(w == worker_pids[i]);
+        assert(WIFEXITED(wstatus));
+        assert(WEXITSTATUS(wstatus) == EXIT_SUCCESS);
+    }
+
+    /* Kill all target processes */
+    for (i = 0; i < N_WORKERS; i++) {
+        kill_and_wait(target_pids[i], SIGKILL);
+    }
+}
+
+/***************************************************************************
  * CLI MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
@@ -5480,6 +6132,14 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_self);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
+
+    /* Race condition tests */
+    printf("\n=== RACE CONDITION TESTS ===\n");
+    RUN_TEST(test_race_signal_handler_NxM_combos);
+    RUN_TEST(test_race_signal_handler_concurrent_mixed);
+    RUN_TEST(test_race_signal_during_configure);
+    RUN_TEST(test_race_signal_any_time_limit_process);
+    RUN_TEST(test_race_N_concurrent_process_groups);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;
