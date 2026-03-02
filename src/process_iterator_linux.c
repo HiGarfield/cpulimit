@@ -182,7 +182,9 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     }
     bytes_read =
         fread(proc->command, 1, sizeof(proc->command) - 1, cmdline_file);
-    fclose(cmdline_file);
+    if (fclose(cmdline_file) != 0) {
+        return -1;
+    }
     if (bytes_read == 0) {
         return -1;
     }
