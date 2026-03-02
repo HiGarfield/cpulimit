@@ -133,7 +133,6 @@ static double get_dynamic_time_slot(void) {
  * @param proc_group Pointer to process group structure containing target
  *                  processes
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose If non-zero, print errors when signal delivery fails
  *
  * Iterates through all processes in the group and sends the specified signal.
  * If signal delivery fails (e.g., process terminated), the process is removed
@@ -141,8 +140,8 @@ static double get_dynamic_time_slot(void) {
  *
  * @note Safe iteration: stores next node before potential deletion
  */
-static void send_signal_to_processes(struct process_group *proc_group, int sig,
-                                     int verbose) {
+static void send_signal_to_processes(struct process_group *proc_group,
+                                     int sig) {
     struct list_node *node = first_node(proc_group->proc_list);
     while (node != NULL) {
         struct list_node *next_node =
@@ -158,12 +157,18 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
         if (kill(pid, sig) != 0) {
             /*
              * Signal delivery failed. Common reasons:
-             * - ESRCH: Process no longer exists
-             * - EPERM: Permission denied (rare in this context)
+             * - ESRCH: Process no longer exists (expected during normal
+             *   termination)
+             * - EPERM: Permission denied (e.g., process became setuid)
              * Save errno before any other calls that may clobber it.
              */
             int saved_errno = errno;
-            if (verbose && saved_errno != ESRCH) {
+            if (saved_errno != ESRCH) {
+                /*
+                 * Non-ESRCH errors (e.g., EPERM) are unexpected and
+                 * always reported since they indicate an inability to
+                 * control the target process.
+                 */
                 fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
                         sig, (long)pid, strerror(saved_errno));
             }
@@ -297,7 +302,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
             if (stopped) {
                 /* Resume all stopped processes */
-                send_signal_to_processes(&proc_group, SIGCONT, verbose);
+                send_signal_to_processes(&proc_group, SIGCONT);
                 stopped = 0;
                 /* Recheck process list after signaling */
                 if (is_empty_list(proc_group.proc_list)) {
@@ -319,7 +324,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
             if (!stopped) {
                 /* Stop all running processes */
-                send_signal_to_processes(&proc_group, SIGSTOP, verbose);
+                send_signal_to_processes(&proc_group, SIGSTOP);
                 stopped = 1;
                 /* Recheck process list after signaling */
                 if (is_empty_list(proc_group.proc_list)) {
@@ -353,7 +358,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
      * Critical: Always resume any stopped processes before exit.
      * Leaving processes in stopped state would render them unusable.
      */
-    send_signal_to_processes(&proc_group, SIGCONT, 0);
+    send_signal_to_processes(&proc_group, SIGCONT);
 
     /* Release process tracking resources */
     close_process_group(&proc_group);
