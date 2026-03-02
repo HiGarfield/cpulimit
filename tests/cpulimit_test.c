@@ -1770,8 +1770,22 @@ static void test_process_iterator_is_child_of(void) {
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
-        /* Child process: wait until killed */
-        pause();
+        sigset_t full_mask, empty_mask;
+        /*
+         * Block all blockable signals before sigsuspend to close the
+         * race window: if a signal arrived and was handled by the
+         * inherited handler before pause() was reached, pause() would
+         * block forever.  sigprocmask+sigsuspend is the POSIX-correct
+         * race-free replacement: sigsuspend atomically restores the
+         * empty mask and suspends, so no signal can be missed.
+         */
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        sigsuspend(&empty_mask);
         _exit(EXIT_SUCCESS);
     }
 
@@ -1939,8 +1953,22 @@ static void test_process_iterator_multiple(void) {
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
-        /* Child process: wait until killed */
-        pause();
+        sigset_t full_mask, empty_mask;
+        /*
+         * Block all blockable signals before sigsuspend to close the
+         * race window: if a signal arrived and was handled by the
+         * inherited handler before pause() was reached, pause() would
+         * block forever.  sigprocmask+sigsuspend is the POSIX-correct
+         * race-free replacement: sigsuspend atomically restores the
+         * empty mask and suspends, so no signal can be missed.
+         */
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        sigsuspend(&empty_mask);
         _exit(EXIT_SUCCESS);
     }
 
@@ -2290,8 +2318,22 @@ static void test_process_iterator_with_children(void) {
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
-        /* Child process: wait until killed */
-        pause();
+        sigset_t full_mask, empty_mask;
+        /*
+         * Block all blockable signals before sigsuspend to close the
+         * race window: if a signal arrived and was handled by the
+         * inherited handler before pause() was reached, pause() would
+         * block forever.  sigprocmask+sigsuspend is the POSIX-correct
+         * race-free replacement: sigsuspend atomically restores the
+         * empty mask and suspends, so no signal can be missed.
+         */
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        sigsuspend(&empty_mask);
         _exit(EXIT_SUCCESS);
     }
 
