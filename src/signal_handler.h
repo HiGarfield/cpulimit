@@ -77,6 +77,21 @@ int is_terminated_by_tty(void);
  */
 int get_quit_signal(void);
 
+/**
+ * @brief Reset all signal handlers installed by configure_signal_handler()
+ *        back to their default dispositions (SIG_DFL)
+ * @return 0 on success, -1 on failure (errno set; error logged to stderr)
+ *
+ * Resets SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.
+ * Must be called in a child process after fork() and before exec() when
+ * the parent may forward any of these signals to the child's process group
+ * before exec() completes.  On systems where exec() takes measurable time
+ * (e.g., macOS 10.15+ with library validation), an inherited custom handler
+ * would otherwise catch the signal silently instead of terminating the
+ * process.  Calling this function closes that race window.
+ */
+int reset_signal_handlers_to_default(void);
+
 #ifdef __cplusplus
 }
 #endif

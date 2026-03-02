@@ -108,6 +108,22 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
             _exit(EXIT_FAILURE);
         }
 
+        /*
+         * Reset inherited signal handlers to SIG_DFL before notifying
+         * the parent.  After fork(), this child inherits the parent's
+         * configured handlers.  execvp() resets them, but on systems
+         * where exec takes measurable time (e.g., macOS 10.15+ with
+         * library validation), a signal forwarded by the parent between
+         * reading the sync byte and exec completing would be silently
+         * caught by the inherited handler instead of terminating this
+         * process.  Resetting here closes that race window.
+         */
+        if (reset_signal_handlers_to_default() != 0) {
+            close(sync_pipe[0]);
+            close(sync_pipe[1]);
+            _exit(EXIT_FAILURE);
+        }
+
         /* Close unused read end of pipe */
         close(sync_pipe[0]);
         /*
