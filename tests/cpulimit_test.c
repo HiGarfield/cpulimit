@@ -5185,17 +5185,18 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
  * CLI MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
+#if (defined(__GNUC__) && __GNUC__ >= 2) || defined(__clang__)
+#define NOINLINE __attribute__((noinline))
+#else
+#define NOINLINE
+#endif
+
 /**
  * @brief Robust test function invocation.
- * Ensures that the test function is called exactly once and cannot be inlined
- * or optimized away.
+ * Ensures that the test function is called and cannot be inlined.
  * @param test_fn Pointer to the void(void) test function to invoke.
  */
-#if (defined(__GNUC__) && __GNUC__ >= 2) || defined(__clang__)
-__attribute__((noinline))
-#endif
-static void
-test_invoke_indirect(void (*volatile test_fn)(void)) {
+static NOINLINE void test_invoke_indirect(void (*volatile test_fn)(void)) {
     test_fn();
 }
 
