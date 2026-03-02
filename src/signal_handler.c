@@ -191,3 +191,29 @@ int is_terminated_by_tty(void) {
 int get_quit_signal(void) {
     return (int)quit_signal_num;
 }
+
+/**
+ * @brief Reset all signal handlers installed by configure_signal_handler()
+ *        back to their default dispositions (SIG_DFL)
+ * @return 0 on success, -1 on failure (errno set; error logged to stderr)
+ *
+ * Resets SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.
+ */
+int reset_signal_handlers_to_default(void) {
+    struct sigaction def_action;
+    /* Signals installed by configure_signal_handler() */
+    static const int reset_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
+    static const size_t num_sigs = sizeof(reset_sigs) / sizeof(*reset_sigs);
+    size_t sig_idx;
+
+    memset(&def_action, 0, sizeof(def_action));
+    def_action.sa_handler = SIG_DFL;
+    sigemptyset(&def_action.sa_mask);
+    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
+        if (sigaction(reset_sigs[sig_idx], &def_action, NULL) != 0) {
+            perror("sigaction reset");
+            return -1;
+        }
+    }
+    return 0;
+}

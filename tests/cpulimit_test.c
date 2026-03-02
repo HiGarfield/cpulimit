@@ -1700,6 +1700,53 @@ static void test_signal_handler_get_quit_signal(void) {
     assert(exit_code == 0);
 }
 
+/**
+ * @brief Test reset_signal_handlers_to_default() restores SIG_DFL
+ * @note After configure_signal_handler() installs custom handlers,
+ *  reset_signal_handlers_to_default() must restore SIGINT, SIGQUIT,
+ *  SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.  Verified by checking
+ *  that sa_handler == SIG_DFL for each signal after the reset.
+ */
+static void test_signal_handler_reset_to_default(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+    static const int check_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
+    static const size_t num_check_sigs =
+        sizeof(check_sigs) / sizeof(*check_sigs);
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct sigaction old_action;
+        size_t i;
+        int ret;
+
+        configure_signal_handler();
+        ret = reset_signal_handlers_to_default();
+        if (ret != 0) {
+            _exit(1);
+        }
+        for (i = 0; i < num_check_sigs; i++) {
+            if (sigaction(check_sigs[i], NULL, &old_action) != 0) {
+                _exit(2);
+            }
+            if (old_action.sa_handler != SIG_DFL) {
+                _exit(3);
+            }
+        }
+        _exit(0);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
 /***************************************************************************
  * PROCESS_ITERATOR MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
@@ -5281,6 +5328,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_sigterm);
     RUN_TEST(test_signal_handler_sigint);
     RUN_TEST(test_signal_handler_get_quit_signal);
+    RUN_TEST(test_signal_handler_reset_to_default);
 
     /* Process iterator module tests */
     printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
