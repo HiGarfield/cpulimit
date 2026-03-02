@@ -1723,11 +1723,8 @@ static void test_process_iterator_is_child_of(void) {
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
-        /* Child process */
-        const struct timespec sleep_time = {5, 0L};
-        while (!is_quit_flag_set()) {
-            sleep_timespec(&sleep_time);
-        }
+        /* Child process: wait until killed */
+        pause();
         _exit(EXIT_SUCCESS);
     }
 
@@ -1895,11 +1892,8 @@ static void test_process_iterator_multiple(void) {
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
-        /* Child process: sleep in a loop until killed */
-        const struct timespec sleep_time = {5, 0L}; /* 5s */
-        while (!is_quit_flag_set()) {
-            sleep_timespec(&sleep_time);
-        }
+        /* Child process: wait until killed */
+        pause();
         _exit(EXIT_SUCCESS);
     }
 
@@ -2249,8 +2243,8 @@ static void test_process_iterator_with_children(void) {
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
-        const struct timespec wait_duration = {5, 0};
-        sleep_timespec(&wait_duration);
+        /* Child process: wait until killed */
+        pause();
         _exit(EXIT_SUCCESS);
     }
 
@@ -4363,8 +4357,8 @@ static void test_limit_process_basic(void) {
  * @note Exercises the empty-proc_list early-exit branch in limit_process
  */
 static void test_limit_process_exits_early(void) {
-    const struct timespec wait_duration = {0, 50000000L}; /* 50 ms */
     pid_t child_pid;
+    pid_t waited_pid;
 
     child_pid = fork();
     assert(child_pid >= 0);
@@ -4372,14 +4366,14 @@ static void test_limit_process_exits_early(void) {
         _exit(EXIT_SUCCESS);
     }
 
-    /* Allow child time to exit so /proc entry is gone */
-    sleep_timespec(&wait_duration);
+    /* Wait for child to exit completely */
+    do {
+        waited_pid = waitpid(child_pid, NULL, 0);
+    } while (waited_pid == -1 && errno == EINTR);
+    assert(waited_pid == child_pid);
 
     /* limit_process must handle an already-gone process gracefully */
     limit_process(child_pid, 0.5, 0, 0);
-
-    /* Reap any remaining zombie */
-    waitpid(child_pid, NULL, WNOHANG);
 }
 
 /**
@@ -4396,8 +4390,8 @@ static void test_limit_process_verbose(void) {
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
-        const struct timespec wait_duration = {0, 50000000L};
         pid_t child_pid;
+        pid_t waited_pid;
 
         close(STDOUT_FILENO); /* Suppress verbose output */
 
@@ -4407,9 +4401,11 @@ static void test_limit_process_verbose(void) {
             _exit(EXIT_SUCCESS);
         }
 
-        sleep_timespec(&wait_duration);
+        do {
+            waited_pid = waitpid(child_pid, NULL, 0);
+        } while (waited_pid == -1 && errno == EINTR);
+        assert(waited_pid == child_pid);
         limit_process(child_pid, 0.5, 0, 1); /* verbose = 1 */
-        waitpid(child_pid, NULL, WNOHANG);
         _exit(EXIT_SUCCESS);
     }
 
@@ -4430,8 +4426,8 @@ static void test_limit_process_verbose(void) {
  * @note Target exits quickly; exercises the children-tracking code path
  */
 static void test_limit_process_include_children(void) {
-    const struct timespec wait_duration = {0, 50000000L}; /* 50 ms */
     pid_t child_pid;
+    pid_t waited_pid;
 
     child_pid = fork();
     assert(child_pid >= 0);
@@ -4439,9 +4435,12 @@ static void test_limit_process_include_children(void) {
         _exit(EXIT_SUCCESS);
     }
 
-    sleep_timespec(&wait_duration);      /* Let child exit first */
+    /* Wait for child to exit completely */
+    do {
+        waited_pid = waitpid(child_pid, NULL, 0);
+    } while (waited_pid == -1 && errno == EINTR);
+    assert(waited_pid == child_pid);
     limit_process(child_pid, 0.5, 1, 0); /* include_children=1 */
-    waitpid(child_pid, NULL, WNOHANG);
 }
 
 /***************************************************************************
@@ -4845,28 +4844,24 @@ static void test_limiter_run_command_mode_with_fork(void) {
 }
 
 /**
- * @brief Delay for signal-forwarding tests to allow wrapper to start
- *
- * Both test_limiter_run_command_mode_quit_signal and
- * test_limiter_run_command_mode_signal_forwarding sleep for this duration
- * before sending a signal, giving the wrapper process time to fork the
- * command child, complete setpgid() synchronization, and enter
- * limit_process().
- */
-static const struct timespec cmd_mode_startup_delay = {0, 200000000L};
-
-/**
  * @brief Test run_command_mode forwards SIGTERM when quit flag is set
  * @note Sends SIGTERM to the wrapper process while it is running a long-lived
  *  command ('sleep 60').  run_command_mode must forward SIGTERM to the command
  *  process group and exit with 128 + SIGTERM = 143.
  */
 static void test_limiter_run_command_mode_quit_signal(void) {
+    int ready_pipe[2];
     pid_t wrapper_pid;
     int wrapper_status;
     pid_t waited;
     int w_exited;
     int w_exit_code;
+    char ready_byte;
+    ssize_t n_read;
+    int ret;
+
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -4876,6 +4871,8 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         char arg1[] = "60";
         char *args[3];
 
+        ret = close(ready_pipe[0]);
+        assert(ret == 0);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
 
@@ -4888,12 +4885,26 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         cfg.command_args = args;
         cfg.limit = 0.5;
         cfg.lazy_mode = 1;
+        /* Notify test that wrapper is ready to call run_command_mode */
+        if (write(ready_pipe[1], "A", 1) != 1) {
+            (void)close(ready_pipe[1]);
+            _exit(EXIT_FAILURE);
+        }
+        ret = close(ready_pipe[1]);
+        assert(ret == 0);
         run_command_mode(&cfg);
         _exit(99);
     }
 
-    /* Allow wrapper to start and enter limit_process */
-    sleep_timespec(&cmd_mode_startup_delay);
+    /* Wait for wrapper to signal readiness */
+    ret = close(ready_pipe[1]);
+    assert(ret == 0);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'A');
+    ret = close(ready_pipe[0]);
+    assert(ret == 0);
 
     /* Request termination: wrapper's signal handler sets quit_flag */
     kill(wrapper_pid, SIGTERM);
@@ -4918,11 +4929,18 @@ static void test_limiter_run_command_mode_quit_signal(void) {
  *  Without the fix, the command would receive SIGTERM and exit with 143.
  */
 static void test_limiter_run_command_mode_signal_forwarding(void) {
+    int ready_pipe[2];
     pid_t wrapper_pid;
     int wrapper_status;
     pid_t waited;
     int w_exited;
     int w_exit_code;
+    char ready_byte;
+    ssize_t n_read;
+    int ret;
+
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -4932,6 +4950,8 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         char arg1[] = "60";
         char *args[3];
 
+        ret = close(ready_pipe[0]);
+        assert(ret == 0);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
 
@@ -4944,12 +4964,26 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         cfg.command_args = args;
         cfg.limit = 0.5;
         cfg.lazy_mode = 1;
+        /* Notify test that wrapper is ready to call run_command_mode */
+        if (write(ready_pipe[1], "A", 1) != 1) {
+            (void)close(ready_pipe[1]);
+            _exit(EXIT_FAILURE);
+        }
+        ret = close(ready_pipe[1]);
+        assert(ret == 0);
         run_command_mode(&cfg);
         _exit(99);
     }
 
-    /* Allow wrapper to start and enter limit_process */
-    sleep_timespec(&cmd_mode_startup_delay);
+    /* Wait for wrapper to signal readiness */
+    ret = close(ready_pipe[1]);
+    assert(ret == 0);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'A');
+    ret = close(ready_pipe[0]);
+    assert(ret == 0);
 
     /* Send SIGINT (Ctrl+C equivalent) to the wrapper */
     kill(wrapper_pid, SIGINT);
