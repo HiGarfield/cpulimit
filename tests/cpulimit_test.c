@@ -1753,12 +1753,13 @@ static void test_signal_handler_reset_to_default(void) {
 
 /**
  * @brief Test that two signals delivered concurrently produce consistent state
- * @note Exercises the first-signal-wins race in quit_signal_num.  The child
- *  blocks all signals, signals readiness to the parent, then the parent
- *  sends SIGTERM followed immediately by SIGINT.  The child unblocks both
- *  signals at once via sigsuspend, which delivers the first pending signal.
- *  After delivery, quit_flag must be set and quit_signal_num must be one
- *  of the two sent signals (delivery order is implementation-defined).
+ * @note The child blocks all signals, signals readiness to the parent, then
+ *  the parent sends SIGTERM followed immediately by SIGINT.  The child
+ *  unblocks both signals at once via sigsuspend, allowing one pending signal
+ *  to be delivered.  After delivery, quit_flag must be set and
+ *  quit_signal_num must be one of the two sent signals (delivery order and
+ *  which signal is ultimately observed are implementation-defined and not
+ *  asserted by this test).
  */
 static void test_signal_handler_race_concurrent_signals(void) {
     int ready_pipe[2];
@@ -1802,7 +1803,13 @@ static void test_signal_handler_race_concurrent_signals(void) {
          * signal.  Both SIGTERM and SIGINT should be pending; sigsuspend
          * delivers whichever the kernel picks first.  The remaining
          * pending signal is cleared harmlessly on _exit().
+         *
+         * Install a safety timeout so that, if the expected signals are
+         * never delivered, the child does not block indefinitely and hang
+         * the test run.  If the alarm ever fires, SIGALRM interrupts
+         * sigsuspend() and the child terminates instead of hanging.
          */
+        alarm(5);
         sigsuspend(&empty_mask);
 
         if (!is_quit_flag_set()) {
@@ -1865,8 +1872,8 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
-        /* 60-second sleep; signal from parent interrupts it */
-        const struct timespec long_sleep = {60, 0};
+        /* 2-second sleep; signal from parent interrupts it */
+        const struct timespec long_sleep = {2, 0};
 
         (void)close(ready_pipe[0]);
         configure_signal_handler();
@@ -4615,7 +4622,9 @@ static void test_process_group_race_rapid_child_spawn_exit(void) {
                 _exit(EXIT_SUCCESS);
             }
             /* Reap immediately to prevent zombie accumulation */
-            waitpid(child_pid, NULL, 0);
+            do {
+                waited = waitpid(child_pid, NULL, 0);
+            } while (waited == -1 && errno == EINTR);
         }
         _exit(EXIT_SUCCESS);
     }
@@ -4972,10 +4981,26 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
         do {
             waited = waitpid(limiter_pid, &limiter_status, 0);
         } while (waited == -1 && errno == EINTR);
-        /* Reap any leftover target */
-        waitpid(target_pid, NULL, WNOHANG);
-        kill(target_pid, SIGKILL);
-        waitpid(target_pid, NULL, 0);
+        /* Reap any leftover target, if still running */
+        {
+            pid_t res;
+
+            do {
+                res = waitpid(target_pid, NULL, WNOHANG);
+            } while (res == -1 && errno == EINTR);
+
+            if (res == 0) {
+                /* Child still running: kill and reap */
+                if (kill(target_pid, SIGKILL) == -1 && errno != ESRCH) {
+                    /* kill failed for unexpected reason; fall through to
+                     * reap anyway to avoid zombies */
+                }
+                do {
+                    res = waitpid(target_pid, NULL, 0);
+                } while (res == -1 && errno == EINTR);
+            }
+            /* If res == target_pid or errno == ECHILD, already reaped */
+        }
 
         if (!WIFEXITED(limiter_status) ||
             WEXITSTATUS(limiter_status) != EXIT_SUCCESS) {
