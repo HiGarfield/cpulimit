@@ -121,7 +121,7 @@ In Ubuntu, the following command SHALL be used:
 - Pointer arithmetic MUST be safe and validated.
 - Double and multi-level pointers passed to the `free` function MUST be explicitly cast to `(void *)` to avoid compiler warnings.
 - All memory allocations MUST be checked for failure.
-- All system calls MUST have return values checked.
+- System call return values SHOULD be validated whenever they may affect program correctness.
 - Errors or warnings MUST NOT occur across all compiler optimization levels.
 
 ## Extensions
