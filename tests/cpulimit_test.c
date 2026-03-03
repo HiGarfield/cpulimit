@@ -4948,8 +4948,10 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
             sigaction(SIGCONT, &sa, NULL);
             /* Busy loop: stays alive until stopped then resumed */
             for (;;) {
-                volatile int x = 0;
-                x++;
+                volatile int dummy_var;
+                for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                    ;
+                }
             }
         }
 
@@ -5021,8 +5023,10 @@ static void test_limit_process_race_quit_during_sleep(void) {
         (void)close(ready_pipe[0]);
         (void)close(ready_pipe[1]);
         for (;;) {
-            volatile int x = 0;
-            x++;
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
         }
     }
 
