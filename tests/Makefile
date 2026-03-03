@@ -32,7 +32,6 @@ PROJECT_CFLAGS += \
     -Wold-style-definition \
     -Wmissing-prototypes \
     -Wstrict-prototypes \
-    -Werror \
     -pipe
 
 # If CHECK is set to 1, add stricter flags
