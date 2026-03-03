@@ -1748,6 +1748,271 @@ static void test_signal_handler_reset_to_default(void) {
 }
 
 /***************************************************************************
+ * SIGNAL_HANDLER MODULE - RACE CONDITION TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test that two signals delivered concurrently produce consistent state
+ * @note Exercises the first-signal-wins race in quit_signal_num.  The child
+ *  blocks all signals, signals readiness to the parent, then the parent
+ *  sends SIGTERM followed immediately by SIGINT.  The child unblocks both
+ *  signals at once via sigsuspend, which delivers the first pending signal.
+ *  After delivery, quit_flag must be set and quit_signal_num must be one
+ *  of the two sent signals (delivery order is implementation-defined).
+ */
+static void test_signal_handler_race_concurrent_signals(void) {
+    int ready_pipe[2];
+    pid_t child_pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+    int ret;
+    char ready_byte;
+    ssize_t n_read;
+
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        sigset_t full_mask, empty_mask;
+        int sig_val;
+
+        (void)close(ready_pipe[0]);
+        configure_signal_handler();
+
+        /*
+         * Block all signals before notifying parent, so both SIGTERM and
+         * SIGINT will be pending when sigsuspend is called.
+         */
+        sigfillset(&full_mask);
+        sigemptyset(&empty_mask);
+        sigprocmask(SIG_BLOCK, &full_mask, NULL);
+
+        if (write(ready_pipe[1], "R", 1) != 1) {
+            (void)close(ready_pipe[1]);
+            _exit(1);
+        }
+        (void)close(ready_pipe[1]);
+
+        /*
+         * Unblock all signals atomically and wait for the first pending
+         * signal.  Both SIGTERM and SIGINT should be pending; sigsuspend
+         * delivers whichever the kernel picks first.  The remaining
+         * pending signal is cleared harmlessly on _exit().
+         */
+        sigsuspend(&empty_mask);
+
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        sig_val = get_quit_signal();
+        /*
+         * quit_signal_num must be one of the two sent signals.
+         * The exact value depends on delivery order, which is
+         * implementation-defined for standard signals.
+         */
+        if (sig_val != SIGTERM && sig_val != SIGINT) {
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    /* Parent: wait for child to be ready, then send two signals rapidly */
+    (void)close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'R');
+    (void)close(ready_pipe[0]);
+
+    /* Send SIGTERM then SIGINT with no delay between them */
+    kill(child_pid, SIGTERM);
+    kill(child_pid, SIGINT);
+
+    waited = waitpid(child_pid, &status, 0);
+    assert(waited == child_pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/**
+ * @brief Test that a signal from an external process interrupts sleep_timespec
+ * @note Exercises the interaction between SA_RESTART and clock_nanosleep.
+ *  clock_nanosleep is NOT automatically restarted by SA_RESTART, so a
+ *  signal interrupts the sleep and returns EINTR.  The child installs
+ *  handlers, enters a long sleep, and verifies that an externally
+ *  delivered SIGTERM wakes the sleep and sets quit_flag.
+ */
+static void test_signal_handler_race_signal_interrupts_sleep(void) {
+    int ready_pipe[2];
+    pid_t child_pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+    int ret;
+    char ready_byte;
+    ssize_t n_read;
+
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        /* 60-second sleep; signal from parent interrupts it */
+        const struct timespec long_sleep = {60, 0};
+
+        (void)close(ready_pipe[0]);
+        configure_signal_handler();
+
+        if (write(ready_pipe[1], "R", 1) != 1) {
+            (void)close(ready_pipe[1]);
+            _exit(1);
+        }
+        (void)close(ready_pipe[1]);
+
+        /*
+         * sleep_timespec calls clock_nanosleep / nanosleep.
+         * Neither is restarted by SA_RESTART; both return EINTR when
+         * a signal is delivered.
+         */
+        sleep_timespec(&long_sleep);
+
+        /* Sleep must have been interrupted: quit_flag must now be set */
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (get_quit_signal() != SIGTERM) {
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    /* Parent: wait for child to enter sleep, then send SIGTERM */
+    (void)close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'R');
+    (void)close(ready_pipe[0]);
+
+    /* Give child a moment to reach sleep_timespec before sending signal */
+    {
+        const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
+        sleep_timespec(&small_delay);
+    }
+
+    kill(child_pid, SIGTERM);
+
+    waited = waitpid(child_pid, &status, 0);
+    assert(waited == child_pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/**
+ * @brief Test rapid delivery of all five handled signals
+ * @note All five handled signals (SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT)
+ *  are sent from the parent in rapid succession while the child blocks them.
+ *  The child then unblocks all signals at once (sigsuspend), allowing any
+ *  one of the five to be delivered.  After the first delivery, quit_flag
+ *  must be set and quit_signal_num must be one of the five valid numbers.
+ *  The remaining pending signals are harmlessly cleared on _exit().
+ */
+static void test_signal_handler_race_rapid_all_signals(void) {
+    int ready_pipe[2];
+    pid_t child_pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+    int ret;
+    char ready_byte;
+    ssize_t n_read;
+    static const int all_sigs[] = {SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT};
+    static const size_t num_sigs = sizeof(all_sigs) / sizeof(*all_sigs);
+
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        sigset_t full_mask, empty_mask;
+        int sig_val;
+
+        /*
+         * Call setsid() to detach from the controlling terminal so that
+         * SIGQUIT sent to this child does not propagate to the parent's
+         * terminal session on BSD systems.
+         */
+        (void)setsid();
+
+        (void)close(ready_pipe[0]);
+        configure_signal_handler();
+
+        sigfillset(&full_mask);
+        sigemptyset(&empty_mask);
+        sigprocmask(SIG_BLOCK, &full_mask, NULL);
+
+        if (write(ready_pipe[1], "R", 1) != 1) {
+            (void)close(ready_pipe[1]);
+            _exit(1);
+        }
+        (void)close(ready_pipe[1]);
+
+        /*
+         * Unblock all signals atomically.  All five signals sent by the
+         * parent should be pending; sigsuspend delivers the first one
+         * (implementation-defined order).  The remaining signals are
+         * cleared harmlessly when _exit() is called.
+         */
+        sigsuspend(&empty_mask);
+
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        sig_val = get_quit_signal();
+        /* quit_signal_num must be one of the five handled signals */
+        if (sig_val != SIGTERM && sig_val != SIGHUP && sig_val != SIGPIPE &&
+            sig_val != SIGINT && sig_val != SIGQUIT) {
+            _exit(3);
+        }
+        _exit(0);
+    }
+
+    (void)close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'R');
+    (void)close(ready_pipe[0]);
+
+    /* Send all five signals in rapid succession */
+    {
+        size_t sig_idx;
+        for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
+            kill(child_pid, all_sigs[sig_idx]);
+        }
+    }
+
+    waited = waitpid(child_pid, &status, 0);
+    assert(waited == child_pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/***************************************************************************
  * PROCESS_ITERATOR MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
@@ -4274,6 +4539,109 @@ static void test_process_group_cpu_usage_with_usage(void) {
 }
 
 /***************************************************************************
+ * PROCESS_GROUP MODULE - RACE CONDITION TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test update_process_group when the target exits between init and
+ *        the first explicit update call
+ * @note Exercises the race where the target terminates after
+ *  init_process_group (which performs one internal update) but before the
+ *  caller invokes update_process_group again.  The function must handle a
+ *  missing process gracefully and leave proc_list empty without crashing.
+ */
+static void test_process_group_race_target_exits_between_init_and_update(void) {
+    struct process_group proc_group;
+    pid_t child_pid;
+    pid_t waited;
+    int ret;
+    size_t list_count;
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        _exit(EXIT_SUCCESS);
+    }
+
+    ret = init_process_group(&proc_group, child_pid, 0);
+    assert(ret == 0);
+
+    /* Ensure child has definitely exited before calling update */
+    do {
+        waited = waitpid(child_pid, NULL, 0);
+    } while (waited == -1 && errno == EINTR);
+    assert(waited == child_pid);
+
+    /* update_process_group must not crash when the target is gone */
+    update_process_group(&proc_group);
+
+    /* The process no longer exists; list must now be empty */
+    list_count = get_list_count(proc_group.proc_list);
+    assert(list_count == 0);
+
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+}
+
+/**
+ * @brief Test update_process_group with rapidly spawning and exiting children
+ * @note Exercises the race where child processes are created and destroyed
+ *  between successive update_process_group calls.  The function must never
+ *  crash or corrupt internal state regardless of how quickly descendants
+ *  appear and disappear.
+ */
+static void test_process_group_race_rapid_child_spawn_exit(void) {
+    struct process_group proc_group;
+    pid_t parent_pid;
+    pid_t spawner_pid;
+    pid_t waited;
+    int update_idx;
+    int ret;
+    int spawner_status;
+
+    spawner_pid = fork();
+    assert(spawner_pid >= 0);
+    if (spawner_pid == 0) {
+        int spawn_idx;
+        /*
+         * Rapidly spawn and exit short-lived children to exercise
+         * the race between update and process lifecycle.
+         */
+        setpgid(0, 0);
+        for (spawn_idx = 0; spawn_idx < 20; spawn_idx++) {
+            pid_t child_pid = fork();
+            assert(child_pid >= 0);
+            if (child_pid == 0) {
+                _exit(EXIT_SUCCESS);
+            }
+            /* Reap immediately to prevent zombie accumulation */
+            waitpid(child_pid, NULL, 0);
+        }
+        _exit(EXIT_SUCCESS);
+    }
+
+    parent_pid = spawner_pid;
+    ret = init_process_group(&proc_group, parent_pid, 1);
+    assert(ret == 0);
+
+    /* Run several updates while children may be spawning and exiting */
+    for (update_idx = 0; update_idx < 10; update_idx++) {
+        const struct timespec small_sleep = {0, 5000000L}; /* 5 ms */
+        update_process_group(&proc_group);
+        sleep_timespec(&small_sleep);
+    }
+
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+
+    /* Reap spawner */
+    do {
+        waited = waitpid(spawner_pid, &spawner_status, 0);
+    } while (waited == -1 && errno == EINTR);
+    assert(waited == spawner_pid);
+}
+
+/***************************************************************************
  * LIMIT_PROCESS MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
@@ -4521,6 +4889,193 @@ static void test_limit_process_include_children(void) {
     } while (waited_pid == -1 && errno == EINTR);
     assert(waited_pid == child_pid);
     limit_process(child_pid, 0.5, 1, 0); /* include_children=1 */
+}
+
+/***************************************************************************
+ * LIMIT_PROCESS MODULE - RACE CONDITION TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Signal handler used by race condition tests: exits on SIGCONT
+ * @param sig Signal number (unused)
+ *
+ * Installed as the SIGCONT handler so a process immediately terminates
+ * when resumed after being stopped by SIGSTOP.  This reproduces the race
+ * where limit_process issues SIGCONT and the target exits before the next
+ * SIGSTOP can be delivered.
+ */
+static void sigcont_exit_handler(int sig) {
+    (void)sig;
+    _exit(EXIT_SUCCESS);
+}
+
+/**
+ * @brief Test that limit_process handles ESRCH when target exits on SIGCONT
+ * @note Exercises the race between SIGCONT and the subsequent SIGSTOP:
+ *  the target installs a SIGCONT handler that calls _exit(), so when
+ *  limit_process resumes the stopped process, it dies immediately.
+ *  The next SIGSTOP attempt must get ESRCH, remove the entry, and exit
+ *  the control loop cleanly without crashing.
+ */
+static void test_limit_process_race_process_exits_on_sigcont(void) {
+    pid_t wrapper_pid;
+    int wrapper_status;
+    pid_t waited;
+    int w_exited;
+    int w_exit_code;
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        pid_t target_pid;
+        pid_t limiter_pid;
+        int limiter_status;
+
+        /* Fork the target process */
+        target_pid = fork();
+        assert(target_pid >= 0);
+        if (target_pid == 0) {
+            struct sigaction sa;
+            /*
+             * Install SIGCONT handler that exits immediately.
+             * When limit_process sends SIGCONT to resume the stopped
+             * target, the handler fires and the process exits, creating
+             * the ESRCH race on the next SIGSTOP attempt.
+             */
+            memset(&sa, 0, sizeof(sa));
+            sa.sa_handler = sigcont_exit_handler;
+            sigemptyset(&sa.sa_mask);
+            sigaction(SIGCONT, &sa, NULL);
+            /* Busy loop: stays alive until stopped then resumed */
+            for (;;) {
+                volatile int x = 0;
+                x++;
+            }
+        }
+
+        /* Fork the limiter */
+        limiter_pid = fork();
+        assert(limiter_pid >= 0);
+        if (limiter_pid == 0) {
+            configure_signal_handler();
+            /*
+             * Very low CPU limit forces short work slots and long sleep
+             * slots, exercising SIGSTOP/SIGCONT cycles quickly.
+             */
+            limit_process(target_pid, 0.001, 0, 0);
+            _exit(EXIT_SUCCESS);
+        }
+
+        /* Wait for limiter to exit naturally (target exits on SIGCONT) */
+        do {
+            waited = waitpid(limiter_pid, &limiter_status, 0);
+        } while (waited == -1 && errno == EINTR);
+        /* Reap any leftover target */
+        waitpid(target_pid, NULL, WNOHANG);
+        kill(target_pid, SIGKILL);
+        waitpid(target_pid, NULL, 0);
+
+        if (!WIFEXITED(limiter_status) ||
+            WEXITSTATUS(limiter_status) != EXIT_SUCCESS) {
+            _exit(1);
+        }
+        _exit(EXIT_SUCCESS);
+    }
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    assert(w_exited);
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    assert(w_exit_code == EXIT_SUCCESS);
+}
+
+/**
+ * @brief Test that a quit signal received during limit_process sleep exits
+ *        the control loop gracefully
+ * @note Exercises the race where clock_nanosleep (or nanosleep) is
+ *  interrupted by a SIGTERM delivered from an external process.  Because
+ *  neither clock_nanosleep nor nanosleep honours SA_RESTART, the sleep
+ *  returns EINTR and the loop immediately checks is_quit_flag_set(),
+ *  which must now be true, causing a clean exit.
+ */
+static void test_limit_process_race_quit_during_sleep(void) {
+    int ready_pipe[2];
+    pid_t target_pid;
+    pid_t limiter_pid;
+    int limiter_status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+    char ready_byte;
+    ssize_t n_read;
+    int ret;
+
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
+
+    /* Fork the target: spin forever until killed */
+    target_pid = fork();
+    assert(target_pid >= 0);
+    if (target_pid == 0) {
+        (void)close(ready_pipe[0]);
+        (void)close(ready_pipe[1]);
+        for (;;) {
+            volatile int x = 0;
+            x++;
+        }
+    }
+
+    /* Fork the limiter */
+    limiter_pid = fork();
+    assert(limiter_pid >= 0);
+    if (limiter_pid == 0) {
+        (void)close(ready_pipe[0]);
+        configure_signal_handler();
+
+        /* Signal readiness before entering the blocking limit_process loop */
+        if (write(ready_pipe[1], "L", 1) != 1) {
+            (void)close(ready_pipe[1]);
+            kill(target_pid, SIGKILL);
+            _exit(EXIT_FAILURE);
+        }
+        (void)close(ready_pipe[1]);
+
+        limit_process(target_pid, 0.5, 0, 0);
+        /*
+         * limit_process always resumes all stopped processes before
+         * returning, so target_pid should be in a runnable state here.
+         */
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Wait for limiter to be ready */
+    (void)close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'L');
+    (void)close(ready_pipe[0]);
+
+    /* Give limiter a moment to enter its sleep loop */
+    {
+        const struct timespec delay = {0, 100000000L}; /* 100 ms */
+        sleep_timespec(&delay);
+    }
+
+    /* Deliver SIGTERM to the limiter: interrupts sleep, sets quit_flag */
+    kill(limiter_pid, SIGTERM);
+
+    /* Limiter must exit promptly */
+    waited = waitpid(limiter_pid, &limiter_status, 0);
+    assert(waited == limiter_pid);
+    exited = WIFEXITED(limiter_status);
+    assert(exited);
+    exit_code = WEXITSTATUS(limiter_status);
+    assert(exit_code == EXIT_SUCCESS);
+
+    /* Clean up the spinning target */
+    kill_and_wait(target_pid, SIGKILL);
 }
 
 /***************************************************************************
@@ -5262,6 +5817,168 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
 }
 
 /***************************************************************************
+ * LIMITER MODULE - RACE CONDITION TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test run_command_mode when the quit flag is already set before
+ *        limit_process is entered
+ * @note Exercises the race where a termination signal (SIGTERM) arrives
+ *  before run_command_mode is called, so quit_flag is true by the time
+ *  limit_process is invoked.  limit_process must detect the preset quit
+ *  flag, skip the control loop, resume any stopped processes, and return
+ *  immediately.  run_command_mode then forwards the quit signal to the
+ *  command process group and exits with 128 + SIGTERM.
+ */
+static void test_limiter_race_quit_flag_preset_before_limit(void) {
+    pid_t wrapper_pid;
+    int wrapper_status;
+    pid_t waited;
+    int w_exited;
+    int w_exit_code;
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        struct cpulimit_cfg cfg;
+        char cmd[] = "sleep";
+        char arg1[] = "60";
+        char *args[3];
+
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+
+        args[0] = cmd;
+        args[1] = arg1;
+        args[2] = NULL;
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.command_mode = 1;
+        cfg.command_args = args;
+        cfg.limit = 0.5;
+
+        configure_signal_handler();
+
+        /*
+         * Deliver SIGTERM synchronously: the signal handler runs before
+         * raise() returns, setting quit_flag without modifying the
+         * process signal mask.  This guarantees quit_flag is set before
+         * run_command_mode is entered.
+         */
+        if (raise(SIGTERM) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        /*
+         * quit_flag is now set.  run_command_mode will fork the command
+         * child, read the sync byte, call limit_process (which exits
+         * immediately because quit_flag is set), then forward SIGTERM to
+         * the child process group.
+         */
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE); /* safety: run_command_mode always calls exit */
+    }
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    assert(w_exited);
+    /*
+     * run_command_mode forwards SIGTERM to 'sleep 60'; sleep exits with
+     * SIGTERM.  run_command_mode exits with 128 + SIGTERM.
+     */
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    assert(w_exit_code == 128 + SIGTERM);
+}
+
+/**
+ * @brief Test run_command_mode when SIGTERM arrives during the sync pipe read
+ * @note Exercises the SA_RESTART race in the sync pipe read: with SA_RESTART
+ *  the underlying read() syscall is transparently restarted after signal
+ *  delivery, so the parent does not observe EINTR.  The signal handler has
+ *  already set quit_flag by the time the read completes, causing
+ *  limit_process to return immediately and the command to receive the
+ *  forwarded signal.
+ */
+static void test_limiter_race_signal_during_sync_pipe_read(void) {
+    int notify_pipe[2];
+    pid_t wrapper_pid;
+    int wrapper_status;
+    pid_t waited;
+    int w_exited;
+    int w_exit_code;
+    char notify_byte;
+    ssize_t n_read;
+    int ret;
+
+    ret = pipe(notify_pipe);
+    assert(ret == 0);
+
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        struct cpulimit_cfg cfg;
+        char cmd[] = "sleep";
+        char arg1[] = "60";
+        char *args[3];
+
+        (void)close(notify_pipe[0]);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+
+        args[0] = cmd;
+        args[1] = arg1;
+        args[2] = NULL;
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.command_mode = 1;
+        cfg.command_args = args;
+        cfg.limit = 0.5;
+
+        configure_signal_handler();
+
+        /* Notify parent just before calling run_command_mode */
+        if (write(notify_pipe[1], "G", 1) != 1) {
+            (void)close(notify_pipe[1]);
+            _exit(EXIT_FAILURE);
+        }
+        (void)close(notify_pipe[1]);
+
+        /*
+         * run_command_mode will fork a child and block on read() waiting
+         * for the child's sync byte.  The parent sends SIGTERM during
+         * this window.  With SA_RESTART, read() is transparently
+         * restarted; quit_flag is set.  After reading the sync byte,
+         * limit_process exits immediately and SIGTERM is forwarded.
+         */
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE); /* safety: run_command_mode always calls exit */
+    }
+
+    /* Wait for wrapper to be ready */
+    (void)close(notify_pipe[1]);
+    do {
+        n_read = read(notify_pipe[0], &notify_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && notify_byte == 'G');
+    (void)close(notify_pipe[0]);
+
+    /*
+     * Send SIGTERM as early as possible after run_command_mode is entered,
+     * targeting the window when the parent is blocked on the sync read.
+     * Even if the signal arrives before or after the sync read, the
+     * expected behaviour (wrapper exits 128+SIGTERM) must hold.
+     */
+    kill(wrapper_pid, SIGTERM);
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    assert(w_exited);
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    assert(w_exit_code == 128 + SIGTERM);
+}
+
+/***************************************************************************
  * CLI MODULE - ADDITIONAL COVERAGE
  ***************************************************************************/
 
@@ -5362,6 +6079,9 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_sigint);
     RUN_TEST(test_signal_handler_get_quit_signal);
     RUN_TEST(test_signal_handler_reset_to_default);
+    RUN_TEST(test_signal_handler_race_concurrent_signals);
+    RUN_TEST(test_signal_handler_race_signal_interrupts_sleep);
+    RUN_TEST(test_signal_handler_race_rapid_all_signals);
 
     /* Process iterator module tests */
     printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
@@ -5446,6 +6166,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_double_update);
     RUN_TEST(test_process_group_find_by_name_self);
     RUN_TEST(test_process_group_cpu_usage_with_usage);
+    RUN_TEST(test_process_group_race_target_exits_between_init_and_update);
+    RUN_TEST(test_process_group_race_rapid_child_spawn_exit);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
@@ -5453,6 +6175,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limit_process_exits_early);
     RUN_TEST(test_limit_process_verbose);
     RUN_TEST(test_limit_process_include_children);
+    RUN_TEST(test_limit_process_race_process_exits_on_sigcont);
+    RUN_TEST(test_limit_process_race_quit_during_sleep);
 
     /* Limiter module tests */
     printf("\n=== LIMITER MODULE TESTS ===\n");
@@ -5471,6 +6195,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_self);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
+    RUN_TEST(test_limiter_race_quit_flag_preset_before_limit);
+    RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;
