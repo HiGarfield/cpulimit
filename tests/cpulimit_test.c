@@ -5139,6 +5139,16 @@ static void test_limiter_run_command_mode(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
+    /*
+     * Flush stdout before forking to prevent the child from inheriting
+     * buffered output.  run_command_mode() calls fflush(stdout) before
+     * its own inner fork; if the parent's buffer is not empty at this
+     * point, the child's fflush would write the buffered content early,
+     * and the parent's buffer would write the same content again later,
+     * producing duplicated output when stdout is piped.
+     */
+    (void)fflush(stdout);
+
     /* Run in child process since run_command_mode calls exit() */
     pid = fork();
     assert(pid >= 0);
@@ -5304,6 +5314,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
     assert(pid >= 0);
     if (pid == 0) {
         close(STDOUT_FILENO);
+        close(STDERR_FILENO);
         run_pid_or_exe_mode(&cfg);
         _exit(EXIT_FAILURE);
     }
