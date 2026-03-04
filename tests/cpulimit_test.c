@@ -4764,7 +4764,7 @@ static void test_limit_process_basic(void) {
         }
         /* limiter_pid == 0: CPU limiter process */
         limit_process(child_pid, cpu_usage_limit, 1, 0);
-        exit(EXIT_SUCCESS);
+        _exit(EXIT_SUCCESS);
     } else {
         /* child_pid == 0: Target process group */
         int proc_idx;
