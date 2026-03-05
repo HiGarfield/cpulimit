@@ -252,26 +252,180 @@ if(CPULIMIT_BUILD_TESTS)
     add_test(NAME cpulimit_unit_tests COMMAND cpulimit_test)
 endif()
 
-# --- 11. Static Analysis Target (check) ---
-# Mirrors the Makefile check targets in src/ and tests/: uses bear to
-# generate fresh compile_commands.json for each directory, then runs
-# cppcheck and clang-tidy. Reports are placed in:
-#   ${CMAKE_SOURCE_DIR}/src/cppcheck-report.txt
-#   ${CMAKE_SOURCE_DIR}/src/clang-tidy-report.txt
-#   ${CMAKE_SOURCE_DIR}/tests/cppcheck-report.txt
-#   ${CMAKE_SOURCE_DIR}/tests/clang-tidy-report.txt
+# --- 11. Static Analysis Targets ---
+# Implements cppcheck, clang-tidy, and check targets directly without
+# delegating to src/Makefile or tests/Makefile.
+# Reports are placed in the cmake binary (build) directory:
+#   ${CMAKE_BINARY_DIR}/cppcheck-report.txt
+#   ${CMAKE_BINARY_DIR}/clang-tidy-report.txt
 
-# Find the make program (may be 'gmake' on some systems, e.g., FreeBSD).
-find_program(MAKE_PROGRAM NAMES make gmake)
-if(NOT MAKE_PROGRAM)
+find_program(CPPCHECK_EXECUTABLE NAMES cppcheck)
+find_program(CLANG_TIDY_EXECUTABLE NAMES clang-tidy)
+
+if(NOT CPPCHECK_EXECUTABLE)
     message(STATUS
-        "make/gmake not found; 'check' target will require it at build time")
-    set(MAKE_PROGRAM make)
+        "cppcheck not found; 'cppcheck'/'check' targets will require it")
+    set(CPPCHECK_EXECUTABLE cppcheck)
 endif()
 
-add_custom_target(check
-    COMMAND "${MAKE_PROGRAM}" -C "${CMAKE_SOURCE_DIR}/src" check
-    COMMAND "${MAKE_PROGRAM}" -C "${CMAKE_SOURCE_DIR}/tests" check
-    COMMENT "Running static analysis (cppcheck and clang-tidy)..."
+if(NOT CLANG_TIDY_EXECUTABLE)
+    message(STATUS
+        "clang-tidy not found; 'clang-tidy'/'check' targets will require it")
+    set(CLANG_TIDY_EXECUTABLE clang-tidy)
+endif()
+
+# Report paths (all placed in the cmake binary / build directory).
+set(CPPCHECK_REPORT "${CMAKE_BINARY_DIR}/cppcheck-report.txt")
+set(CLANG_TIDY_REPORT "${CMAKE_BINARY_DIR}/clang-tidy-report.txt")
+# clang-tidy's -p flag takes a directory and looks for compile_commands.json
+# inside it, so the filtered database is stored in a dedicated subdirectory.
+set(CLANG_TIDY_DB_DIR "${CMAKE_BINARY_DIR}/clang_tidy_db")
+
+# All source files subject to static analysis (src + tests).
+file(GLOB _analysis_src_files
+    "${CMAKE_SOURCE_DIR}/src/*.c"
+    "${CMAKE_SOURCE_DIR}/src/*.h"
+)
+file(GLOB _analysis_tests_files "${CMAKE_SOURCE_DIR}/tests/*.c")
+set(_all_analysis_files ${_analysis_src_files} ${_analysis_tests_files})
+string(REPLACE ";" " " _all_analysis_files_str "${_all_analysis_files}")
+
+# macOS SDK path for clang-tidy (Darwin only).
+set(_clang_tidy_sdk_args "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    execute_process(
+        COMMAND xcrun --show-sdk-path
+        OUTPUT_VARIABLE _macos_sdk
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(_macos_sdk)
+        set(_clang_tidy_sdk_args
+            "--extra-arg=-isysroot --extra-arg=${_macos_sdk}")
+    endif()
+endif()
+
+# Build targets that must exist before running static analysis.
+set(_analysis_deps cpulimit)
+if(CPULIMIT_BUILD_TESTS)
+    list(APPEND _analysis_deps cpulimit_test busy multi_process_busy)
+endif()
+
+# Generate a cmake script that filters GCC-only flags from
+# compile_commands.json so that clang-tidy (which uses clang internally)
+# can process the compilation database without errors.
+# cmake's compile_commands.json may include GCC-only flags such as
+# -fanalyzer (which causes a hard error in clang) and various -W* flags
+# that produce "unknown warning option" noise in clang-tidy output.
+# The script produces a filtered copy in clang_tidy_db/compile_commands.json;
+# clang-tidy's -p flag takes a directory and reads compile_commands.json from
+# it, so this subdirectory approach ensures the right database is used.
+set(_filter_script "${CMAKE_BINARY_DIR}/filter_compile_db.cmake")
+file(WRITE "${_filter_script}"
+    "# Auto-generated: filter GCC-only flags for clang-tidy.\n"
+    "file(READ \"${CMAKE_BINARY_DIR}/compile_commands.json\" _db)\n"
+    "foreach(_flag IN ITEMS\n"
+    "    \" -fanalyzer\"\n"
+    "    \" -Wanalyzer-null-dereference\"\n"
+    "    \" -Wanalyzer-double-free\"\n"
+    "    \" -Wanalyzer-use-after-free\"\n"
+    "    \" -Wanalyzer-malloc-leak\"\n"
+    "    \" -Wanalyzer-possible-null-dereference\"\n"
+    "    \" -Wanalyzer-shift-count-negative\"\n"
+    "    \" -Wanalyzer-shift-count-overflow\"\n"
+    "    \" -Wanalyzer-out-of-bounds\"\n"
+    "    \" -Wanalyzer-unsafe-call-within-signal-handler\"\n"
+    "    \" -Wlogical-op\"\n"
+    "    \" -Wrestrict\"\n"
+    "    \" -Wduplicated-cond\"\n"
+    "    \" -Wduplicated-branches\"\n"
+    "    \" -Wduplicated-arg\"\n"
+    "    \" -Wpacked-not-aligned\"\n"
+    "    \" -Wswitch-bool\"\n"
+    "    \" -Wswitch-unreachable\"\n"
+    "    \" -Wjump-misses-init\"\n"
+    "    \" -Waggressive-loop-optimizations\"\n"
+    "    \" -Wmultistatement-macros\"\n"
+    "    \" -Wcast-function-type\"\n"
+    "    \" -Wfree-nonheap-object\"\n"
+    "    \" -Wmaybe-uninitialized\"\n"
+    "    \" -Wclobbered\"\n"
+    ")\n"
+    "    string(REPLACE \"\${_flag}\" \"\" _db \"\${_db}\")\n"
+    "endforeach()\n"
+    "foreach(_prefix IN ITEMS\n"
+    "    \" -Wformat-overflow\"\n"
+    "    \" -Wformat-truncation\"\n"
+    "    \" -Wformat-signedness\"\n"
+    "    \" -Wformat-contains-nul\"\n"
+    "    \" -Wformat-zero-length\"\n"
+    "    \" -Wstringop-overflow\"\n"
+    "    \" -Wstringop-overread\"\n"
+    "    \" -Wstringop-truncation\"\n"
+    "    \" -Warray-parameter\"\n"
+    "    \" -Wattribute-alias\"\n"
+    "    \" -Wzero-length-bounds\"\n"
+    "    \" -Wstrict-flex-arrays\"\n"
+    "    \" -Wstack-usage\"\n"
+    "    \" -Wframe-larger-than\"\n"
+    "    \" -Wbidi-chars\"\n"
+    "    \" -Wnormalized\"\n"
+    ")\n"
+    "    string(REGEX REPLACE \"\${_prefix}[^ ]*\" \"\" _db \"\${_db}\")\n"
+    "endforeach()\n"
+    "file(MAKE_DIRECTORY \"${CLANG_TIDY_DB_DIR}\")\n"
+    "file(WRITE \"${CLANG_TIDY_DB_DIR}/compile_commands.json\" \"\${_db}\")\n"
+)
+
+# cppcheck target: uses cmake's compile_commands.json which covers all
+# source files (both src/ and tests/). Reports to build/cppcheck-report.txt.
+string(CONCAT _cppcheck_cmd
+    "${CPPCHECK_EXECUTABLE}"
+    " --enable=all --language=c --inconclusive"
+    " --check-level=exhaustive --max-ctu-depth=20"
+    " --library=gnu --force --std=c89"
+    " --project=${CMAKE_BINARY_DIR}/compile_commands.json"
+    " --suppress=missingIncludeSystem"
+    " --suppress=ConfigurationNotChecked"
+    " --suppress=unmatchedSuppression"
+    " --suppress=checkersReport"
+    " 2>${CPPCHECK_REPORT}")
+
+add_custom_target(cppcheck
+    COMMAND sh -c "${_cppcheck_cmd}"
+    COMMAND ${CMAKE_COMMAND} -E echo
+        "See ${CPPCHECK_REPORT} for cppcheck report."
+    DEPENDS ${_analysis_deps}
+    COMMENT "Running cppcheck..."
     VERBATIM
+)
+
+# clang-tidy target: first generates a filtered compile database (removing
+# GCC-only flags), then runs clang-tidy on all source files.
+# Reports to build/clang-tidy-report.txt.
+string(CONCAT _clang_tidy_cmd
+    "${CLANG_TIDY_EXECUTABLE}"
+    " ${_clang_tidy_sdk_args}"
+    " -p ${CLANG_TIDY_DB_DIR}"
+    " ${_all_analysis_files_str}"
+    " >${CLANG_TIDY_REPORT}")
+
+add_custom_target(clang-tidy
+    COMMAND ${CMAKE_COMMAND} -P "${_filter_script}"
+    COMMAND sh -c "${_clang_tidy_cmd}"
+    COMMAND ${CMAKE_COMMAND} -E echo
+        "See ${CLANG_TIDY_REPORT} for clang-tidy report."
+    DEPENDS ${_analysis_deps}
+    COMMENT "Running clang-tidy..."
+    VERBATIM
+)
+
+# check target: runs both cppcheck and clang-tidy analyses.
+# Reports are placed in ${CMAKE_BINARY_DIR}/:
+#   cppcheck-report.txt   - cppcheck output covering src/ and tests/
+#   clang-tidy-report.txt - clang-tidy output covering src/ and tests/
+add_custom_target(check
+    DEPENDS cppcheck clang-tidy
+    COMMENT
+        "Static analysis complete. Reports in ${CMAKE_BINARY_DIR}/"
 )
