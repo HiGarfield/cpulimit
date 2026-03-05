@@ -251,3 +251,27 @@ if(CPULIMIT_BUILD_TESTS)
 
     add_test(NAME cpulimit_unit_tests COMMAND cpulimit_test)
 endif()
+
+# --- 11. Static Analysis Target (check) ---
+# Mirrors the Makefile check targets in src/ and tests/: uses bear to
+# generate fresh compile_commands.json for each directory, then runs
+# cppcheck and clang-tidy. Reports are placed in:
+#   ${CMAKE_SOURCE_DIR}/src/cppcheck-report.txt
+#   ${CMAKE_SOURCE_DIR}/src/clang-tidy-report.txt
+#   ${CMAKE_SOURCE_DIR}/tests/cppcheck-report.txt
+#   ${CMAKE_SOURCE_DIR}/tests/clang-tidy-report.txt
+
+# Find the make program (may be 'gmake' on some systems, e.g., FreeBSD).
+find_program(MAKE_PROGRAM NAMES make gmake)
+if(NOT MAKE_PROGRAM)
+    message(STATUS
+        "make/gmake not found; 'check' target will require it at build time")
+    set(MAKE_PROGRAM make)
+endif()
+
+add_custom_target(check
+    COMMAND "${MAKE_PROGRAM}" -C "${CMAKE_SOURCE_DIR}/src" check
+    COMMAND "${MAKE_PROGRAM}" -C "${CMAKE_SOURCE_DIR}/tests" check
+    COMMENT "Running static analysis (cppcheck and clang-tidy)..."
+    VERBATIM
+)
