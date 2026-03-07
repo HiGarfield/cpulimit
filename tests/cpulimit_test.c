@@ -5140,12 +5140,11 @@ static void test_limiter_run_command_mode(void) {
     cfg.lazy_mode = 1;
 
     /*
-     * Flush stdout before forking to prevent the child from inheriting
-     * buffered output.  run_command_mode() calls fflush(stdout) before
-     * its own inner fork; if the parent's buffer is not empty at this
-     * point, the child's fflush would write the buffered content early,
-     * and the parent's buffer would write the same content again later,
-     * producing duplicated output when stdout is piped.
+     * Flush stdout before forking. The child calls run_command_mode()
+     * which terminates via exit(); exit() flushes all stdio streams,
+     * including any content inherited from the parent's buffer. Without
+     * this flush, buffered test output would be written twice: once when
+     * the child exits and again when the parent's buffer is flushed.
      */
     (void)fflush(stdout);
 
