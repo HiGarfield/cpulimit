@@ -69,20 +69,6 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         exit(EXIT_FAILURE);
     }
 
-    /*
-     * Flush stdout before forking.
-     * This is a defensive measure to avoid duplicated buffered output if
-     * future child code paths use stdio and exit()/flush inherited streams.
-     * Ignore EBADF (closed stdout in tests) and EPIPE (broken pipe, which
-     * also sets the quit flag via SIGPIPE handler).
-     */
-    if (fflush(stdout) != 0 && errno != EBADF && errno != EPIPE) {
-        perror("fflush");
-        close(sync_pipe[0]);
-        close(sync_pipe[1]);
-        exit(EXIT_FAILURE);
-    }
-
     /* Fork to create child process that will execute user command */
     cmd_runner_pid = fork();
     if (cmd_runner_pid < 0) {
