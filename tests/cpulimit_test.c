@@ -5147,7 +5147,7 @@ static void test_limiter_run_command_mode(void) {
      * and the parent's buffer would write the same content again later,
      * producing duplicated output when stdout is piped.
      */
-    (void)fflush(stdout);
+    fflush(stdout);
 
     /* Run in child process since run_command_mode calls exit() */
     pid = fork();
