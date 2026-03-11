@@ -394,19 +394,22 @@ int get_ncpu(void) {
 
 #elif defined(__linux__)
         /* Linux without _SC_NPROCESSORS_ONLN: use get_nprocs */
-        long ncpu;
+        int ncpu;
         ncpu = get_nprocs();
 #if defined(__UCLIBC__)
         /*
          * Workaround for older uClibc bug: get_nprocs may incorrectly return 1.
-         * Verify by reading sysfs.
+         * Verify by reading sysfs. get_online_cpu_count() returns long;
+         * bounds-check before narrowing to int.
          */
         if (ncpu <= 1) {
-            /* Cross-check with sysfs; use sysfs value if valid */
-            ncpu = get_online_cpu_count();
+            long sysfs_ncpu = get_online_cpu_count();
+            if (sysfs_ncpu > 0 && sysfs_ncpu <= (long)INT_MAX) {
+                ncpu = (int)sysfs_ncpu;
+            }
         }
 #endif
-        cached_ncpu = (ncpu > 0 && ncpu <= (long)INT_MAX) ? (int)ncpu : 1;
+        cached_ncpu = (ncpu > 0) ? ncpu : 1;
 
 #else
 #error "Unsupported platform"

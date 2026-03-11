@@ -178,7 +178,8 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     if (!read_cmd) {
         return 0;
     }
-    len_max = (int)(sizeof(proc->command) - 1);
+    len_max = (int)(sizeof(proc->command) -
+                    1); /* CMD_BUFF_SIZE (MAXPATHLEN) always fits in int */
     /* Retrieve command arguments as string array */
     args = kvm_getargv(kvm_descriptor, kproc, len_max);
     if (args == NULL || args[0] == NULL) {
