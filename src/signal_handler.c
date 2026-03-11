@@ -30,13 +30,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) ||              \
-    (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L) ||                \
-    (defined(_POSIX_VERSION) && _POSIX_VERSION >= 200112L) ||                  \
-    defined(__unix__) || defined(__unix) || defined(unix) ||                   \
-    (defined(__APPLE__) && defined(__MACH__))
-#include <stdint.h>
-#endif
 
 /**
  * @brief Global quit flag indicating a termination signal was received

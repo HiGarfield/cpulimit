@@ -506,18 +506,22 @@ char *read_line_from_file(const char *file_name) {
  * @param long_pid Long value to convert to pid_t
  * @return The pid_t value on success, or -1 if long_pid < 0 or overflow occurs
  *
- * Validates that the long value can be safely converted to pid_t without
- * overflow. Returns -1 if the input is negative or if the conversion would
- * result in data loss due to pid_t having a smaller range than long on the
- * platform. This prevents incorrect PID values on systems where pid_t is
- * smaller than long (e.g., 32-bit pid_t with 64-bit long).
+ * POSIX.1-2001 specifies pid_t only as a "signed integer type" with no
+ * minimum width. C89 provides no type wider than long without <stdint.h>.
+ * Therefore long is used as the widest available intermediary for pid_t
+ * values throughout this codebase (parsing, printing, sscanf/snprintf).
  *
- * @note The conversion uses implementation-defined behavior when the value
- *       cannot be represented in pid_t (C89 section 3.2.1.2). However, the
- *       round-trip check correctly detects overflow on all common platforms
- *       (Linux, macOS, FreeBSD) where pid_t is a signed integer type. This
- *       approach is preferred over no overflow checking, as there is no
- *       portable way to check pid_t limits at compile time in C89/POSIX.1-2001.
+ * This function converts a value obtained from such an intermediary (e.g.
+ * strtol, sscanf %ld) back to pid_t, detecting overflow in either direction:
+ * - If pid_t < long: (pid_t)long_pid may silently truncate; the round-trip
+ *   (long)(pid_t)long_pid != long_pid reveals the loss.
+ * - If pid_t >= long: (pid_t)long_pid is always a widening or identity cast;
+ *   the round-trip always passes, which is correct because no value is lost.
+ *
+ * @note The narrowing cast (pid_t)long_pid uses implementation-defined
+ *       behavior when long_pid does not fit in pid_t (C89 section 3.2.1.2).
+ *       The round-trip check reliably detects this on all supported platforms
+ *       (Linux, macOS, FreeBSD) where pid_t is a two's-complement integer.
  */
 pid_t long2pid_t(long long_pid) {
     pid_t result;
