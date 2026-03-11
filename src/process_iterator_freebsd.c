@@ -166,7 +166,7 @@ int init_process_iterator(struct process_iterator *iter,
 static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
                               struct process *proc, int read_cmd) {
     char **args;
-    size_t len_max;
+    int len_max;
     if (kproc == NULL || proc == NULL) {
         return -1;
     }
@@ -178,13 +178,13 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     if (!read_cmd) {
         return 0;
     }
-    len_max = sizeof(proc->command) - 1;
+    len_max = (int)(sizeof(proc->command) - 1);
     /* Retrieve command arguments as string array */
-    args = kvm_getargv(kvm_descriptor, kproc, (int)len_max);
+    args = kvm_getargv(kvm_descriptor, kproc, len_max);
     if (args == NULL || args[0] == NULL) {
         return -1;
     }
-    strncpy(proc->command, args[0], len_max);
+    strncpy(proc->command, args[0], (size_t)len_max);
     proc->command[len_max] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with

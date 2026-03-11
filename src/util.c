@@ -230,16 +230,16 @@ void increase_priority(void) {
  *
  * Returns -1 if the string is NULL or zero-length, contains invalid syntax,
  * negative numbers, reversed ranges (end < start), or if the CPU count
- * would overflow int. Note: a whitespace-only string (e.g., " ") is also
+ * would overflow long. Note: a whitespace-only string (e.g., " ") is also
  * rejected due to invalid syntax (strtol finds no number).
  */
-static int parse_cpu_range(const char *str) {
+static long parse_cpu_range(const char *str) {
     const char *parse_pos = str;
     char *endptr;
-    int cpu_count = 0;
+    long cpu_count = 0L;
 
     if (str == NULL || str[0] == '\0') {
-        return -1;
+        return -1L;
     }
 
     while (*parse_pos != '\0') {
@@ -248,7 +248,7 @@ static int parse_cpu_range(const char *str) {
         errno = 0;
         start = strtol(parse_pos, &endptr, 10);
         if (endptr == parse_pos || errno != 0 || start < 0) {
-            return -1; /* Parse error or invalid value */
+            return -1L; /* Parse error or invalid value */
         }
         parse_pos = endptr;
 
@@ -267,19 +267,19 @@ static int parse_cpu_range(const char *str) {
             errno = 0;
             end = strtol(parse_pos, &endptr, 10);
             if (endptr == parse_pos || errno != 0 || start > end || end < 0) {
-                return -1; /* Parse error or invalid range */
+                return -1L; /* Parse error or invalid range */
             }
             /* Compute range length safely (start <= end and both >= 0 here) */
             range_len = end - start;
             /*
              * Check for integer overflow in cpu_count accumulation:
-             * ensure cpu_count + (range_len + 1) <= INT_MAX without
+             * ensure cpu_count + (range_len + 1) <= LONG_MAX without
              * forming an overflowing signed expression.
              */
-            if (range_len > (long)INT_MAX - (long)cpu_count - 1L) {
-                return -1; /* Would overflow int */
+            if (range_len > LONG_MAX - cpu_count - 1L) {
+                return -1L; /* Would overflow long */
             }
-            cpu_count += (int)(range_len + 1L);
+            cpu_count += range_len + 1L;
 
             parse_pos = endptr;
 
@@ -289,8 +289,8 @@ static int parse_cpu_range(const char *str) {
             }
         } else {
             /* Single CPU number */
-            if (cpu_count == INT_MAX) {
-                return -1; /* Would overflow int */
+            if (cpu_count == LONG_MAX) {
+                return -1L; /* Would overflow long */
             }
             cpu_count++;
         }
@@ -299,7 +299,7 @@ static int parse_cpu_range(const char *str) {
         if (*parse_pos == ',') {
             parse_pos++; /* Move past comma to parse next segment */
         } else if (*parse_pos != '\0') {
-            return -1; /* Unexpected character */
+            return -1L; /* Unexpected character */
         }
     }
 
@@ -320,13 +320,13 @@ static int parse_cpu_range(const char *str) {
  * Used as a workaround for older uClibc versions where sysconf() or
  * get_nprocs() may return incorrect values.
  */
-static int get_online_cpu_count(void) {
+static long get_online_cpu_count(void) {
     char *line;
-    int cpu_count;
+    long cpu_count;
 
     line = read_line_from_file("/sys/devices/system/cpu/online");
     if (line == NULL) {
-        return -1; /* Failed to read file */
+        return -1L; /* Failed to read file */
     }
     cpu_count = parse_cpu_range(line);
     free(line);
@@ -394,7 +394,7 @@ int get_ncpu(void) {
 
 #elif defined(__linux__)
         /* Linux without _SC_NPROCESSORS_ONLN: use get_nprocs */
-        int ncpu;
+        long ncpu;
         ncpu = get_nprocs();
 #if defined(__UCLIBC__)
         /*
@@ -406,7 +406,7 @@ int get_ncpu(void) {
             ncpu = get_online_cpu_count();
         }
 #endif
-        cached_ncpu = (ncpu > 0) ? ncpu : 1;
+        cached_ncpu = (ncpu > 0 && ncpu <= (long)INT_MAX) ? (int)ncpu : 1;
 
 #else
 #error "Unsupported platform"
