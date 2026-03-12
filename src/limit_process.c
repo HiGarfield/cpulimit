@@ -93,8 +93,8 @@ static double get_dynamic_time_slot(void) {
         initialized = 1;
         if (get_current_time(&last_update) == 0) {
             /* Seed PRNG with current time for randomization */
-            srandom(
-                (unsigned int)(last_update.tv_nsec ^ (long)last_update.tv_sec));
+            srandom((unsigned int)((unsigned long)last_update.tv_nsec ^
+                                   (unsigned long)last_update.tv_sec));
         }
     } else if (get_current_time(&now) == 0 &&
                timediff_in_ms(&now, &last_update) >= 1000.0 &&
