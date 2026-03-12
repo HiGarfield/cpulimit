@@ -387,7 +387,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     }
 
     /* Iterate through /proc entries to find matching processes */
-    for (;;) {
+    while (1) {
         pid_t pid;
         char *endptr;
         long long_pid;
