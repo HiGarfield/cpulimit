@@ -1701,6 +1701,146 @@ static void test_signal_handler_get_quit_signal(void) {
 }
 
 /**
+ * @brief Test configure_signal_handler() resets internal state each call
+ * @note In a single process, after a signal sets quit flags, reconfiguring
+ *  handlers must clear all flags so a new run starts from a deterministic
+ *  baseline.
+ */
+static void test_signal_handler_reconfigure_resets_state(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGTERM) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (get_quit_signal() != SIGTERM) {
+            _exit(3);
+        }
+
+        configure_signal_handler();
+        if (is_quit_flag_set()) {
+            _exit(4);
+        }
+        if (is_terminated_by_tty()) {
+            _exit(5);
+        }
+        if (get_quit_signal() != 0) {
+            _exit(6);
+        }
+        _exit(0);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/**
+ * @brief Test pending signal during reconfigure is delivered, not dropped
+ * @note configure_signal_handler() blocks handled signals during the
+ *  reset-and-install window. A signal that becomes pending during that
+ *  window must be delivered through the new handler after the mask is
+ *  restored, not silently dropped.
+ *
+ *  Scenario:
+ *   1. Block SIGTERM in the caller.
+ *   2. Install handlers (first configure call).
+ *   3. raise(SIGTERM) - SIGTERM is pending, not delivered.
+ *   4. Call configure_signal_handler() again (reconfigure).
+ *      - configure blocks SIGTERM internally (already blocked - no change).
+ *      - Resets state: quit_flag = 0.
+ *      - Installs new handlers.
+ *      - Restores caller mask (SIGTERM still blocked by caller).
+ *   5. Verify quit_flag is 0 (SIGTERM still pending).
+ *   6. Unblock SIGTERM in caller - pending SIGTERM is delivered via new
+ *      handler.
+ *   7. Verify quit_flag is 1 and quit_signal_num is SIGTERM.
+ */
+static void test_signal_handler_reconfigure_delivers_pending(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        sigset_t block_set, old_set;
+
+        /* Block SIGTERM so that raise() makes it pending, not delivered. */
+        if (sigemptyset(&block_set) != 0) {
+            _exit(1);
+        }
+        if (sigaddset(&block_set, SIGTERM) != 0) {
+            _exit(1);
+        }
+        if (sigprocmask(SIG_BLOCK, &block_set, &old_set) != 0) {
+            _exit(1);
+        }
+
+        /* First configure: installs handlers with SIGTERM blocked. */
+        configure_signal_handler();
+
+        /* Raise SIGTERM: pending because it is still blocked. */
+        if (raise(SIGTERM) != 0) {
+            _exit(2);
+        }
+
+        /* Quit flag must still be 0 (signal pending, not delivered). */
+        if (is_quit_flag_set()) {
+            _exit(3);
+        }
+
+        /* Reconfigure: must block SIGTERM, reset state, install new
+         * handlers, then restore our mask (SIGTERM remains blocked). */
+        configure_signal_handler();
+
+        /* After reconfigure, quit_flag must still be 0; the pending
+         * SIGTERM has not been delivered yet because our mask still
+         * blocks it. */
+        if (is_quit_flag_set()) {
+            _exit(4);
+        }
+
+        /* Restore original mask: pending SIGTERM is now delivered via
+         * the new handler. */
+        if (sigprocmask(SIG_SETMASK, &old_set, NULL) != 0) {
+            _exit(5);
+        }
+
+        /* The new handler must have set quit_flag. */
+        if (!is_quit_flag_set()) {
+            _exit(6);
+        }
+        if (get_quit_signal() != SIGTERM) {
+            _exit(7);
+        }
+        _exit(0);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/**
  * @brief Test reset_signal_handlers_to_default() restores SIG_DFL
  * @note After configure_signal_handler() installs custom handlers,
  *  reset_signal_handlers_to_default() must restore SIGINT, SIGQUIT,
@@ -6173,6 +6313,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_sigterm);
     RUN_TEST(test_signal_handler_sigint);
     RUN_TEST(test_signal_handler_get_quit_signal);
+    RUN_TEST(test_signal_handler_reconfigure_resets_state);
+    RUN_TEST(test_signal_handler_reconfigure_delivers_pending);
     RUN_TEST(test_signal_handler_reset_to_default);
     RUN_TEST(test_signal_handler_race_concurrent_signals);
     RUN_TEST(test_signal_handler_race_signal_interrupts_sleep);

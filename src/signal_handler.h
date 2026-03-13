@@ -40,7 +40,15 @@ extern "C" {
  * also sets a flag indicating TTY termination. The handler uses SA_RESTART
  * to automatically restart interrupted system calls.
  *
- * @note Exits with error if signal registration fails
+ * All signals are blocked at function entry (sigfillset + sigprocmask are
+ * the very first operations) so that no termination signal can be delivered
+ * before reset_signal_state() or the sigaction loop. The internal
+ * signal-latch state (quit_flag, tty_quit_flag, quit_signal_num) is then
+ * cleared, new handlers are installed, and the original mask is restored.
+ * Any signal that becomes pending during the blocked window is delivered
+ * through the new handlers once the mask is restored.
+ *
+ * @note Exits with error if signal mask or handler registration fails
  */
 void configure_signal_handler(void);
 

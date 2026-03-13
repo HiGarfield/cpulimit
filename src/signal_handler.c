@@ -81,6 +81,20 @@ typedef char sig_atomic_large_enough[((sig_atomic_t)127 == 127) ? 1 : -1];
 static volatile sig_atomic_t quit_signal_num = 0;
 
 /**
+ * @brief Reset internal signal-handler state flags to their initial values
+ *
+ * Clears quit_flag, tty_quit_flag, and quit_signal_num so subsequent
+ * monitoring sessions start from a clean state. Intended to be called during
+ * signal-handler setup in process context (never from within a signal
+ * handler).
+ */
+static void reset_signal_state(void) {
+    quit_flag = 0;
+    tty_quit_flag = 0;
+    quit_signal_num = 0;
+}
+
+/**
  * @brief Unified signal handler for termination signals
  * @param sig Signal number that triggered this handler
  *
@@ -118,14 +132,37 @@ static void sig_handler(int sig) {
  * also sets a flag indicating TTY termination. The handler uses SA_RESTART
  * to automatically restart interrupted system calls.
  *
- * @note Exits with error if signal registration fails
+ * All signals are blocked at function entry (sigfillset + sigprocmask are
+ * the very first operations) so that no termination signal can be delivered
+ * before reset_signal_state() or the sigaction loop. The internal
+ * signal-latch state (quit_flag, tty_quit_flag, quit_signal_num) is then
+ * cleared, new handlers are installed, and the original mask is restored.
+ * Any signal that becomes pending during the blocked window is delivered
+ * through the new handlers once the mask is restored.
+ *
+ * @note Exits with error if signal mask or handler registration fails
  */
 void configure_signal_handler(void) {
     struct sigaction sig_action;
+    sigset_t block_mask, old_mask;
     size_t sig_idx;
     /* Array of signals that should trigger graceful termination */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
+
+    /* Block all signals at function entry so that no termination signal can
+     * be delivered between here and the completion of handler installation.
+     * This eliminates the race where a signal fires before sigprocmask takes
+     * effect, sets quit_flag, and then has that state wiped by the subsequent
+     * reset_signal_state() call. SIGKILL and SIGSTOP cannot be blocked and
+     * are silently ignored by sigprocmask, which is harmless. The original
+     * mask is restored after all handlers are in place.
+     * sigfillset() always returns 0 per POSIX.1-2001 and is not checked. */
+    (void)sigfillset(&block_mask);
+    if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) != 0) {
+        perror("sigprocmask");
+        exit(EXIT_FAILURE);
+    }
 
     /* Configure sigaction structure with unified handler */
     memset(&sig_action, 0, sizeof(sig_action));
@@ -133,9 +170,13 @@ void configure_signal_handler(void) {
         sig_handler; /* Unified handler for all termination signals */
     sig_action.sa_flags =
         SA_RESTART; /* Automatically restart interrupted syscalls */
-    sigemptyset(
-        &sig_action
-             .sa_mask); /* Don't block additional signals during handler */
+    if (sigemptyset(&sig_action.sa_mask) != 0) {
+        perror("sigemptyset");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Start from a deterministic state for each new configuration. */
+    reset_signal_state();
 
     /* Register the same handler for all termination signals */
     for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
@@ -143,6 +184,13 @@ void configure_signal_handler(void) {
             perror("Failed to set signal handler");
             exit(EXIT_FAILURE);
         }
+    }
+
+    /* Restore the original signal mask; any signals pending during the
+     * blocked window are now delivered through the newly installed handlers. */
+    if (sigprocmask(SIG_SETMASK, &old_mask, NULL) != 0) {
+        perror("sigprocmask");
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -201,7 +249,10 @@ int reset_signal_handlers_to_default(void) {
 
     memset(&def_action, 0, sizeof(def_action));
     def_action.sa_handler = SIG_DFL;
-    sigemptyset(&def_action.sa_mask);
+    if (sigemptyset(&def_action.sa_mask) != 0) {
+        perror("sigemptyset");
+        return -1;
+    }
     for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
         if (sigaction(reset_sigs[sig_idx], &def_action, NULL) != 0) {
             perror("sigaction reset");
