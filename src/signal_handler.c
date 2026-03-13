@@ -132,14 +132,13 @@ static void sig_handler(int sig) {
  * also sets a flag indicating TTY termination. The handler uses SA_RESTART
  * to automatically restart interrupted system calls.
  *
- * The internal signal-latch state (quit_flag, tty_quit_flag,
- * quit_signal_num) is cleared before installing new handlers. All handled
- * signals are blocked for the duration of the reset-and-install sequence
- * so that a signal delivered during reconfiguration cannot set the flags
- * and then have that state wiped by the reset, nor can it be delivered
- * through a half-installed set of handlers. The previous signal mask is
- * restored after all handlers are in place; any signal that was pending
- * during the blocked window is then delivered through the new handlers.
+ * All signals are blocked at function entry (sigfillset + sigprocmask are
+ * the very first operations) so that no termination signal can be delivered
+ * before reset_signal_state() or the sigaction loop. The internal
+ * signal-latch state (quit_flag, tty_quit_flag, quit_signal_num) is then
+ * cleared, new handlers are installed, and the original mask is restored.
+ * Any signal that becomes pending during the blocked window is delivered
+ * through the new handlers once the mask is restored.
  *
  * @note Exits with error if signal mask or handler registration fails
  */
@@ -151,6 +150,20 @@ void configure_signal_handler(void) {
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
+    /* Block all signals at function entry so that no termination signal can
+     * be delivered between here and the completion of handler installation.
+     * This eliminates the race where a signal fires before sigprocmask takes
+     * effect, sets quit_flag, and then has that state wiped by the subsequent
+     * reset_signal_state() call. SIGKILL and SIGSTOP cannot be blocked and
+     * are silently ignored by sigprocmask, which is harmless. The original
+     * mask is restored after all handlers are in place.
+     * sigfillset() always returns 0 per POSIX.1-2001 and is not checked. */
+    (void)sigfillset(&block_mask);
+    if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) != 0) {
+        perror("sigprocmask");
+        exit(EXIT_FAILURE);
+    }
+
     /* Configure sigaction structure with unified handler */
     memset(&sig_action, 0, sizeof(sig_action));
     sig_action.sa_handler =
@@ -159,32 +172,6 @@ void configure_signal_handler(void) {
         SA_RESTART; /* Automatically restart interrupted syscalls */
     if (sigemptyset(&sig_action.sa_mask) != 0) {
         perror("sigemptyset");
-        exit(EXIT_FAILURE);
-    }
-
-    /* Build a mask of all signals we are about to handle so they can be
-     * blocked during the critical section below. */
-    if (sigemptyset(&block_mask) != 0) {
-        perror("sigemptyset");
-        exit(EXIT_FAILURE);
-    }
-    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-        if (sigaddset(&block_mask, term_sigs[sig_idx]) != 0) {
-            perror("sigaddset");
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    /* Block the handled signals while resetting state and installing handlers.
-     * This prevents a signal from being delivered in the window between the
-     * reset_signal_state() call and the completion of all sigaction()
-     * installations, which would otherwise allow a signal to set quit_flag
-     * and then have that state wiped by the reset (or the signal state to be
-     * lost because the handler is not yet fully installed). The old mask is
-     * restored at the end so any signal pending during the blocked window is
-     * delivered through the new handlers. */
-    if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) != 0) {
-        perror("sigprocmask");
         exit(EXIT_FAILURE);
     }
 
