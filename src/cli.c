@@ -194,6 +194,9 @@ static void validate_target_options(const struct cpulimit_cfg *cfg) {
  */
 void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     int option_char, ncpu;
+    int pid_option_seen = 0;
+    int exe_option_seen = 0;
+    int limit_option_seen = 0;
     const struct option long_options[] = {
         {"pid", required_argument, NULL, 'p'},
         {"exe", required_argument, NULL, 'e'},
@@ -243,10 +246,24 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         }
         switch (option_char) {
         case 'p': /* Process ID target */
+            if (pid_option_seen) {
+                fprintf(
+                    stderr,
+                    "Error: duplicate PID option; use -p/--pid only once\n\n");
+                print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+            }
+            pid_option_seen = 1;
             parse_pid_option(optarg, cfg);
             break;
 
         case 'e': /* Executable name target */
+            if (exe_option_seen) {
+                fprintf(
+                    stderr,
+                    "Error: duplicate executable option; use -e/--exe only once\n\n");
+                print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+            }
+            exe_option_seen = 1;
             if (optarg == NULL || *optarg == '\0') {
                 fprintf(stderr, "Error: invalid executable name\n\n");
                 print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
@@ -255,6 +272,13 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
             break;
 
         case 'l': /* CPU percentage limit */
+            if (limit_option_seen) {
+                fprintf(
+                    stderr,
+                    "Error: duplicate limit option; use -l/--limit only once\n\n");
+                print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
+            }
+            limit_option_seen = 1;
             parse_limit_option(optarg, cfg, ncpu);
             break;
 
