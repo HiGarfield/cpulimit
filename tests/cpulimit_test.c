@@ -3331,6 +3331,61 @@ static void test_cli_limit_trailing_chars(void) {
  * @brief Test parse_arguments with --lazy and --verbose long options
  * @note Long forms of -z and -v must behave identically to short forms
  */
+
+/**
+ * @brief Test parse_arguments rejects duplicate target and limit options
+ * @note Repeated -p/-e/-l options must fail fast with EXIT_FAILURE
+ */
+static void test_cli_duplicate_options(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_40[] = "40";
+    char arg_p[] = "-p";
+    char arg_pid[] = "123";
+    char arg_pid2[] = "456";
+    char arg_e[] = "-e";
+    char arg_exe1[] = "foo";
+    char arg_exe2[] = "bar";
+    char *args_dup_pid[8];
+    char *args_dup_exe[8];
+    char *args_dup_limit[8];
+    int parse_ret;
+
+    args_dup_pid[0] = arg0;
+    args_dup_pid[1] = arg_l;
+    args_dup_pid[2] = arg_50;
+    args_dup_pid[3] = arg_p;
+    args_dup_pid[4] = arg_pid;
+    args_dup_pid[5] = arg_p;
+    args_dup_pid[6] = arg_pid2;
+    args_dup_pid[7] = NULL;
+    parse_ret = run_parse_in_child(7, args_dup_pid);
+    assert(parse_ret == EXIT_FAILURE);
+
+    args_dup_exe[0] = arg0;
+    args_dup_exe[1] = arg_l;
+    args_dup_exe[2] = arg_50;
+    args_dup_exe[3] = arg_e;
+    args_dup_exe[4] = arg_exe1;
+    args_dup_exe[5] = arg_e;
+    args_dup_exe[6] = arg_exe2;
+    args_dup_exe[7] = NULL;
+    parse_ret = run_parse_in_child(7, args_dup_exe);
+    assert(parse_ret == EXIT_FAILURE);
+
+    args_dup_limit[0] = arg0;
+    args_dup_limit[1] = arg_l;
+    args_dup_limit[2] = arg_50;
+    args_dup_limit[3] = arg_l;
+    args_dup_limit[4] = arg_40;
+    args_dup_limit[5] = arg_e;
+    args_dup_limit[6] = arg_exe1;
+    args_dup_limit[7] = NULL;
+    parse_ret = run_parse_in_child(7, args_dup_limit);
+    assert(parse_ret == EXIT_FAILURE);
+}
+
 static void test_cli_long_options_lazy_verbose(void) {
     struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
@@ -6164,6 +6219,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_cli_pid_minimum_valid);
     RUN_TEST(test_cli_limit_trailing_chars);
     RUN_TEST(test_cli_long_options_lazy_verbose);
+    RUN_TEST(test_cli_duplicate_options);
 
     /* Process table module tests */
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
