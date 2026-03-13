@@ -132,10 +132,20 @@ static void sig_handler(int sig) {
  * also sets a flag indicating TTY termination. The handler uses SA_RESTART
  * to automatically restart interrupted system calls.
  *
- * @note Exits with error if signal registration fails
+ * The internal signal-latch state (quit_flag, tty_quit_flag,
+ * quit_signal_num) is cleared before installing new handlers. All handled
+ * signals are blocked for the duration of the reset-and-install sequence
+ * so that a signal delivered during reconfiguration cannot set the flags
+ * and then have that state wiped by the reset, nor can it be delivered
+ * through a half-installed set of handlers. The previous signal mask is
+ * restored after all handlers are in place; any signal that was pending
+ * during the blocked window is then delivered through the new handlers.
+ *
+ * @note Exits with error if signal mask or handler registration fails
  */
 void configure_signal_handler(void) {
     struct sigaction sig_action;
+    sigset_t block_mask, old_mask;
     size_t sig_idx;
     /* Array of signals that should trigger graceful termination */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
@@ -152,6 +162,32 @@ void configure_signal_handler(void) {
         exit(EXIT_FAILURE);
     }
 
+    /* Build a mask of all signals we are about to handle so they can be
+     * blocked during the critical section below. */
+    if (sigemptyset(&block_mask) != 0) {
+        perror("sigemptyset");
+        exit(EXIT_FAILURE);
+    }
+    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
+        if (sigaddset(&block_mask, term_sigs[sig_idx]) != 0) {
+            perror("sigaddset");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    /* Block the handled signals while resetting state and installing handlers.
+     * This prevents a signal from being delivered in the window between the
+     * reset_signal_state() call and the completion of all sigaction()
+     * installations, which would otherwise allow a signal to set quit_flag
+     * and then have that state wiped by the reset (or the signal state to be
+     * lost because the handler is not yet fully installed). The old mask is
+     * restored at the end so any signal pending during the blocked window is
+     * delivered through the new handlers. */
+    if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) != 0) {
+        perror("sigprocmask");
+        exit(EXIT_FAILURE);
+    }
+
     /* Start from a deterministic state for each new configuration. */
     reset_signal_state();
 
@@ -161,6 +197,13 @@ void configure_signal_handler(void) {
             perror("Failed to set signal handler");
             exit(EXIT_FAILURE);
         }
+    }
+
+    /* Restore the original signal mask; any signals pending during the
+     * blocked window are now delivered through the newly installed handlers. */
+    if (sigprocmask(SIG_SETMASK, &old_mask, NULL) != 0) {
+        perror("sigprocmask");
+        exit(EXIT_FAILURE);
     }
 }
 

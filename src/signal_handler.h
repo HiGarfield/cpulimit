@@ -40,7 +40,16 @@ extern "C" {
  * also sets a flag indicating TTY termination. The handler uses SA_RESTART
  * to automatically restart interrupted system calls.
  *
- * @note Exits with error if signal registration fails
+ * The internal signal-latch state (quit_flag, tty_quit_flag,
+ * quit_signal_num) is cleared before installing new handlers. All handled
+ * signals are blocked for the duration of the reset-and-install sequence
+ * so that a signal delivered during reconfiguration cannot set the flags
+ * and then have that state wiped by the reset, nor can it be delivered
+ * through a half-installed set of handlers. The previous signal mask is
+ * restored after all handlers are in place; any signal that was pending
+ * during the blocked window is then delivered through the new handlers.
+ *
+ * @note Exits with error if signal mask or handler registration fails
  */
 void configure_signal_handler(void);
 
