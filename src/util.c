@@ -38,12 +38,10 @@
 #include <sys/sysctl.h>
 #endif
 #if defined(__linux__)
+#include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#if defined(__UCLIBC__)
-#include <ctype.h>
-#endif
 #endif
 
 #ifdef CPULIMIT_IMPL_GETLOADAVG
@@ -216,7 +214,7 @@ void increase_priority(void) {
     }
 }
 
-#if defined(__linux__) && defined(__UCLIBC__)
+#if defined(__linux__)
 /**
  * @brief Parse CPU range string from sysfs format to count
  * @param str CPU range specification string (e.g., "0-3", "0,2,4", "0-1,4-7")
@@ -340,9 +338,9 @@ static int get_online_cpu_count(void) {
  *
  * Queries the system for the number of online CPUs using platform-specific
  * methods (sysconf on Linux/POSIX, sysctl on macOS/FreeBSD). The result is
- * cached after the first call for efficiency. On Linux with uClibc, performs
- * additional validation by reading /sys/devices/system/cpu/online to work
- * around older library bugs. Returns 1 if count cannot be determined.
+ * cached after the first call for efficiency. On Linux, performs additional
+ * validation by reading /sys/devices/system/cpu/online to work around older
+ * library bugs. Returns 1 if count cannot be determined.
  *
  * @note Result is cached and never recalculated even if CPU hotplugging occurs
  */
@@ -355,9 +353,9 @@ int get_ncpu(void) {
 #if defined(_SC_NPROCESSORS_ONLN)
         /* POSIX-compliant systems: use sysconf */
         long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-#if defined(__linux__) && defined(__UCLIBC__)
+#if defined(__linux__)
         /*
-         * Workaround for older uClibc bug: sysconf may incorrectly return 1
+         * Workaround for older libc bug: sysconf may incorrectly return 1
          * even when multiple CPUs are online. Verify by reading sysfs.
          */
         if (ncpu <= 1) {
@@ -396,16 +394,14 @@ int get_ncpu(void) {
         /* Linux without _SC_NPROCESSORS_ONLN: use get_nprocs */
         int ncpu;
         ncpu = get_nprocs();
-#if defined(__UCLIBC__)
         /*
-         * Workaround for older uClibc bug: get_nprocs may incorrectly return 1.
+         * Workaround for older libc bug: get_nprocs may incorrectly return 1.
          * Verify by reading sysfs.
          */
         if (ncpu <= 1) {
             /* Cross-check with sysfs; use sysfs value if valid */
             ncpu = get_online_cpu_count();
         }
-#endif
         cached_ncpu = (ncpu > 0) ? ncpu : 1;
 
 #else

@@ -158,9 +158,9 @@ void increase_priority(void);
  *
  * Queries the system for the number of online CPUs using platform-specific
  * methods (sysconf on Linux/POSIX, sysctl on macOS/FreeBSD). The result is
- * cached after the first call for efficiency. On Linux with uClibc, performs
- * additional validation by reading /sys/devices/system/cpu/online to work
- * around older library bugs. Returns 1 if count cannot be determined.
+ * cached after the first call for efficiency. On Linux, performs additional
+ * validation by reading /sys/devices/system/cpu/online to work around older
+ * library bugs. Returns 1 if count cannot be determined.
  *
  * @note Result is cached and never recalculated even if CPU hotplugging occurs
  */
