@@ -149,6 +149,7 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
         struct list_node *next_node =
             node->next; /* Save before potential deletion */
         pid_t pid;
+        int kill_result;
         if (node->data == NULL) {
             /* Defensive: skip and remove any NULL-data nodes */
             delete_node(proc_group->proc_list, node);
@@ -156,11 +157,18 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
             continue;
         }
         pid = ((const struct process *)node->data)->pid;
-        if (kill(pid, sig) != 0) {
+        do {
+            kill_result = kill(pid, sig);
+        } while (kill_result != 0 && errno == EINTR);
+
+        if (kill_result != 0) {
             /*
              * Signal delivery failed. Common reasons:
              * - ESRCH: Process no longer exists
              * - EPERM: Permission denied (rare in this context)
+             *
+             * EINTR is transient and retried above, so all failures here
+             * indicate a process that can no longer be reliably controlled.
              * Save errno before any other calls that may clobber it.
              */
             int saved_errno = errno;
