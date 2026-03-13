@@ -180,7 +180,7 @@ static void test_util_time_functions(void) {
     sleep_time.tv_sec = 0;
     sleep_time.tv_nsec = 50000000L; /* 50 ms */
     ret = sleep_timespec(&sleep_time);
-    assert(ret == 0 || ret == -1); /* May return -1 on signal */
+    assert(ret == 0);
 
     ret = get_current_time(&ts_after);
     assert(ret == 0);
@@ -592,8 +592,7 @@ static void test_util_sleep_timespec_zero(void) {
     const struct timespec zero_sleep = {0, 0};
     int ret;
     ret = sleep_timespec(&zero_sleep);
-    /* 0 on success; -1 only if interrupted (EINTR) */
-    assert(ret == 0 || ret == -1);
+    assert(ret == 0);
 }
 
 /***************************************************************************
@@ -697,8 +696,19 @@ static void test_util_get_current_time_monotonic(void) {
 static void test_util_sleep_timespec_nonzero(void) {
     const struct timespec sleep_duration = {0, 1000000L}; /* 1 ms */
     int ret = sleep_timespec(&sleep_duration);
-    /* 0 on success; -1 only if EINTR */
-    assert(ret == 0 || ret == -1);
+    assert(ret == 0);
+}
+
+/**
+ * @brief Test sleep_timespec with NULL duration
+ * @note NULL input must fail with EINVAL
+ */
+static void test_util_sleep_timespec_null(void) {
+    int ret;
+    errno = 0;
+    ret = sleep_timespec(NULL);
+    assert(ret == -1);
+    assert(errno == EINVAL);
 }
 
 /**
@@ -6088,6 +6098,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_timediff_nsec_only);
     RUN_TEST(test_util_get_current_time_monotonic);
     RUN_TEST(test_util_sleep_timespec_nonzero);
+    RUN_TEST(test_util_sleep_timespec_null);
     RUN_TEST(test_util_long2pid_t_zero);
     RUN_TEST(test_util_file_basename_empty);
 

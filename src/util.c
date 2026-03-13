@@ -114,29 +114,51 @@ int get_current_time(struct timespec *result_ts) {
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
  * durations that are unaffected by system time changes, otherwise falls back
- * to nanosleep(). The underlying call may return early (for example, with
- * errno set to EINTR if interrupted by a signal); this function does not
- * automatically resume sleeping in that case.
+ * to nanosleep(). If interrupted by a signal (EINTR), the function resumes
+ * sleeping for the remaining time and returns success only after the full
+ * requested duration has elapsed.
+ *
+ * Returns -1 with errno set to EINVAL if duration is NULL.
  */
 int sleep_timespec(const struct timespec *duration) {
+    struct timespec remaining;
+
+    if (duration == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    remaining = *duration;
+
 #if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
     defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(CLOCK_MONOTONIC)
-    /*
-     * Use monotonic clock sleep if available.
-     * clock_nanosleep returns 0 on success or a positive error number
-     * on failure. Convert to -1/errno convention for consistency with
-     * nanosleep and the documented return value contract.
-     */
-    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, duration, NULL);
-    if (ret != 0) {
-        errno = ret;
-        return -1;
+    while (1) {
+        int ret;
+        /*
+         * Use monotonic clock sleep if available.
+         * clock_nanosleep returns 0 on success or a positive error number
+         * on failure. Convert to -1/errno convention for consistency with
+         * nanosleep and the documented return value contract.
+         */
+        ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &remaining, &remaining);
+        if (ret == 0) {
+            return 0;
+        }
+        if (ret != EINTR) {
+            errno = ret;
+            return -1;
+        }
     }
-    return 0;
 #else
-    /* Fall back to standard nanosleep */
-    return nanosleep(duration, NULL);
+    while (1) {
+        /* Fall back to standard nanosleep */
+        if (nanosleep(&remaining, &remaining) == 0) {
+            return 0;
+        }
+        if (errno != EINTR) {
+            return -1;
+        }
+    }
 #endif
 }
 
