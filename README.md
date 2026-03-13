@@ -36,15 +36,15 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 
 > **Note:** The input syntax for the `-e` option determines how cpulimit selects processes using pattern matching rules:
 >
-> - **Absolute Paths** (e.g., `-e /usr/bin/myprogram`) use **exact path matching**:
+> - **Absolute Paths** (e.g., `-e /usr/bin/myapp`) use **exact path matching**:
 >   - Matches only processes whose execution command _exactly includes_ the specified absolute path.
 >   - Processes started without an absolute path will not match.
->   - _Example:_ `-e /usr/bin/myprogram` will **NOT** match a process launched simply as `myprogram`, even if the executable resides in `/usr/bin/`.
+>   - _Example:_ `-e /usr/bin/myapp` will **NOT** match a process launched simply as `myapp`, even if the executable resides in `/usr/bin/`.
 >
-> - **Relative Paths or Filenames** (e.g., `-e ./dir/myprogram` or `-e myprogram`) use **basename-only matching**:
+> - **Relative Paths or Filenames** (e.g., `-e ./dir/myapp` or `-e myapp`) use **basename-only matching**:
 >   - Directory components are ignored when selecting targets.
 >   - Multiple matches may occur if different directories contain files with the same basename.
->   - _Example:_ `-e ./dir1/myprogram` could also match `./dir2/myprogram`.
+>   - _Example:_ `-e ./dir1/myapp` could also match `./dir2/myapp`.
 >
 > - **Handling Multiple Matching Processes**:
 >   1. **Initial Candidate Selection**  
@@ -65,22 +65,22 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
   cpulimit -l 50 -p 1234
   ```
 
-- For the process named `myprogram`, limit its CPU usage to 50% of one CPU core:
+- For the process named `myapp`, limit its CPU usage to 50% of one CPU core:
 
   ```sh
-  cpulimit -l 50 -e myprogram
+  cpulimit -l 50 -e myapp
   ```
 
-- Run the command `myprogram --option` and limit its CPU usage to 50% of one CPU core:
+- Run the command `myapp --option` and limit its CPU usage to 50% of one CPU core:
 
   ```sh
-  cpulimit -l 50 -- myprogram --option
+  cpulimit -l 50 -- myapp --option
   ```
 
-- For the process named `myprogram` and its child processes, limit their total CPU usage to 50% of one CPU core:
+- For the process named `myapp` and its child processes, limit their total CPU usage to 50% of one CPU core:
 
   ```sh
-  cpulimit -l 50 -i -e myprogram
+  cpulimit -l 50 -i -e myapp
   ```
 
 ## Get the Latest Source Code
