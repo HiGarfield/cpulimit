@@ -1701,6 +1701,54 @@ static void test_signal_handler_get_quit_signal(void) {
 }
 
 /**
+ * @brief Test configure_signal_handler() resets internal state each call
+ * @note In a single process, after a signal sets quit flags, reconfiguring
+ *  handlers must clear all flags so a new run starts from a deterministic
+ *  baseline.
+ */
+static void test_signal_handler_reconfigure_resets_state(void) {
+    pid_t pid;
+    int status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        configure_signal_handler();
+        if (raise(SIGTERM) != 0) {
+            _exit(1);
+        }
+        if (!is_quit_flag_set()) {
+            _exit(2);
+        }
+        if (get_quit_signal() != SIGTERM) {
+            _exit(3);
+        }
+
+        configure_signal_handler();
+        if (is_quit_flag_set()) {
+            _exit(4);
+        }
+        if (is_terminated_by_tty()) {
+            _exit(5);
+        }
+        if (get_quit_signal() != 0) {
+            _exit(6);
+        }
+        _exit(0);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/**
  * @brief Test reset_signal_handlers_to_default() restores SIG_DFL
  * @note After configure_signal_handler() installs custom handlers,
  *  reset_signal_handlers_to_default() must restore SIGINT, SIGQUIT,
@@ -6173,6 +6221,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_sigterm);
     RUN_TEST(test_signal_handler_sigint);
     RUN_TEST(test_signal_handler_get_quit_signal);
+    RUN_TEST(test_signal_handler_reconfigure_resets_state);
     RUN_TEST(test_signal_handler_reset_to_default);
     RUN_TEST(test_signal_handler_race_concurrent_signals);
     RUN_TEST(test_signal_handler_race_signal_interrupts_sleep);

@@ -81,6 +81,20 @@ typedef char sig_atomic_large_enough[((sig_atomic_t)127 == 127) ? 1 : -1];
 static volatile sig_atomic_t quit_signal_num = 0;
 
 /**
+ * @brief Reset internal signal-handler state flags to their initial values
+ *
+ * Clears quit_flag, tty_quit_flag, and quit_signal_num so subsequent
+ * monitoring sessions start from a clean state. Intended to be called during
+ * signal-handler setup in process context (never from within a signal
+ * handler).
+ */
+static void reset_signal_state(void) {
+    quit_flag = 0;
+    tty_quit_flag = 0;
+    quit_signal_num = 0;
+}
+
+/**
  * @brief Unified signal handler for termination signals
  * @param sig Signal number that triggered this handler
  *
@@ -133,9 +147,13 @@ void configure_signal_handler(void) {
         sig_handler; /* Unified handler for all termination signals */
     sig_action.sa_flags =
         SA_RESTART; /* Automatically restart interrupted syscalls */
-    sigemptyset(
-        &sig_action
-             .sa_mask); /* Don't block additional signals during handler */
+    if (sigemptyset(&sig_action.sa_mask) != 0) {
+        perror("sigemptyset");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Start from a deterministic state for each new configuration. */
+    reset_signal_state();
 
     /* Register the same handler for all termination signals */
     for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
@@ -201,7 +219,10 @@ int reset_signal_handlers_to_default(void) {
 
     memset(&def_action, 0, sizeof(def_action));
     def_action.sa_handler = SIG_DFL;
-    sigemptyset(&def_action.sa_mask);
+    if (sigemptyset(&def_action.sa_mask) != 0) {
+        perror("sigemptyset");
+        return -1;
+    }
     for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
         if (sigaction(reset_sigs[sig_idx], &def_action, NULL) != 0) {
             perror("sigaction reset");
