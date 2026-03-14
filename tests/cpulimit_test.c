@@ -3631,7 +3631,7 @@ static void test_cli_long_options_lazy_verbose(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        close(STDOUT_FILENO);
+        (void)close(STDOUT_FILENO);
         memset(&cfg, 0, sizeof(cfg));
         parse_arguments(6, test_argv, &cfg);
         if (cfg.lazy_mode != 1) {
