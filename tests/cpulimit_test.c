@@ -3468,11 +3468,6 @@ static void test_cli_limit_trailing_chars(void) {
 }
 
 /**
- * @brief Test parse_arguments with --lazy and --verbose long options
- * @note Long forms of -z and -v must behave identically to short forms
- */
-
-/**
  * @brief Test parse_arguments rejects duplicate target and limit options
  * @note Repeated -p/-e/-l options must fail fast with EXIT_FAILURE
  */
@@ -3526,6 +3521,81 @@ static void test_cli_duplicate_options(void) {
     assert(parse_ret == EXIT_FAILURE);
 }
 
+/**
+ * @brief Test parse_arguments rejects NULL cfg pointer
+ */
+static void test_cli_null_cfg(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_p[] = "-p";
+    char arg_2[] = "2";
+    char *test_argv[6];
+    pid_t pid;
+    int status;
+
+    test_argv[0] = arg0;
+    test_argv[1] = arg_l;
+    test_argv[2] = arg_50;
+    test_argv[3] = arg_p;
+    test_argv[4] = arg_2;
+    test_argv[5] = NULL;
+
+    assert(run_parse_in_child(5, test_argv) == 99);
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        (void)close(STDOUT_FILENO);
+        (void)close(STDERR_FILENO);
+        parse_arguments(5, test_argv, NULL);
+        _exit(99);
+    }
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments rejects invalid argc/argv combinations
+ */
+static void test_cli_invalid_api_inputs(void) {
+    struct cpulimit_cfg cfg;
+    char *test_argv[2];
+    pid_t pid;
+    int status;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        (void)close(STDOUT_FILENO);
+        (void)close(STDERR_FILENO);
+        parse_arguments(0, NULL, &cfg);
+        _exit(99);
+    }
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+
+    test_argv[0] = NULL;
+    test_argv[1] = NULL;
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        (void)close(STDOUT_FILENO);
+        (void)close(STDERR_FILENO);
+        parse_arguments(1, test_argv, &cfg);
+        _exit(99);
+    }
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+}
+
+/**
+ * @brief Test parse_arguments with --lazy and --verbose long options
+ * @note Long forms of -z and -v must behave identically to short forms
+ */
 static void test_cli_long_options_lazy_verbose(void) {
     struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
@@ -3553,7 +3623,7 @@ static void test_cli_long_options_lazy_verbose(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        close(STDOUT_FILENO);
+        (void)close(STDOUT_FILENO);
         memset(&cfg, 0, sizeof(cfg));
         parse_arguments(6, test_argv, &cfg);
         if (cfg.lazy_mode != 1) {
@@ -6362,6 +6432,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_cli_limit_trailing_chars);
     RUN_TEST(test_cli_long_options_lazy_verbose);
     RUN_TEST(test_cli_duplicate_options);
+    RUN_TEST(test_cli_null_cfg);
+    RUN_TEST(test_cli_invalid_api_inputs);
 
     /* Process table module tests */
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
