@@ -137,9 +137,17 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          */
         execvp(cfg->command_args[0], cfg->command_args);
 
-        /* Execution reaches here only if execvp() failed */
-        perror("execvp");
-        _exit(EXIT_FAILURE);
+        /*
+         * Execution reaches here only if execvp() failed.
+         * Use shell-compatible exit codes:
+         * - 127: command not found (ENOENT)
+         * - 126: found but not executable / other exec error
+         */
+        {
+            int saved_errno = errno;
+            perror("execvp");
+            _exit(saved_errno == ENOENT ? 127 : 126);
+        }
     } else {
         /*
          * This block executes in the parent process.

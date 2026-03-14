@@ -5407,7 +5407,7 @@ static void test_limiter_run_pid_or_exe_mode(void) {
 
 /**
  * @brief Test run_command_mode with a non-existent binary
- * @note execvp fails in child; parent should exit with EXIT_FAILURE
+ * @note execvp ENOENT in child; parent should return shell code 127
  */
 static void test_limiter_run_command_mode_nonexistent(void) {
     pid_t pid;
@@ -5442,7 +5442,7 @@ static void test_limiter_run_command_mode_nonexistent(void) {
     exited = WIFEXITED(status);
     assert(exited);
     exit_code = WEXITSTATUS(status);
-    assert(exit_code == EXIT_FAILURE);
+    assert(exit_code == 127);
 }
 
 /**
