@@ -336,12 +336,12 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     /* Handle single process without children */
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         if (read_process_info(iter->filter->pid, proc,
-                              iter->filter->read_cmd) == 0) {
-            iter->current_index = iter->proc_count = 1;
-            return 0;
+                              iter->filter->read_cmd) != 0) {
+            iter->current_index = iter->proc_count = 0;
+            return -1;
         }
-        iter->current_index = iter->proc_count = 0;
-        return -1;
+        iter->current_index = iter->proc_count = 1;
+        return 0;
     }
     /* Iterate through process ID list, applying filters */
     while (iter->current_index < iter->proc_count) {

@@ -68,7 +68,6 @@ int init_process_iterator(struct process_iterator *iter,
     }
     memset(iter, 0, sizeof(*iter));
     iter->filter = filter;
-    iter->end_of_processes = 0;
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         /*
          * Optimization: when querying a single process without children,
@@ -326,7 +325,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
      * that PID was reused and cannot be a true ancestor.
      */
     ret_parent = get_start_time(parent_pid, &parent_start_time);
-    while (child_pid > 1) {
+    while (child_pid > 1 && child_pid != parent_pid) {
         if (ret_parent == 0) {
             ret_child = get_start_time(child_pid, &child_start_time);
             /* Child started before parent means PID reuse occurred */
@@ -336,14 +335,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
             }
         }
         child_pid = getppid_of(child_pid);
-        if (child_pid < 0) {
-            return 0;
-        }
-        if (child_pid == parent_pid) {
-            return 1;
-        }
     }
-    return 0;
+    return child_pid == parent_pid;
 }
 
 /**
@@ -372,7 +365,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         return -1;
     }
 
-    /* Fast path for single process without children */
+    /* Handle single process without children */
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         int ret =
             read_process_info(iter->filter->pid, proc, iter->filter->read_cmd);
@@ -456,7 +449,7 @@ int close_process_iterator(struct process_iterator *iter) {
         }
     }
     memset(iter, 0, sizeof(*iter));
-    return ret == 0 ? 0 : -1;
+    return ret;
 }
 
 #endif /* CPULIMIT_PROCESS_ITERATOR_LINUX_C */
