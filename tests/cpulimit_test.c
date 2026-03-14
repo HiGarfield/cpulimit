@@ -43,6 +43,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -5477,7 +5478,7 @@ static void test_limiter_run_pid_or_exe_mode(void) {
 
 /**
  * @brief Test run_command_mode with a non-existent binary
- * @note execvp fails in child; parent should exit with EXIT_FAILURE
+ * @note execvp ENOENT in child; parent should return shell code 127
  */
 static void test_limiter_run_command_mode_nonexistent(void) {
     pid_t pid;
@@ -5512,7 +5513,67 @@ static void test_limiter_run_command_mode_nonexistent(void) {
     exited = WIFEXITED(status);
     assert(exited);
     exit_code = WEXITSTATUS(status);
-    assert(exit_code == EXIT_FAILURE);
+    assert(exit_code == 127);
+}
+
+/**
+ * @brief Test run_command_mode with a script whose shebang interpreter
+ *        does not exist
+ * @note execvp returns ENOENT but the file itself exists; the parent
+ *  should return shell code 126 (found but not executable / bad
+ *  interpreter), not 127 (command not found)
+ */
+static void test_limiter_run_command_mode_bad_shebang(void) {
+    pid_t pid;
+    int status;
+    struct cpulimit_cfg cfg;
+    char tmp_path[] = "/tmp/cpulimit_test_shebang_XXXXXX";
+    int fd;
+    static const char shebang[] = "#!/nonexistent_interpreter_cpulimit_xyz\n";
+    ssize_t nwritten;
+    int fchmod_ret;
+    char *args[2];
+    pid_t waited;
+    int exited;
+    int exit_code;
+
+    /* Create a temporary executable script with a missing shebang
+     * interpreter so that execvp() fails with ENOENT even though
+     * the file itself exists. */
+    fd = mkstemp(tmp_path);
+    assert(fd >= 0);
+    /* sizeof(shebang) - 1: exclude the null terminator from the write */
+    nwritten = write(fd, shebang, sizeof(shebang) - 1);
+    assert(nwritten == (ssize_t)(sizeof(shebang) - 1));
+    fchmod_ret = fchmod(fd, 0755);
+    assert(fchmod_ret == 0);
+    assert(close(fd) == 0);
+
+    args[0] = tmp_path;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 126);
+    (void)unlink(tmp_path);
 }
 
 /**
@@ -6493,6 +6554,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode);
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
+    RUN_TEST(test_limiter_run_command_mode_bad_shebang);
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_command_mode_false);

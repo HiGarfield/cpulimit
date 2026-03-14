@@ -35,6 +35,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -88,6 +89,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          * This block executes in the child process.
          * The child will become the command specified by the user.
          */
+        int saved_errno;
 
         /*
          * Create new process group with child as leader.
@@ -137,9 +139,29 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          */
         execvp(cfg->command_args[0], cfg->command_args);
 
-        /* Execution reaches here only if execvp() failed */
+        /*
+         * Execution reaches here only if execvp() failed.
+         * Use shell-compatible exit codes:
+         * - 127: command not found (ENOENT with no existing file)
+         * - 126: found but not executable (permission denied, or ENOENT
+         *        when file exists but its shebang interpreter is missing)
+         *
+         * Note: ENOENT can occur for two distinct reasons:
+         * 1. The command (or a PATH-resolved name) does not exist -> 127.
+         * 2. The file exists but its shebang interpreter is absent -> 126.
+         * Case 2 is detectable only when the argument contains a '/'
+         * (an explicit path), because only then can access(F_OK) confirm
+         * that the file itself is present.
+         */
+
+        saved_errno = errno;
         perror("execvp");
-        _exit(EXIT_FAILURE);
+        if (saved_errno == ENOENT &&
+            strchr(cfg->command_args[0], '/') != NULL &&
+            access(cfg->command_args[0], F_OK) == 0) {
+            _exit(126); /* File exists but shebang interpreter missing */
+        }
+        _exit(saved_errno == ENOENT ? 127 : 126);
     } else {
         /*
          * This block executes in the parent process.
