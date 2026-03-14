@@ -210,6 +210,16 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     /* Determine available CPU count for limit validation */
     ncpu = get_ncpu();
 
+    /*
+     * Reject invalid API usage defensively to avoid crashes when called
+     * from tests or embedded integrations with malformed inputs.
+     */
+    if (cfg == NULL || argv == NULL || argc <= 0 || argv[0] == NULL) {
+        fprintf(stderr,
+                "Error: internal argument parser received invalid input\n");
+        exit(EXIT_FAILURE);
+    }
+
     /* Initialize configuration with default values */
     memset(cfg, 0, sizeof(struct cpulimit_cfg));
     cfg->program_name = file_basename(argv[0]);
