@@ -5477,7 +5477,7 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
     assert(nwritten == (ssize_t)(sizeof(shebang) - 1));
     fchmod_ret = fchmod(fd, 0755);
     assert(fchmod_ret == 0);
-    close(fd);
+    assert(close(fd) == 0);
 
     args[0] = tmp_path;
     args[1] = NULL;
