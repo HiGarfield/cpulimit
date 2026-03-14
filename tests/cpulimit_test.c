@@ -3468,11 +3468,6 @@ static void test_cli_limit_trailing_chars(void) {
 }
 
 /**
- * @brief Test parse_arguments with --lazy and --verbose long options
- * @note Long forms of -z and -v must behave identically to short forms
- */
-
-/**
  * @brief Test parse_arguments rejects duplicate target and limit options
  * @note Repeated -p/-e/-l options must fail fast with EXIT_FAILURE
  */
@@ -3552,8 +3547,8 @@ static void test_cli_null_cfg(void) {
         pid = fork();
         assert(pid >= 0);
         if (pid == 0) {
-            close(STDOUT_FILENO);
-            close(STDERR_FILENO);
+            (void)close(STDOUT_FILENO);
+            (void)close(STDERR_FILENO);
             parse_arguments(5, test_argv, NULL);
             _exit(99);
         }
@@ -3575,8 +3570,8 @@ static void test_cli_invalid_api_inputs(void) {
         pid = fork();
         assert(pid >= 0);
         if (pid == 0) {
-            close(STDOUT_FILENO);
-            close(STDERR_FILENO);
+            (void)close(STDOUT_FILENO);
+            (void)close(STDERR_FILENO);
             parse_arguments(0, NULL, &cfg);
             _exit(99);
         }
@@ -3594,8 +3589,8 @@ static void test_cli_invalid_api_inputs(void) {
         pid = fork();
         assert(pid >= 0);
         if (pid == 0) {
-            close(STDOUT_FILENO);
-            close(STDERR_FILENO);
+            (void)close(STDOUT_FILENO);
+            (void)close(STDERR_FILENO);
             parse_arguments(1, test_argv, &cfg);
             _exit(99);
         }
@@ -3605,6 +3600,10 @@ static void test_cli_invalid_api_inputs(void) {
     }
 }
 
+/**
+ * @brief Test parse_arguments with --lazy and --verbose long options
+ * @note Long forms of -z and -v must behave identically to short forms
+ */
 static void test_cli_long_options_lazy_verbose(void) {
     struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";

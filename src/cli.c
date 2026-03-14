@@ -207,18 +207,30 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}};
 
-    /* Determine available CPU count for limit validation */
-    ncpu = get_ncpu();
-
     /*
      * Reject invalid API usage defensively to avoid crashes when called
      * from tests or embedded integrations with malformed inputs.
+     * Checked first, before any other processing.
      */
-    if (cfg == NULL || argv == NULL || argc <= 0 || argv[0] == NULL) {
-        fprintf(stderr,
-                "Error: internal argument parser received invalid input\n");
+    if (cfg == NULL) {
+        fprintf(stderr, "Error: parse_arguments: cfg is NULL\n");
         exit(EXIT_FAILURE);
     }
+    if (argv == NULL) {
+        fprintf(stderr, "Error: parse_arguments: argv is NULL\n");
+        exit(EXIT_FAILURE);
+    }
+    if (argc <= 0) {
+        fprintf(stderr, "Error: parse_arguments: argc is %d\n", argc);
+        exit(EXIT_FAILURE);
+    }
+    if (argv[0] == NULL) {
+        fprintf(stderr, "Error: parse_arguments: argv[0] is NULL\n");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Determine available CPU count for limit validation */
+    ncpu = get_ncpu();
 
     /* Initialize configuration with default values */
     memset(cfg, 0, sizeof(struct cpulimit_cfg));
