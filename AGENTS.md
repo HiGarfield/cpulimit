@@ -89,14 +89,11 @@ See `/README.md`.
 - `make` MUST be installed to build and test the project.
 - `cmake` MUST be installed to build and test the project.
 - `clang-format` MUST be installed to format the codebase.
-- `bear` MUST be installed to generate `compile_commands.json` for static analysis tools.
 - `cppcheck` MUST be installed to perform static analysis on the codebase.
 - `clang-tidy` MUST be installed to perform static analysis on the codebase.
 - `valgrind` MUST be installed to perform dynamic analysis on the codebase.
-
-In Ubuntu, the following command SHALL be used:
-
-    sudo apt-get update && sudo apt-get -qqy install build-essential clang-format bear cppcheck clang-tidy valgrind
+- In Ubuntu, the following command MUST be used to install all required tools:
+  `sudo apt-get update && sudo apt-get -qqy install build-essential clang-format cppcheck clang-tidy valgrind`
 
 ---
 
@@ -280,12 +277,10 @@ In Ubuntu, the following command SHALL be used:
 
 # Building
 
-- The project MUST be built using `make CHECK=1` without any warnings or errors.
-- gcc and clang MUST be tested using:
-  - `make clean && make CHECK=1 CC=gcc`
-  - `make clean && make CHECK=1 CC=clang`
-- cmake-based building MUST be tested using:
-  - `rm -rf build && cmake -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all`
+- cmake-based building MUST be tested with gcc:
+  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all` and ensure it builds successfully without warnings or errors.
+- cmake-based building MUST be tested with clang:
+  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all` and ensure it builds successfully without warnings or errors.
 - All warnings and errors MUST be resolved before submission.
 
 ---
@@ -300,18 +295,13 @@ In Ubuntu, the following command SHALL be used:
   - All possible invalid inputs.
   - All boundary values.
 - Unit tests MUST be implemented in `tests/cpulimit_test.c`.
-- Unit tests MUST be run using `tests/cpulimit_test` without any errors.
-- The command `make check` MUST be used to perform all checks, including:
-  - Run unit tests.
-  - Run clang-tidy.
-  - Run cppcheck.
-- `clang-tidy-report.txt` and `cppcheck-report.txt` MUST be generated in `src` and `tests` directories by `make check` and MUST contain no warnings or errors.
-- Dynamic analysis MUST be performed with:
-
-    valgrind --tool=memcheck --leak-check=full tests/cpulimit_test
-
-- No memory leaks or invalid memory accesses are allowed.
-- All issues found by static and dynamic analysis MUST be fixed.
+- Unit tests MUST be run without any errors.
+- cmake-based static analysis MUST be tested:
+  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
+  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
+- Dynamic analysis MUST be performed using valgrind:
+  - Run `valgrind --leak-check=full --error-exitcode=1 ./build/cpulimit_test` and ensure no errors or leaks are reported.
+- All issues found by static and dynamic analysis MUST be fixed before submission.
 - New features MUST include corresponding tests.
 - Bug fixes MUST include regression tests.
 
