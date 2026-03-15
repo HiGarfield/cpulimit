@@ -1925,9 +1925,12 @@ static void test_signal_handler_race_concurrent_signals(void) {
          * Block all signals before notifying parent, so both SIGTERM and
          * SIGINT will be pending when sigsuspend is called.
          */
-        sigfillset(&full_mask);
-        sigemptyset(&empty_mask);
-        sigprocmask(SIG_BLOCK, &full_mask, NULL);
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(1);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(1);
+        }
 
         if (write(ready_pipe[1], "R", 1) != 1) {
             close(ready_pipe[1]);
@@ -2103,9 +2106,12 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         close(ready_pipe[0]);
         configure_signal_handler();
 
-        sigfillset(&full_mask);
-        sigemptyset(&empty_mask);
-        sigprocmask(SIG_BLOCK, &full_mask, NULL);
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(1);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(1);
+        }
 
         if (write(ready_pipe[1], "R", 1) != 1) {
             close(ready_pipe[1]);
@@ -2188,9 +2194,12 @@ static void test_process_iterator_is_child_of(void) {
          * race-free replacement: sigsuspend atomically restores the
          * empty mask and suspends, so no signal can be missed.
          */
-        sigfillset(&full_mask);
-        sigemptyset(&empty_mask);
-        sigprocmask(SIG_BLOCK, &full_mask, NULL);
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(1);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(1);
+        }
         sigsuspend(&empty_mask);
         _exit(EXIT_SUCCESS);
     }
@@ -2368,9 +2377,12 @@ static void test_process_iterator_multiple(void) {
          * race-free replacement: sigsuspend atomically restores the
          * empty mask and suspends, so no signal can be missed.
          */
-        sigfillset(&full_mask);
-        sigemptyset(&empty_mask);
-        sigprocmask(SIG_BLOCK, &full_mask, NULL);
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(1);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(1);
+        }
         sigsuspend(&empty_mask);
         _exit(EXIT_SUCCESS);
     }
@@ -2730,9 +2742,12 @@ static void test_process_iterator_with_children(void) {
          * race-free replacement: sigsuspend atomically restores the
          * empty mask and suspends, so no signal can be missed.
          */
-        sigfillset(&full_mask);
-        sigemptyset(&empty_mask);
-        sigprocmask(SIG_BLOCK, &full_mask, NULL);
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(1);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(1);
+        }
         sigsuspend(&empty_mask);
         _exit(EXIT_SUCCESS);
     }
@@ -5215,8 +5230,12 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
              */
             memset(&sa, 0, sizeof(sa));
             sa.sa_handler = sigcont_exit_handler;
-            sigemptyset(&sa.sa_mask);
-            sigaction(SIGCONT, &sa, NULL);
+            if (sigemptyset(&sa.sa_mask) != 0) {
+                _exit(1);
+            }
+            if (sigaction(SIGCONT, &sa, NULL) != 0) {
+                _exit(1);
+            }
             /* Busy loop: stays alive until stopped then resumed */
             for (;;) {
                 volatile int dummy_var;
