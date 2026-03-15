@@ -8,7 +8,7 @@ Originally developed by [Angelo Marletta](https://github.com/opsengine/cpulimit)
 
 This fork, maintained by [HiGarfield](https://github.com/HiGarfield/cpulimit), includes significant improvements and bug fixes compared to the original version.
 
-Prebuilt binaries for major platforms are available in [Releases](https://github.com/HiGarfield/cpulimit/releases/latest).​
+Prebuilt binaries for major platforms are available in [Releases](https://github.com/HiGarfield/cpulimit/releases/latest).
 
 ## Usage
 

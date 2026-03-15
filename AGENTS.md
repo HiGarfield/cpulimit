@@ -232,7 +232,7 @@ See `/README.md`.
 
 ---
 
-## Identifiers
+# Identifiers
 
 - Identifiers MUST be self-descriptive and reflect their intended purpose.
 - Identifiers referring to the same logical entity MUST use a consistent name throughout the codebase.
@@ -278,9 +278,9 @@ See `/README.md`.
 # Building
 
 - cmake-based building MUST be tested with gcc:
-  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all` and ensure it builds successfully without warnings or errors.
+  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all` and ensure it builds successfully without warnings or errors.
 - cmake-based building MUST be tested with clang:
-  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all` and ensure it builds successfully without warnings or errors.
+  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all` and ensure it builds successfully without warnings or errors.
 - All warnings and errors MUST be resolved before submission.
 
 ---
@@ -296,13 +296,13 @@ See `/README.md`.
   - All boundary values.
 - Unit tests MUST be implemented in `tests/cpulimit_test.c`.
 - Unit tests MUST be run:
-  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
-  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
+  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
+  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
 - cmake-based static analysis MUST be tested:
-  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
-  - Run `rm -rf build && cmake -DCMAKE_CXX_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
+  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
+  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
 - Dynamic analysis MUST be performed using valgrind:
-  - Run `valgrind --leak-check=full --error-exitcode=1 ./build/cpulimit_test` and ensure no errors or leaks are reported.
+  - Run `valgrind --leak-check=full --error-exitcode=1 ./build/tests/cpulimit_test` and ensure no errors or leaks are reported.
 - All issues found by static and dynamic analysis MUST be fixed before submission.
 - New features MUST include corresponding tests.
 - Bug fixes MUST include regression tests.
