@@ -11,7 +11,7 @@
 #   TESTS_DIR              - absolute path to the tests/ directory
 #   BUILD_DIR              - absolute path to the cmake build directory
 #   CMAKE_SYSTEM_NAME      - value of CMAKE_SYSTEM_NAME (e.g. Linux)
-#   BUILD_TESTS            - "1" when tests/ should also be analysed
+#   BUILD_TESTS            - "ON" when tests/ should also be analysed
 #
 # Note: file(GLOB ...) is used inside this script (run at build time
 # via cmake -P) so new source files are always picked up without
