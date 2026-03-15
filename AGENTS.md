@@ -311,8 +311,8 @@ See `/README.md`.
   - All boundary values.
 - Unit tests MUST be implemented in `tests/cpulimit_test.c`.
 - Unit tests MUST be run:
-  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
-  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
+  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
+  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
 - cmake-based static analysis MUST be tested:
   - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
   - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
