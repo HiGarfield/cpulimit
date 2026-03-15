@@ -155,7 +155,7 @@ To uninstall cpulimit, use **one of** the following methods:
 
 ### Run Tests
 
-The following examples are demonstrated using the executables built with `make` or `gmake`. If you built with `cmake`, replace both the `./src/` and `./tests/` directories in the commands below with `./build/`.
+Run the following commands in the directory where the project was built.
 
 - **Run unit tests:**
 
