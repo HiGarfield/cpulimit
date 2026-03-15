@@ -14,6 +14,12 @@ endif()
 
 # --- 2. Include CMake Modules ---
 include(GNUInstallDirs)
+
+# Ensure the generated "test" target builds required binaries first.
+# Without this, `cmake --build . --target test` may invoke ctest before
+# executables such as tests/cpulimit_test exist.
+set(CMAKE_SKIP_TEST_ALL_DEPENDENCY FALSE)
+
 include(CTest)
 
 # --- 3. Global C Language Standard Settings ---
@@ -37,6 +43,19 @@ include(cmake/CpulimitOptions.cmake)
 add_subdirectory(src)
 if(CPULIMIT_BUILD_TESTS)
     add_subdirectory(tests)
+endif()
+
+if(TARGET test)
+    add_dependencies(test cpulimit)
+    if(TARGET busy)
+        add_dependencies(test busy)
+    endif()
+    if(TARGET multi_process_busy)
+        add_dependencies(test multi_process_busy)
+    endif()
+    if(TARGET cpulimit_test)
+        add_dependencies(test cpulimit_test)
+    endif()
 endif()
 
 # --- 7. Check Target (Static Analysis) ---
