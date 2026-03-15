@@ -23,4 +23,4 @@ cmake --build .
 cd ..
 
 echo "Build completed successfully."
-echo "The executable can be found in the 'build' directory."
+echo "Executables are in the 'build/src' and 'build/tests' directories."
