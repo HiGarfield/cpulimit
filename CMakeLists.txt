@@ -38,3 +38,15 @@ add_subdirectory(src)
 if(CPULIMIT_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
+
+# --- 7. Check Target ---
+#
+# Runs static analysis (cppcheck and clang-tidy) on source and test
+# files by delegating to the Makefile-based check targets in the src
+# and tests subdirectories.
+add_custom_target(check
+    COMMAND ${CMAKE_MAKE_PROGRAM} -C ${PROJECT_SOURCE_DIR}/src check
+    COMMAND ${CMAKE_MAKE_PROGRAM} -C ${PROJECT_SOURCE_DIR}/tests check
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    COMMENT "Running static analysis (cppcheck, clang-tidy)..."
+)
