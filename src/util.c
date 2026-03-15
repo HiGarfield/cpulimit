@@ -481,7 +481,7 @@ char *read_line_from_file(const char *file_name) {
     }
     if (getline(&line, &line_size, input_file) < 0) {
         free(line);
-        (void)fclose(input_file);
+        fclose(input_file);
         return NULL;
     }
     if (fclose(input_file) != 0) {

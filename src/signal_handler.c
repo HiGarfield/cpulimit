@@ -157,8 +157,8 @@ void configure_signal_handler(void) {
      * reset_signal_state() call. SIGKILL and SIGSTOP cannot be blocked and
      * are silently ignored by sigprocmask, which is harmless. The original
      * mask is restored after all handlers are in place.
-     * sigfillset() always returns 0 per POSIX.1-2001 and is not checked. */
-    (void)sigfillset(&block_mask);
+     * sigfillset() always returns 0 per POSIX.1-2001. */
+    sigfillset(&block_mask);
     if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) != 0) {
         perror("sigprocmask");
         exit(EXIT_FAILURE);

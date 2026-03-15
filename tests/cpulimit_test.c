@@ -423,9 +423,8 @@ static void test_util_long2pid_t_edge_cases(void) {
     assert(result == 65535);
 
     /* Test with large positive value */
-    result = long2pid_t(1000000L);
     /* Result depends on pid_t size - just verify it doesn't crash */
-    (void)result;
+    long2pid_t(1000000L);
 }
 
 /**
@@ -433,14 +432,11 @@ static void test_util_long2pid_t_edge_cases(void) {
  * @note Covers the round-trip overflow detection branch
  */
 static void test_util_long2pid_t_overflow(void) {
-    pid_t result;
-
-    /* LONG_MAX overflows pid_t (32-bit) on 64-bit platforms */
-    result = long2pid_t(LONG_MAX);
-    /* Either the round-trip check detects overflow (-1)
+    /* LONG_MAX overflows pid_t (32-bit) on 64-bit platforms.
+     * Either the round-trip check detects overflow (-1)
      * or, on exotic platforms where pid_t == long, the value fits.
      * Either way, the function must not crash. */
-    (void)result;
+    long2pid_t(LONG_MAX);
 }
 
 #if defined(__linux__)
@@ -1922,7 +1918,7 @@ static void test_signal_handler_race_concurrent_signals(void) {
         sigset_t full_mask, empty_mask;
         int sig_val;
 
-        (void)close(ready_pipe[0]);
+        close(ready_pipe[0]);
         configure_signal_handler();
 
         /*
@@ -1934,10 +1930,10 @@ static void test_signal_handler_race_concurrent_signals(void) {
         sigprocmask(SIG_BLOCK, &full_mask, NULL);
 
         if (write(ready_pipe[1], "R", 1) != 1) {
-            (void)close(ready_pipe[1]);
+            close(ready_pipe[1]);
             _exit(1);
         }
-        (void)close(ready_pipe[1]);
+        close(ready_pipe[1]);
 
         /*
          * Unblock all signals atomically and wait for the first pending
@@ -1969,12 +1965,12 @@ static void test_signal_handler_race_concurrent_signals(void) {
     }
 
     /* Parent: wait for child to be ready, then send two signals rapidly */
-    (void)close(ready_pipe[1]);
+    close(ready_pipe[1]);
     do {
         n_read = read(ready_pipe[0], &ready_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'R');
-    (void)close(ready_pipe[0]);
+    close(ready_pipe[0]);
 
     /* Send SIGTERM then SIGINT with no delay between them */
     kill(child_pid, SIGTERM);
@@ -2016,14 +2012,14 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
         /* 2-second sleep; signal from parent interrupts it */
         const struct timespec long_sleep = {2, 0};
 
-        (void)close(ready_pipe[0]);
+        close(ready_pipe[0]);
         configure_signal_handler();
 
         if (write(ready_pipe[1], "R", 1) != 1) {
-            (void)close(ready_pipe[1]);
+            close(ready_pipe[1]);
             _exit(1);
         }
-        (void)close(ready_pipe[1]);
+        close(ready_pipe[1]);
 
         /*
          * sleep_timespec calls clock_nanosleep / nanosleep.
@@ -2043,12 +2039,12 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
     }
 
     /* Parent: wait for child to enter sleep, then send SIGTERM */
-    (void)close(ready_pipe[1]);
+    close(ready_pipe[1]);
     do {
         n_read = read(ready_pipe[0], &ready_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'R');
-    (void)close(ready_pipe[0]);
+    close(ready_pipe[0]);
 
     /* Give child a moment to reach sleep_timespec before sending signal */
     {
@@ -2102,9 +2098,9 @@ static void test_signal_handler_race_rapid_all_signals(void) {
          * SIGQUIT sent to this child does not propagate to the parent's
          * terminal session on BSD systems.
          */
-        (void)setsid();
+        setsid();
 
-        (void)close(ready_pipe[0]);
+        close(ready_pipe[0]);
         configure_signal_handler();
 
         sigfillset(&full_mask);
@@ -2112,10 +2108,10 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         sigprocmask(SIG_BLOCK, &full_mask, NULL);
 
         if (write(ready_pipe[1], "R", 1) != 1) {
-            (void)close(ready_pipe[1]);
+            close(ready_pipe[1]);
             _exit(1);
         }
-        (void)close(ready_pipe[1]);
+        close(ready_pipe[1]);
 
         /*
          * Unblock all signals atomically.  All five signals sent by the
@@ -2137,12 +2133,12 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         _exit(0);
     }
 
-    (void)close(ready_pipe[1]);
+    close(ready_pipe[1]);
     do {
         n_read = read(ready_pipe[0], &ready_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'R');
-    (void)close(ready_pipe[0]);
+    close(ready_pipe[0]);
 
     /* Send all five signals in rapid succession */
     {
@@ -3547,8 +3543,8 @@ static void test_cli_null_cfg(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        (void)close(STDOUT_FILENO);
-        (void)close(STDERR_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
         parse_arguments(5, test_argv, NULL);
         _exit(99);
     }
@@ -3569,8 +3565,8 @@ static void test_cli_invalid_api_inputs(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        (void)close(STDOUT_FILENO);
-        (void)close(STDERR_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
         parse_arguments(0, NULL, &cfg);
         _exit(99);
     }
@@ -3583,8 +3579,8 @@ static void test_cli_invalid_api_inputs(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        (void)close(STDOUT_FILENO);
-        (void)close(STDERR_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
         parse_arguments(1, test_argv, &cfg);
         _exit(99);
     }
@@ -3624,7 +3620,7 @@ static void test_cli_long_options_lazy_verbose(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        (void)close(STDOUT_FILENO);
+        close(STDOUT_FILENO);
         memset(&cfg, 0, sizeof(cfg));
         parse_arguments(6, test_argv, &cfg);
         if (cfg.lazy_mode != 1) {
@@ -5311,8 +5307,8 @@ static void test_limit_process_race_quit_during_sleep(void) {
     target_pid = fork();
     assert(target_pid >= 0);
     if (target_pid == 0) {
-        (void)close(ready_pipe[0]);
-        (void)close(ready_pipe[1]);
+        close(ready_pipe[0]);
+        close(ready_pipe[1]);
         for (;;) {
             volatile int dummy_var;
             for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
@@ -5325,16 +5321,16 @@ static void test_limit_process_race_quit_during_sleep(void) {
     limiter_pid = fork();
     assert(limiter_pid >= 0);
     if (limiter_pid == 0) {
-        (void)close(ready_pipe[0]);
+        close(ready_pipe[0]);
         configure_signal_handler();
 
         /* Signal readiness before entering the blocking limit_process loop */
         if (write(ready_pipe[1], "L", 1) != 1) {
-            (void)close(ready_pipe[1]);
+            close(ready_pipe[1]);
             kill(target_pid, SIGKILL);
             _exit(EXIT_FAILURE);
         }
-        (void)close(ready_pipe[1]);
+        close(ready_pipe[1]);
 
         limit_process(target_pid, 0.5, 0, 0);
         /*
@@ -5345,12 +5341,12 @@ static void test_limit_process_race_quit_during_sleep(void) {
     }
 
     /* Wait for limiter to be ready */
-    (void)close(ready_pipe[1]);
+    close(ready_pipe[1]);
     do {
         n_read = read(ready_pipe[0], &ready_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'L');
-    (void)close(ready_pipe[0]);
+    close(ready_pipe[0]);
 
     /* Give limiter a moment to enter its sleep loop */
     {
@@ -5573,7 +5569,7 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
     assert(exited);
     exit_code = WEXITSTATUS(status);
     assert(exit_code == 126);
-    (void)unlink(tmp_path);
+    unlink(tmp_path);
 }
 
 /**
@@ -5888,7 +5884,7 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         cfg.lazy_mode = 1;
         /* Notify test that wrapper is ready to call run_command_mode */
         if (write(ready_pipe[1], "A", 1) != 1) {
-            (void)close(ready_pipe[1]);
+            close(ready_pipe[1]);
             _exit(EXIT_FAILURE);
         }
         ret = close(ready_pipe[1]);
@@ -5967,7 +5963,7 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         cfg.lazy_mode = 1;
         /* Notify test that wrapper is ready to call run_command_mode */
         if (write(ready_pipe[1], "A", 1) != 1) {
-            (void)close(ready_pipe[1]);
+            close(ready_pipe[1]);
             _exit(EXIT_FAILURE);
         }
         ret = close(ready_pipe[1]);
@@ -6287,7 +6283,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
         char arg1[] = "60";
         char *args[3];
 
-        (void)close(notify_pipe[0]);
+        close(notify_pipe[0]);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
 
@@ -6304,10 +6300,10 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
 
         /* Notify parent just before calling run_command_mode */
         if (write(notify_pipe[1], "G", 1) != 1) {
-            (void)close(notify_pipe[1]);
+            close(notify_pipe[1]);
             _exit(EXIT_FAILURE);
         }
-        (void)close(notify_pipe[1]);
+        close(notify_pipe[1]);
 
         /*
          * run_command_mode will fork a child and block on read() waiting
@@ -6321,12 +6317,12 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
     }
 
     /* Wait for wrapper to be ready */
-    (void)close(notify_pipe[1]);
+    close(notify_pipe[1]);
     do {
         n_read = read(notify_pipe[0], &notify_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && notify_byte == 'G');
-    (void)close(notify_pipe[0]);
+    close(notify_pipe[0]);
 
     /*
      * Send SIGTERM as early as possible after run_command_mode is entered,
