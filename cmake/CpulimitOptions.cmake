@@ -206,13 +206,13 @@ set(CPULIMIT_C_FLAGS
 # binary.  main.c is intentionally excluded; it provides the entry
 # point and is added per-target.
 set(CPULIMIT_SRC_COMMON
-    ${CMAKE_SOURCE_DIR}/src/cli.c
-    ${CMAKE_SOURCE_DIR}/src/limit_process.c
-    ${CMAKE_SOURCE_DIR}/src/limiter.c
-    ${CMAKE_SOURCE_DIR}/src/list.c
-    ${CMAKE_SOURCE_DIR}/src/process_group.c
-    ${CMAKE_SOURCE_DIR}/src/process_iterator.c
-    ${CMAKE_SOURCE_DIR}/src/process_table.c
-    ${CMAKE_SOURCE_DIR}/src/signal_handler.c
-    ${CMAKE_SOURCE_DIR}/src/util.c
+    ${PROJECT_SOURCE_DIR}/src/cli.c
+    ${PROJECT_SOURCE_DIR}/src/limit_process.c
+    ${PROJECT_SOURCE_DIR}/src/limiter.c
+    ${PROJECT_SOURCE_DIR}/src/list.c
+    ${PROJECT_SOURCE_DIR}/src/process_group.c
+    ${PROJECT_SOURCE_DIR}/src/process_iterator.c
+    ${PROJECT_SOURCE_DIR}/src/process_table.c
+    ${PROJECT_SOURCE_DIR}/src/signal_handler.c
+    ${PROJECT_SOURCE_DIR}/src/util.c
 )
