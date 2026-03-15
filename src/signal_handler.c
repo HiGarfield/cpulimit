@@ -156,9 +156,11 @@ void configure_signal_handler(void) {
      * effect, sets quit_flag, and then has that state wiped by the subsequent
      * reset_signal_state() call. SIGKILL and SIGSTOP cannot be blocked and
      * are silently ignored by sigprocmask, which is harmless. The original
-     * mask is restored after all handlers are in place.
-     * sigfillset() always returns 0 per POSIX.1-2001. */
-    sigfillset(&block_mask);
+     * mask is restored after all handlers are in place. */
+    if (sigfillset(&block_mask) != 0) {
+        perror("sigfillset");
+        exit(EXIT_FAILURE);
+    }
     if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) != 0) {
         perror("sigprocmask");
         exit(EXIT_FAILURE);
