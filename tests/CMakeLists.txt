@@ -28,3 +28,10 @@ target_link_libraries(cpulimit_test ${CPULIMIT_PLATFORM_LIBS})
 add_checked_flags(cpulimit_test CPULIMIT_C_FLAGS)
 
 add_test(NAME cpulimit_unit_tests COMMAND cpulimit_test)
+
+if(TARGET test)
+    add_dependencies(test cpulimit)
+    add_dependencies(test busy)
+    add_dependencies(test multi_process_busy)
+    add_dependencies(test cpulimit_test)
+endif()
