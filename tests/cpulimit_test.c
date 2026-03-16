@@ -119,14 +119,10 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
 }
 
 /***************************************************************************
- * LIST MODULE TESTS
+ * UTIL MODULE TESTS
  ***************************************************************************/
 
 static char *argv0 = NULL;
-
-/***************************************************************************
- * UTIL MODULE TESTS
- ***************************************************************************/
 
 /**
  * @brief Test nsec2timespec conversion
@@ -159,6 +155,11 @@ static void test_util_nsec2timespec(void) {
     nsec2timespec(100000.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 100000);
+
+    /* Test 500 milliseconds */
+    nsec2timespec(500000000.0, &result_ts);
+    assert(result_ts.tv_sec == 0);
+    assert(result_ts.tv_nsec == 500000000L);
 }
 
 /**
@@ -333,10 +334,6 @@ static void test_util_long2pid_t(void) {
     assert(result == -1);
 }
 
-/***************************************************************************
- * PROCESS_TABLE MODULE TESTS
- ***************************************************************************/
-
 /**
  * @brief Test util edge cases for time operations
  * @note Tests boundary conditions and special values
@@ -401,6 +398,12 @@ static void test_util_file_basename_edge_cases(void) {
 
     /* Test just a slash */
     result = file_basename("/");
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
+
+    /* Test empty string - no slash, returns itself */
+    result = file_basename("");
+    assert(result != NULL);
     cmp_ret = strcmp(result, "");
     assert(cmp_ret == 0);
 
@@ -487,10 +490,6 @@ static void test_util_read_line_from_file(void) {
     remove(nl_tmp_file);
 }
 #endif /* __linux__ */
-
-/***************************************************************************
- * UTIL MODULE ADDITIONAL TESTS
- ***************************************************************************/
 
 /**
  * @brief Test MAX, MIN, and CLAMP macros with all comparison branches
@@ -593,33 +592,6 @@ static void test_util_sleep_timespec_zero(void) {
     assert(ret == 0 || ret == -1);
 }
 
-/***************************************************************************
- * SIGNAL_HANDLER MODULE ADDITIONAL TESTS
- ***************************************************************************/
-
-/**
- * @brief Test nsec2timespec with 0 and sub-second values
- * @note Covers zero input and values < 1e9 ns (sec should be 0)
- */
-static void test_util_nsec2timespec_zero_and_sub(void) {
-    struct timespec t;
-
-    /* Zero nanoseconds */
-    nsec2timespec(0.0, &t);
-    assert(t.tv_sec == 0);
-    assert(t.tv_nsec == 0);
-
-    /* 500 ms = 5e8 ns -> tv_sec=0, tv_nsec=500000000 */
-    nsec2timespec(500000000.0, &t);
-    assert(t.tv_sec == 0);
-    assert(t.tv_nsec == 500000000L);
-
-    /* Exactly 1 second */
-    nsec2timespec(1e9, &t);
-    assert(t.tv_sec == 1);
-    assert(t.tv_nsec == 0);
-}
-
 /**
  * @brief Test nsec2timespec rollover correction for floating-point edge cases
  * @note Verifies that tv_nsec stays in [0, 999999999] and tv_sec is adjusted
@@ -686,40 +658,6 @@ static void test_util_get_current_time_monotonic(void) {
     diff = timediff_in_ms(&ts_later, &ts_earlier);
     assert(diff >= 0.0); /* monotonic: must not go backwards */
 }
-
-/**
- * @brief Test sleep_timespec with a positive (non-zero) duration
- * @note A 1 ms sleep must complete without error
- */
-static void test_util_sleep_timespec_nonzero(void) {
-    const struct timespec sleep_duration = {0, 1000000L}; /* 1 ms */
-    int ret = sleep_timespec(&sleep_duration);
-    /* 0 on success; -1 only if EINTR */
-    assert(ret == 0 || ret == -1);
-}
-
-/**
- * @brief Test long2pid_t with input value 0
- * @note 0 is not negative but should produce (pid_t)0 without overflow
- */
-static void test_util_long2pid_t_zero(void) {
-    pid_t result = long2pid_t(0L);
-    assert(result == (pid_t)0);
-}
-
-/**
- * @brief Test file_basename with empty-string path
- * @note Empty string has no '/', so the whole string is returned
- */
-static void test_util_file_basename_empty(void) {
-    const char *result = file_basename("");
-    assert(result != NULL);
-    assert(result[0] == '\0'); /* empty string points to itself */
-}
-
-/***************************************************************************
- * PROCESS_TABLE MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
 
 /***************************************************************************
  * LIST MODULE TESTS
@@ -1064,10 +1002,6 @@ static void test_list_clear_and_destroy(void) {
     destroy_list(NULL);
 }
 
-/***************************************************************************
- * UTIL MODULE TESTS
- ***************************************************************************/
-
 /**
  * @brief Test list operations with edge cases
  * @note Tests list behavior with various edge cases like reversing order
@@ -1226,8 +1160,8 @@ static void test_list_delete_node_empty(void) {
 }
 
 /**
- * @brief Test destroy_node with a NULL list frees node and data without crash
- * @note Exercises the l==NULL fast-path that frees node directly
+ * @brief Test destroy_node with a NULL list does nothing and does not crash
+ * @note Exercises the NULL list guard: destroy_node returns immediately
  */
 static void test_list_destroy_node_null_list(void) {
     struct list_node *node;
@@ -1243,9 +1177,17 @@ static void test_list_destroy_node_null_list(void) {
     node->previous = NULL;
     node->next = NULL;
 
-    /* destroy_node with NULL list must free both data and node */
+    /* destroy_node with NULL list does nothing (returns immediately) */
     destroy_node(NULL, node);
-    /* If we reach here without crash, the test passed */
+    /* Verify the call was truly a no-op: node and data remain unchanged */
+    assert(node->data == data);
+    assert(*(int *)node->data == 42);
+    assert(node->previous == NULL);
+    assert(node->next == NULL);
+
+    /* Free manually since destroy_node(NULL, ...) is a no-op */
+    free(data);
+    free(node);
 }
 
 /**
@@ -1314,10 +1256,6 @@ static void test_list_destroy_empty(void) {
 }
 
 /***************************************************************************
- * UTIL MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
-
-/***************************************************************************
  * SIGNAL_HANDLER MODULE TESTS
  ***************************************************************************/
 
@@ -1384,10 +1322,6 @@ static void test_signal_handler_flags(void) {
     exit_code = WEXITSTATUS(status);
     assert(exit_code == 0);
 }
-
-/***************************************************************************
- * PROCESS_ITERATOR MODULE TESTS
- ***************************************************************************/
 
 /**
  * @brief Test SIGQUIT signal handling
@@ -1527,78 +1461,6 @@ static void test_signal_handler_initial_state(void) {
         }
         if (is_terminated_by_tty()) {
             _exit(2);
-        }
-        _exit(0);
-    }
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/***************************************************************************
- * PROCESS_GROUP MODULE ADDITIONAL TESTS
- ***************************************************************************/
-
-/**
- * @brief Test SIGTERM handling
- * @note SIGTERM must set quit_flag but must NOT set terminated_by_tty
- */
-static void test_signal_handler_sigterm(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        configure_signal_handler();
-        if (raise(SIGTERM) != 0) {
-            _exit(1);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(2);
-        }
-        if (is_terminated_by_tty()) { /* SIGTERM must NOT set tty flag */
-            _exit(3);
-        }
-        _exit(0);
-    }
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/**
- * @brief Test SIGINT handling
- * @note SIGINT must set both quit_flag and terminated_by_tty
- */
-static void test_signal_handler_sigint(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        configure_signal_handler();
-        if (raise(SIGINT) != 0) {
-            _exit(1);
-        }
-        if (!is_quit_flag_set()) {
-            _exit(2);
-        }
-        if (!is_terminated_by_tty()) { /* SIGINT MUST set tty flag */
-            _exit(3);
         }
         _exit(0);
     }
@@ -1884,10 +1746,6 @@ static void test_signal_handler_reset_to_default(void) {
     assert(exit_code == 0);
 }
 
-/***************************************************************************
- * SIGNAL_HANDLER MODULE - RACE CONDITION TESTS
- ***************************************************************************/
-
 /**
  * @brief Test that two signals delivered concurrently produce consistent state
  * @note The child blocks all signals, signals readiness to the parent, then
@@ -2163,10 +2021,6 @@ static void test_signal_handler_race_rapid_all_signals(void) {
 }
 
 /***************************************************************************
- * PROCESS_ITERATOR MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
-
-/***************************************************************************
  * PROCESS_ITERATOR MODULE TESTS
  ***************************************************************************/
 
@@ -2247,10 +2101,6 @@ static void test_process_iterator_is_child_of(void) {
     /* Clean up child */
     kill_and_wait(child_pid, SIGKILL);
 }
-
-/***************************************************************************
- * PROCESS_GROUP MODULE TESTS
- ***************************************************************************/
 
 /**
  * @brief Test process iterator filter edge cases
@@ -2847,11 +2697,7 @@ static void test_process_iterator_null_proc_dir_guard(void) {
 }
 
 /***************************************************************************
- * PROCESS_GROUP MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
-
-/***************************************************************************
- * CLI MODULE TESTS (parse_arguments)
+ * CLI MODULE TESTS
  ***************************************************************************/
 
 /**
@@ -3372,10 +3218,6 @@ static void test_cli_missing_arg(void) {
     parse_ret = run_parse_in_child(2, args2);
     assert(parse_ret == EXIT_FAILURE);
 }
-
-/***************************************************************************
- * LIST MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
 
 /**
  * @brief Test parse_arguments with --include-children long option
@@ -4241,10 +4083,6 @@ static void test_process_table_ops_after_destroy(void) {
 }
 
 /***************************************************************************
- * SIGNAL_HANDLER MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
-
-/***************************************************************************
  * PROCESS_GROUP MODULE TESTS
  ***************************************************************************/
 
@@ -4343,10 +4181,6 @@ static void test_process_group_rapid_updates(void) {
     assert(ret == 0);
     kill_and_wait(child_pid, SIGKILL);
 }
-
-/***************************************************************************
- * EXISTING TESTS (RENAMED FOR CONSISTENCY)
- ***************************************************************************/
 
 /**
  * @brief Test process group initialization with all processes
@@ -4701,10 +4535,6 @@ static void test_process_group_find_by_pid_init(void) {
     assert(result != 0);
 }
 
-/***************************************************************************
- * LIMIT_PROCESS MODULE ADDITIONAL TESTS
- ***************************************************************************/
-
 /**
  * @brief Test close_process_group with NULL pointer
  * @note Must return 0 without crashing
@@ -4822,10 +4652,6 @@ static void test_process_group_cpu_usage_with_usage(void) {
     assert(ret == 0);
 }
 
-/***************************************************************************
- * PROCESS_GROUP MODULE - RACE CONDITION TESTS
- ***************************************************************************/
-
 /**
  * @brief Test update_process_group when the target exits between init and
  *        the first explicit update call
@@ -4926,10 +4752,6 @@ static void test_process_group_race_rapid_child_spawn_exit(void) {
     } while (waited == -1 && errno == EINTR);
     assert(waited == spawner_pid);
 }
-
-/***************************************************************************
- * LIMIT_PROCESS MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
 
 /***************************************************************************
  * LIMIT_PROCESS MODULE TESTS
@@ -5082,10 +4904,6 @@ static void test_limit_process_basic(void) {
     }
 }
 
-/***************************************************************************
- * LIMITER MODULE TESTS
- ***************************************************************************/
-
 /**
  * @brief Test limit_process when the target has already exited
  * @note Exercises the empty-proc_list early-exit branch in limit_process
@@ -5151,10 +4969,6 @@ static void test_limit_process_verbose(void) {
     assert(w_exit_code == EXIT_SUCCESS);
 }
 
-/***************************************************************************
- * LIMITER MODULE ADDITIONAL TESTS
- ***************************************************************************/
-
 /**
  * @brief Test limit_process with include_children=1
  * @note Target exits quickly; exercises the children-tracking code path
@@ -5176,10 +4990,6 @@ static void test_limit_process_include_children(void) {
     assert(waited_pid == child_pid);
     limit_process(child_pid, 0.5, 1, 0); /* include_children=1 */
 }
-
-/***************************************************************************
- * LIMIT_PROCESS MODULE - RACE CONDITION TESTS
- ***************************************************************************/
 
 /**
  * @brief Signal handler used by race condition tests: exits on SIGCONT
@@ -5389,10 +5199,6 @@ static void test_limit_process_race_quit_during_sleep(void) {
 }
 
 /***************************************************************************
- * LIMITER MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
-
-/***************************************************************************
  * LIMITER MODULE TESTS
  ***************************************************************************/
 
@@ -5486,10 +5292,6 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     exit_code = WEXITSTATUS(status);
     assert(exit_code == EXIT_FAILURE);
 }
-
-/***************************************************************************
- * ADDITIONAL WHITE-BOX COVERAGE TESTS
- ***************************************************************************/
 
 /**
  * @brief Test run_command_mode with a non-existent binary
@@ -5667,10 +5469,6 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
     exit_code = WEXITSTATUS(status);
     assert(exit_code == EXIT_FAILURE);
 }
-
-/***************************************************************************
- * CLI MODULE TESTS (parse_arguments)
- ***************************************************************************/
 
 /**
  * @brief Test run_command_mode with a command that exits non-zero ('false')
@@ -6197,10 +5995,6 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
     assert(w_exit_code == EXIT_SUCCESS);
 }
 
-/***************************************************************************
- * LIMITER MODULE - RACE CONDITION TESTS
- ***************************************************************************/
-
 /**
  * @brief Test run_command_mode when the quit flag is already set before
  *        limit_process is entered
@@ -6359,10 +6153,6 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
     assert(w_exit_code == 128 + SIGTERM);
 }
 
-/***************************************************************************
- * CLI MODULE - ADDITIONAL COVERAGE
- ***************************************************************************/
-
 #if (defined(__GNUC__) && __GNUC__ >= 2) || defined(__clang__)
 #define NOINLINE __attribute__((noinline))
 #else
@@ -6424,13 +6214,9 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_macros);
     RUN_TEST(test_util_timediff_negative);
     RUN_TEST(test_util_sleep_timespec_zero);
-    RUN_TEST(test_util_nsec2timespec_zero_and_sub);
     RUN_TEST(test_util_nsec2timespec_rollover);
     RUN_TEST(test_util_timediff_nsec_only);
     RUN_TEST(test_util_get_current_time_monotonic);
-    RUN_TEST(test_util_sleep_timespec_nonzero);
-    RUN_TEST(test_util_long2pid_t_zero);
-    RUN_TEST(test_util_file_basename_empty);
 
     /* List module tests */
     printf("\n=== LIST MODULE TESTS ===\n");
@@ -6456,8 +6242,6 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_sighup);
     RUN_TEST(test_signal_handler_sigpipe);
     RUN_TEST(test_signal_handler_initial_state);
-    RUN_TEST(test_signal_handler_sigterm);
-    RUN_TEST(test_signal_handler_sigint);
     RUN_TEST(test_signal_handler_get_quit_signal);
     RUN_TEST(test_signal_handler_reconfigure_resets_state);
     RUN_TEST(test_signal_handler_reconfigure_delivers_pending);
