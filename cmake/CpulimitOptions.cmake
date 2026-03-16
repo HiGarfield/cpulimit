@@ -1,42 +1,11 @@
-include(CheckCCompilerFlag)
-
-# --- 1. Utility Function: add_checked_flags ---
+# cmake/CpulimitOptions.cmake
 #
-# Adds compiler flags from a named list variable to a target, but only
-# if the current compiler supports each individual flag.
+# Project-wide build settings: platform libraries, compiler warning
+# and diagnostic flags, and the list of shared source files.
 #
-# Arguments:
-#   target    - the CMake target to apply the flags to
-#   flag_list - the NAME of the variable holding the list of flags
-function(add_checked_flags target flag_list)
-    if(NOT TARGET ${target})
-        message(WARNING
-            "Target '${target}' not found. Skipping add_checked_flags."
-        )
-        return()
-    endif()
-    if(NOT DEFINED ${flag_list})
-        message(WARNING
-            "Flag list variable '${flag_list}' is not defined."
-        )
-        return()
-    endif()
+# Depends on: cmake/CheckedFlags.cmake (must be included beforehand).
 
-    set(_saved_quiet ${CMAKE_REQUIRED_QUIET})
-    set(CMAKE_REQUIRED_QUIET TRUE)
-
-    foreach(_flag IN LISTS ${flag_list})
-        string(MAKE_C_IDENTIFIER "HAVE_FLAG_${_flag}" _test_var)
-        check_c_compiler_flag("${_flag}" ${_test_var})
-        if(${_test_var})
-            target_compile_options(${target} PRIVATE ${_flag})
-        endif()
-    endforeach()
-
-    set(CMAKE_REQUIRED_QUIET ${_saved_quiet})
-endfunction()
-
-# --- 2. Global Preprocessor Definitions ---
+# --- 1. Global Preprocessor Definitions ---
 #
 # Force 64-bit time_t and file offsets to prevent Y2038 issues and
 # handle large files on 32-bit platforms.
@@ -59,8 +28,8 @@ endif()
 
 # --- 4. Compiler Warning and Optimization Flags ---
 #
-# These flags are applied to every compiled target in the project.
-# Each flag is tested at configure time; unsupported flags are silently
+# These flags are applied per-target via add_checked_flags().
+# Each flag is probed at configure time; unsupported flags are silently
 # skipped so the build remains portable across compiler versions.
 set(CPULIMIT_C_FLAGS
     # Basic warnings
