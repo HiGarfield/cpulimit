@@ -5,7 +5,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR
         "In-source builds are not allowed.\n"
         "Run CMake from a separate build directory:\n"
-        "  cmake -B build"
+        "  mkdir build && cd build && cmake .."
     )
 endif()
 
