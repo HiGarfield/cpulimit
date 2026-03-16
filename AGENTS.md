@@ -272,7 +272,8 @@ See `/README.md`.
 
 - Formatting MUST follow `/.clang-format`.
 - Code MUST be formatted using `clang-format` with the provided configuration.
-- The command `make format` SHALL be used to format the codebase.
+- The command `make format` or `cmake --build build --target format`
+  SHALL be used to format the codebase.
 - Code formatting MUST be performed before every commit.
 - Standalone `{ ... }` blocks without a control-flow statement MUST NOT be
   used.
