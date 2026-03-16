@@ -96,24 +96,21 @@ add_custom_target(check
 # tests/, formatting them in-place.  Mirrors the behaviour of the
 # "format" targets in src/Makefile and tests/Makefile.
 #
+# Globbing is delegated to cmake/RunFormat.cmake which runs at build
+# time, so newly added or renamed source files are always picked up
+# without a CMake reconfiguration.  The script also validates that
+# clang-format is available and fails with a clear message if not.
+#
 # Usage (from the build directory):
 #   cmake --build . --target format
 
-file(GLOB _format_src_files
-    "${PROJECT_SOURCE_DIR}/src/*.c"
-    "${PROJECT_SOURCE_DIR}/src/*.h"
-)
-file(GLOB _format_tests_files
-    "${PROJECT_SOURCE_DIR}/tests/*.c"
-    "${PROJECT_SOURCE_DIR}/tests/*.h"
-)
-
 add_custom_target(format
     COMMAND
-        "${CLANG_FORMAT_EXECUTABLE}"
-        -i
-        ${_format_src_files}
-        ${_format_tests_files}
+        ${CMAKE_COMMAND}
+        "-DCLANG_FORMAT_EXECUTABLE=${CLANG_FORMAT_EXECUTABLE}"
+        "-DSRC_DIR=${PROJECT_SOURCE_DIR}/src"
+        "-DTESTS_DIR=${PROJECT_SOURCE_DIR}/tests"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RunFormat.cmake"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     COMMENT "Formatting source files with clang-format..."
     VERBATIM

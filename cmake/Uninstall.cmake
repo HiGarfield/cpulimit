@@ -15,9 +15,15 @@ if(NOT EXISTS "${BUILD_DIR}/install_manifest.txt")
 endif()
 
 file(READ "${BUILD_DIR}/install_manifest.txt" _files)
+# Normalise Windows line endings before splitting.
+string(REPLACE "\r" "" _files "${_files}")
 string(REGEX REPLACE "\n" ";" _files "${_files}")
 
 foreach(_file ${_files})
+    # Skip empty entries produced by a trailing newline in the manifest.
+    if(NOT _file)
+        continue()
+    endif()
     if(EXISTS "$ENV{DESTDIR}${_file}" OR
        IS_SYMLINK "$ENV{DESTDIR}${_file}")
         message(STATUS "Removing: $ENV{DESTDIR}${_file}")
