@@ -141,16 +141,38 @@ To uninstall cpulimit, use **one of** the following methods:
   sudo gmake uninstall
   ```
 
-- **Uninstall with `cmake` installed executable on Linux/macOS/FreeBSD:**
+- **Uninstall with `cmake` on Linux/macOS/FreeBSD:**
 
   ```sh
-  sudo xargs rm -f < build/install_manifest.txt
+  sudo cmake --build build --target uninstall
   ```
 
 - **Without a build environment:** Remove the executable manually
 
   ```sh
   sudo rm -f /usr/local/bin/cpulimit
+  ```
+
+### Format Source Code
+
+To format all source files with `clang-format`, use **one of** the following methods:
+
+- **Format with `make` on Linux/macOS:**
+
+  ```sh
+  make format
+  ```
+
+- **Format with `gmake` on FreeBSD:**
+
+  ```sh
+  gmake format
+  ```
+
+- **Format with `cmake` on Linux/macOS/FreeBSD:**
+
+  ```sh
+  cmake --build build --target format
   ```
 
 ### Run Tests

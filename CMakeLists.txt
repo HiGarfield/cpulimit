@@ -49,8 +49,16 @@ endif()
 # Usage (from the build directory):
 #   cmake --build . --target check
 
+find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 find_program(CPPCHECK_EXECUTABLE cppcheck)
 find_program(CLANG_TIDY_EXECUTABLE clang-tidy)
+
+if(NOT CLANG_FORMAT_EXECUTABLE)
+    message(WARNING
+        "clang-format not found; 'format' target will fail at build time. "
+        "Install clang-format to enable source formatting."
+    )
+endif()
 
 if(NOT CPPCHECK_EXECUTABLE)
     message(WARNING
@@ -79,5 +87,52 @@ add_custom_target(check
         -P "${PROJECT_SOURCE_DIR}/cmake/RunCheck.cmake"
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     COMMENT "Running static analysis (cppcheck + clang-tidy)..."
+    VERBATIM
+)
+
+# --- 8. Format Target ---
+#
+# Runs clang-format on all C source and header files in src/ and
+# tests/, formatting them in-place.  Mirrors the behaviour of the
+# "format" targets in src/Makefile and tests/Makefile.
+#
+# Usage (from the build directory):
+#   cmake --build . --target format
+
+file(GLOB _format_src_files
+    "${PROJECT_SOURCE_DIR}/src/*.c"
+    "${PROJECT_SOURCE_DIR}/src/*.h"
+)
+file(GLOB _format_tests_files
+    "${PROJECT_SOURCE_DIR}/tests/*.c"
+    "${PROJECT_SOURCE_DIR}/tests/*.h"
+)
+
+add_custom_target(format
+    COMMAND
+        "${CLANG_FORMAT_EXECUTABLE}"
+        -i
+        ${_format_src_files}
+        ${_format_tests_files}
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    COMMENT "Formatting source files with clang-format..."
+    VERBATIM
+)
+
+# --- 9. Uninstall Target ---
+#
+# Removes all files that were recorded in the CMake install manifest.
+# Mirrors the behaviour of the "uninstall" target in src/Makefile.
+#
+# Usage (from the build directory):
+#   sudo cmake --build . --target uninstall
+
+add_custom_target(uninstall
+    COMMAND
+        ${CMAKE_COMMAND}
+        "-DBUILD_DIR=${CMAKE_BINARY_DIR}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/Uninstall.cmake"
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "Uninstalling..."
     VERBATIM
 )
