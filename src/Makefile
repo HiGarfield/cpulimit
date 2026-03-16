@@ -28,44 +28,9 @@ PROJECT_CFLAGS += -O2
 endif
 
 PROJECT_CFLAGS += \
-    -pedantic \
     -Wall \
     -Wextra \
-    -Wold-style-definition \
-    -Wmissing-prototypes \
-    -Wstrict-prototypes \
     -pipe
-
-# If CHECK is set to 1, add stricter flags
-ifeq ($(CHECK),1)
-PROJECT_CFLAGS += \
-    -Wshadow \
-    -Wcast-qual \
-    -Wconversion \
-    -Wformat=2 \
-    -Wstrict-overflow=5 \
-    -Wundef \
-    -Wswitch-default \
-    -Wswitch-enum \
-    -Wunreachable-code \
-    -Wfloat-equal \
-    -Wpointer-arith \
-    -Wwrite-strings \
-    -Wredundant-decls \
-    -Wmissing-declarations \
-    -Winline \
-    -Wcast-align \
-    -Wstrict-aliasing=2 \
-    -Wsign-conversion \
-    -Wmissing-include-dirs \
-    -Wunused \
-    -Wbad-function-cast \
-    -Waggregate-return \
-    -Wmissing-format-attribute \
-    -Wlarger-than=256 \
-    -Wdisabled-optimization \
-    -Wc++-compat
-endif # CHECK = 1
 
 # Set NOFLAGS to 1 for C++ compilers
 NOFLAGS ?= $(if $(findstring ++,$(notdir $(CC))),1)

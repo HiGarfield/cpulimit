@@ -7,20 +7,20 @@ command -v cmake >/dev/null 2>&1 || {
 	exit 1
 }
 
-# Clean previous build artifacts
+# Clean previous build artifacts and create a fresh build directory
 rm -rf build
-
-# Create a new build directory
 mkdir build
-cd build
 
-# Run CMake to configure the project
-cmake -DCMAKE_BUILD_TYPE=Release ..
+# Configure the project.  Run cmake from inside the build directory so
+# that the working directory of subsequent commands is unaffected.
+(cd build && cmake -DCMAKE_BUILD_TYPE=Release ..)
 
-# Build the project using the generated Makefiles
-cmake --build .
+# Build all targets
+cmake --build build
 
-cd ..
+# Run the test suite
+cmake --build build --target test
 
-echo "Build completed successfully."
-echo "Executables are in the 'build/src' and 'build/tests' directories."
+echo "Build and tests completed successfully."
+echo "Executable: build/src/cpulimit"
+echo "Test binary: build/tests/cpulimit_test"
