@@ -1,14 +1,23 @@
 cmake_minimum_required(VERSION 3.5)
 
+# Prevent in-source builds.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR
+        "In-source builds are not allowed.\n"
+        "Run CMake from a separate build directory:\n"
+        "  mkdir build && cd build && cmake .."
+    )
+endif()
+
 project(cpulimit LANGUAGES C)
 
 # --- 1. Operating System Compatibility Check ---
-set(SUPPORTED_OS Linux Darwin FreeBSD)
-list(FIND SUPPORTED_OS ${CMAKE_SYSTEM_NAME} _os_index)
-if(_os_index EQUAL -1)
+set(CPULIMIT_SUPPORTED_OS Linux Darwin FreeBSD)
+list(FIND CPULIMIT_SUPPORTED_OS ${CMAKE_SYSTEM_NAME} _cpulimit_os_index)
+if(_cpulimit_os_index EQUAL -1)
     message(FATAL_ERROR
         "Unsupported operating system: ${CMAKE_SYSTEM_NAME}\n"
-        "Supported: ${SUPPORTED_OS}"
+        "Supported: ${CPULIMIT_SUPPORTED_OS}"
     )
 endif()
 
@@ -22,36 +31,32 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Set default build type to Release
+# --- 4. Default Build Type ---
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+        Debug Release RelWithDebInfo MinSizeRel
+    )
 endif()
 
-# --- 4. Project Options ---
+# --- 5. Project Options ---
 option(CPULIMIT_BUILD_TESTS "Build test binaries" ON)
 
-# --- 5. Common Build Options ---
+# --- 6. Build Utilities and Settings ---
+include(cmake/CheckedFlags.cmake)
 include(cmake/CpulimitOptions.cmake)
 
-# --- 6. Subdirectories ---
+# --- 7. Subdirectories ---
 add_subdirectory(src)
 if(CPULIMIT_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# --- 7. Check Target (Static Analysis) ---
-#
-# Runs cppcheck and clang-tidy on src/ and tests/, generating
-# per-directory report files.  Mirrors the behaviour of the
-# src/Makefile and tests/Makefile "check" targets without invoking
-# those Makefiles.
-#
-# Usage (from the build directory):
-#   cmake --build . --target check
-
+# --- 8. Tool Discovery ---
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 find_program(CPPCHECK_EXECUTABLE cppcheck)
 find_program(CLANG_TIDY_EXECUTABLE clang-tidy)
+find_program(VALGRIND_EXECUTABLE valgrind)
 
 if(NOT CLANG_FORMAT_EXECUTABLE)
     message(WARNING
@@ -74,6 +79,14 @@ if(NOT CLANG_TIDY_EXECUTABLE)
     )
 endif()
 
+# --- 9. Check Target (Static Analysis) ---
+#
+# Runs cppcheck and clang-tidy on src/ and tests/, generating
+# per-directory report files.
+#
+# Usage:
+#   cmake --build <build-dir> --target check
+
 add_custom_target(check
     COMMAND
         ${CMAKE_COMMAND}
@@ -90,19 +103,13 @@ add_custom_target(check
     VERBATIM
 )
 
-# --- 8. Format Target ---
+# --- 10. Format Target ---
 #
-# Runs clang-format on all C source and header files in src/ and
-# tests/, formatting them in-place.  Mirrors the behaviour of the
-# "format" targets in src/Makefile and tests/Makefile.
+# Runs clang-format -i on all C source and header files in src/ and
+# tests/.
 #
-# Globbing is delegated to cmake/RunFormat.cmake which runs at build
-# time, so newly added or renamed source files are always picked up
-# without a CMake reconfiguration.  The script also validates that
-# clang-format is available and fails with a clear message if not.
-#
-# Usage (from the build directory):
-#   cmake --build . --target format
+# Usage:
+#   cmake --build <build-dir> --target format
 
 add_custom_target(format
     COMMAND
@@ -116,13 +123,39 @@ add_custom_target(format
     VERBATIM
 )
 
-# --- 9. Uninstall Target ---
+# --- 11. Valgrind Target (Dynamic Analysis) ---
 #
-# Removes all files that were recorded in the CMake install manifest.
-# Mirrors the behaviour of the "uninstall" target in src/Makefile.
+# Runs the test binary under valgrind to detect memory errors and
+# leaks.  Only created when tests are enabled and valgrind is found.
 #
-# Usage (from the build directory):
-#   sudo cmake --build . --target uninstall
+# Usage:
+#   cmake --build <build-dir> --target valgrind
+
+if(CPULIMIT_BUILD_TESTS)
+    if(VALGRIND_EXECUTABLE)
+        add_custom_target(valgrind
+            COMMAND
+                "${VALGRIND_EXECUTABLE}"
+                --leak-check=full
+                --error-exitcode=1
+                $<TARGET_FILE:cpulimit_test>
+            COMMENT "Running dynamic analysis with valgrind..."
+            VERBATIM
+        )
+        add_dependencies(valgrind cpulimit_test)
+    else()
+        message(STATUS
+            "valgrind not found; 'valgrind' target will not be available."
+        )
+    endif()
+endif()
+
+# --- 12. Uninstall Target ---
+#
+# Removes all files recorded in the CMake install manifest.
+#
+# Usage:
+#   sudo cmake --build <build-dir> --target uninstall
 
 add_custom_target(uninstall
     COMMAND
