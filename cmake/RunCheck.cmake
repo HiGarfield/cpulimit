@@ -92,11 +92,38 @@ list(APPEND _ct_extra --extra-arg=-Wno-unknown-warning-option)
 
 # --- 5. Common cppcheck options ---
 
+# Detect cppcheck version. --check-level=exhaustive was introduced in
+# cppcheck 2.8; skip the flag on older releases to avoid a fatal error.
+execute_process(
+    COMMAND "${CPPCHECK_EXECUTABLE}" --version
+    OUTPUT_VARIABLE _cppcheck_version_str
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+# Extract the version number (e.g. "Cppcheck 2.7" -> major=2, minor=7).
+# Default to 0.0 if parsing fails (flag will not be added).
+set(_cppcheck_major 0)
+set(_cppcheck_minor 0)
+string(REGEX MATCH "([0-9]+)\\.([0-9]+)" _cppcheck_ver
+    "${_cppcheck_version_str}")
+if(_cppcheck_ver)
+    string(REGEX REPLACE "^([0-9]+)\\..*" "\\1" _cppcheck_major
+        "${_cppcheck_ver}")
+    string(REGEX REPLACE "^[0-9]+\\.([0-9]+)" "\\1" _cppcheck_minor
+        "${_cppcheck_ver}")
+endif()
+
+set(_cppcheck_check_level "")
+if(_cppcheck_major GREATER 2 OR
+        (_cppcheck_major EQUAL 2 AND _cppcheck_minor GREATER_EQUAL 8))
+    set(_cppcheck_check_level --check-level=exhaustive)
+endif()
+
 set(_cppcheck_common
     --enable=all
     --language=c
     --inconclusive
-    --check-level=exhaustive
+    ${_cppcheck_check_level}
     --library=gnu
     --force
     --std=c89
