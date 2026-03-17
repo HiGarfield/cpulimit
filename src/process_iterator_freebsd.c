@@ -168,7 +168,10 @@ int init_process_iterator(struct process_iterator *iter,
  * short process name), the remaining arguments are scanned for one
  * whose basename matches ki_comm, to handle wrapper tools such as
  * valgrind that may update ki_comm to reflect the guest binary name.
- * If no argument matches ki_comm, ki_comm itself is used as a fallback.
+ * If no argument matches ki_comm, argv[0] is used as the command path,
+ * since wrapper tools (e.g. valgrind on FreeBSD) may update argv[0]
+ * in process memory to reflect the guest binary path even when ki_comm
+ * still reflects the wrapper's own kernel binary name.
  */
 static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
                               struct process *proc, int read_cmd) {
@@ -197,16 +200,19 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     cmd = args[0];
     cmd_basename = file_basename(cmd);
     /*
-     * kvm_getargv() returns the process argv as stored by the kernel.
-     * When the process runs under a wrapper tool (e.g. valgrind),
-     * args[0] is the wrapper binary, not the actual process.
+     * kvm_getargv() reads the process argv from its own memory.
+     * On FreeBSD, wrapper tools (e.g. valgrind) may update argv[0]
+     * in-memory to reflect the guest binary path, while ki_comm still
+     * reflects the wrapper tool's kernel binary name (set at exec time).
      *
      * ki_comm is the kernel-maintained short process name (up to
      * MAXCOMLEN characters). Wrapper tools may update ki_comm to
      * reflect the guest binary name. When basename(args[0]) does
      * not match ki_comm, scan the remaining arguments for one whose
      * basename matches ki_comm to recover the actual executable path.
-     * If no argument matches, fall back to ki_comm itself.
+     * If no argument matches ki_comm, use args[0] as the command path,
+     * since the process itself may have updated argv[0] in-memory to
+     * reflect the guest binary.
      */
     if (kproc->ki_comm[0] != '\0' &&
         strncmp(cmd_basename, kproc->ki_comm, (size_t)MAXCOMLEN) != 0) {
@@ -218,18 +224,12 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
                 break;
             }
         }
-        if (cmd == args[0]) {
-            /*
-             * No argument matched ki_comm; fall back to ki_comm as
-             * the command name (basename only, no full path).
-             */
-            strncpy(proc->command, kproc->ki_comm, (size_t)len_max);
-            proc->command[len_max] = '\0';
-            if (proc->command[0] == '\0') {
-                return -1;
-            }
-            return 0;
-        }
+        /*
+         * If no argument matched ki_comm, cmd remains args[0].
+         * This handles the case where a wrapper (e.g. valgrind) updates
+         * argv[0] in-memory to the guest binary path but does not update
+         * ki_comm to match.
+         */
     }
     strncpy(proc->command, cmd, (size_t)len_max);
     proc->command[len_max] = '\0';
