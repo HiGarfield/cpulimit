@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/proc.h>
+#include <sys/sysctl.h>
 #include <sys/types.h>
 
 /**
@@ -158,6 +159,74 @@ static double platform_time_to_ms(double platform_time) {
 }
 
 /**
+ * @brief Retrieve the command path (argv[0]) for a process
+ * @param pid Process ID to query
+ * @param buf Buffer to populate with command path
+ * @param bufsize Size of the buffer in bytes
+ * @return 0 on success, -1 on failure (including if process doesn't exist,
+ *         has no command, or if buffer is too small)
+ */
+int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
+    int mib[3] = {CTL_KERN, KERN_PROCARGS2};
+    char *procargs = NULL;
+    const char *arg_start, *null_pos, *end;
+    size_t size = 0, arg_len;
+
+    if (pid <= 0 || buf == NULL || bufsize == 0) {
+        return -1;
+    }
+
+    mib[2] = pid;
+
+    if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0) {
+        return -1;
+    }
+
+    procargs = (char *)malloc(size);
+    if (procargs == NULL) {
+        return -1;
+    }
+
+    if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
+        free(procargs);
+        return -1;
+    }
+
+    end = procargs + size;
+
+    /* Skip argc and leading '\0' bytes */
+    arg_start = procargs + sizeof(int);
+    while (arg_start < end && *arg_start == '\0') {
+        arg_start++;
+    }
+
+    if (arg_start >= end) {
+        free(procargs);
+        return -1;
+    }
+
+    /* Find end of argv[0] */
+    null_pos = (const char *)memchr(arg_start, '\0', (size_t)(end - arg_start));
+    if (null_pos == NULL) {
+        free(procargs);
+        return -1;
+    }
+
+    arg_len = (size_t)(null_pos - arg_start);
+
+    if (arg_len + 1 > bufsize) {
+        free(procargs);
+        return -1;
+    }
+
+    memcpy(buf, arg_start, arg_len);
+    buf[arg_len] = '\0';
+
+    free(procargs);
+    return 0;
+}
+
+/**
  * @brief Convert macOS proc_taskallinfo to portable process structure
  * @param task_info Pointer to source proc_taskallinfo structure
  * @param proc Pointer to destination process structure to populate
@@ -168,7 +237,7 @@ static double platform_time_to_ms(double platform_time) {
  * converts it to the platform-independent process structure. CPU time is
  * calculated as the sum of user and system time, converted to milliseconds.
  *
- * When read_cmd is set, retrieves the executable path via proc_pidpath().
+ * When read_cmd is set, retrieves the executable path via sysctl.
  */
 static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
@@ -181,11 +250,11 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
     if (!read_cmd) {
         return 0;
     }
-    /* Retrieve full path to executable */
-    if (proc_pidpath(proc->pid, proc->command, sizeof(proc->command)) <= 0) {
+
+    if (get_proc_argv0(proc->pid, proc->command, sizeof(proc->command)) != 0) {
         return -1;
     }
-    proc->command[sizeof(proc->command) - 1] = '\0';
+
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
