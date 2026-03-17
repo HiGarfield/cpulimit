@@ -126,7 +126,8 @@ add_custom_target(format
 # --- 11. Valgrind Target (Dynamic Analysis) ---
 #
 # Runs the test binary under valgrind to detect memory errors and
-# leaks.  Only created when tests are enabled and valgrind is found.
+# leaks.  Always created when tests are enabled; performs analysis
+# when valgrind is found, otherwise a no-op target is created.
 #
 # Usage:
 #   cmake --build <build-dir> --target valgrind
@@ -145,8 +146,16 @@ if(CPULIMIT_BUILD_TESTS)
         )
         add_dependencies(valgrind cpulimit_test)
     else()
+        add_custom_target(valgrind
+            COMMAND
+                ${CMAKE_COMMAND} -E echo
+                "valgrind not found; skipping dynamic analysis."
+            COMMENT "valgrind not found; skipping dynamic analysis."
+            VERBATIM
+        )
         message(STATUS
-            "valgrind not found; 'valgrind' target will not be available."
+            "valgrind not found; 'valgrind' target will skip dynamic "
+            "analysis."
         )
     endif()
 endif()
