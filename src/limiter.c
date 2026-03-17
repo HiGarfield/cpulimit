@@ -119,14 +119,14 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
 
     /*
      * Create pipe for synchronization.
-     * The write end (sync_pipe[1]) is marked O_CLOEXEC so that a successful
-     * execvp() in the child closes it automatically, signalling the parent
-     * that exec has completed.  On exec failure the child closes it
-     * explicitly before _exit().  This lets the parent perform a second
-     * read that blocks until exec is done (or the child has exited), which
-     * ensures we never send signals to the child while it is in the middle
-     * of exec setup (critical for correct behaviour under tools such as
-     * valgrind that intercept execve).
+     * The write end (sync_pipe[1]) has its close-on-exec flag set (FD_CLOEXEC)
+     * so that a successful execvp() in the child closes it automatically,
+     * signalling the parent that exec has completed.  On exec failure the
+     * child closes it explicitly before _exit().  This lets the parent
+     * perform a second read that blocks until exec is done (or the child
+     * has exited), which ensures we never send signals to the child while
+     * it is in the middle of exec setup (critical for correct behaviour
+     * under tools such as valgrind that intercept execve).
      */
     if (pipe(sync_pipe) < 0) {
         perror("pipe");
@@ -194,9 +194,10 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          * Signal parent that child initialization is complete.
          * Parent blocks until receiving this byte.
          * Do NOT close sync_pipe[1] here: it must remain open until exec
-         * so that the O_CLOEXEC flag causes it to be closed automatically
-         * on a successful execvp(), signalling exec completion to the
-         * parent.  On exec failure the code below closes it explicitly.
+         * so that the close-on-exec flag (FD_CLOEXEC) causes it to be
+         * closed automatically on a successful execvp(), signalling exec
+         * completion to the parent.  On exec failure the code below closes
+         * it explicitly.
          */
         if (write(sync_pipe[1], "A", 1) != 1) {
             perror("write sync");
@@ -207,9 +208,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         /*
          * Replace child process image with the user command.
          * execvp() searches PATH for the executable and transfers control.
-         * If successful, this function never returns and the O_CLOEXEC flag
-         * on sync_pipe[1] causes the kernel to close it automatically,
-         * signalling exec completion to the parent.
+         * If successful, this function never returns and the close-on-exec
+         * flag (FD_CLOEXEC) on sync_pipe[1] causes the kernel to close it
+         * automatically, signalling exec completion to the parent.
          *
          * Pre-check: if the target is an explicit path, detect a script
          * whose shebang interpreter is missing before calling execvp().
@@ -220,6 +221,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          */
         if (strchr(cfg->command_args[0], '/') != NULL &&
             is_script_missing_interpreter(cfg->command_args[0])) {
+            fprintf(stderr,
+                    "%s: cannot execute: shebang interpreter not found\n",
+                    cfg->command_args[0]);
             _exit(126); /* Script exists but shebang interpreter missing */
         }
         execvp(cfg->command_args[0], cfg->command_args);
@@ -240,7 +244,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          * that the file itself is present.
          *
          * Close sync_pipe[1] explicitly to signal exec failure to the
-         * parent (the O_CLOEXEC path only applies on success).
+         * parent (the FD_CLOEXEC path only applies on success).
          */
 
         saved_errno = errno;
@@ -313,7 +317,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         }
         /*
          * Wait for exec to complete (or the child to exit on exec failure).
-         * The write end of sync_pipe carries O_CLOEXEC so a successful exec
+         * The write end of sync_pipe has FD_CLOEXEC set, so a successful exec
          * closes it automatically; on exec failure the child closes it
          * explicitly before _exit().  Either way, this read returns EOF
          * (n_read == 0), confirming that the child's process image is ready
@@ -327,6 +331,18 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
             n_read = read(sync_pipe[0], &sync_ack, 1);
         } while (n_read < 0 && errno == EINTR);
         close(sync_pipe[0]);
+        if (n_read < 0) {
+            pid_t wait_res;
+            perror("read exec-sync");
+            kill(cmd_runner_pid, SIGKILL);
+            do {
+                wait_res = waitpid(cmd_runner_pid, NULL, 0);
+            } while (wait_res == -1 && errno == EINTR);
+            if (wait_res == -1) {
+                perror("waitpid");
+            }
+            exit(EXIT_FAILURE);
+        }
 
         /*
          * Apply CPU limiting to child process.
