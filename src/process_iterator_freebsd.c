@@ -161,11 +161,19 @@ int init_process_iterator(struct process_iterator *iter,
  * field (in microseconds) is converted to milliseconds for cpu_time.
  *
  * When read_cmd is set, retrieves command arguments via kvm_getargv()
- * and uses the first argument (argv[0]) as the command path.
+ * and uses the first argument (argv[0]) as the command path. If the
+ * basename of argv[0] does not match ki_comm (the kernel-maintained
+ * short process name), the remaining arguments are scanned for one
+ * whose basename matches ki_comm, to handle wrapper tools such as
+ * valgrind that may update ki_comm to reflect the guest binary name.
+ * If no argument matches ki_comm, ki_comm itself is used as a fallback.
  */
 static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
                               struct process *proc, int read_cmd) {
     char **args;
+    const char *cmd;
+    const char *cmd_basename;
+    const char *last_slash;
     int len_max;
     if (kproc == NULL || proc == NULL) {
         return -1;
@@ -185,7 +193,47 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     if (args == NULL || args[0] == NULL) {
         return -1;
     }
-    strncpy(proc->command, args[0], (size_t)len_max);
+    cmd = args[0];
+    last_slash = strrchr(cmd, '/');
+    cmd_basename = (last_slash != NULL) ? (last_slash + 1) : cmd;
+    /*
+     * kvm_getargv() returns the process argv as stored by the kernel.
+     * When the process runs under a wrapper tool (e.g. valgrind),
+     * args[0] is the wrapper binary, not the actual process.
+     *
+     * ki_comm is the kernel-maintained short process name (up to
+     * MAXCOMLEN characters). Wrapper tools may update ki_comm to
+     * reflect the guest binary name. When basename(args[0]) does
+     * not match ki_comm, scan the remaining arguments for one whose
+     * basename matches ki_comm to recover the actual executable path.
+     * If no argument matches, fall back to ki_comm itself.
+     */
+    if (kproc->ki_comm[0] != '\0' &&
+        strncmp(cmd_basename, kproc->ki_comm, (size_t)MAXCOMLEN) != 0) {
+        int i;
+        for (i = 1; args[i] != NULL; i++) {
+            const char *arg_basename;
+            const char *arg_slash = strrchr(args[i], '/');
+            arg_basename = (arg_slash != NULL) ? (arg_slash + 1) : args[i];
+            if (strncmp(arg_basename, kproc->ki_comm, (size_t)MAXCOMLEN) == 0) {
+                cmd = args[i];
+                break;
+            }
+        }
+        if (cmd == args[0]) {
+            /*
+             * No argument matched ki_comm; fall back to ki_comm as
+             * the command name (basename only, no full path).
+             */
+            strncpy(proc->command, kproc->ki_comm, (size_t)len_max);
+            proc->command[len_max] = '\0';
+            if (proc->command[0] == '\0') {
+                return -1;
+            }
+            return 0;
+        }
+    }
+    strncpy(proc->command, cmd, (size_t)len_max);
     proc->command[len_max] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
