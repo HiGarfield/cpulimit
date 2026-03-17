@@ -172,11 +172,9 @@ static const char *get_self_command(char *buf, size_t buf_size) {
         found = 1;
     }
     free(proc);
-    /*
-     * Close the iterator; its result does not affect the validity of
-     * the data already copied into buf, so ignore the return value.
-     */
-    close_process_iterator(&iter);
+    if (close_process_iterator(&iter) != 0) {
+        return NULL;
+    }
     return found ? buf : NULL;
 }
 
@@ -4461,36 +4459,41 @@ static void test_process_group_find_by_name(void) {
      * command; get_self_command() always returns the correct value.
      */
     self_command = get_self_command(self_cmd, CMD_BUFF_SIZE);
-    if (self_command != NULL) {
-        /*
-         * Verify that find_process_by_name can find the current process
-         * using its OS-visible command name.
-         */
-        found_pid = find_process_by_name(self_command);
-        self_pid = getpid();
-        assert(found_pid == self_pid);
+    /*
+     * get_self_command() queries the current process via the iterator;
+     * a NULL return means the iterator or read_cmd is broken, which is
+     * a real regression rather than an expected skip condition.
+     */
+    assert(self_command != NULL);
 
-        /*
-         * Test Case 2: Pass an incorrect process name by appending 'x'
-         * to the current process's command.
-         * Expectation: Should return 0 (process not found).
-         */
-        strcpy(wrong_name, self_command); /* Copy the OS-visible command */
-        strcat(wrong_name, "x"); /* Append 'x' to make it non-matching */
-        found_pid = find_process_by_name(wrong_name);
-        assert(found_pid == 0);
+    /*
+     * Verify that find_process_by_name can find the current process
+     * using its OS-visible command name.
+     */
+    found_pid = find_process_by_name(self_command);
+    self_pid = getpid();
+    assert(found_pid == self_pid);
 
-        /*
-         * Test Case 3: Pass a copy of the current process's command with
-         * the last character removed.
-         * Expectation: Should return 0 (process not found).
-         */
-        strcpy(wrong_name, self_command); /* Copy the OS-visible command */
-        len = strlen(wrong_name);
-        wrong_name[len - 1] = '\0'; /* Remove the last character */
-        found_pid = find_process_by_name(wrong_name);
-        assert(found_pid == 0);
-    }
+    /*
+     * Test Case 2: Pass an incorrect process name by appending 'x'
+     * to the current process's command.
+     * Expectation: Should return 0 (process not found).
+     */
+    strcpy(wrong_name, self_command); /* Copy the OS-visible command */
+    strcat(wrong_name, "x");          /* Append 'x' to make it non-matching */
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
+
+    /*
+     * Test Case 3: Pass a copy of the current process's command with
+     * the last character removed.
+     * Expectation: Should return 0 (process not found).
+     */
+    strcpy(wrong_name, self_command); /* Copy the OS-visible command */
+    len = strlen(wrong_name);
+    wrong_name[len - 1] = '\0'; /* Remove the last character */
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
 
 #if defined(__linux__)
     /*
@@ -4704,7 +4707,8 @@ static void test_process_group_find_by_name_self(void) {
 
     self_buf = (char *)malloc(CMD_BUFF_SIZE);
     if (self_buf == NULL) {
-        return;
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
     }
     self_command = get_self_command(self_buf, CMD_BUFF_SIZE);
     if (self_command == NULL) {
