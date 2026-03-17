@@ -56,6 +56,11 @@ jobs:
           sudo apt -qq install build-essential clang-format cppcheck \
               clang-tidy valgrind gcc-multilib libc6-dev-i386 musl-tools
 
+      - name: Install tools (macOS)
+        if: startsWith(matrix.os, 'macos-')
+        run: |
+          brew install valgrind || true
+
       - name: Build, test and analyse
         run: |
           export CTEST_OUTPUT_ON_FAILURE=1
@@ -94,9 +99,7 @@ jobs:
               -B build
           cmake --build build
           cmake --build build --target test
-          if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
-            cmake --build build --target valgrind
-          fi
+          cmake --build build --target valgrind
 
       - name: Functional test with sudo
         run: |
@@ -139,7 +142,7 @@ jobs:
           arch: ${{ matrix.arch }}
           usesh: true
           prepare: |
-            pkg install -y -q gcc llvm sudo cmake
+            pkg install -y -q gcc llvm sudo cmake valgrind || true
           run: |
             export CTEST_OUTPUT_ON_FAILURE=1
 
@@ -168,6 +171,7 @@ jobs:
             cp -f ./build/tests/cpulimit_test "${random_path}"
             echo "${random_path}"
             sudo "${random_path}"
+            cmake --build build --target valgrind
             cp -f ./build/src/cpulimit \
                 ./build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
 
