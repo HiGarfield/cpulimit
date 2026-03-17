@@ -142,7 +142,8 @@ jobs:
           arch: ${{ matrix.arch }}
           usesh: true
           prepare: |
-            pkg install -y -q gcc llvm sudo cmake valgrind || true
+            pkg install -y -q gcc llvm sudo cmake
+            pkg install -y -q valgrind || true
           run: |
             export CTEST_OUTPUT_ON_FAILURE=1
 
