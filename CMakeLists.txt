@@ -145,8 +145,16 @@ if(CPULIMIT_BUILD_TESTS)
         )
         add_dependencies(valgrind cpulimit_test)
     else()
+        add_custom_target(valgrind
+            COMMAND
+                ${CMAKE_COMMAND} -E echo
+                "valgrind not found; skipping dynamic analysis."
+            COMMENT "valgrind not found; skipping dynamic analysis."
+            VERBATIM
+        )
         message(STATUS
-            "valgrind not found; 'valgrind' target will not be available."
+            "valgrind not found; 'valgrind' target will skip dynamic "
+            "analysis."
         )
     endif()
 endif()
