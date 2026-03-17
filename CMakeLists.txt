@@ -79,7 +79,7 @@ if(NOT CLANG_TIDY_EXECUTABLE)
     )
 endif()
 
-if(NOT VALGRIND_EXECUTABLE)
+if(CPULIMIT_BUILD_TESTS AND NOT VALGRIND_EXECUTABLE)
     message(WARNING
         "valgrind not found; 'valgrind' target will fail at build time. "
         "Install valgrind to enable dynamic analysis."
@@ -142,11 +142,10 @@ add_custom_target(format
 if(CPULIMIT_BUILD_TESTS)
     add_custom_target(valgrind
         COMMAND
-            "${VALGRIND_EXECUTABLE}"
-            --leak-check=full
-            --show-leak-kinds=all
-            --error-exitcode=1
-            $<TARGET_FILE:cpulimit_test>
+            ${CMAKE_COMMAND}
+            "-DVALGRIND_EXECUTABLE=${VALGRIND_EXECUTABLE}"
+            "-DTEST_BINARY=$<TARGET_FILE:cpulimit_test>"
+            -P "${PROJECT_SOURCE_DIR}/cmake/RunValgrind.cmake"
         COMMENT "Running dynamic analysis with valgrind..."
         VERBATIM
     )
