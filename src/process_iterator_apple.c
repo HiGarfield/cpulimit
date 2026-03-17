@@ -164,13 +164,14 @@ static double platform_time_to_ms(double platform_time) {
  * @param buf Buffer to populate with argv[0]
  * @param bufsize Size of the buffer in bytes
  * @return 0 on success, -1 on failure (including if process doesn't exist,
- *         has no command, or if buffer is too small)
+ *         has no command, argv[0] is empty, or if buffer is too small)
  *
  * The KERN_PROCARGS2 buffer layout is:
  *   [argc (int)][exec_path\0][padding \0s][argv[0]\0][argv[1]\0]...
  * exec_path is the kernel-resolved executable path (symlinks resolved),
  * while argv[0] is the string passed by the caller to execve(). This
  * function skips exec_path and its padding to return the true argv[0].
+ * An empty argv[0] is treated as a failure and returns -1.
  */
 int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     int mib[3] = {CTL_KERN, KERN_PROCARGS2};
@@ -244,6 +245,12 @@ int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     }
 
     arg_len = (size_t)(null_pos - ptr);
+
+    /* Reject empty argv[0] (e.g. execve with argv[0]=="") */
+    if (arg_len == 0) {
+        free(procargs);
+        return -1;
+    }
 
     if (arg_len + 1 > bufsize) {
         free(procargs);
