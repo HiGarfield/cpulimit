@@ -59,7 +59,7 @@ jobs:
       - name: Install tools (macOS)
         if: startsWith(matrix.os, 'macos-')
         run: |
-          :
+          brew install valgrind || true
 
       - name: Build, test and analyse
         run: |
@@ -99,7 +99,7 @@ jobs:
               -B build
           cmake --build build
           cmake --build build --target test
-          if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
+          if command -v valgrind >/dev/null 2>&1; then
             cmake --build build --target valgrind
           fi
 
