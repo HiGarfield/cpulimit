@@ -79,6 +79,13 @@ if(NOT CLANG_TIDY_EXECUTABLE)
     )
 endif()
 
+if(NOT VALGRIND_EXECUTABLE)
+    message(WARNING
+        "valgrind not found; 'valgrind' target will fail at build time. "
+        "Install valgrind to enable dynamic analysis."
+    )
+endif()
+
 # --- 9. Check Target (Static Analysis) ---
 #
 # Runs cppcheck and clang-tidy on src/ and tests/, generating
@@ -126,38 +133,24 @@ add_custom_target(format
 # --- 11. Valgrind Target (Dynamic Analysis) ---
 #
 # Runs the test binary under valgrind to detect memory errors and
-# leaks.  Always created when tests are enabled; performs analysis
-# when valgrind is found, otherwise a no-op target is created.
+# leaks.  Created when tests are enabled; fails at build time if
+# valgrind is not installed.
 #
 # Usage:
 #   cmake --build <build-dir> --target valgrind
 
 if(CPULIMIT_BUILD_TESTS)
-    if(VALGRIND_EXECUTABLE)
-        add_custom_target(valgrind
-            COMMAND
-                "${VALGRIND_EXECUTABLE}"
-                --leak-check=full
-                --show-leak-kinds=all
-                --error-exitcode=1
-                $<TARGET_FILE:cpulimit_test>
-            COMMENT "Running dynamic analysis with valgrind..."
-            VERBATIM
-        )
-        add_dependencies(valgrind cpulimit_test)
-    else()
-        add_custom_target(valgrind
-            COMMAND
-                ${CMAKE_COMMAND} -E echo
-                "valgrind not found; skipping dynamic analysis."
-            COMMENT "valgrind not found; skipping dynamic analysis."
-            VERBATIM
-        )
-        message(STATUS
-            "valgrind not found; 'valgrind' target will skip dynamic "
-            "analysis."
-        )
-    endif()
+    add_custom_target(valgrind
+        COMMAND
+            "${VALGRIND_EXECUTABLE}"
+            --leak-check=full
+            --show-leak-kinds=all
+            --error-exitcode=1
+            $<TARGET_FILE:cpulimit_test>
+        COMMENT "Running dynamic analysis with valgrind..."
+        VERBATIM
+    )
+    add_dependencies(valgrind cpulimit_test)
 endif()
 
 # --- 12. Uninstall Target ---
