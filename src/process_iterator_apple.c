@@ -159,17 +159,24 @@ static double platform_time_to_ms(double platform_time) {
 }
 
 /**
- * @brief Retrieve the command path (argv[0]) for a process
+ * @brief Retrieve argv[0] for a process via KERN_PROCARGS2
  * @param pid Process ID to query
- * @param buf Buffer to populate with command path
+ * @param buf Buffer to populate with argv[0]
  * @param bufsize Size of the buffer in bytes
  * @return 0 on success, -1 on failure (including if process doesn't exist,
- *         has no command, or if buffer is too small)
+ *         has no command, argv[0] is empty, or if buffer is too small)
+ *
+ * The KERN_PROCARGS2 buffer layout is:
+ *   [argc (int)][exec_path\0][padding \0s][argv[0]\0][argv[1]\0]...
+ * exec_path is the kernel-resolved executable path (symlinks resolved),
+ * while argv[0] is the string passed by the caller to execve(). This
+ * function skips exec_path and its padding to return the true argv[0].
+ * An empty argv[0] is treated as a failure and returns -1.
  */
 int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     int mib[3] = {CTL_KERN, KERN_PROCARGS2};
     char *procargs = NULL;
-    const char *arg_start, *null_pos, *end;
+    const char *ptr, *null_pos, *end;
     size_t size = 0, arg_len;
 
     if (pid <= 0 || buf == NULL || bufsize == 0) {
@@ -194,32 +201,63 @@ int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 
     end = procargs + size;
 
-    /* Skip argc and leading '\0' bytes */
-    arg_start = procargs + sizeof(int);
-    while (arg_start < end && *arg_start == '\0') {
-        arg_start++;
-    }
-
-    if (arg_start >= end) {
+    /* Buffer must hold at least argc */
+    if (size < sizeof(int)) {
         free(procargs);
         return -1;
     }
 
-    /* Find end of argv[0] */
-    null_pos = (const char *)memchr(arg_start, '\0', (size_t)(end - arg_start));
+    /* Skip argc (first sizeof(int) bytes) to reach exec_path */
+    ptr = procargs + sizeof(int);
+
+    /*
+     * Skip exec_path: the kernel-resolved executable path that follows
+     * argc. Find its terminating '\0', then step past it.
+     */
+    ptr = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
+    if (ptr == NULL) {
+        free(procargs);
+        return -1;
+    }
+    ptr++; /* move past exec_path's '\0' */
+
+    /* Explicit bounds check after advancing past exec_path terminator */
+    if (ptr >= end) {
+        free(procargs);
+        return -1;
+    }
+
+    /* Skip padding '\0' bytes between exec_path and argv[0] */
+    while (ptr < end && *ptr == '\0') {
+        ptr++;
+    }
+
+    if (ptr >= end) {
+        free(procargs);
+        return -1;
+    }
+
+    /* ptr now points to argv[0]; find its terminating '\0' */
+    null_pos = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
     if (null_pos == NULL) {
         free(procargs);
         return -1;
     }
 
-    arg_len = (size_t)(null_pos - arg_start);
+    arg_len = (size_t)(null_pos - ptr);
+
+    /* Reject empty argv[0] (e.g. execve with argv[0]=="") */
+    if (arg_len == 0) {
+        free(procargs);
+        return -1;
+    }
 
     if (arg_len + 1 > bufsize) {
         free(procargs);
         return -1;
     }
 
-    memcpy(buf, arg_start, arg_len);
+    memcpy(buf, ptr, arg_len);
     buf[arg_len] = '\0';
 
     free(procargs);
