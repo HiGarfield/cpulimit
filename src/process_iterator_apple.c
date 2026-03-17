@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/proc.h>
+#include <sys/sysctl.h>
 #include <sys/types.h>
 
 /**
@@ -158,6 +159,112 @@ static double platform_time_to_ms(double platform_time) {
 }
 
 /**
+ * @brief Retrieve argv[0] for a process via KERN_PROCARGS2
+ * @param pid Process ID to query
+ * @param buf Buffer to populate with argv[0]
+ * @param bufsize Size of the buffer in bytes
+ * @return 0 on success, -1 on failure (including if process doesn't exist,
+ *         has no command, argv[0] is empty, or if buffer is too small)
+ *
+ * The KERN_PROCARGS2 buffer layout is:
+ *   [argc (int)][exec_path\0][padding \0s][argv[0]\0][argv[1]\0]...
+ * exec_path is the kernel-resolved executable path (symlinks resolved),
+ * while argv[0] is the string passed by the caller to execve(). This
+ * function skips exec_path and its padding to return the true argv[0].
+ * An empty argv[0] is treated as a failure and returns -1.
+ */
+int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
+    int mib[3] = {CTL_KERN, KERN_PROCARGS2};
+    char *procargs = NULL;
+    const char *ptr, *null_pos, *end;
+    size_t size = 0, arg_len;
+
+    if (pid <= 0 || buf == NULL || bufsize == 0) {
+        return -1;
+    }
+
+    mib[2] = pid;
+
+    if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0) {
+        return -1;
+    }
+
+    procargs = (char *)malloc(size);
+    if (procargs == NULL) {
+        return -1;
+    }
+
+    if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
+        free(procargs);
+        return -1;
+    }
+
+    end = procargs + size;
+
+    /* Buffer must hold at least argc */
+    if (size < sizeof(int)) {
+        free(procargs);
+        return -1;
+    }
+
+    /* Skip argc (first sizeof(int) bytes) to reach exec_path */
+    ptr = procargs + sizeof(int);
+
+    /*
+     * Skip exec_path: the kernel-resolved executable path that follows
+     * argc. Find its terminating '\0', then step past it.
+     */
+    ptr = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
+    if (ptr == NULL) {
+        free(procargs);
+        return -1;
+    }
+    ptr++; /* move past exec_path's '\0' */
+
+    /* Explicit bounds check after advancing past exec_path terminator */
+    if (ptr >= end) {
+        free(procargs);
+        return -1;
+    }
+
+    /* Skip padding '\0' bytes between exec_path and argv[0] */
+    while (ptr < end && *ptr == '\0') {
+        ptr++;
+    }
+
+    if (ptr >= end) {
+        free(procargs);
+        return -1;
+    }
+
+    /* ptr now points to argv[0]; find its terminating '\0' */
+    null_pos = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
+    if (null_pos == NULL) {
+        free(procargs);
+        return -1;
+    }
+
+    arg_len = (size_t)(null_pos - ptr);
+
+    /* Reject empty argv[0] (e.g. execve with argv[0]=="") */
+    if (arg_len == 0) {
+        free(procargs);
+        return -1;
+    }
+
+    if (arg_len + 1 > bufsize) {
+        free(procargs);
+        return -1;
+    }
+
+    memcpy(buf, ptr, arg_len);
+    buf[arg_len] = '\0';
+
+    free(procargs);
+    return 0;
+}
+
+/**
  * @brief Convert macOS proc_taskallinfo to portable process structure
  * @param task_info Pointer to source proc_taskallinfo structure
  * @param proc Pointer to destination process structure to populate
@@ -168,7 +275,7 @@ static double platform_time_to_ms(double platform_time) {
  * converts it to the platform-independent process structure. CPU time is
  * calculated as the sum of user and system time, converted to milliseconds.
  *
- * When read_cmd is set, retrieves the executable path via proc_pidpath().
+ * When read_cmd is set, retrieves the executable path via sysctl.
  */
 static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
@@ -181,11 +288,11 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
     if (!read_cmd) {
         return 0;
     }
-    /* Retrieve full path to executable */
-    if (proc_pidpath(proc->pid, proc->command, sizeof(proc->command)) <= 0) {
+
+    if (get_proc_argv0(proc->pid, proc->command, sizeof(proc->command)) != 0) {
         return -1;
     }
-    proc->command[sizeof(proc->command) - 1] = '\0';
+
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
