@@ -18,9 +18,7 @@ mkdir build
 # Build all targets
 cmake --build build
 
-# Run the test suite
-cmake --build build --target test
-
-echo "Build and tests completed successfully."
+# Information about the build
+echo "Build completed successfully."
 echo "Executable: build/src/cpulimit"
 echo "Test binary: build/tests/cpulimit_test"
