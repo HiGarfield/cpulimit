@@ -4291,7 +4291,6 @@ static void test_process_group_single(int include_children) {
     struct process_group proc_group;
     int iter_idx;
     int ret;
-    int ncpu;
     pid_t self_pid;
     pid_t child_pid;
 
@@ -4329,6 +4328,7 @@ static void test_process_group_single(int include_children) {
         for (node = proc_group.proc_list->first; node != NULL;
              node = node->next) {
             const struct process *proc = (const struct process *)node->data;
+            int ncpu;
             int cpu_unset;
             int cpu_valid;
             assert(proc->pid == child_pid);
