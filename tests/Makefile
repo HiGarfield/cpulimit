@@ -60,7 +60,6 @@ CPPCHECK_OPTS := \
     --language=c \
     --inconclusive \
     --check-level=exhaustive \
-    --max-ctu-depth=10 \
     --library=gnu \
     --force \
     --std=c89 \
