@@ -292,14 +292,6 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
     if (get_proc_argv0(proc->pid, proc->command, sizeof(proc->command)) != 0) {
         return -1;
     }
-
-    /*
-     * Reject processes with empty command names (e.g. execve with
-     * argv[0]=="")
-     */
-    if (proc->command[0] == '\0') {
-        return -1;
-    }
     return 0;
 }
 
