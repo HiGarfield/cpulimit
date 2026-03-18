@@ -59,7 +59,11 @@ jobs:
       - name: Install tools (macOS)
         if: startsWith(matrix.os, 'macos-')
         run: |
-          brew install valgrind || true
+          if [ "$(uname -m)" = "arm64" ]; then
+            echo "Valgrind is not supported on Apple Silicon (arm64); skipping."
+          else
+            brew install valgrind
+          fi
 
       - name: Build, test and analyse
         run: |
