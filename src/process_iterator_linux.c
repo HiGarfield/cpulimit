@@ -19,11 +19,6 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifdef __linux__
-
-#ifndef CPULIMIT_PROCESS_ITERATOR_LINUX_C
-#define CPULIMIT_PROCESS_ITERATOR_LINUX_C
-
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -451,6 +446,3 @@ int close_process_iterator(struct process_iterator *iter) {
     memset(iter, 0, sizeof(*iter));
     return ret;
 }
-
-#endif /* CPULIMIT_PROCESS_ITERATOR_LINUX_C */
-#endif /* __linux__ */

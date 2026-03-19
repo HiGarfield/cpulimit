@@ -21,11 +21,6 @@
  * Author: Simon Sigurdhsson
  */
 
-#ifdef __APPLE__
-
-#ifndef CPULIMIT_PROCESS_ITERATOR_APPLE_C
-#define CPULIMIT_PROCESS_ITERATOR_APPLE_C
-
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -482,6 +477,3 @@ int close_process_iterator(struct process_iterator *iter) {
     memset(iter, 0, sizeof(*iter));
     return 0;
 }
-
-#endif /* CPULIMIT_PROCESS_ITERATOR_APPLE_C */
-#endif /* __APPLE__ */

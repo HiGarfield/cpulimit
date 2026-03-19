@@ -169,6 +169,21 @@ set(CPULIMIT_C_FLAGS
     -Wanalyzer-unsafe-call-within-signal-handler
 )
 
+# --- Platform-specific process iterator source ---
+#
+# Each supported platform has a dedicated implementation file.
+# Only the file for the current build platform is compiled.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(CPULIMIT_PROCESS_ITERATOR_SRC
+        ${PROJECT_SOURCE_DIR}/src/process_iterator_linux.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+    set(CPULIMIT_PROCESS_ITERATOR_SRC
+        ${PROJECT_SOURCE_DIR}/src/process_iterator_freebsd.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(CPULIMIT_PROCESS_ITERATOR_SRC
+        ${PROJECT_SOURCE_DIR}/src/process_iterator_apple.c)
+endif()
+
 # --- 5. Common Source Files ---
 #
 # Library sources shared between the main executable and the test
@@ -180,7 +195,7 @@ set(CPULIMIT_SRC_COMMON
     ${PROJECT_SOURCE_DIR}/src/limiter.c
     ${PROJECT_SOURCE_DIR}/src/list.c
     ${PROJECT_SOURCE_DIR}/src/process_group.c
-    ${PROJECT_SOURCE_DIR}/src/process_iterator.c
+    ${CPULIMIT_PROCESS_ITERATOR_SRC}
     ${PROJECT_SOURCE_DIR}/src/process_table.c
     ${PROJECT_SOURCE_DIR}/src/signal_handler.c
     ${PROJECT_SOURCE_DIR}/src/util.c

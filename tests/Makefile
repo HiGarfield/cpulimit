@@ -8,6 +8,22 @@ SRC := ../src
 # Detect operating system
 UNAME ?= $(shell uname -s)
 
+# Platform-specific process iterator source file
+ifeq ($(UNAME),Linux)
+PROCESS_ITER_SRC := process_iterator_linux.c
+else ifeq ($(UNAME),Darwin)
+PROCESS_ITER_SRC := process_iterator_apple.c
+else ifeq ($(UNAME),FreeBSD)
+PROCESS_ITER_SRC := process_iterator_freebsd.c
+else
+$(error Unsupported OS: $(UNAME))
+endif
+
+# All platform-specific iterator sources; used to exclude the non-current ones
+ALL_ITER_SRCS := process_iterator_linux.c process_iterator_freebsd.c \
+                 process_iterator_apple.c
+EXCLUDED_ITER_SRCS := $(addprefix $(SRC)/,$(filter-out $(PROCESS_ITER_SRC),$(ALL_ITER_SRCS)))
+
 CFLAGS ?=
 LDFLAGS ?=
 PROJECT_CFLAGS :=
@@ -98,7 +114,7 @@ multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*) $(wildcard $(
 cpulimit_test: cpulimit_test.c \
 	$(filter-out $(SRC)/main.c, \
 	$(wildcard $(SRC)/*.c $(SRC)/*.h))
-	$(CC) $(ALL_CFLAGS) $(filter-out $(SRC)/process_iterator_%.c %.h,$^) $(ALL_LDFLAGS) -o $@
+	$(CC) $(ALL_CFLAGS) $(filter-out $(EXCLUDED_ITER_SRCS) %.h,$^) $(ALL_LDFLAGS) -o $@
 
 # Clean target
 clean:
