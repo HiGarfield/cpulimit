@@ -167,8 +167,9 @@ int close_process_group(struct process_group *proc_group);
  *    time moved backwards (to establish a new baseline)
  *
  * CPU usage calculation:
- * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
- * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
+ * - Requires minimum time delta (CPU_MIN_DELTA_MS = 20ms) for accuracy
+ * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample,
+ *   alpha = CPU_EMA_ALPHA = 0.08
  * - Detects PID reuse when cpu_time decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement

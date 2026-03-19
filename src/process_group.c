@@ -297,18 +297,18 @@ static struct process *process_dup(const struct process *proc) {
 }
 
 /**
- * @def ALPHA
+ * @def CPU_EMA_ALPHA
  * @brief Smoothing factor for exponential moving average of CPU usage
  *
  * Value range: (0, 1)
  * - Lower values (e.g., 0.05): more smoothing, slower response to changes
  * - Higher values (e.g., 0.2): less smoothing, faster response to changes
- * Formula: new_value = (1-ALPHA) * old_value + ALPHA * sample
+ * Formula: new_value = (1-CPU_EMA_ALPHA) * old_value + CPU_EMA_ALPHA * sample
  */
-#define ALPHA 0.08
+#define CPU_EMA_ALPHA 0.08
 
 /**
- * @def MIN_DT
+ * @def CPU_MIN_DELTA_MS
  * @brief Minimum time delta (milliseconds) required for valid CPU usage
  *        calculation
  *
@@ -317,7 +317,83 @@ static struct process *process_dup(const struct process *proc) {
  * - Amplification of measurement noise
  * - Excessive sensitivity to timer resolution
  */
-#define MIN_DT 20
+#define CPU_MIN_DELTA_MS 20
+
+/**
+ * @brief Update the CPU usage of an existing tracked process entry.
+ * @param proc      The stored process entry to update (modified in place).
+ * @param scan_proc Fresh snapshot of the same process from the iterator.
+ * @param elapsed_ms Milliseconds elapsed since the last update cycle.
+ * @param ncpu      Number of available CPU cores (used to cap the sample).
+ *
+ * Handles four mutually exclusive cases:
+ * - PID reuse (scan_proc->cpu_time < proc->cpu_time): resets all fields.
+ * - Backward clock (elapsed_ms < 0): updates ppid and cpu_time, marks
+ *   usage unknown so the next cycle starts from a clean baseline.
+ * - Short interval (elapsed_ms < CPU_MIN_DELTA_MS): updates ppid only;
+ *   holds cpu_time so the next valid update spans the full accumulated
+ *   delta.
+ * - Normal: computes a CPU sample, applies exponential moving average,
+ *   and updates ppid and cpu_time.
+ */
+static void update_existing_process_entry(struct process *proc,
+                                          const struct process *scan_proc,
+                                          double elapsed_ms, int ncpu) {
+    double sample;
+    if (scan_proc->cpu_time < proc->cpu_time) {
+        /*
+         * CPU time decreased: PID has been reused for a new process.
+         * Reset all historical data.
+         */
+        *proc = *scan_proc;
+        /* Mark CPU usage as unknown for new process */
+        proc->cpu_usage = -1;
+        return;
+    }
+    /*
+     * In all non-reuse cases the parent PID is always updated to the
+     * current value; it is independent of timing accuracy.
+     */
+    proc->ppid = scan_proc->ppid;
+    if (elapsed_ms < 0) {
+        /*
+         * Time moved backwards (system clock adjustment, NTP
+         * correction). Update cpu_time but don't calculate usage this
+         * cycle.
+         */
+        proc->cpu_time = scan_proc->cpu_time;
+        proc->cpu_usage = -1;
+        return;
+    }
+    if (elapsed_ms < CPU_MIN_DELTA_MS) {
+        /* Time delta too small for accurate CPU measurement; keep
+         * cpu_time unchanged so the next valid update accumulates
+         * the full delta over the interval. */
+        return;
+    }
+    /*
+     * Calculate CPU usage sample:
+     * sample = (delta_cputime / delta_walltime)
+     * This represents the fraction of one CPU core used.
+     */
+    sample = (scan_proc->cpu_time - proc->cpu_time) / elapsed_ms;
+    /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
+    sample = MIN(sample, (double)ncpu);
+    if (proc->cpu_usage < 0) {
+        /* First valid measurement: initialize directly */
+        proc->cpu_usage = sample;
+    } else {
+        /*
+         * Apply exponential moving average for smooth tracking:
+         * new = (1-alpha)*old + alpha*sample
+         * This reduces noise while remaining responsive to changes.
+         */
+        proc->cpu_usage =
+            (1.0 - CPU_EMA_ALPHA) * proc->cpu_usage + CPU_EMA_ALPHA * sample;
+    }
+    /* Update stored CPU time for next delta calculation */
+    proc->cpu_time = scan_proc->cpu_time;
+}
 
 /**
  * @brief Refresh process group state and recalculate CPU usage
@@ -332,8 +408,9 @@ static struct process *process_dup(const struct process *proc) {
  *    time moved backwards (to establish a new baseline)
  *
  * CPU usage calculation:
- * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
- * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
+ * - Requires minimum time delta (CPU_MIN_DELTA_MS = 20ms) for accuracy
+ * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample,
+ *   alpha = CPU_EMA_ALPHA = 0.08
  * - Detects PID reuse when cpu_time decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
@@ -393,64 +470,9 @@ void update_process_group(struct process_group *proc_group) {
             add_to_process_table(proc_group->proc_table, proc);
             add_elem(proc_group->proc_list, proc);
         } else {
-            double sample;
             /* Existing process: re-add to list for this cycle */
             add_elem(proc_group->proc_list, proc);
-            if (scan_proc->cpu_time < proc->cpu_time) {
-                /*
-                 * CPU time decreased: PID has been reused for a new process.
-                 * Reset all historical data.
-                 */
-                *proc = *scan_proc;
-                /* Mark CPU usage as unknown for new process */
-                proc->cpu_usage = -1;
-                continue;
-            }
-            if (elapsed_ms < 0) {
-                /*
-                 * Time moved backwards (system clock adjustment, NTP
-                 * correction). Update cpu_time but don't calculate usage this
-                 * cycle.
-                 */
-                proc->ppid = scan_proc->ppid;
-                proc->cpu_time = scan_proc->cpu_time;
-                proc->cpu_usage = -1;
-                continue;
-            }
-            if (elapsed_ms < MIN_DT) {
-                /* Time delta too small for accurate CPU measurement; keep
-                 * cpu_time unchanged so the next valid update accumulates
-                 * the full delta over the interval. Updating ppid is safe
-                 * here because it is independent of timing accuracy: the
-                 * parent PID is a current kernel value and does not
-                 * participate in any time-based delta computation. */
-                proc->ppid = scan_proc->ppid;
-                continue;
-            }
-            /*
-             * Calculate CPU usage sample:
-             * sample = (delta_cputime / delta_walltime)
-             * This represents the fraction of one CPU core used.
-             */
-            sample = (scan_proc->cpu_time - proc->cpu_time) / elapsed_ms;
-            /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
-            sample = MIN(sample, (double)ncpu);
-            if (proc->cpu_usage < 0) {
-                /* First valid measurement: initialize directly */
-                proc->cpu_usage = sample;
-            } else {
-                /*
-                 * Apply exponential moving average for smooth tracking:
-                 * new = (1-alpha)*old + alpha*sample
-                 * This reduces noise while remaining responsive to changes.
-                 */
-                proc->cpu_usage =
-                    (1.0 - ALPHA) * proc->cpu_usage + ALPHA * sample;
-            }
-            /* Update stored CPU time and parent PID for next delta calculation
-             */
-            proc->ppid = scan_proc->ppid;
-            proc->cpu_time = scan_proc->cpu_time;
+            update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
         }
     }
     free(scan_proc);
@@ -467,7 +489,7 @@ void update_process_group(struct process_group *proc_group) {
      * Update timestamp only if sufficient time passed for CPU calculation
      * or if time moved backwards (to establish new baseline).
      */
-    if (elapsed_ms < 0 || elapsed_ms >= MIN_DT) {
+    if (elapsed_ms < 0 || elapsed_ms >= CPU_MIN_DELTA_MS) {
         proc_group->last_update = now;
     }
 }
