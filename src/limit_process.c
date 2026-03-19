@@ -44,19 +44,19 @@
 /*
  * Very small positive value used to:
  * - Prevent division by zero in work_ratio calculation (MAX(cpu_usage,
- * EPSILON))
- * - Bound work_ratio strictly away from 0 and 1 in CLAMP(work_ratio, EPSILON,
- *   1 - EPSILON), ensuring both work and sleep phases always have positive
- *   duration
+ * WORK_RATIO_EPSILON))
+ * - Bound work_ratio strictly away from 0 and 1 in
+ *   CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON), ensuring
+ *   both work and sleep phases always have positive duration
  */
-#define EPSILON 1e-12
+#define WORK_RATIO_EPSILON 1e-12
 
 /*
  * Base control time slot in microseconds.
  * Each limiting cycle divides this slot into work time and sleep time.
  * The dynamic algorithm may adjust this value based on system load.
  */
-#define TIME_SLOT 100000
+#define BASE_TIME_SLOT_US 100000
 
 /**
  * @brief Calculate dynamic time slot duration based on system load
@@ -79,10 +79,11 @@
  *       single thread.
  */
 static double get_dynamic_time_slot(void) {
-    static double time_slot = TIME_SLOT;
-    static const double MIN_TIME_SLOT =
-                            TIME_SLOT, /* Minimum: 100ms for precision */
-        MAX_TIME_SLOT = TIME_SLOT * 5; /* Maximum: 500ms to reduce overhead */
+    static double time_slot = BASE_TIME_SLOT_US;
+    static const double
+        MIN_TIME_SLOT = BASE_TIME_SLOT_US, /* Minimum: 100ms for precision */
+        MAX_TIME_SLOT =
+            BASE_TIME_SLOT_US * 5; /* Maximum: 500ms to reduce overhead */
     static int initialized = 0;
     static struct timespec last_update = {0, 0};
     struct timespec now;
@@ -214,11 +215,11 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     struct process_group proc_group;
     int cycle_counter = 0, ncpu = get_ncpu();
     double work_ratio; /* Fraction of time processes should be running */
-    int stopped =
+    int is_stopped =
         0; /* Current state: 1 if processes are stopped, 0 if running */
 
     /* Clamp limit to valid range and calculate initial work ratio */
-    limit = CLAMP(limit, EPSILON, ncpu);
+    limit = CLAMP(limit, WORK_RATIO_EPSILON, ncpu);
     work_ratio = limit / ncpu;
 
     /*
@@ -273,9 +274,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
          * If actual usage < limit: increase work_ratio (less stopping)
          * Formula: new_ratio = old_ratio * (target / actual)
          */
-        work_ratio = work_ratio * limit / MAX(cpu_usage, EPSILON);
+        work_ratio = work_ratio * limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
         /* Ensure work_ratio stays in valid range, never exactly 0 or 1 */
-        work_ratio = CLAMP(work_ratio, EPSILON, 1 - EPSILON);
+        work_ratio =
+            CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON);
 
         /* Get time slot duration (may vary based on system load) */
         time_slot = get_dynamic_time_slot();
@@ -304,10 +306,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
          * WORK PHASE: Allow processes to execute
          */
         if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
-            if (stopped) {
+            if (is_stopped) {
                 /* Resume all stopped processes */
                 send_signal_to_processes(&proc_group, SIGCONT, verbose);
-                stopped = 0;
+                is_stopped = 0;
                 /* Recheck process list after signaling */
                 if (is_empty_list(proc_group.proc_list)) {
                     break;
@@ -326,10 +328,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
          * SLEEP PHASE: Suspend processes to limit CPU usage
          */
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
-            if (!stopped) {
+            if (!is_stopped) {
                 /* Stop all running processes */
                 send_signal_to_processes(&proc_group, SIGSTOP, verbose);
-                stopped = 1;
+                is_stopped = 1;
                 /* Recheck process list after signaling */
                 if (is_empty_list(proc_group.proc_list)) {
                     break;
