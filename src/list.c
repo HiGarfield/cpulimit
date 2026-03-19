@@ -235,14 +235,15 @@ void *locate_elem(const struct list *lst, const void *elem, size_t offset,
  * @note Safe to call with NULL list (does nothing)
  */
 void clear_list(struct list *lst) {
-    struct list_node *current, *next;
+    struct list_node *current_node, *next_node;
     if (lst == NULL || lst->count == 0) {
         return;
     }
     /* Traverse and free all nodes, preserving data pointers */
-    for (current = lst->first; current != NULL; current = next) {
-        next = current->next;
-        free(current);
+    for (current_node = lst->first; current_node != NULL;
+         current_node = next_node) {
+        next_node = current_node->next;
+        free(current_node);
     }
     /* Reset list to empty state */
     lst->first = lst->last = NULL;
@@ -260,15 +261,16 @@ void clear_list(struct list *lst) {
  * @note Safe to call with NULL list (does nothing)
  */
 void destroy_list(struct list *lst) {
-    struct list_node *current, *next;
+    struct list_node *current_node, *next_node;
     if (lst == NULL || lst->count == 0) {
         return;
     }
     /* Traverse and free all nodes and their data */
-    for (current = lst->first; current != NULL; current = next) {
-        next = current->next;
-        free(current->data);
-        free(current);
+    for (current_node = lst->first; current_node != NULL;
+         current_node = next_node) {
+        next_node = current_node->next;
+        free(current_node->data);
+        free(current_node);
     }
     /* Reset list to empty state */
     lst->first = lst->last = NULL;
