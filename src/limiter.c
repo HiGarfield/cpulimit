@@ -96,6 +96,335 @@ static int is_script_missing_interpreter(const char *path) {
 }
 
 /**
+ * @brief Execute a child process for command mode.
+ * @param cfg Pointer to configuration structure containing command and options.
+ * @param sync_read_fd Read end of the synchronization pipe.
+ * @param sync_write_fd Write end of the synchronization pipe.
+ *
+ * This function executes in the child process after fork(). It sets up the
+ * process group, resets signal handlers, signals readiness to the parent,
+ * and replaces the process image with the user command via execvp().
+ *
+ * @note This function never returns; it calls _exit() on any failure.
+ */
+static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
+                               int sync_write_fd) {
+    /*
+     * This block executes in the child process.
+     * The child will become the command specified by the user.
+     */
+    int saved_errno;
+
+    /*
+     * Create new process group with child as leader.
+     * This allows limiting the entire process tree (child + descendants)
+     * and enables sending signals to all related processes via -PGID.
+     */
+    if (setpgid(0, 0) < 0) {
+        perror("setpgid");
+        close(sync_read_fd);
+        close(sync_write_fd);
+        _exit(EXIT_FAILURE);
+    }
+
+    /*
+     * Reset inherited signal handlers to SIG_DFL before notifying
+     * the parent.  After fork(), this child inherits the parent's
+     * configured handlers.  execvp() resets them, but on systems
+     * where exec takes measurable time (e.g., macOS 10.15+ with
+     * library validation), a signal forwarded by the parent between
+     * reading the sync byte and exec completing would be silently
+     * caught by the inherited handler instead of terminating this
+     * process.  Resetting here closes that race window.
+     */
+    if (reset_signal_handlers_to_default() != 0) {
+        close(sync_read_fd);
+        close(sync_write_fd);
+        _exit(EXIT_FAILURE);
+    }
+
+    /* Close unused read end of pipe */
+    close(sync_read_fd);
+    /*
+     * Signal parent that child initialization is complete.
+     * Parent blocks until receiving this byte.
+     * Do NOT close sync_write_fd here: it must remain open until exec
+     * so that the close-on-exec flag (FD_CLOEXEC) causes it to be
+     * closed automatically on a successful execvp(), signalling exec
+     * completion to the parent.  On exec failure the code below closes
+     * it explicitly.
+     */
+    if (write(sync_write_fd, "A", 1) != 1) {
+        perror("write sync");
+        close(sync_write_fd);
+        _exit(EXIT_FAILURE);
+    }
+
+    /*
+     * Replace child process image with the user command.
+     * execvp() searches PATH for the executable and transfers control.
+     * If successful, this function never returns and the close-on-exec
+     * flag (FD_CLOEXEC) on sync_write_fd causes the kernel to close it
+     * automatically, signalling exec completion to the parent.
+     *
+     * Pre-check: if the target is an explicit path, detect a script
+     * whose shebang interpreter is missing before calling execvp().
+     * Under normal execution execvp() would return ENOENT in this case,
+     * but under valgrind the exec interception is unrecoverable, so the
+     * check must happen before exec.  _exit() closes all fds (including
+     * sync_write_fd), which also signals exec completion to the parent.
+     */
+    if (strchr(cfg->command_args[0], '/') != NULL &&
+        is_script_missing_interpreter(cfg->command_args[0])) {
+        fprintf(stderr, "%s: cannot execute: shebang interpreter not found\n",
+                cfg->command_args[0]);
+        _exit(126); /* Script exists but shebang interpreter missing */
+    }
+    execvp(cfg->command_args[0], cfg->command_args);
+
+    /*
+     * Execution reaches here only if execvp() failed.
+     * Use shell-compatible exit codes:
+     * - 127: command not found (ENOENT with no existing file)
+     * - 126: found but not executable (permission denied, or ENOENT
+     *        when file exists but its interpreter is absent)
+     *
+     * Note: ENOENT can occur for two distinct reasons:
+     * 1. The command (or a PATH-resolved name) does not exist -> 127.
+     * 2. The file exists but exec fails (e.g., missing dynamic linker
+     *    on an explicit-path binary) -> 126.
+     * Case 2 is detectable only when the argument contains a '/'
+     * (an explicit path), because only then can access(F_OK) confirm
+     * that the file itself is present.
+     *
+     * Close sync_write_fd explicitly to signal exec failure to the
+     * parent (the FD_CLOEXEC path only applies on success).
+     */
+    saved_errno = errno;
+    perror("execvp");
+    close(sync_write_fd);
+    if (saved_errno == ENOENT && strchr(cfg->command_args[0], '/') != NULL &&
+        access(cfg->command_args[0], F_OK) == 0) {
+        _exit(126); /* File exists but exec failed (e.g. bad interpreter) */
+    }
+    _exit(saved_errno == ENOENT ? 127 : 126);
+}
+
+/**
+ * @brief Wait for the child process to complete exec setup.
+ * @param child_pid PID of the forked child process.
+ * @param sync_read_fd Read end of the synchronization pipe.
+ *
+ * Reads the readiness byte written by the child after setpgid() and signal
+ * handler reset, then blocks until the pipe EOF that indicates exec has
+ * completed (or the child has exited on exec failure). Closes sync_read_fd
+ * on return.
+ *
+ * On any error, kills and reaps the child, then calls exit(EXIT_FAILURE).
+ */
+static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
+    char sync_byte; /* Synchronization byte from child */
+    ssize_t n_read; /* Bytes read from pipe */
+
+    /*
+     * Block until child signals readiness by writing to pipe.
+     * This ensures child has completed setpgid() before parent continues.
+     */
+    do {
+        n_read = read(sync_read_fd, &sync_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    if (n_read != 1 || sync_byte != 'A') {
+        pid_t wait_result; /* Return value of waitpid in error path */
+        if (n_read < 0) {
+            perror("read sync");
+        } else if (n_read == 0) {
+            fprintf(stderr, "Synchronization pipe closed before child setup\n");
+        } else {
+            fprintf(stderr, "Unexpected synchronization value from child\n");
+        }
+        close(sync_read_fd);
+        /*
+         * Kill child to prevent it from becoming an orphan, then reap
+         * it to prevent zombie. SIGKILL is used because the child may
+         * have failed in an unknown state and cannot be trusted to
+         * respond to SIGTERM. SIGKILL cannot be caught or ignored, so
+         * the subsequent blocking waitpid() will complete quickly.
+         */
+        kill(child_pid, SIGKILL);
+        /*
+         * Robustly reap the child: retry waitpid() on EINTR so that
+         * a signal delivered to the parent during the wait does not
+         * leave the child as a zombie. For any other error, log it and
+         * proceed with the fatal exit.
+         */
+        do {
+            wait_result = waitpid(child_pid, NULL, 0);
+        } while (wait_result == -1 && errno == EINTR);
+        if (wait_result == -1) {
+            perror("waitpid");
+        }
+        exit(EXIT_FAILURE);
+    }
+    /*
+     * Wait for exec to complete (or the child to exit on exec failure).
+     * The write end of sync_pipe has FD_CLOEXEC set, so a successful exec
+     * closes it automatically; on exec failure the child closes it
+     * explicitly before _exit().  Either way, this read returns EOF
+     * (n_read == 0), confirming that the child's process image is ready
+     * to receive signals.  n_read > 0 is not expected but also signals
+     * completion.  This eliminates the race where a signal (e.g. SIGTERM)
+     * is sent while the child is still in the middle of exec setup, which
+     * is critical under tools such as valgrind that intercept execve and
+     * may not handle signals safely during their exec interception phase.
+     */
+    do {
+        n_read = read(sync_read_fd, &sync_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    close(sync_read_fd);
+    if (n_read < 0) {
+        pid_t wait_result;
+        perror("read exec-sync");
+        kill(child_pid, SIGKILL);
+        do {
+            wait_result = waitpid(child_pid, NULL, 0);
+        } while (wait_result == -1 && errno == EINTR);
+        if (wait_result == -1) {
+            perror("waitpid");
+        }
+        exit(EXIT_FAILURE);
+    }
+}
+
+/**
+ * @brief Wait for the child process to exit and collect its exit status.
+ * @param child_pid PID of the child process to wait for.
+ * @param cfg Pointer to configuration structure (used for verbose output).
+ * @return The child's exit status if successfully reaped, EXIT_FAILURE
+ *         otherwise.
+ *
+ * Polls for the child's termination, applying a 5-second SIGKILL timeout
+ * if the child does not exit in time. Translates signal termination to
+ * shell-compatible exit codes (128 + signal number).
+ */
+static int collect_child_exit_status(pid_t child_pid,
+                                     const struct cpulimit_cfg *cfg) {
+    int child_exit_status =
+        EXIT_FAILURE;           /* Default if child not properly reaped */
+    int child_reaped = 0;       /* 1 if successfully reaped child PID */
+    struct timespec start_time; /* Timestamp when termination starts */
+
+    /* Record time for timeout monitoring during cleanup */
+    if (get_current_time(&start_time) != 0) {
+        perror("get_current_time");
+        exit(EXIT_FAILURE);
+    }
+
+    /*
+     * Cleanup loop: wait for the command child process to exit.
+     * waitpid() can only reap direct children of this process.
+     * Any grandchildren (forked by child_pid) are not direct
+     * children of this process; they are reparented to init when
+     * child_pid exits, matching standard shell semantics.
+     * Use a positive PID — the negative-PGID form waitpid(-pgid)
+     * would also only return child_pid since it is our only
+     * direct child, but using the positive form is clearer and
+     * eliminates a dead code branch.
+     */
+    while (1) {
+        int status;
+        /*
+         * Poll for child state change without blocking (WNOHANG).
+         * Returns 0 if no state change has occurred yet, child's
+         * PID if it has changed state, or -1 on error.
+         */
+        pid_t wpid = waitpid(child_pid, &status, WNOHANG);
+
+        if (wpid == child_pid) {
+            /* Child process has terminated; record exit status */
+            child_reaped = 1;
+
+            if (WIFEXITED(status)) {
+                /* Child exited normally via exit() or return from main() */
+                child_exit_status = WEXITSTATUS(status);
+                if (cfg->verbose) {
+                    printf("Process %ld exited with status %d\n",
+                           (long)child_pid, child_exit_status);
+                }
+            } else if (WIFSIGNALED(status)) {
+                /* Child was terminated by a signal (SIGTERM, SIGKILL, etc) */
+                int signal_number = WTERMSIG(status);
+                /*
+                 * Shell convention: exit status = 128 + signal number
+                 * Example: SIGTERM (15) -> exit status 143
+                 */
+                child_exit_status = 128 + signal_number;
+                if (cfg->verbose) {
+                    printf("Process %ld terminated by signal %d\n",
+                           (long)child_pid, signal_number);
+                }
+            } else {
+                /* Abnormal termination (neither exit nor signal) */
+                if (cfg->verbose) {
+                    printf("Process %ld terminated abnormally\n",
+                           (long)child_pid);
+                }
+                child_exit_status = EXIT_FAILURE;
+            }
+            break;
+        }
+        if (wpid == 0) {
+            /*
+             * No state changes yet (WNOHANG returned immediately).
+             * Check if we've exceeded timeout for graceful termination.
+             */
+            const struct timespec poll_sleep = {0, 50000000L}; /* 50 ms */
+            struct timespec current_time;
+            if (get_current_time(&current_time) != 0) {
+                perror("get_current_time");
+                exit(EXIT_FAILURE);
+            }
+
+            /*
+             * After 5 seconds, forcefully kill any remaining processes.
+             * This handles cases where processes ignore SIGTERM.
+             * Send SIGKILL to the entire process group (-pgid) to also
+             * terminate any descendants that are still running, even
+             * though we cannot wait() on them directly.
+             */
+            if (timediff_in_ms(&current_time, &start_time) > 5000.0) {
+                if (cfg->verbose) {
+                    printf("Process %ld timed out, sending SIGKILL\n",
+                           (long)child_pid);
+                }
+                /* SIGKILL cannot be caught or ignored */
+                kill(-child_pid, SIGKILL);
+            }
+            /* Brief sleep to avoid busy-waiting */
+            sleep_timespec(&poll_sleep);
+
+        } else {
+            /* wpid < 0: waitpid() encountered an error */
+            if (errno == EINTR) {
+                /* Interrupted by signal, retry immediately */
+                continue;
+            }
+            if (errno != ECHILD) {
+                /* Real error (not just "no children") */
+                perror("waitpid");
+            }
+            /* ECHILD means child already reaped or no children */
+            break;
+        }
+    }
+
+    /*
+     * Return child's exit status if we successfully reaped it,
+     * otherwise return failure status.
+     */
+    return child_reaped ? child_exit_status : EXIT_FAILURE;
+}
+
+/**
  * @brief Execute and monitor a user-specified command with CPU limiting
  * @param cfg Pointer to configuration structure containing command and options
  *
@@ -113,9 +442,8 @@ static int is_script_missing_interpreter(const char *path) {
  * @note This function calls exit() and does not return
  */
 void run_command_mode(const struct cpulimit_cfg *cfg) {
-    pid_t
-        cmd_runner_pid; /* PID of forked child that will execute the command */
-    int sync_pipe[2];   /* Pipe for parent-child synchronization */
+    pid_t child_pid;  /* PID of forked child that will execute the command */
+    int sync_pipe[2]; /* Pipe for parent-child synchronization */
 
     /*
      * Create pipe for synchronization.
@@ -147,357 +475,65 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
     fflush(stdout);
 
     /* Fork to create child process that will execute user command */
-    cmd_runner_pid = fork();
-    if (cmd_runner_pid < 0) {
+    child_pid = fork();
+    if (child_pid < 0) {
         perror("fork");
         close(sync_pipe[0]);
         close(sync_pipe[1]);
         exit(EXIT_FAILURE);
-    } else if (cmd_runner_pid == 0) {
-        /*
-         * This block executes in the child process.
-         * The child will become the command specified by the user.
-         */
-        int saved_errno;
-
-        /*
-         * Create new process group with child as leader.
-         * This allows limiting the entire process tree (child + descendants)
-         * and enables sending signals to all related processes via -PGID.
-         */
-        if (setpgid(0, 0) < 0) {
-            perror("setpgid");
-            close(sync_pipe[0]);
-            close(sync_pipe[1]);
-            _exit(EXIT_FAILURE);
-        }
-
-        /*
-         * Reset inherited signal handlers to SIG_DFL before notifying
-         * the parent.  After fork(), this child inherits the parent's
-         * configured handlers.  execvp() resets them, but on systems
-         * where exec takes measurable time (e.g., macOS 10.15+ with
-         * library validation), a signal forwarded by the parent between
-         * reading the sync byte and exec completing would be silently
-         * caught by the inherited handler instead of terminating this
-         * process.  Resetting here closes that race window.
-         */
-        if (reset_signal_handlers_to_default() != 0) {
-            close(sync_pipe[0]);
-            close(sync_pipe[1]);
-            _exit(EXIT_FAILURE);
-        }
-
-        /* Close unused read end of pipe */
-        close(sync_pipe[0]);
-        /*
-         * Signal parent that child initialization is complete.
-         * Parent blocks until receiving this byte.
-         * Do NOT close sync_pipe[1] here: it must remain open until exec
-         * so that the close-on-exec flag (FD_CLOEXEC) causes it to be
-         * closed automatically on a successful execvp(), signalling exec
-         * completion to the parent.  On exec failure the code below closes
-         * it explicitly.
-         */
-        if (write(sync_pipe[1], "A", 1) != 1) {
-            perror("write sync");
-            close(sync_pipe[1]);
-            _exit(EXIT_FAILURE);
-        }
-
-        /*
-         * Replace child process image with the user command.
-         * execvp() searches PATH for the executable and transfers control.
-         * If successful, this function never returns and the close-on-exec
-         * flag (FD_CLOEXEC) on sync_pipe[1] causes the kernel to close it
-         * automatically, signalling exec completion to the parent.
-         *
-         * Pre-check: if the target is an explicit path, detect a script
-         * whose shebang interpreter is missing before calling execvp().
-         * Under normal execution execvp() would return ENOENT in this case,
-         * but under valgrind the exec interception is unrecoverable, so the
-         * check must happen before exec.  _exit() closes all fds (including
-         * sync_pipe[1]), which also signals exec completion to the parent.
-         */
-        if (strchr(cfg->command_args[0], '/') != NULL &&
-            is_script_missing_interpreter(cfg->command_args[0])) {
-            fprintf(stderr,
-                    "%s: cannot execute: shebang interpreter not found\n",
-                    cfg->command_args[0]);
-            _exit(126); /* Script exists but shebang interpreter missing */
-        }
-        execvp(cfg->command_args[0], cfg->command_args);
-
-        /*
-         * Execution reaches here only if execvp() failed.
-         * Use shell-compatible exit codes:
-         * - 127: command not found (ENOENT with no existing file)
-         * - 126: found but not executable (permission denied, or ENOENT
-         *        when file exists but its interpreter is absent)
-         *
-         * Note: ENOENT can occur for two distinct reasons:
-         * 1. The command (or a PATH-resolved name) does not exist -> 127.
-         * 2. The file exists but exec fails (e.g., missing dynamic linker
-         *    on an explicit-path binary) -> 126.
-         * Case 2 is detectable only when the argument contains a '/'
-         * (an explicit path), because only then can access(F_OK) confirm
-         * that the file itself is present.
-         *
-         * Close sync_pipe[1] explicitly to signal exec failure to the
-         * parent (the FD_CLOEXEC path only applies on success).
-         */
-
-        saved_errno = errno;
-        perror("execvp");
-        close(sync_pipe[1]);
-        if (saved_errno == ENOENT &&
-            strchr(cfg->command_args[0], '/') != NULL &&
-            access(cfg->command_args[0], F_OK) == 0) {
-            _exit(126); /* File exists but exec failed (e.g. bad interpreter) */
-        }
-        _exit(saved_errno == ENOENT ? 127 : 126);
-    } else {
-        /*
-         * This block executes in the parent process.
-         * Parent is responsible for:
-         * 1. Waiting for child initialization
-         * 2. Applying CPU limiting to child
-         * 3. Monitoring child termination
-         * 4. Cleaning up and returning child's exit status
-         */
-        int child_exit_status =
-            EXIT_FAILURE;           /* Default if child not properly reaped */
-        char sync_ack;              /* Synchronization byte from child */
-        int found_cmd_runner = 0;   /* 1 if successfully reaped child PID */
-        struct timespec start_time; /* Timestamp when termination starts */
-        ssize_t n_read;             /* Bytes read from pipe */
-
-        /* Close unused write end of pipe */
-        close(sync_pipe[1]);
-        /*
-         * Block until child signals readiness by writing to pipe.
-         * This ensures child has completed setpgid() before parent continues.
-         */
-        do {
-            n_read = read(sync_pipe[0], &sync_ack, 1);
-        } while (n_read < 0 && errno == EINTR);
-        if (n_read != 1 || sync_ack != 'A') {
-            pid_t wait_res; /* Return value of waitpid in error path */
-            if (n_read < 0) {
-                perror("read sync");
-            } else if (n_read == 0) {
-                fprintf(stderr,
-                        "Synchronization pipe closed before child setup\n");
-            } else {
-                fprintf(stderr,
-                        "Unexpected synchronization value from child\n");
-            }
-            close(sync_pipe[0]);
-            /*
-             * Kill child to prevent it from becoming an orphan, then reap
-             * it to prevent zombie. SIGKILL is used because the child may
-             * have failed in an unknown state and cannot be trusted to
-             * respond to SIGTERM. SIGKILL cannot be caught or ignored, so
-             * the subsequent blocking waitpid() will complete quickly.
-             */
-            kill(cmd_runner_pid, SIGKILL);
-            /*
-             * Robustly reap the child: retry waitpid() on EINTR so that
-             * a signal delivered to the parent during the wait does not
-             * leave the child as a zombie. For any other error, log it and
-             * proceed with the fatal exit.
-             */
-            do {
-                wait_res = waitpid(cmd_runner_pid, NULL, 0);
-            } while (wait_res == -1 && errno == EINTR);
-            if (wait_res == -1) {
-                perror("waitpid");
-            }
-            exit(EXIT_FAILURE);
-        }
-        /*
-         * Wait for exec to complete (or the child to exit on exec failure).
-         * The write end of sync_pipe has FD_CLOEXEC set, so a successful exec
-         * closes it automatically; on exec failure the child closes it
-         * explicitly before _exit().  Either way, this read returns EOF
-         * (n_read == 0), confirming that the child's process image is ready
-         * to receive signals.  n_read > 0 is not expected but also signals
-         * completion.  This eliminates the race where a signal (e.g. SIGTERM)
-         * is sent while the child is still in the middle of exec setup, which
-         * is critical under tools such as valgrind that intercept execve and
-         * may not handle signals safely during their exec interception phase.
-         */
-        do {
-            n_read = read(sync_pipe[0], &sync_ack, 1);
-        } while (n_read < 0 && errno == EINTR);
-        close(sync_pipe[0]);
-        if (n_read < 0) {
-            pid_t wait_res;
-            perror("read exec-sync");
-            kill(cmd_runner_pid, SIGKILL);
-            do {
-                wait_res = waitpid(cmd_runner_pid, NULL, 0);
-            } while (wait_res == -1 && errno == EINTR);
-            if (wait_res == -1) {
-                perror("waitpid");
-            }
-            exit(EXIT_FAILURE);
-        }
-
-        /*
-         * Apply CPU limiting to child process.
-         * If include_children is set, limit_process() also tracks and limits
-         * all descendant processes. This call blocks until child terminates
-         * or a quit signal is received.
-         */
-        if (cfg->verbose) {
-            printf("Limiting process %ld\n", (long)cmd_runner_pid);
-        }
-        limit_process(cmd_runner_pid, cfg->limit, cfg->include_children,
-                      cfg->verbose);
-
-        /*
-         * Check if user requested termination via signal (Ctrl+C, SIGTERM,
-         * etc). If so, gracefully terminate the entire process group by
-         * forwarding the exact received signal. This ensures behavior is
-         * consistent with a standard shell: for example, Ctrl+C (SIGINT)
-         * is forwarded as SIGINT so the child exits with status 130
-         * (128+SIGINT), not 143 (128+SIGTERM).
-         * SIGPIPE is an internal pipe-break signal; map it to SIGTERM to
-         * avoid unexpected behavior in child processes that do not handle it.
-         */
-        if (is_quit_flag_set()) {
-            int fwd_sig = get_quit_signal();
-            /*
-             * Forward the actual received signal. Two special cases:
-             * - fwd_sig == 0: theoretically unreachable here because
-             *   is_quit_flag_set() is true, meaning a signal was already
-             *   delivered and recorded; however, guard defensively.
-             * - fwd_sig == SIGPIPE: SIGPIPE is an internal broken-pipe
-             *   signal relevant only to the writing process; forwarding it
-             *   to the child group could cause unintended termination of
-             *   children that write to unrelated pipes. Map it to SIGTERM
-             *   so the child group is asked to exit gracefully.
-             * Negative PID targets the process group: -PGID.
-             */
-            if (fwd_sig == SIGPIPE || fwd_sig == 0) {
-                fwd_sig = SIGTERM;
-            }
-            kill(-cmd_runner_pid, fwd_sig);
-        }
-
-        /* Record time for timeout monitoring during cleanup */
-        if (get_current_time(&start_time) != 0) {
-            perror("get_current_time");
-            exit(EXIT_FAILURE);
-        }
-
-        /*
-         * Cleanup loop: wait for the command child process to exit.
-         * waitpid() can only reap direct children of this process.
-         * Any grandchildren (forked by cmd_runner_pid) are not direct
-         * children of this process; they are reparented to init when
-         * cmd_runner_pid exits, matching standard shell semantics.
-         * Use a positive PID — the negative-PGID form waitpid(-pgid)
-         * would also only return cmd_runner_pid since it is our only
-         * direct child, but using the positive form is clearer and
-         * eliminates a dead code branch.
-         */
-        while (1) {
-            int status;
-            /*
-             * Poll for child state change without blocking (WNOHANG).
-             * Returns 0 if no state change has occurred yet, child's
-             * PID if it has changed state, or -1 on error.
-             */
-            pid_t wpid = waitpid(cmd_runner_pid, &status, WNOHANG);
-
-            if (wpid == cmd_runner_pid) {
-                /* Child process has terminated; record exit status */
-                found_cmd_runner = 1;
-
-                if (WIFEXITED(status)) {
-                    /* Child exited normally via exit() or return from main() */
-                    child_exit_status = WEXITSTATUS(status);
-                    if (cfg->verbose) {
-                        printf("Process %ld exited with status %d\n",
-                               (long)cmd_runner_pid, child_exit_status);
-                    }
-                } else if (WIFSIGNALED(status)) {
-                    /* Child was terminated by a signal (SIGTERM, SIGKILL, etc)
-                     */
-                    int signal_number = WTERMSIG(status);
-                    /*
-                     * Shell convention: exit status = 128 + signal number
-                     * Example: SIGTERM (15) -> exit status 143
-                     */
-                    child_exit_status = 128 + signal_number;
-                    if (cfg->verbose) {
-                        printf("Process %ld terminated by signal %d\n",
-                               (long)cmd_runner_pid, signal_number);
-                    }
-                } else {
-                    /* Abnormal termination (neither exit nor signal) */
-                    if (cfg->verbose) {
-                        printf("Process %ld terminated abnormally\n",
-                               (long)cmd_runner_pid);
-                    }
-                    child_exit_status = EXIT_FAILURE;
-                }
-                break;
-            }
-            if (wpid == 0) {
-                /*
-                 * No state changes yet (WNOHANG returned immediately).
-                 * Check if we've exceeded timeout for graceful termination.
-                 */
-                const struct timespec sleep_time = {
-                    0, 50000000L}; /* 50 milliseconds */
-                struct timespec current_time;
-                if (get_current_time(&current_time) != 0) {
-                    perror("get_current_time");
-                    exit(EXIT_FAILURE);
-                }
-
-                /*
-                 * After 5 seconds, forcefully kill any remaining processes.
-                 * This handles cases where processes ignore SIGTERM.
-                 * Send SIGKILL to the entire process group (-pgid) to also
-                 * terminate any descendants that are still running, even
-                 * though we cannot wait() on them directly.
-                 */
-                if (timediff_in_ms(&current_time, &start_time) > 5000.0) {
-                    if (cfg->verbose) {
-                        printf("Process %ld timed out, sending SIGKILL\n",
-                               (long)cmd_runner_pid);
-                    }
-                    /* SIGKILL cannot be caught or ignored */
-                    kill(-cmd_runner_pid, SIGKILL);
-                }
-                /* Brief sleep to avoid busy-waiting */
-                sleep_timespec(&sleep_time);
-
-            } else {
-                /* wpid < 0: waitpid() encountered an error */
-                if (errno == EINTR) {
-                    /* Interrupted by signal, retry immediately */
-                    continue;
-                }
-                if (errno != ECHILD) {
-                    /* Real error (not just "no children") */
-                    perror("waitpid");
-                }
-                /* ECHILD means child already reaped or no children */
-                break;
-            }
-        }
-
-        /*
-         * Exit with child's exit status if we successfully reaped it,
-         * otherwise exit with failure status.
-         */
-        exit(found_cmd_runner ? child_exit_status : EXIT_FAILURE);
     }
+
+    if (child_pid == 0) {
+        exec_child_process(cfg, sync_pipe[0], sync_pipe[1]);
+        /* NOT REACHED */
+    }
+
+    /* Parent: close unused write end before waiting for child */
+    close(sync_pipe[1]);
+    wait_for_child_exec(child_pid, sync_pipe[0]);
+
+    /*
+     * Apply CPU limiting to child process.
+     * If include_children is set, limit_process() also tracks and limits
+     * all descendant processes. This call blocks until child terminates
+     * or a quit signal is received.
+     */
+    if (cfg->verbose) {
+        printf("Limiting process %ld\n", (long)child_pid);
+    }
+    limit_process(child_pid, cfg->limit, cfg->include_children, cfg->verbose);
+
+    /*
+     * Check if user requested termination via signal (Ctrl+C, SIGTERM,
+     * etc). If so, gracefully terminate the entire process group by
+     * forwarding the exact received signal. This ensures behavior is
+     * consistent with a standard shell: for example, Ctrl+C (SIGINT)
+     * is forwarded as SIGINT so the child exits with status 130
+     * (128+SIGINT), not 143 (128+SIGTERM).
+     * SIGPIPE is an internal pipe-break signal; map it to SIGTERM to
+     * avoid unexpected behavior in child processes that do not handle it.
+     */
+    if (is_quit_flag_set()) {
+        int fwd_sig = get_quit_signal();
+        /*
+         * Forward the actual received signal. Two special cases:
+         * - fwd_sig == 0: theoretically unreachable here because
+         *   is_quit_flag_set() is true, meaning a signal was already
+         *   delivered and recorded; however, guard defensively.
+         * - fwd_sig == SIGPIPE: SIGPIPE is an internal broken-pipe
+         *   signal relevant only to the writing process; forwarding it
+         *   to the child group could cause unintended termination of
+         *   children that write to unrelated pipes. Map it to SIGTERM
+         *   so the child group is asked to exit gracefully.
+         * Negative PID targets the process group: -PGID.
+         */
+        if (fwd_sig == SIGPIPE || fwd_sig == 0) {
+            fwd_sig = SIGTERM;
+        }
+        kill(-child_pid, fwd_sig);
+    }
+
+    exit(collect_child_exit_status(child_pid, cfg));
 }
 
 /**
