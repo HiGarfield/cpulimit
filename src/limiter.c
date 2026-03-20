@@ -27,7 +27,7 @@
 
 #include "cli.h"
 #include "limit_process.h"
-#include "process_group.h"
+#include "process_finder.h"
 #include "signal_handler.h"
 #include "util.h"
 

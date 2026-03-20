@@ -29,6 +29,7 @@
 #include "../src/limit_process.h"
 #include "../src/limiter.h"
 #include "../src/list.h"
+#include "../src/process_finder.h"
 #include "../src/process_group.h"
 #include "../src/process_iterator.h"
 #include "../src/process_table.h"
