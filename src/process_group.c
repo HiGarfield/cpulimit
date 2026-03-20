@@ -150,7 +150,7 @@ int close_process_group(struct process_group *proc_group) {
 }
 
 /**
- * @brief Create a deep copy of a process structure
+ * @brief Allocate and return a copy of a process structure
  * @param proc Pointer to the source process structure to duplicate
  * @return Pointer to newly allocated process structure containing copied data
  *
@@ -159,7 +159,7 @@ int close_process_group(struct process_group *proc_group) {
  *
  * @note Calls exit(EXIT_FAILURE) if memory allocation fails
  */
-static struct process *process_dup(const struct process *proc) {
+static struct process *alloc_copy_process(const struct process *proc) {
     struct process *new_proc;
     new_proc = (struct process *)malloc(sizeof(struct process));
     if (new_proc == NULL) {
@@ -296,7 +296,7 @@ static void update_existing_process_entry(struct process *proc,
  */
 void update_process_group(struct process_group *proc_group) {
     struct process_iterator iter;
-    struct process *scan_proc;
+    struct process *fresh_proc;
     struct process_filter filter;
     struct timespec now;
     double elapsed_ms;
@@ -311,9 +311,9 @@ void update_process_group(struct process_group *proc_group) {
         perror("get_current_time");
         exit(EXIT_FAILURE);
     }
-    scan_proc = (struct process *)malloc(sizeof(struct process));
-    if (scan_proc == NULL) {
-        fprintf(stderr, "Memory allocation failed for scan_proc\n");
+    fresh_proc = (struct process *)malloc(sizeof(struct process));
+    if (fresh_proc == NULL) {
+        fprintf(stderr, "Memory allocation failed for fresh_proc\n");
         exit(EXIT_FAILURE);
     }
     /* Calculate elapsed time since last update (milliseconds) */
@@ -325,7 +325,7 @@ void update_process_group(struct process_group *proc_group) {
     filter.read_cmd = 0;
     if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
-        free(scan_proc);
+        free(fresh_proc);
         exit(EXIT_FAILURE);
     }
 
@@ -333,23 +333,24 @@ void update_process_group(struct process_group *proc_group) {
     clear_list(proc_group->proc_list);
 
     /* Scan currently running processes and update tracking data */
-    while (get_next_process(&iter, scan_proc) != -1) {
-        struct process *proc =
-            find_in_process_table(proc_group->proc_table, scan_proc->pid);
-        if (proc == NULL) {
+    while (get_next_process(&iter, fresh_proc) != -1) {
+        struct process *stored_proc =
+            find_in_process_table(proc_group->proc_table, fresh_proc->pid);
+        if (stored_proc == NULL) {
             /* New process detected: add to hashtable and list */
-            proc = process_dup(scan_proc);
+            stored_proc = alloc_copy_process(fresh_proc);
             /* Mark CPU usage as unknown until we have a time delta */
-            proc->cpu_usage = -1;
-            add_to_process_table(proc_group->proc_table, proc);
-            add_elem(proc_group->proc_list, proc);
+            stored_proc->cpu_usage = -1;
+            add_to_process_table(proc_group->proc_table, stored_proc);
+            add_elem(proc_group->proc_list, stored_proc);
         } else {
             /* Existing process: re-add to list for this cycle */
-            add_elem(proc_group->proc_list, proc);
-            update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
+            add_elem(proc_group->proc_list, stored_proc);
+            update_existing_process_entry(stored_proc, fresh_proc, elapsed_ms,
+                                          ncpu);
         }
     }
-    free(scan_proc);
+    free(fresh_proc);
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
