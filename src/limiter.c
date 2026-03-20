@@ -543,20 +543,6 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
 }
 
 /**
- * @brief Search for and limit an existing process by PID or executable name
- * @param cfg Pointer to configuration structure containing target specification
- *
- * This function implements PID/exe search mode (-p PID or -e EXE):
- * 1. Continuously searches for the target process
- * 2. When found, applies CPU limiting
- * 3. Behavior depends on lazy_mode flag:
- *    - lazy_mode=1: Exit when target terminates or cannot be found
- *    - lazy_mode=0: Keep searching and re-attach if target restarts
- *
- * @note This function calls exit() and does not return
- */
-
-/**
  * @brief Report that the target process could not be found.
  * @param cfg Pointer to configuration structure with target specification.
  *
@@ -575,6 +561,19 @@ static void report_process_not_found(const struct cpulimit_cfg *cfg) {
     }
 }
 
+/**
+ * @brief Search for and limit an existing process by PID or executable name
+ * @param cfg Pointer to configuration structure containing target specification
+ *
+ * This function implements PID/exe search mode (-p PID or -e EXE):
+ * 1. Continuously searches for the target process
+ * 2. When found, applies CPU limiting
+ * 3. Behavior depends on lazy_mode flag:
+ *    - lazy_mode=1: Exit when target terminates or cannot be found
+ *    - lazy_mode=0: Keep searching and re-attach if target restarts
+ *
+ * @note This function calls exit() and does not return
+ */
 void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     /* Wait interval between search attempts when target not found */
     const struct timespec wait_time = {PROCESS_SEARCH_INTERVAL_S, 0};
