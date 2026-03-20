@@ -58,6 +58,24 @@
  */
 #define BASE_TIME_SLOT_US 100000
 
+/*
+ * Maximum control time slot in microseconds.
+ * Limits how large the adaptive time slot can grow under high load.
+ */
+#define MAX_TIME_SLOT_US (BASE_TIME_SLOT_US * 5)
+
+/*
+ * Print a statistics line every STATS_SAMPLE_PERIOD control cycles
+ * when verbose mode is active.
+ */
+#define STATS_SAMPLE_PERIOD 10
+
+/*
+ * Print the statistics column header every STATS_HEADER_PERIOD control
+ * cycles (must be a multiple of STATS_SAMPLE_PERIOD).
+ */
+#define STATS_HEADER_PERIOD 200
+
 /**
  * @brief Calculate dynamic time slot duration based on system load
  * @return Time slot duration in microseconds
@@ -79,11 +97,8 @@
  *       single thread.
  */
 static double get_dynamic_time_slot(void) {
+    /* Initialized to BASE_TIME_SLOT_US; clamped to MAX_TIME_SLOT_US */
     static double time_slot = BASE_TIME_SLOT_US;
-    static const double
-        MIN_TIME_SLOT = BASE_TIME_SLOT_US, /* Minimum: 100ms for precision */
-        MAX_TIME_SLOT =
-            BASE_TIME_SLOT_US * 5; /* Maximum: 500ms to reduce overhead */
     static int initialized = 0;
     static struct timespec last_update = {0, 0};
     struct timespec now;
@@ -112,7 +127,8 @@ static double get_dynamic_time_slot(void) {
          *   adjustments
          */
         new_time_slot = time_slot * load / get_ncpu() / 0.3;
-        new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);
+        new_time_slot = CLAMP(new_time_slot, (double)BASE_TIME_SLOT_US,
+                              (double)MAX_TIME_SLOT_US);
 
         /*
          * Smooth adaptation using exponential moving average:
@@ -224,6 +240,31 @@ static int execute_control_phase(struct process_group *proc_group,
 }
 
 /**
+ * @brief Print a line of CPU limiting statistics in verbose mode.
+ * @param cycle       Current cycle counter value.
+ * @param cpu_usage   Measured CPU usage as a fraction of one core.
+ * @param work_ns     Work phase duration in nanoseconds.
+ * @param sleep_ns    Sleep phase duration in nanoseconds.
+ * @param work_ratio  Current work ratio (fraction of time processes run).
+ *
+ * Prints a column header every STATS_HEADER_PERIOD cycles and a data row
+ * every STATS_SAMPLE_PERIOD cycles. Does nothing for cycles that fall
+ * outside the sampling interval.
+ */
+static void print_limiter_stats(int cycle, double cpu_usage, double work_ns,
+                                double sleep_ns, double work_ratio) {
+    if (cycle % STATS_SAMPLE_PERIOD != 0) {
+        return;
+    }
+    if (cycle % STATS_HEADER_PERIOD == 0) {
+        printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum", "sleep quantum",
+               "active rate");
+    }
+    printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n", cpu_usage * 100,
+           work_ns / 1000, sleep_ns / 1000, work_ratio * 100);
+}
+
+/**
  * @brief Enforce CPU usage limit on a process or process group
  * @param pid Process ID of the target process to limit
  * @param limit CPU usage limit expressed in CPU cores (core equivalents), in
@@ -328,16 +369,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         nsec2timespec(sleep_time_ns, &sleep_time);
 
         if (verbose) {
-            /* Display statistics every 10 cycles, header every 200 cycles */
-            if (cycle_counter % 10 == 0) {
-                if (cycle_counter % 200 == 0) {
-                    printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum",
-                           "sleep quantum", "active rate");
-                }
-                printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n", cpu_usage * 100,
-                       work_time_ns / 1000, sleep_time_ns / 1000,
-                       work_ratio * 100);
-            }
+            print_limiter_stats(cycle_counter, cpu_usage, work_time_ns,
+                                sleep_time_ns, work_ratio);
         }
 
         /*
@@ -358,8 +391,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
             break;
         }
 
-        /* Increment cycle counter with wraparound */
-        cycle_counter = (cycle_counter + 1) % 200;
+        /* Increment cycle counter; reset after STATS_HEADER_PERIOD cycles */
+        cycle_counter = (cycle_counter + 1) % STATS_HEADER_PERIOD;
     }
 
     /*
