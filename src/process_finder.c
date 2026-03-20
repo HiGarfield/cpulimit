@@ -66,6 +66,24 @@ pid_t find_process_by_pid(pid_t pid) {
 }
 
 /**
+ * @brief Check whether a process's command matches a target name.
+ * @param proc           Process to test.
+ * @param target_name    Pre-normalized comparison name (must not be NULL or
+ *                       empty; see the full_path_cmp description below).
+ * @param full_path_cmp  Non-zero: compare proc->command against target_name
+ *                       verbatim (both are absolute paths).
+ *                       Zero: compare only the basename of proc->command
+ *                       against target_name.
+ * @return 1 if the command matches, 0 otherwise.
+ */
+static int command_matches_name(const struct process *proc,
+                                const char *target_name, int full_path_cmp) {
+    const char *cmd_name =
+        full_path_cmp ? proc->command : file_basename(proc->command);
+    return strcmp(cmd_name, target_name) == 0;
+}
+
+/**
  * @brief Find a running process by its executable name or path
  * @param process_name Name or absolute path of the executable to search for
  * @return Positive PID if found and accessible, negative -PID if found but
@@ -134,10 +152,7 @@ pid_t find_process_by_name(const char *process_name) {
 
     /* Scan all processes to find matching executable */
     while (get_next_process(&iter, proc) != -1) {
-        const char *cmd_cmp_name =
-            full_path_cmp ? proc->command : file_basename(proc->command);
-        /* Check if this process matches the target name */
-        if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
+        if (command_matches_name(proc, process_cmp_name, full_path_cmp)) {
             /*
              * Select this PID if:
              * - No match found yet (!found), OR
