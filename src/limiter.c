@@ -49,6 +49,16 @@
 #define PROCESS_SEARCH_INTERVAL_S 2
 
 /**
+ * @def SHEBANG_BUF_SIZE
+ * @brief Size of the buffer used to read the shebang line from a script file.
+ *
+ * Must be large enough to hold a typical shebang line including the
+ * interpreter path and any arguments. 256 bytes is sufficient for all
+ * practical interpreter paths on supported platforms.
+ */
+#define SHEBANG_BUF_SIZE 256
+
+/**
  * @brief Check whether a file is a script with a missing shebang interpreter.
  * @param path Path to the file to inspect.
  * @return 1 if the file begins with "#!" and the interpreter named on the
@@ -61,20 +71,29 @@
  */
 static int is_script_missing_interpreter(const char *path) {
     int fd;
-    char buf[256];
+    char *buf;
     ssize_t n;
     char *p;
     char *end;
+    int result = 0;
+
+    /* Heap-allocate: buffer >= 128 bytes must not live on the stack */
+    buf = (char *)malloc(SHEBANG_BUF_SIZE);
+    if (buf == NULL) {
+        return 0;
+    }
 
     fd = open(path, O_RDONLY);
     if (fd < 0) {
+        free(buf);
         return 0;
     }
-    n = read(fd, buf, sizeof(buf) - 1);
+    n = read(fd, buf, SHEBANG_BUF_SIZE - 1);
     close(fd);
 
     /* Not a script if too short or no shebang prefix */
     if (n < 2 || buf[0] != '#' || buf[1] != '!') {
+        free(buf);
         return 0;
     }
     buf[n] = '\0';
@@ -93,12 +112,13 @@ static int is_script_missing_interpreter(const char *path) {
     }
     *end = '\0';
 
-    if (*p == '\0') {
-        return 0; /* Empty shebang line */
+    if (*p != '\0') {
+        /* Interpreter path does not exist -> report 126 */
+        result = access(p, F_OK) != 0;
     }
 
-    /* Interpreter path does not exist -> report 126 */
-    return access(p, F_OK) != 0;
+    free(buf);
+    return result;
 }
 
 /**

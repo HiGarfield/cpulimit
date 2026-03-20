@@ -338,11 +338,19 @@ static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
  * call fails.
  */
 pid_t getppid_of(pid_t pid) {
-    struct proc_taskallinfo task_info;
-    if (get_proc_taskinfo(pid, &task_info) == 0) {
-        return (pid_t)task_info.pbsd.pbi_ppid;
+    struct proc_taskallinfo *task_info;
+    pid_t ppid;
+    /* Heap-allocate: struct >= 128 bytes must not live on the stack */
+    task_info =
+        (struct proc_taskallinfo *)malloc(sizeof(struct proc_taskallinfo));
+    if (task_info == NULL) {
+        return (pid_t)(-1);
     }
-    return (pid_t)(-1);
+    ppid = (get_proc_taskinfo(pid, task_info) == 0)
+               ? (pid_t)task_info->pbsd.pbi_ppid
+               : (pid_t)(-1);
+    free(task_info);
+    return ppid;
 }
 
 /**
@@ -393,15 +401,22 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * single-process and multi-process iteration.
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
-    struct proc_taskallinfo task_info;
+    struct proc_taskallinfo *task_info;
+    int ret;
     memset(proc, 0, sizeof(struct process));
-    if (get_proc_taskinfo(pid, &task_info) != 0) {
+    /* Heap-allocate: struct >= 128 bytes must not live on the stack */
+    task_info =
+        (struct proc_taskallinfo *)malloc(sizeof(struct proc_taskallinfo));
+    if (task_info == NULL) {
         return -1;
     }
-    if (proc_taskinfo_to_proc(&task_info, proc, read_cmd) != 0) {
+    if (get_proc_taskinfo(pid, task_info) != 0) {
+        free(task_info);
         return -1;
     }
-    return 0;
+    ret = proc_taskinfo_to_proc(task_info, proc, read_cmd);
+    free(task_info);
+    return ret;
 }
 
 /**
