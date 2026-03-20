@@ -186,6 +186,44 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
 }
 
 /**
+ * @brief Execute one control phase: transition process state and sleep.
+ * @param proc_group      Pointer to the process group being controlled.
+ * @param target_sig      Signal to send if a state transition is needed
+ *                        (SIGCONT to resume, SIGSTOP to suspend).
+ * @param target_stopped  Desired stopped state: 0 = running, 1 = stopped.
+ * @param duration        Duration to sleep during this phase.
+ * @param verbose         If non-zero, log signal errors.
+ * @param is_stopped      In/out flag tracking whether processes are stopped.
+ * @return 1 if the outer control loop should exit (process list empty or
+ *         quit flag set after sleeping), 0 to continue.
+ *
+ * If @p duration is zero the phase is skipped entirely (returns 0).
+ * If the current state differs from @p target_stopped, the appropriate
+ * signal is sent to all tracked processes and the state flag updated.
+ * After sleeping, returns 1 if is_quit_flag_set() is true.
+ */
+static int execute_control_phase(struct process_group *proc_group,
+                                 int target_sig, int target_stopped,
+                                 const struct timespec *duration, int verbose,
+                                 int *is_stopped) {
+    if (duration->tv_sec == 0 && duration->tv_nsec == 0) {
+        return 0; /* Zero-duration phase: nothing to do */
+    }
+    if (*is_stopped != target_stopped) {
+        /* Transition to target state */
+        send_signal_to_processes(proc_group, target_sig, verbose);
+        *is_stopped = target_stopped;
+        /* Exit loop if all processes have terminated */
+        if (is_empty_list(proc_group->proc_list)) {
+            return 1;
+        }
+    }
+    sleep_timespec(duration);
+    /* Signal check after sleeping */
+    return is_quit_flag_set();
+}
+
+/**
  * @brief Enforce CPU usage limit on a process or process group
  * @param pid Process ID of the target process to limit
  * @param limit CPU usage limit expressed in CPU cores (core equivalents), in
@@ -303,46 +341,20 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         }
 
         /*
-         * WORK PHASE: Allow processes to execute
+         * WORK PHASE: Allow processes to execute for work_time duration.
+         * Resumes stopped processes with SIGCONT if needed.
          */
-        if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
-            if (is_stopped) {
-                /* Resume all stopped processes */
-                send_signal_to_processes(&proc_group, SIGCONT, verbose);
-                is_stopped = 0;
-                /* Recheck process list after signaling */
-                if (is_empty_list(proc_group.proc_list)) {
-                    break;
-                }
-            }
-            /* Allow processes to run for work_time duration */
-            sleep_timespec(&work_time);
-        }
-
-        /* Check for termination request before sleep phase */
-        if (is_quit_flag_set()) {
+        if (execute_control_phase(&proc_group, SIGCONT, 0, &work_time, verbose,
+                                  &is_stopped)) {
             break;
         }
 
         /*
-         * SLEEP PHASE: Suspend processes to limit CPU usage
+         * SLEEP PHASE: Suspend processes for sleep_time duration.
+         * Stops running processes with SIGSTOP if needed.
          */
-        if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
-            if (!is_stopped) {
-                /* Stop all running processes */
-                send_signal_to_processes(&proc_group, SIGSTOP, verbose);
-                is_stopped = 1;
-                /* Recheck process list after signaling */
-                if (is_empty_list(proc_group.proc_list)) {
-                    break;
-                }
-            }
-            /* Keep processes suspended for sleep_time duration */
-            sleep_timespec(&sleep_time);
-        }
-
-        /* Check for termination request after sleep phase */
-        if (is_quit_flag_set()) {
+        if (execute_control_phase(&proc_group, SIGSTOP, 1, &sleep_time, verbose,
+                                  &is_stopped)) {
             break;
         }
 
