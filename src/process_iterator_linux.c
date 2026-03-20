@@ -19,11 +19,6 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-#ifdef __linux__
-
-#ifndef CPULIMIT_PROCESS_ITERATOR_LINUX_C
-#define CPULIMIT_PROCESS_ITERATOR_LINUX_C
-
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -87,6 +82,97 @@ int init_process_iterator(struct process_iterator *iter,
 }
 
 /**
+ * @struct proc_stat_entry
+ * @brief Parsed fields from /proc/[pid]/stat relevant to cpulimit
+ */
+struct proc_stat_entry {
+    /**
+     * Single-character process state (e.g., 'R', 'S', 'D').
+     * Zombie states are 'Z', 'X', 'x' and are rejected by read_proc_stat().
+     */
+    char state;
+
+    /**
+     * Parent process ID.
+     */
+    pid_t ppid;
+
+    /**
+     * Combined user and system CPU time in milliseconds.
+     */
+    double cpu_time_ms;
+};
+
+/**
+ * @brief Parse /proc/[pid]/stat into a proc_stat_entry
+ * @param pid Process ID to query
+ * @param entry Pointer to structure to populate
+ * @return 0 on success, -1 if process does not exist, is a zombie,
+ *         has invalid fields, or sysconf fails
+ *
+ * Opens /proc/[pid]/stat, finds the last ')' to safely skip the
+ * process name (which may contain parentheses), and extracts:
+ * - process state (rejects zombie states Z, X, x)
+ * - parent PID (rejects non-positive values)
+ * - user and system CPU ticks, converted to milliseconds via
+ *   sysconf(_SC_CLK_TCK) (rejects negative values)
+ *
+ * The sc_clk_tck value is cached after the first successful call.
+ */
+static int read_proc_stat(pid_t pid, struct proc_stat_entry *entry) {
+    char statfile[64];
+    char *buffer;
+    const char *fields_after_comm;
+    char state;
+    long ppid;
+    double user_time, sys_time;
+    static long sc_clk_tck = -1;
+
+    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
+    buffer = read_line_from_file(statfile);
+    if (buffer == NULL) {
+        return -1;
+    }
+    /*
+     * Find the last ')' to safely skip the process name field, which may
+     * itself contain parentheses (e.g. "(bash)").
+     * Format: pid (comm) state ppid ... utime stime ...
+     */
+    fields_after_comm = strrchr(buffer, ')');
+    if (fields_after_comm == NULL) {
+        free(buffer);
+        return -1;
+    }
+    if (sscanf(fields_after_comm,
+               ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf", &state,
+               &ppid, &user_time, &sys_time) != 4 ||
+        !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
+        ppid <= 0 || user_time < 0 || sys_time < 0) {
+        free(buffer);
+        return -1;
+    }
+    free(buffer);
+    /* Initialize clock ticks per second on first call */
+    if (sc_clk_tck < 0) {
+        errno = 0;
+        sc_clk_tck = sysconf(_SC_CLK_TCK);
+        if (sc_clk_tck <= 0) {
+            perror("sysconf(_SC_CLK_TCK)");
+            sc_clk_tck = -1;
+            return -1;
+        }
+    }
+    entry->state = state;
+    entry->ppid = long2pid_t(ppid);
+    if (entry->ppid < 0) {
+        return -1;
+    }
+    /* Convert CPU times from clock ticks to milliseconds */
+    entry->cpu_time_ms = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
+    return 0;
+}
+
+/**
  * @brief Extract process information from Linux /proc filesystem
  * @param pid Process ID to query
  * @param proc Pointer to process structure to populate
@@ -106,57 +192,19 @@ int init_process_iterator(struct process_iterator *iter,
  * sysconf(_SC_CLK_TCK).
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
-    char statfile[64], cmdline_path[64], state;
-    char *buffer;
-    const char *stat_fields_start;
-    double user_time, sys_time;
-    long ppid;
-    static long sc_clk_tck = -1;
+    struct proc_stat_entry stat_entry;
+    char cmdline_path[64];
     FILE *cmdline_file;
     size_t bytes_read;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
 
-    /* Parse /proc/[pid]/stat for process state and timing information */
-    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
-    buffer = read_line_from_file(statfile);
-    if (buffer == NULL) {
+    if (read_proc_stat(pid, &stat_entry) != 0) {
         return -1;
     }
-    /*
-     * Find the last ')' to handle process names containing parentheses.
-     * Format: pid (comm) state ppid ... utime stime ...
-     */
-    stat_fields_start = strrchr(buffer, ')');
-    if (stat_fields_start == NULL) {
-        free(buffer);
-        return -1;
-    }
-    if (sscanf(stat_fields_start,
-               ") %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf", &state,
-               &ppid, &user_time, &sys_time) != 4 ||
-        !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0 || user_time < 0 || sys_time < 0) {
-        free(buffer);
-        return -1;
-    }
-    free(buffer);
-    proc->ppid = long2pid_t(ppid);
-    if (proc->ppid < 0) {
-        return -1;
-    }
-    /* Initialize clock ticks per second on first call */
-    if (sc_clk_tck < 0) {
-        errno = 0;
-        sc_clk_tck = sysconf(_SC_CLK_TCK);
-        if (sc_clk_tck <= 0) {
-            perror("sysconf(_SC_CLK_TCK)");
-            exit(EXIT_FAILURE);
-        }
-    }
-    /* Convert CPU times from clock ticks to milliseconds */
-    proc->cpu_time = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
+    proc->ppid = stat_entry.ppid;
+    proc->cpu_time = stat_entry.cpu_time_ms;
 
     if (!read_cmd) {
         return 0;
@@ -209,32 +257,11 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
  * call fails.
  */
 pid_t getppid_of(pid_t pid) {
-    char statfile[64], state;
-    char *buffer;
-    const char *stat_fields_start;
-    long ppid;
-
-    /* Parse /proc/[pid]/stat for parent process ID */
-    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
-    buffer = read_line_from_file(statfile);
-    if (buffer == NULL) {
-        return (pid_t)-1;
+    struct proc_stat_entry stat_entry;
+    if (read_proc_stat(pid, &stat_entry) != 0) {
+        return (pid_t)(-1);
     }
-    /* Find last ')' to handle process names with parentheses */
-    stat_fields_start = strrchr(buffer, ')');
-    if (stat_fields_start == NULL) {
-        free(buffer);
-        return (pid_t)-1;
-    }
-    /* Extract state and PPID, reject zombies and invalid PPIDs */
-    if (sscanf(stat_fields_start, ") %c %ld", &state, &ppid) != 2 ||
-        !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0) {
-        free(buffer);
-        return (pid_t)-1;
-    }
-    free(buffer);
-    return long2pid_t(ppid);
+    return stat_entry.ppid;
 }
 
 /**
@@ -340,6 +367,37 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 }
 
 /**
+ * @brief Parse a process ID from a /proc directory entry name.
+ * @param name Directory entry name (e.g. "1234").
+ * @return The parsed PID on success, 0 if the name is not a valid positive
+ *         PID (non-numeric, overflow, negative, or zero).
+ *
+ * /proc contains numeric subdirectories named after running PIDs.
+ * This helper converts the directory entry name to a pid_t, rejecting
+ * non-numeric names (e.g. "self", "net") and invalid values.
+ */
+static pid_t parse_dirent_pid(const char *name) {
+    char *endptr;
+    long long_pid;
+    pid_t pid;
+    errno = 0;
+    long_pid = strtol(name, &endptr, 10);
+    if (errno != 0 || endptr == name || *endptr != '\0') {
+        return 0;
+    }
+    /* Reject non-positive values: PIDs must be positive integers. */
+    if (long_pid <= 0) {
+        return 0;
+    }
+    pid = long2pid_t(long_pid);
+    /* Map long2pid_t() failure (e.g., overflow) to 0 as documented. */
+    if (pid < 0) {
+        return 0;
+    }
+    return pid;
+}
+
+/**
  * @brief Retrieve the next process matching the filter criteria
  * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
@@ -382,8 +440,6 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     /* Iterate through /proc entries to find matching processes */
     while (1) {
         pid_t pid;
-        char *endptr;
-        long long_pid;
         dir_entry = readdir(iter->proc_dir);
         if (dir_entry == NULL) {
             break;
@@ -399,12 +455,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         }
 #endif
         /* Process directories have numeric names */
-        errno = 0;
-        long_pid = strtol(dir_entry->d_name, &endptr, 10);
-        if (errno != 0 || endptr == dir_entry->d_name || *endptr != '\0') {
-            continue;
-        }
-        pid = long2pid_t(long_pid);
+        pid = parse_dirent_pid(dir_entry->d_name);
         if (pid <= 0) {
             continue;
         }
@@ -451,6 +502,3 @@ int close_process_iterator(struct process_iterator *iter) {
     memset(iter, 0, sizeof(*iter));
     return ret;
 }
-
-#endif /* CPULIMIT_PROCESS_ITERATOR_LINUX_C */
-#endif /* __linux__ */

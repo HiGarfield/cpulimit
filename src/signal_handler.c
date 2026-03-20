@@ -122,6 +122,15 @@ static void sig_handler(int sig) {
     quit_flag = 1;
 }
 
+/*
+ * Signals whose dispositions are managed by configure_signal_handler()
+ * and reset_signal_handlers_to_default(). Defined once at file scope to
+ * ensure both functions always operate on the same set of signals.
+ */
+static const int handled_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
+static const size_t num_handled_sigs =
+    sizeof(handled_sigs) / sizeof(*handled_sigs);
+
 /**
  * @brief Set up signal handlers for graceful program termination
  *
@@ -146,9 +155,6 @@ void configure_signal_handler(void) {
     struct sigaction sig_action;
     sigset_t block_mask, old_mask;
     size_t sig_idx;
-    /* Array of signals that should trigger graceful termination */
-    static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
-    static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
     /* Block all signals at function entry so that no termination signal can
      * be delivered between here and the completion of handler installation.
@@ -181,8 +187,8 @@ void configure_signal_handler(void) {
     reset_signal_state();
 
     /* Register the same handler for all termination signals */
-    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-        if (sigaction(term_sigs[sig_idx], &sig_action, NULL) != 0) {
+    for (sig_idx = 0; sig_idx < num_handled_sigs; sig_idx++) {
+        if (sigaction(handled_sigs[sig_idx], &sig_action, NULL) != 0) {
             perror("Failed to set signal handler");
             exit(EXIT_FAILURE);
         }
@@ -244,9 +250,6 @@ int get_quit_signal(void) {
  */
 int reset_signal_handlers_to_default(void) {
     struct sigaction def_action;
-    /* Signals installed by configure_signal_handler() */
-    static const int reset_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
-    static const size_t num_sigs = sizeof(reset_sigs) / sizeof(*reset_sigs);
     size_t sig_idx;
 
     memset(&def_action, 0, sizeof(def_action));
@@ -255,8 +258,8 @@ int reset_signal_handlers_to_default(void) {
         perror("sigemptyset");
         return -1;
     }
-    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-        if (sigaction(reset_sigs[sig_idx], &def_action, NULL) != 0) {
+    for (sig_idx = 0; sig_idx < num_handled_sigs; sig_idx++) {
+        if (sigaction(handled_sigs[sig_idx], &def_action, NULL) != 0) {
             perror("sigaction reset");
             return -1;
         }

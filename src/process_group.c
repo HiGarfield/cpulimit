@@ -39,132 +39,6 @@
 #include <time.h>
 
 /**
- * @brief Check if a process exists and can be controlled by cpulimit
- * @param pid Process ID to search for
- * @return Positive PID if process exists and can be signaled
- *         (kill(pid,0)==0), negative -PID if process exists but permission
- *         denied (errno==EPERM), 0 if process does not exist (errno==ESRCH or
- *         invalid PID)
- *
- * Uses kill(pid, 0) as a lightweight probe to test process existence and
- * signal permission without actually sending a signal. This is the standard
- * POSIX method for checking process liveness and accessibility.
- */
-pid_t find_process_by_pid(pid_t pid) {
-    /* Reject invalid PIDs (must be positive) */
-    if (pid <= 0) {
-        return 0;
-    }
-    /* Attempt to send null signal (doesn't actually signal, just checks
-     * permission) */
-    if (kill(pid, 0) == 0) {
-        return pid;
-    }
-    /* Process exists but we lack permission to signal it */
-    if (errno == EPERM) {
-        return -pid;
-    }
-    /* Process does not exist (errno is ESRCH or other error) */
-    return 0;
-}
-
-/**
- * @brief Find a running process by its executable name or path
- * @param process_name Name or absolute path of the executable to search for
- * @return Positive PID if found and accessible, negative -PID if found but
- *         permission denied, 0 if not found or invalid name
- *
- * Behavior depends on whether process_name is an absolute path:
- * - If process_name starts with '/': compares full absolute paths
- * - Otherwise: compares only the basename (executable name without directory)
- *
- * When multiple matches exist, selects the first process found, or if one is
- * an ancestor of another, prefers the ancestor. This heuristic helps ensure
- * that if a parent process spawns children with the same name, the parent is
- * chosen.
- *
- * @note Returns 0 immediately for NULL or empty process_name
- * @note Iterates through all processes in the system, which may be slow on
- *       systems with many processes. For known PIDs, use find_process_by_pid().
- * @note Calls exit(EXIT_FAILURE) on critical errors (e.g., memory allocation
- *       failure or iterator initialization failure)
- */
-pid_t find_process_by_name(const char *process_name) {
-    int found = 0;
-    pid_t pid = 0;
-    struct process_iterator iter;
-    struct process_filter filter;
-    struct process *proc;
-    int full_path_cmp;
-    const char *process_cmp_name;
-
-    if (process_name == NULL || process_name[0] == '\0') {
-        return 0;
-    }
-
-    /*
-     * Determine comparison mode:
-     * - Absolute path (starts with '/'): compare full paths
-     * - Relative path/name: compare basenames only
-     */
-    full_path_cmp = process_name[0] == '/';
-    process_cmp_name =
-        full_path_cmp ? process_name : file_basename(process_name);
-    /*
-     * Reject an empty comparison name (e.g. process_name == "bin/").
-     * file_basename("bin/") returns "" because the last '/' has nothing
-     * after it.  Matching against an empty string would produce false
-     * positives for any process whose argv[0] also ends with '/'.
-     */
-    if (process_cmp_name[0] == '\0') {
-        return 0;
-    }
-    proc = (struct process *)malloc(sizeof(struct process));
-    if (proc == NULL) {
-        fprintf(stderr, "Memory allocation failed for the process\n");
-        exit(EXIT_FAILURE);
-    }
-
-    /* Configure iterator to scan all processes and read command names */
-    filter.pid = 0;
-    filter.include_children = 0;
-    filter.read_cmd = 1;
-    if (init_process_iterator(&iter, &filter) != 0) {
-        fprintf(stderr, "Failed to initialize process iterator\n");
-        free(proc);
-        exit(EXIT_FAILURE);
-    }
-
-    /* Scan all processes to find matching executable */
-    while (get_next_process(&iter, proc) != -1) {
-        const char *cmd_cmp_name =
-            full_path_cmp ? proc->command : file_basename(proc->command);
-        /* Check if this process matches the target name */
-        if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
-            /*
-             * Select this PID if:
-             * - No match found yet (!found), OR
-             * - This process is an ancestor of the previous match
-             * This heuristic prefers older/parent processes over newer/child
-             * ones
-             */
-            if (!found || is_child_of(pid, proc->pid)) {
-                pid = proc->pid;
-                found = 1;
-            }
-        }
-    }
-    free(proc);
-    if (close_process_iterator(&iter) != 0) {
-        fprintf(stderr, "Failed to close process iterator\n");
-        exit(EXIT_FAILURE);
-    }
-
-    /* Verify the found process still exists and is accessible */
-    return found ? find_process_by_pid(pid) : 0;
-}
-
-/**
  * @def PROCESS_TABLE_HASHSIZE
  * @brief Number of hash buckets for the process hashtable
  *
@@ -276,7 +150,7 @@ int close_process_group(struct process_group *proc_group) {
 }
 
 /**
- * @brief Create a deep copy of a process structure
+ * @brief Allocate and return a copy of a process structure
  * @param proc Pointer to the source process structure to duplicate
  * @return Pointer to newly allocated process structure containing copied data
  *
@@ -285,7 +159,7 @@ int close_process_group(struct process_group *proc_group) {
  *
  * @note Calls exit(EXIT_FAILURE) if memory allocation fails
  */
-static struct process *process_dup(const struct process *proc) {
+static struct process *alloc_copy_process(const struct process *proc) {
     struct process *new_proc;
     new_proc = (struct process *)malloc(sizeof(struct process));
     if (new_proc == NULL) {
@@ -297,18 +171,18 @@ static struct process *process_dup(const struct process *proc) {
 }
 
 /**
- * @def ALPHA
+ * @def CPU_EMA_ALPHA
  * @brief Smoothing factor for exponential moving average of CPU usage
  *
  * Value range: (0, 1)
  * - Lower values (e.g., 0.05): more smoothing, slower response to changes
  * - Higher values (e.g., 0.2): less smoothing, faster response to changes
- * Formula: new_value = (1-ALPHA) * old_value + ALPHA * sample
+ * Formula: new_value = (1-CPU_EMA_ALPHA) * old_value + CPU_EMA_ALPHA * sample
  */
-#define ALPHA 0.08
+#define CPU_EMA_ALPHA 0.08
 
 /**
- * @def MIN_DT
+ * @def CPU_MIN_DELTA_MS
  * @brief Minimum time delta (milliseconds) required for valid CPU usage
  *        calculation
  *
@@ -317,7 +191,83 @@ static struct process *process_dup(const struct process *proc) {
  * - Amplification of measurement noise
  * - Excessive sensitivity to timer resolution
  */
-#define MIN_DT 20
+#define CPU_MIN_DELTA_MS 20
+
+/**
+ * @brief Update the CPU usage of an existing tracked process entry.
+ * @param proc      The stored process entry to update (modified in place).
+ * @param scan_proc Fresh snapshot of the same process from the iterator.
+ * @param elapsed_ms Milliseconds elapsed since the last update cycle.
+ * @param ncpu      Number of available CPU cores (used to cap the sample).
+ *
+ * Handles four mutually exclusive cases:
+ * - PID reuse (scan_proc->cpu_time < proc->cpu_time): resets all fields.
+ * - Backward clock (elapsed_ms < 0): updates ppid and cpu_time, marks
+ *   usage unknown so the next cycle starts from a clean baseline.
+ * - Short interval (elapsed_ms < CPU_MIN_DELTA_MS): updates ppid only;
+ *   holds cpu_time so the next valid update spans the full accumulated
+ *   delta.
+ * - Normal: computes a CPU sample, applies exponential moving average,
+ *   and updates ppid and cpu_time.
+ */
+static void update_existing_process_entry(struct process *proc,
+                                          const struct process *scan_proc,
+                                          double elapsed_ms, int ncpu) {
+    double sample;
+    if (scan_proc->cpu_time < proc->cpu_time) {
+        /*
+         * CPU time decreased: PID has been reused for a new process.
+         * Reset all historical data.
+         */
+        *proc = *scan_proc;
+        /* Mark CPU usage as unknown for new process */
+        proc->cpu_usage = -1;
+        return;
+    }
+    /*
+     * In all non-reuse cases the parent PID is always updated to the
+     * current value; it is independent of timing accuracy.
+     */
+    proc->ppid = scan_proc->ppid;
+    if (elapsed_ms < 0) {
+        /*
+         * Time moved backwards (system clock adjustment, NTP
+         * correction). Update cpu_time but don't calculate usage this
+         * cycle.
+         */
+        proc->cpu_time = scan_proc->cpu_time;
+        proc->cpu_usage = -1;
+        return;
+    }
+    if (elapsed_ms < CPU_MIN_DELTA_MS) {
+        /* Time delta too small for accurate CPU measurement; keep
+         * cpu_time unchanged so the next valid update accumulates
+         * the full delta over the interval. */
+        return;
+    }
+    /*
+     * Calculate CPU usage sample:
+     * sample = (delta_cputime / delta_walltime)
+     * This represents the fraction of one CPU core used.
+     */
+    sample = (scan_proc->cpu_time - proc->cpu_time) / elapsed_ms;
+    /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
+    sample = MIN(sample, (double)ncpu);
+    if (proc->cpu_usage < 0) {
+        /* First valid measurement: initialize directly */
+        proc->cpu_usage = sample;
+    } else {
+        /*
+         * Apply exponential moving average for smooth tracking:
+         * new = (1-alpha)*old + alpha*sample
+         * This reduces noise while remaining responsive to changes.
+         */
+        proc->cpu_usage =
+            (1.0 - CPU_EMA_ALPHA) * proc->cpu_usage + CPU_EMA_ALPHA * sample;
+    }
+    /* Update stored CPU time for next delta calculation */
+    proc->cpu_time = scan_proc->cpu_time;
+}
 
 /**
  * @brief Refresh process group state and recalculate CPU usage
@@ -332,8 +282,9 @@ static struct process *process_dup(const struct process *proc) {
  *    time moved backwards (to establish a new baseline)
  *
  * CPU usage calculation:
- * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
- * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
+ * - Requires minimum time delta (CPU_MIN_DELTA_MS = 20ms) for accuracy
+ * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample,
+ *   alpha = CPU_EMA_ALPHA = 0.08
  * - Detects PID reuse when cpu_time decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
@@ -345,7 +296,7 @@ static struct process *process_dup(const struct process *proc) {
  */
 void update_process_group(struct process_group *proc_group) {
     struct process_iterator iter;
-    struct process *scan_proc;
+    struct process *fresh_proc;
     struct process_filter filter;
     struct timespec now;
     double elapsed_ms;
@@ -360,9 +311,9 @@ void update_process_group(struct process_group *proc_group) {
         perror("get_current_time");
         exit(EXIT_FAILURE);
     }
-    scan_proc = (struct process *)malloc(sizeof(struct process));
-    if (scan_proc == NULL) {
-        fprintf(stderr, "Memory allocation failed for scan_proc\n");
+    fresh_proc = (struct process *)malloc(sizeof(struct process));
+    if (fresh_proc == NULL) {
+        fprintf(stderr, "Memory allocation failed for fresh_proc\n");
         exit(EXIT_FAILURE);
     }
     /* Calculate elapsed time since last update (milliseconds) */
@@ -374,7 +325,7 @@ void update_process_group(struct process_group *proc_group) {
     filter.read_cmd = 0;
     if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
-        free(scan_proc);
+        free(fresh_proc);
         exit(EXIT_FAILURE);
     }
 
@@ -382,78 +333,24 @@ void update_process_group(struct process_group *proc_group) {
     clear_list(proc_group->proc_list);
 
     /* Scan currently running processes and update tracking data */
-    while (get_next_process(&iter, scan_proc) != -1) {
-        struct process *proc =
-            find_in_process_table(proc_group->proc_table, scan_proc->pid);
-        if (proc == NULL) {
+    while (get_next_process(&iter, fresh_proc) != -1) {
+        struct process *stored_proc =
+            find_in_process_table(proc_group->proc_table, fresh_proc->pid);
+        if (stored_proc == NULL) {
             /* New process detected: add to hashtable and list */
-            proc = process_dup(scan_proc);
+            stored_proc = alloc_copy_process(fresh_proc);
             /* Mark CPU usage as unknown until we have a time delta */
-            proc->cpu_usage = -1;
-            add_to_process_table(proc_group->proc_table, proc);
-            add_elem(proc_group->proc_list, proc);
+            stored_proc->cpu_usage = -1;
+            add_to_process_table(proc_group->proc_table, stored_proc);
+            add_elem(proc_group->proc_list, stored_proc);
         } else {
-            double sample;
             /* Existing process: re-add to list for this cycle */
-            add_elem(proc_group->proc_list, proc);
-            if (scan_proc->cpu_time < proc->cpu_time) {
-                /*
-                 * CPU time decreased: PID has been reused for a new process.
-                 * Reset all historical data.
-                 */
-                *proc = *scan_proc;
-                /* Mark CPU usage as unknown for new process */
-                proc->cpu_usage = -1;
-                continue;
-            }
-            if (elapsed_ms < 0) {
-                /*
-                 * Time moved backwards (system clock adjustment, NTP
-                 * correction). Update cpu_time but don't calculate usage this
-                 * cycle.
-                 */
-                proc->ppid = scan_proc->ppid;
-                proc->cpu_time = scan_proc->cpu_time;
-                proc->cpu_usage = -1;
-                continue;
-            }
-            if (elapsed_ms < MIN_DT) {
-                /* Time delta too small for accurate CPU measurement; keep
-                 * cpu_time unchanged so the next valid update accumulates
-                 * the full delta over the interval. Updating ppid is safe
-                 * here because it is independent of timing accuracy: the
-                 * parent PID is a current kernel value and does not
-                 * participate in any time-based delta computation. */
-                proc->ppid = scan_proc->ppid;
-                continue;
-            }
-            /*
-             * Calculate CPU usage sample:
-             * sample = (delta_cputime / delta_walltime)
-             * This represents the fraction of one CPU core used.
-             */
-            sample = (scan_proc->cpu_time - proc->cpu_time) / elapsed_ms;
-            /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
-            sample = MIN(sample, (double)ncpu);
-            if (proc->cpu_usage < 0) {
-                /* First valid measurement: initialize directly */
-                proc->cpu_usage = sample;
-            } else {
-                /*
-                 * Apply exponential moving average for smooth tracking:
-                 * new = (1-alpha)*old + alpha*sample
-                 * This reduces noise while remaining responsive to changes.
-                 */
-                proc->cpu_usage =
-                    (1.0 - ALPHA) * proc->cpu_usage + ALPHA * sample;
-            }
-            /* Update stored CPU time and parent PID for next delta calculation
-             */
-            proc->ppid = scan_proc->ppid;
-            proc->cpu_time = scan_proc->cpu_time;
+            add_elem(proc_group->proc_list, stored_proc);
+            update_existing_process_entry(stored_proc, fresh_proc, elapsed_ms,
+                                          ncpu);
         }
     }
-    free(scan_proc);
+    free(fresh_proc);
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         exit(EXIT_FAILURE);
@@ -467,7 +364,7 @@ void update_process_group(struct process_group *proc_group) {
      * Update timestamp only if sufficient time passed for CPU calculation
      * or if time moved backwards (to establish new baseline).
      */
-    if (elapsed_ms < 0 || elapsed_ms >= MIN_DT) {
+    if (elapsed_ms < 0 || elapsed_ms >= CPU_MIN_DELTA_MS) {
         proc_group->last_update = now;
     }
 }

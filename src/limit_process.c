@@ -44,19 +44,37 @@
 /*
  * Very small positive value used to:
  * - Prevent division by zero in work_ratio calculation (MAX(cpu_usage,
- * EPSILON))
- * - Bound work_ratio strictly away from 0 and 1 in CLAMP(work_ratio, EPSILON,
- *   1 - EPSILON), ensuring both work and sleep phases always have positive
- *   duration
+ * WORK_RATIO_EPSILON))
+ * - Bound work_ratio strictly away from 0 and 1 in
+ *   CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON), ensuring
+ *   both work and sleep phases always have positive duration
  */
-#define EPSILON 1e-12
+#define WORK_RATIO_EPSILON 1e-12
 
 /*
  * Base control time slot in microseconds.
  * Each limiting cycle divides this slot into work time and sleep time.
  * The dynamic algorithm may adjust this value based on system load.
  */
-#define TIME_SLOT 100000
+#define BASE_TIME_SLOT_US 100000
+
+/*
+ * Maximum control time slot in microseconds.
+ * Limits how large the adaptive time slot can grow under high load.
+ */
+#define MAX_TIME_SLOT_US (BASE_TIME_SLOT_US * 5)
+
+/*
+ * Print a statistics line every STATS_SAMPLE_PERIOD control cycles
+ * when verbose mode is active.
+ */
+#define STATS_SAMPLE_PERIOD 10
+
+/*
+ * Print the statistics column header every STATS_HEADER_PERIOD control
+ * cycles (must be a multiple of STATS_SAMPLE_PERIOD).
+ */
+#define STATS_HEADER_PERIOD 200
 
 /**
  * @brief Calculate dynamic time slot duration based on system load
@@ -79,10 +97,8 @@
  *       single thread.
  */
 static double get_dynamic_time_slot(void) {
-    static double time_slot = TIME_SLOT;
-    static const double MIN_TIME_SLOT =
-                            TIME_SLOT, /* Minimum: 100ms for precision */
-        MAX_TIME_SLOT = TIME_SLOT * 5; /* Maximum: 500ms to reduce overhead */
+    /* Initialized to BASE_TIME_SLOT_US; clamped to MAX_TIME_SLOT_US */
+    static double time_slot = BASE_TIME_SLOT_US;
     static int initialized = 0;
     static struct timespec last_update = {0, 0};
     struct timespec now;
@@ -111,7 +127,8 @@ static double get_dynamic_time_slot(void) {
          *   adjustments
          */
         new_time_slot = time_slot * load / get_ncpu() / 0.3;
-        new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);
+        new_time_slot = CLAMP(new_time_slot, (double)BASE_TIME_SLOT_US,
+                              (double)MAX_TIME_SLOT_US);
 
         /*
          * Smooth adaptation using exponential moving average:
@@ -185,6 +202,69 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
 }
 
 /**
+ * @brief Execute one control phase: transition process state and sleep.
+ * @param proc_group      Pointer to the process group being controlled.
+ * @param target_sig      Signal to send if a state transition is needed
+ *                        (SIGCONT to resume, SIGSTOP to suspend).
+ * @param target_stopped  Desired stopped state: 0 = running, 1 = stopped.
+ * @param duration        Duration to sleep during this phase.
+ * @param verbose         If non-zero, log signal errors.
+ * @param is_stopped      In/out flag tracking whether processes are stopped.
+ * @return 1 if the outer control loop should exit (process list empty or
+ *         quit flag set after sleeping), 0 to continue.
+ *
+ * If @p duration is zero the phase is skipped entirely (returns 0).
+ * If the current state differs from @p target_stopped, the appropriate
+ * signal is sent to all tracked processes and the state flag updated.
+ * After sleeping, returns 1 if is_quit_flag_set() is true.
+ */
+static int execute_control_phase(struct process_group *proc_group,
+                                 int target_sig, int target_stopped,
+                                 const struct timespec *duration, int verbose,
+                                 int *is_stopped) {
+    if (duration->tv_sec == 0 && duration->tv_nsec == 0) {
+        return 0; /* Zero-duration phase: nothing to do */
+    }
+    if (*is_stopped != target_stopped) {
+        /* Transition to target state */
+        send_signal_to_processes(proc_group, target_sig, verbose);
+        *is_stopped = target_stopped;
+        /* Exit loop if all processes have terminated */
+        if (is_empty_list(proc_group->proc_list)) {
+            return 1;
+        }
+    }
+    sleep_timespec(duration);
+    /* Signal check after sleeping */
+    return is_quit_flag_set();
+}
+
+/**
+ * @brief Print a line of CPU limiting statistics in verbose mode.
+ * @param cycle       Current cycle counter value.
+ * @param cpu_usage   Measured CPU usage as a fraction of one core.
+ * @param work_ns     Work phase duration in nanoseconds.
+ * @param sleep_ns    Sleep phase duration in nanoseconds.
+ * @param work_ratio  Current work ratio (fraction of time processes run).
+ *
+ * Prints a column header every STATS_HEADER_PERIOD cycles and a data row
+ * every STATS_SAMPLE_PERIOD cycles. Does nothing for cycles that fall
+ * outside the sampling interval.
+ */
+static void print_limiter_stats(int cycle, double cpu_usage, double work_ns,
+                                double sleep_ns, double work_ratio) {
+    if (cycle % STATS_SAMPLE_PERIOD != 0) {
+        return;
+    }
+    if (cycle % STATS_HEADER_PERIOD == 0) {
+        printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum", "sleep quantum",
+               "active rate");
+    }
+    printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n", cpu_usage * 100,
+           work_ns / 1000, sleep_ns / 1000, work_ratio * 100);
+}
+
+/**
  * @brief Enforce CPU usage limit on a process or process group
  * @param pid Process ID of the target process to limit
  * @param limit CPU usage limit expressed in CPU cores (core equivalents), in
@@ -214,11 +294,11 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     struct process_group proc_group;
     int cycle_counter = 0, ncpu = get_ncpu();
     double work_ratio; /* Fraction of time processes should be running */
-    int stopped =
+    int is_stopped =
         0; /* Current state: 1 if processes are stopped, 0 if running */
 
     /* Clamp limit to valid range and calculate initial work ratio */
-    limit = CLAMP(limit, EPSILON, ncpu);
+    limit = CLAMP(limit, WORK_RATIO_EPSILON, ncpu);
     work_ratio = limit / ncpu;
 
     /*
@@ -273,9 +353,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
          * If actual usage < limit: increase work_ratio (less stopping)
          * Formula: new_ratio = old_ratio * (target / actual)
          */
-        work_ratio = work_ratio * limit / MAX(cpu_usage, EPSILON);
+        work_ratio = work_ratio * limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
         /* Ensure work_ratio stays in valid range, never exactly 0 or 1 */
-        work_ratio = CLAMP(work_ratio, EPSILON, 1 - EPSILON);
+        work_ratio =
+            CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON);
 
         /* Get time slot duration (may vary based on system load) */
         time_slot = get_dynamic_time_slot();
@@ -288,64 +369,30 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         nsec2timespec(sleep_time_ns, &sleep_time);
 
         if (verbose) {
-            /* Display statistics every 10 cycles, header every 200 cycles */
-            if (cycle_counter % 10 == 0) {
-                if (cycle_counter % 200 == 0) {
-                    printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum",
-                           "sleep quantum", "active rate");
-                }
-                printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n", cpu_usage * 100,
-                       work_time_ns / 1000, sleep_time_ns / 1000,
-                       work_ratio * 100);
-            }
+            print_limiter_stats(cycle_counter, cpu_usage, work_time_ns,
+                                sleep_time_ns, work_ratio);
         }
 
         /*
-         * WORK PHASE: Allow processes to execute
+         * WORK PHASE: Allow processes to execute for work_time duration.
+         * Resumes stopped processes with SIGCONT if needed.
          */
-        if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
-            if (stopped) {
-                /* Resume all stopped processes */
-                send_signal_to_processes(&proc_group, SIGCONT, verbose);
-                stopped = 0;
-                /* Recheck process list after signaling */
-                if (is_empty_list(proc_group.proc_list)) {
-                    break;
-                }
-            }
-            /* Allow processes to run for work_time duration */
-            sleep_timespec(&work_time);
-        }
-
-        /* Check for termination request before sleep phase */
-        if (is_quit_flag_set()) {
+        if (execute_control_phase(&proc_group, SIGCONT, 0, &work_time, verbose,
+                                  &is_stopped)) {
             break;
         }
 
         /*
-         * SLEEP PHASE: Suspend processes to limit CPU usage
+         * SLEEP PHASE: Suspend processes for sleep_time duration.
+         * Stops running processes with SIGSTOP if needed.
          */
-        if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
-            if (!stopped) {
-                /* Stop all running processes */
-                send_signal_to_processes(&proc_group, SIGSTOP, verbose);
-                stopped = 1;
-                /* Recheck process list after signaling */
-                if (is_empty_list(proc_group.proc_list)) {
-                    break;
-                }
-            }
-            /* Keep processes suspended for sleep_time duration */
-            sleep_timespec(&sleep_time);
-        }
-
-        /* Check for termination request after sleep phase */
-        if (is_quit_flag_set()) {
+        if (execute_control_phase(&proc_group, SIGSTOP, 1, &sleep_time, verbose,
+                                  &is_stopped)) {
             break;
         }
 
-        /* Increment cycle counter with wraparound */
-        cycle_counter = (cycle_counter + 1) % 200;
+        /* Increment cycle counter; reset after STATS_HEADER_PERIOD cycles */
+        cycle_counter = (cycle_counter + 1) % STATS_HEADER_PERIOD;
     }
 
     /*

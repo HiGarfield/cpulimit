@@ -78,43 +78,6 @@ struct process_group {
 };
 
 /**
- * @brief Check if a process exists and can be controlled by cpulimit
- * @param pid Process ID to search for
- * @return Positive PID if process exists and can be signaled
- *         (kill(pid,0)==0), negative -PID if process exists but permission
- *         denied (errno==EPERM), 0 if process does not exist (errno==ESRCH or
- *         invalid PID)
- *
- * Uses kill(pid, 0) as a lightweight probe to test process existence and
- * signal permission without actually sending a signal. This is the standard
- * POSIX method for checking process liveness and accessibility.
- */
-pid_t find_process_by_pid(pid_t pid);
-
-/**
- * @brief Find a running process by its executable name or path
- * @param process_name Name or absolute path of the executable to search for
- * @return Positive PID if found and accessible, negative -PID if found but
- *         permission denied, 0 if not found or invalid name
- *
- * Behavior depends on whether process_name is an absolute path:
- * - If process_name starts with '/': compares full absolute paths
- * - Otherwise: compares only the basename (executable name without directory)
- *
- * When multiple matches exist, selects the first process found, or if one is
- * an ancestor of another, prefers the ancestor. This heuristic helps ensure
- * that if a parent process spawns children with the same name, the parent is
- * chosen.
- *
- * @note Returns 0 immediately for NULL or empty process_name
- * @note Iterates through all processes in the system, which may be slow on
- *       systems with many processes. For known PIDs, use find_process_by_pid().
- * @note Calls exit(EXIT_FAILURE) on critical errors (e.g., memory allocation
- *       failure or iterator initialization failure)
- */
-pid_t find_process_by_name(const char *process_name);
-
-/**
  * @brief Initialize a process group for monitoring and CPU limiting
  * @param proc_group Pointer to uninitialized process_group structure to set up
  * @param target_pid PID of the primary process to monitor
@@ -167,8 +130,9 @@ int close_process_group(struct process_group *proc_group);
  *    time moved backwards (to establish a new baseline)
  *
  * CPU usage calculation:
- * - Requires minimum time delta (MIN_DT = 20ms) for accuracy
- * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample, alpha=0.08
+ * - Requires minimum time delta (CPU_MIN_DELTA_MS = 20ms) for accuracy
+ * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample,
+ *   alpha = CPU_EMA_ALPHA = 0.08
  * - Detects PID reuse when cpu_time decreases (resets history)
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement

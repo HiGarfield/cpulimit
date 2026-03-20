@@ -10,6 +10,22 @@ DESTDIR := /usr/local/bin
 # Detect operating system
 UNAME ?= $(shell uname -s)
 
+# Platform-specific process iterator source file
+ifeq ($(UNAME),Linux)
+PROCESS_ITER_SRC := process_iterator_linux.c
+else ifeq ($(UNAME),Darwin)
+PROCESS_ITER_SRC := process_iterator_apple.c
+else ifeq ($(UNAME),FreeBSD)
+PROCESS_ITER_SRC := process_iterator_freebsd.c
+else
+$(error Unsupported OS: $(UNAME))
+endif
+
+# All platform-specific iterator sources; used to exclude the non-current ones
+ALL_ITER_SRCS := process_iterator_linux.c process_iterator_freebsd.c \
+                 process_iterator_apple.c
+EXCLUDED_ITER_SRCS := $(filter-out $(PROCESS_ITER_SRC),$(ALL_ITER_SRCS))
+
 CFLAGS ?=
 LDFLAGS ?=
 PROJECT_CFLAGS :=
@@ -88,7 +104,7 @@ all: $(TARGET)
 
 # Build target
 $(TARGET): $(wildcard *.c *.h)
-	$(CC) $(ALL_CFLAGS) $(filter-out process_iterator_%.c %.h,$^) $(ALL_LDFLAGS) -o $@
+	$(CC) $(ALL_CFLAGS) $(filter-out $(EXCLUDED_ITER_SRCS) %.h,$^) $(ALL_LDFLAGS) -o $@
 
 # Clean target
 clean:
