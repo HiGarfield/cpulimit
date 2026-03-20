@@ -124,7 +124,7 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         perror("setpgid");
         close(sync_read_fd);
         close(sync_write_fd);
-        _exit(EXIT_FAILURE);
+        goto error_out;
     }
 
     /*
@@ -140,7 +140,7 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     if (reset_signal_handlers_to_default() != 0) {
         close(sync_read_fd);
         close(sync_write_fd);
-        _exit(EXIT_FAILURE);
+        goto error_out;
     }
 
     /* Close unused read end of pipe */
@@ -157,7 +157,7 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     if (write(sync_write_fd, "A", 1) != 1) {
         perror("write sync");
         close(sync_write_fd);
-        _exit(EXIT_FAILURE);
+        goto error_out;
     }
 
     /*
@@ -208,6 +208,9 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         _exit(126); /* File exists but exec failed (e.g. bad interpreter) */
     }
     _exit(saved_errno == ENOENT ? 127 : 126);
+
+error_out:
+    _exit(EXIT_FAILURE);
 }
 
 /**
