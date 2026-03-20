@@ -137,7 +137,9 @@ check: $(wildcard *.c *.h) clean
 	bear -- $(MAKE) all
 	cppcheck $(CPPCHECK_OPTS) 2>"$(CPPCHECK_REPORT)"
 	@echo "See $(shell pwd)/$(CPPCHECK_REPORT) for cppcheck report."
-	clang-tidy $(CLANG_TIDY_OPTS) *.h *.c >"$(CLANG_TIDY_REPORT)"
+	clang-tidy $(CLANG_TIDY_OPTS) \
+		$(filter-out $(EXCLUDED_ITER_SRCS),$(wildcard *.h *.c)) \
+		>"$(CLANG_TIDY_REPORT)"
 	@echo "See $(shell pwd)/$(CLANG_TIDY_REPORT) for clang-tidy report."
 
 # Install cpulimit to /usr/local/bin
