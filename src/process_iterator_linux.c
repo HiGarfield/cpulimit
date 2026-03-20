@@ -366,6 +366,27 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 }
 
 /**
+ * @brief Parse a process ID from a /proc directory entry name.
+ * @param name Directory entry name (e.g. "1234").
+ * @return The parsed PID on success, 0 if the name is not a valid positive
+ *         PID (non-numeric, overflow, negative, or zero).
+ *
+ * /proc contains numeric subdirectories named after running PIDs.
+ * This helper converts the directory entry name to a pid_t, rejecting
+ * non-numeric names (e.g. "self", "net") and invalid values.
+ */
+static pid_t parse_dirent_pid(const char *name) {
+    char *endptr;
+    long long_pid;
+    errno = 0;
+    long_pid = strtol(name, &endptr, 10);
+    if (errno != 0 || endptr == name || *endptr != '\0') {
+        return 0;
+    }
+    return long2pid_t(long_pid);
+}
+
+/**
  * @brief Retrieve the next process matching the filter criteria
  * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
@@ -408,8 +429,6 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     /* Iterate through /proc entries to find matching processes */
     while (1) {
         pid_t pid;
-        char *endptr;
-        long long_pid;
         dir_entry = readdir(iter->proc_dir);
         if (dir_entry == NULL) {
             break;
@@ -425,12 +444,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         }
 #endif
         /* Process directories have numeric names */
-        errno = 0;
-        long_pid = strtol(dir_entry->d_name, &endptr, 10);
-        if (errno != 0 || endptr == dir_entry->d_name || *endptr != '\0') {
-            continue;
-        }
-        pid = long2pid_t(long_pid);
+        pid = parse_dirent_pid(dir_entry->d_name);
         if (pid <= 0) {
             continue;
         }
