@@ -191,6 +191,7 @@ endif()
 # point and is added per-target.
 set(CPULIMIT_SRC_COMMON
     ${PROJECT_SOURCE_DIR}/src/cli.c
+    ${PROJECT_SOURCE_DIR}/src/process_finder.c
     ${PROJECT_SOURCE_DIR}/src/limit_process.c
     ${PROJECT_SOURCE_DIR}/src/limiter.c
     ${PROJECT_SOURCE_DIR}/src/list.c
