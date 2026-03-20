@@ -158,7 +158,8 @@ static int read_proc_stat(pid_t pid, struct proc_stat_entry *entry) {
         sc_clk_tck = sysconf(_SC_CLK_TCK);
         if (sc_clk_tck <= 0) {
             perror("sysconf(_SC_CLK_TCK)");
-            exit(EXIT_FAILURE);
+            sc_clk_tck = -1;
+            return -1;
         }
     }
     entry->state = state;
@@ -378,12 +379,22 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 static pid_t parse_dirent_pid(const char *name) {
     char *endptr;
     long long_pid;
+    pid_t pid;
     errno = 0;
     long_pid = strtol(name, &endptr, 10);
     if (errno != 0 || endptr == name || *endptr != '\0') {
         return 0;
     }
-    return long2pid_t(long_pid);
+    /* Reject non-positive values: PIDs must be positive integers. */
+    if (long_pid <= 0) {
+        return 0;
+    }
+    pid = long2pid_t(long_pid);
+    /* Map long2pid_t() failure (e.g., overflow) to 0 as documented. */
+    if (pid < 0) {
+        return 0;
+    }
+    return pid;
 }
 
 /**
