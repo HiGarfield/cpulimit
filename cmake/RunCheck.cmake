@@ -139,6 +139,25 @@ file(GLOB _src_files
     "${SRC_DIR}/*.h"
 )
 
+# Exclude non-current-platform iterator sources.
+# On Linux, process_iterator_apple.c and process_iterator_freebsd.c are
+# not compiled and have no compile commands in the database, so
+# clang-tidy would fail with missing platform-specific headers.
+set(_all_iter_srcs
+    "${SRC_DIR}/process_iterator_linux.c"
+    "${SRC_DIR}/process_iterator_freebsd.c"
+    "${SRC_DIR}/process_iterator_apple.c"
+)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(_current_iter_src "${SRC_DIR}/process_iterator_linux.c")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+    set(_current_iter_src "${SRC_DIR}/process_iterator_freebsd.c")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(_current_iter_src "${SRC_DIR}/process_iterator_apple.c")
+endif()
+list(REMOVE_ITEM _all_iter_srcs "${_current_iter_src}")
+list(REMOVE_ITEM _src_files ${_all_iter_srcs})
+
 message(STATUS "Running clang-tidy on src/ ...")
 execute_process(
     COMMAND
