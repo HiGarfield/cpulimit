@@ -333,14 +333,81 @@ static int get_online_cpu_count(void) {
 #endif
 
 /**
+ * @brief Detect the number of online CPU cores using platform-specific APIs
+ * @return Number of online CPUs (>= 1)
+ *
+ * Platform detection order:
+ * - POSIX (_SC_NPROCESSORS_ONLN): uses sysconf(); on Linux cross-checks with
+ *   /sys/devices/system/cpu/online to work around older libc bugs
+ * - macOS/FreeBSD: uses sysctl(CTL_HW, HW_AVAILCPU or HW_NCPU)
+ * - Linux fallback: uses get_nprocs(), cross-checking with sysfs
+ * Returns 1 if none of the above methods succeed.
+ */
+static int detect_ncpu(void) {
+#if defined(_SC_NPROCESSORS_ONLN)
+    /* POSIX-compliant systems: use sysconf */
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+#if defined(__linux__)
+    /*
+     * Workaround for older libc bug: sysconf may incorrectly return 1
+     * even when multiple CPUs are online. Verify by reading sysfs.
+     */
+    if (ncpu <= 1) {
+        /* Cross-check with sysfs; use sysfs value if valid */
+        ncpu = get_online_cpu_count();
+    }
+#endif
+    return (ncpu > 0 && ncpu <= (long)INT_MAX) ? (int)ncpu : 1;
+
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+    /* macOS and FreeBSD: use sysctl interface */
+    int ncpu = 0;
+    size_t ncpu_size = sizeof(ncpu);
+    int sysctl_mib[2];
+
+    sysctl_mib[0] = CTL_HW;
+#if defined(HW_AVAILCPU)
+    /* Try HW_AVAILCPU first (available CPUs) */
+    sysctl_mib[1] = HW_AVAILCPU;
+#else
+    /* Fall back to HW_NCPU if HW_AVAILCPU unavailable */
+    sysctl_mib[1] = HW_NCPU;
+#endif
+    if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 || ncpu < 1) {
+        /* Fallback: try HW_NCPU directly */
+        sysctl_mib[1] = HW_NCPU;
+        if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
+            ncpu < 1) {
+            ncpu = 1; /* Complete failure; assume 1 CPU */
+        }
+    }
+    return ncpu;
+
+#elif defined(__linux__)
+    /* Linux without _SC_NPROCESSORS_ONLN: use get_nprocs */
+    int ncpu;
+    ncpu = get_nprocs();
+    /*
+     * Workaround for older libc bug: get_nprocs may incorrectly return 1.
+     * Verify by reading sysfs.
+     */
+    if (ncpu <= 1) {
+        /* Cross-check with sysfs; use sysfs value if valid */
+        ncpu = get_online_cpu_count();
+    }
+    return (ncpu > 0) ? ncpu : 1;
+
+#else
+#error "Unsupported platform"
+#endif
+}
+
+/**
  * @brief Get the number of online/available CPU cores
  * @return Number of CPUs available to the process (>= 1)
  *
- * Queries the system for the number of online CPUs using platform-specific
- * methods (sysconf on Linux/POSIX, sysctl on macOS/FreeBSD). The result is
- * cached after the first call for efficiency. On Linux, performs additional
- * validation by reading /sys/devices/system/cpu/online to work around older
- * library bugs. Returns 1 if count cannot be determined.
+ * Delegates to detect_ncpu() on first call, then caches the result.
+ * Returns 1 if count cannot be determined.
  *
  * @note Result is cached and never recalculated even if CPU hotplugging occurs
  */
@@ -350,65 +417,8 @@ int get_ncpu(void) {
 
     /* Return cached value if already computed */
     if (cached_ncpu < 0) {
-#if defined(_SC_NPROCESSORS_ONLN)
-        /* POSIX-compliant systems: use sysconf */
-        long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-#if defined(__linux__)
-        /*
-         * Workaround for older libc bug: sysconf may incorrectly return 1
-         * even when multiple CPUs are online. Verify by reading sysfs.
-         */
-        if (ncpu <= 1) {
-            /* Cross-check with sysfs; use sysfs value if valid */
-            ncpu = get_online_cpu_count();
-        }
-#endif
-        cached_ncpu = (ncpu > 0 && ncpu <= (long)INT_MAX) ? (int)ncpu : 1;
-
-#elif defined(__APPLE__) || defined(__FreeBSD__)
-        /* macOS and FreeBSD: use sysctl interface */
-        int ncpu = 0;
-        size_t ncpu_size = sizeof(ncpu);
-        int sysctl_mib[2];
-
-        sysctl_mib[0] = CTL_HW;
-#if defined(HW_AVAILCPU)
-        /* Try HW_AVAILCPU first (available CPUs) */
-        sysctl_mib[1] = HW_AVAILCPU;
-#else
-        /* Fall back to HW_NCPU if HW_AVAILCPU unavailable */
-        sysctl_mib[1] = HW_NCPU;
-#endif
-        if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
-            ncpu < 1) {
-            /* Fallback: try HW_NCPU directly */
-            sysctl_mib[1] = HW_NCPU;
-            if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
-                ncpu < 1) {
-                ncpu = 1; /* Complete failure; assume 1 CPU */
-            }
-        }
-        cached_ncpu = ncpu;
-
-#elif defined(__linux__)
-        /* Linux without _SC_NPROCESSORS_ONLN: use get_nprocs */
-        int ncpu;
-        ncpu = get_nprocs();
-        /*
-         * Workaround for older libc bug: get_nprocs may incorrectly return 1.
-         * Verify by reading sysfs.
-         */
-        if (ncpu <= 1) {
-            /* Cross-check with sysfs; use sysfs value if valid */
-            ncpu = get_online_cpu_count();
-        }
-        cached_ncpu = (ncpu > 0) ? ncpu : 1;
-
-#else
-#error "Unsupported platform"
-#endif
+        cached_ncpu = detect_ncpu();
     }
-
     return cached_ncpu;
 }
 
