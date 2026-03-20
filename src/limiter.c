@@ -42,6 +42,12 @@
 #include <time.h>
 #include <unistd.h>
 
+/*
+ * Interval in seconds between search attempts when the target process
+ * is not found and lazy_mode is disabled.
+ */
+#define PROCESS_SEARCH_INTERVAL_S 2
+
 /**
  * @brief Check whether a file is a script with a missing shebang interpreter.
  * @param path Path to the file to inspect.
@@ -549,9 +555,29 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
  *
  * @note This function calls exit() and does not return
  */
+
+/**
+ * @brief Report that the target process could not be found.
+ * @param cfg Pointer to configuration structure with target specification.
+ *
+ * Prints an appropriate message to stderr depending on whether the target
+ * was specified by PID or executable name. Appends ", retrying..." when
+ * not in lazy mode.
+ */
+static void report_process_not_found(const struct cpulimit_cfg *cfg) {
+    const char *retry_suffix = cfg->lazy_mode ? "" : ", retrying...";
+    if (cfg->target_pid > 0) {
+        fprintf(stderr, "Process with PID %ld cannot be found%s\n",
+                (long)cfg->target_pid, retry_suffix);
+    } else {
+        fprintf(stderr, "Process '%s' cannot be found%s\n", cfg->exe_name,
+                retry_suffix);
+    }
+}
+
 void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     /* Wait interval between search attempts when target not found */
-    const struct timespec wait_time = {2, 0}; /* 2 seconds */
+    const struct timespec wait_time = {PROCESS_SEARCH_INTERVAL_S, 0};
     int pid_mode = cfg->target_pid > 0;
     int exit_status = EXIT_SUCCESS;
 
@@ -561,14 +587,7 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
 
         if (found_pid == 0) {
             /* Process does not exist */
-            if (pid_mode) {
-                fprintf(stderr, "Process with PID %ld cannot be found%s\n",
-                        (long)cfg->target_pid,
-                        cfg->lazy_mode ? "" : ", retrying...");
-            } else {
-                fprintf(stderr, "Process '%s' cannot be found%s\n",
-                        cfg->exe_name, cfg->lazy_mode ? "" : ", retrying...");
-            }
+            report_process_not_found(cfg);
             if (cfg->lazy_mode) {
                 /* In lazy mode, missing target is an error condition. */
                 exit_status = EXIT_FAILURE;
