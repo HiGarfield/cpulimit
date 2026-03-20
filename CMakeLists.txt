@@ -1,14 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
 
-# Prevent in-source builds.
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
-    message(FATAL_ERROR
-        "In-source builds are not allowed.\n"
-        "Run CMake from a separate build directory:\n"
-        "  mkdir build && cd build && cmake .."
-    )
-endif()
-
 project(cpulimit LANGUAGES C)
 
 # --- 1. Operating System Compatibility Check ---
