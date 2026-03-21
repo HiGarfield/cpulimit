@@ -11,7 +11,7 @@
 # handle large files on 32-bit platforms.
 add_definitions(-D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64)
 
-# --- 3. Platform-Specific Libraries ---
+# --- 2. Platform-Specific Libraries ---
 #
 # Each supported OS requires a different set of additional libraries:
 #   Linux   - librt  (POSIX real-time extensions)
@@ -26,7 +26,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     list(APPEND CPULIMIT_PLATFORM_LIBS proc)
 endif()
 
-# --- 4. Compiler Warning and Optimization Flags ---
+# --- 3. Compiler Warning and Optimization Flags ---
 #
 # These flags are applied per-target via add_checked_flags().
 # Each flag is probed at configure time; unsupported flags are silently
@@ -169,7 +169,7 @@ set(CPULIMIT_C_FLAGS
     -Wanalyzer-unsafe-call-within-signal-handler
 )
 
-# --- 5. Common Source Files ---
+# --- 4. Common Source Files ---
 #
 # Library sources shared between the main executable and the test
 # binary.  main.c is intentionally excluded; it provides the entry
