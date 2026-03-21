@@ -88,7 +88,7 @@ all: $(TARGET)
 
 # Build target
 $(TARGET): $(wildcard *.c *.h)
-	$(CC) $(ALL_CFLAGS) $(filter-out process_iterator_%.c %.h,$^) $(ALL_LDFLAGS) -o $@
+	$(CC) $(ALL_CFLAGS) $(filter-out %.h,$^) $(ALL_LDFLAGS) -o $@
 
 # Clean target
 clean:
