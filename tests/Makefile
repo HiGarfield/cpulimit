@@ -98,7 +98,7 @@ multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*) $(wildcard $(
 cpulimit_test: cpulimit_test.c \
 	$(filter-out $(SRC)/main.c, \
 	$(wildcard $(SRC)/*.c $(SRC)/*.h))
-	$(CC) $(ALL_CFLAGS) $(filter-out $(SRC)/process_iterator_%.c %.h,$^) $(ALL_LDFLAGS) -o $@
+	$(CC) $(ALL_CFLAGS) $(filter-out %.h,$^) $(ALL_LDFLAGS) -o $@
 
 # Clean target
 clean:

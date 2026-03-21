@@ -30,6 +30,10 @@ extern "C" {
 #define _GNU_SOURCE
 #endif
 
+#if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__APPLE__)
+#error "Platform not supported"
+#endif
+
 #include <sys/types.h>
 #if defined(__linux__)
 #include <dirent.h>
