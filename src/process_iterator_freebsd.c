@@ -419,4 +419,7 @@ int close_process_iterator(struct process_iterator *iter) {
 }
 
 #endif /* CPULIMIT_PROCESS_ITERATOR_FREEBSD_C */
+#else
+/* Placeholder to avoid empty compilation unit on non-FreeBSD platforms. */
+typedef int cpulimit_process_iterator_freebsd_placeholder;
 #endif /* __FreeBSD__ */

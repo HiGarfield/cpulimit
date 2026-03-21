@@ -453,4 +453,7 @@ int close_process_iterator(struct process_iterator *iter) {
 }
 
 #endif /* CPULIMIT_PROCESS_ITERATOR_LINUX_C */
+#else
+/* Placeholder to avoid empty compilation unit on non-Linux platforms. */
+typedef int cpulimit_process_iterator_linux_placeholder;
 #endif /* __linux__ */
