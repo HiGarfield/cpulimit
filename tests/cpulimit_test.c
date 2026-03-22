@@ -2118,9 +2118,10 @@ static void test_process_iterator_is_child_of(void) {
     result = is_child_of(child_pid, parent_pid);
     assert(result == 1);
 
-    /* Parent should not be child of child */
-    /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
-    result = is_child_of(parent_pid, child_pid);
+    /* Parent should not be child of child: use getpid() as first
+     * argument to avoid readability-suspicious-call-argument on the
+     * deliberately reversed variable names. */
+    result = is_child_of(getpid(), child_pid);
     assert(result == 0);
 
     /* Process should not be child of itself */
