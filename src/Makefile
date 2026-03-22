@@ -49,7 +49,7 @@ PROJECT_LDFLAGS += \
     $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
     $(if $(findstring Darwin,$(UNAME)),-lproc)
 
-ALL_CFLAGS := $(filter-out -Wno%,$(PROJECT_CFLAGS) $(CFLAGS))
+ALL_CFLAGS := $(PROJECT_CFLAGS) $(CFLAGS)
 ALL_LDFLAGS := $(PROJECT_LDFLAGS) $(LDFLAGS)
 
 # cppcheck options
@@ -88,7 +88,7 @@ all: $(TARGET)
 
 # Build target
 $(TARGET): $(wildcard *.c *.h)
-	$(CC) $(ALL_CFLAGS) $(filter-out %.h,$^) $(ALL_LDFLAGS) -o $@
+	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
 # Clean target
 clean:

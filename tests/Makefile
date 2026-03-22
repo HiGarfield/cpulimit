@@ -51,7 +51,7 @@ PROJECT_LDFLAGS += \
 PROJECT_CFLAGS += -pthread
 PROJECT_LDFLAGS += -pthread
 
-ALL_CFLAGS := $(filter-out -Wno%,$(PROJECT_CFLAGS) $(CFLAGS))
+ALL_CFLAGS := $(PROJECT_CFLAGS) $(CFLAGS)
 ALL_LDFLAGS := $(PROJECT_LDFLAGS) $(LDFLAGS)
 
 # cppcheck options
@@ -90,15 +90,15 @@ all: $(TARGETS)
 
 # Target rules
 busy: busy.c $(wildcard $(SRC)/util.*) $(wildcard $(SRC)/signal_handler.*)
-	$(CC) $(ALL_CFLAGS) $(filter-out %.h,$^) $(ALL_LDFLAGS) -o $@
+	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
-multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*) $(wildcard $(SRC)/signal_handler.*)
-	$(CC) $(ALL_CFLAGS) $(filter-out %.h,$^) $(ALL_LDFLAGS) -o $@
+multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*) \
+	$(wildcard $(SRC)/signal_handler.*)
+	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
 cpulimit_test: cpulimit_test.c \
-	$(filter-out $(SRC)/main.c, \
-	$(wildcard $(SRC)/*.c $(SRC)/*.h))
-	$(CC) $(ALL_CFLAGS) $(filter-out %.h,$^) $(ALL_LDFLAGS) -o $@
+	$(filter-out $(SRC)/main.c,$(wildcard $(SRC)/*.c $(SRC)/*.h))
+	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
 # Clean target
 clean:
