@@ -39,19 +39,18 @@ set(_all_files ${_src_files} ${_tests_files})
 
 if(NOT _all_files)
     message(STATUS "No source files found to format.")
-    return()
-endif()
+else()
+    # --- 3. Run clang-format ---
 
-# --- 3. Run clang-format ---
-
-message(STATUS "Formatting source files with clang-format...")
-execute_process(
-    COMMAND "${CLANG_FORMAT_EXECUTABLE}" -i ${_all_files}
-    RESULT_VARIABLE _rc
-)
-if(NOT _rc EQUAL 0)
-    message(FATAL_ERROR
-        "clang-format failed (exit code ${_rc})."
+    message(STATUS "Formatting source files with clang-format...")
+    execute_process(
+        COMMAND "${CLANG_FORMAT_EXECUTABLE}" -i ${_all_files}
+        RESULT_VARIABLE _rc
     )
+    if(NOT _rc EQUAL 0)
+        message(FATAL_ERROR
+            "clang-format failed (exit code ${_rc})."
+        )
+    endif()
+    message(STATUS "Source files formatted successfully.")
 endif()
-message(STATUS "Source files formatted successfully.")
