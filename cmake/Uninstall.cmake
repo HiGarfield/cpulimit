@@ -21,14 +21,13 @@ string(REGEX REPLACE "\n" ";" _files "${_files}")
 
 foreach(_file ${_files})
     # Skip empty entries produced by a trailing newline in the manifest.
-    if(NOT _file)
-        continue()
-    endif()
-    if(EXISTS "$ENV{DESTDIR}${_file}" OR
-       IS_SYMLINK "$ENV{DESTDIR}${_file}")
-        message(STATUS "Removing: $ENV{DESTDIR}${_file}")
-        file(REMOVE "$ENV{DESTDIR}${_file}")
-    else()
-        message(STATUS "File not found: $ENV{DESTDIR}${_file}")
+    if(_file)
+        if(EXISTS "$ENV{DESTDIR}${_file}" OR
+           IS_SYMLINK "$ENV{DESTDIR}${_file}")
+            message(STATUS "Removing: $ENV{DESTDIR}${_file}")
+            file(REMOVE "$ENV{DESTDIR}${_file}")
+        else()
+            message(STATUS "File not found: $ENV{DESTDIR}${_file}")
+        endif()
     endif()
 endforeach()
