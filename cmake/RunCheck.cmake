@@ -91,6 +91,9 @@ endif()
 list(APPEND _ct_extra --extra-arg=-Wno-unknown-warning-option)
 
 # --- 5. Common cppcheck options ---
+#
+# --error-exitcode=1 makes cppcheck exit with code 1 whenever any
+# non-suppressed issue is found, so the build fails immediately.
 
 set(_cppcheck_common
     --enable=all
@@ -105,6 +108,7 @@ set(_cppcheck_common
     --suppress=ConfigurationNotChecked
     --suppress=unmatchedSuppression
     --suppress=checkersReport
+    --error-exitcode=1
 )
 
 # --- 6. src/: cppcheck ---
@@ -126,6 +130,14 @@ if(NOT _rc EQUAL 0)
         "See ${SRC_DIR}/cppcheck-report.txt for details."
     )
 endif()
+file(READ "${SRC_DIR}/cppcheck-report.txt" _cppcheck_report)
+string(STRIP "${_cppcheck_report}" _cppcheck_report)
+if(NOT "${_cppcheck_report}" STREQUAL "")
+    message(FATAL_ERROR
+        "cppcheck found issues in src/ (report is non-empty). "
+        "See ${SRC_DIR}/cppcheck-report.txt for details."
+    )
+endif()
 message(STATUS
     "See ${SRC_DIR}/cppcheck-report.txt for cppcheck report."
 )
@@ -144,6 +156,7 @@ execute_process(
     COMMAND
         "${CLANG_TIDY_EXECUTABLE}"
         ${_ct_extra}
+        --warnings-as-errors=*
         -p "${_ct_db_dir}"
         ${_src_files}
     WORKING_DIRECTORY "${SRC_DIR}"
@@ -153,6 +166,14 @@ execute_process(
 if(NOT _rc EQUAL 0)
     message(FATAL_ERROR
         "clang-tidy on src/ failed (exit code ${_rc}). "
+        "See ${SRC_DIR}/clang-tidy-report.txt for details."
+    )
+endif()
+file(READ "${SRC_DIR}/clang-tidy-report.txt" _tidy_report)
+string(STRIP "${_tidy_report}" _tidy_report)
+if(NOT "${_tidy_report}" STREQUAL "")
+    message(FATAL_ERROR
+        "clang-tidy found issues in src/ (report is non-empty). "
         "See ${SRC_DIR}/clang-tidy-report.txt for details."
     )
 endif()
@@ -183,6 +204,14 @@ if(BUILD_TESTS)
             "See ${TESTS_DIR}/cppcheck-report.txt for details."
         )
     endif()
+    file(READ "${TESTS_DIR}/cppcheck-report.txt" _cppcheck_report)
+    string(STRIP "${_cppcheck_report}" _cppcheck_report)
+    if(NOT "${_cppcheck_report}" STREQUAL "")
+        message(FATAL_ERROR
+            "cppcheck found issues in tests/ (report is non-empty). "
+            "See ${TESTS_DIR}/cppcheck-report.txt for details."
+        )
+    endif()
     message(STATUS
         "See ${TESTS_DIR}/cppcheck-report.txt for cppcheck report."
     )
@@ -196,6 +225,7 @@ if(BUILD_TESTS)
         COMMAND
             "${CLANG_TIDY_EXECUTABLE}"
             ${_ct_extra}
+            --warnings-as-errors=*
             -p "${_ct_db_dir}"
             ${_tests_files}
         WORKING_DIRECTORY "${TESTS_DIR}"
@@ -205,6 +235,14 @@ if(BUILD_TESTS)
     if(NOT _rc EQUAL 0)
         message(FATAL_ERROR
             "clang-tidy on tests/ failed (exit code ${_rc}). "
+            "See ${TESTS_DIR}/clang-tidy-report.txt for details."
+        )
+    endif()
+    file(READ "${TESTS_DIR}/clang-tidy-report.txt" _tidy_report)
+    string(STRIP "${_tidy_report}" _tidy_report)
+    if(NOT "${_tidy_report}" STREQUAL "")
+        message(FATAL_ERROR
+            "clang-tidy found issues in tests/ (report is non-empty). "
             "See ${TESTS_DIR}/clang-tidy-report.txt for details."
         )
     endif()
