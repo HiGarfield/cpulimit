@@ -50,7 +50,7 @@ PROJECT_LDFLAGS += \
     $(if $(findstring Darwin,$(UNAME)),-lproc)
 
 ALL_CFLAGS := $(PROJECT_CFLAGS) $(CFLAGS)
-ALL_LDFLAGS := $(PROJECT_LDFLAGS) $(LDFLAGS)
+ALL_LDFLAGS := $(LDFLAGS) $(PROJECT_LDFLAGS)
 
 # cppcheck options
 CPPCHECK_OPTS := \
