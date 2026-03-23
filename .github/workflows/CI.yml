@@ -11,7 +11,7 @@ permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   create-release:
@@ -43,7 +43,7 @@ jobs:
        needs.create-release.result == 'skipped')
     name: Build on ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: read
     strategy:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, macos-14, macos-15, macos-26]
@@ -129,13 +129,12 @@ jobs:
           cp -f ./build/src/cpulimit \
               ./build/src/cpulimit-${{ matrix.os }}
 
-      - name: Upload binaries to release
+      - name: Upload binary artifact
         if: github.event_name != 'pull_request'
-        uses: HiGarfield/action-gh-release@master
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ needs.create-release.outputs.release_version }}
-          files: build/src/cpulimit-${{ matrix.os }}
-          overwrite_files: true
+          name: cpulimit-${{ matrix.os }}
+          path: build/src/cpulimit-${{ matrix.os }}
 
   build-FreeBSD:
     needs: [create-release]
@@ -145,7 +144,7 @@ jobs:
        needs.create-release.result == 'skipped')
     name: Build on FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
     permissions:
-      contents: write
+      contents: read
     strategy:
       matrix:
         osver: ["13.5", "14.3"]
@@ -206,16 +205,36 @@ jobs:
             cp -f ./build/src/cpulimit \
                 ./build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
 
-      - name: Upload binaries to release
+      - name: Upload binary artifact
         if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
+          path: build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
+
+  upload-releases:
+    needs: [create-release, build-Linux-macOS, build-FreeBSD]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cpulimit-*
+          merge-multiple: true
+          path: artifacts/
+
+      - name: Upload binaries to release
         uses: HiGarfield/action-gh-release@master
         with:
           tag_name: ${{ needs.create-release.outputs.release_version }}
-          files: build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
+          files: artifacts/*
           overwrite_files: true
 
   cleanup-releases:
-    needs: [build-Linux-macOS, build-FreeBSD]
+    needs: [upload-releases]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
