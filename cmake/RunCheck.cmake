@@ -92,11 +92,28 @@ list(APPEND _ct_extra --extra-arg=-Wno-unknown-warning-option)
 
 # --- 5. Common cppcheck options ---
 
+# Detect cppcheck version: --check-level=exhaustive requires cppcheck >= 2.8.
+execute_process(
+    COMMAND "${CPPCHECK_EXECUTABLE}" --version
+    OUTPUT_VARIABLE _cppcheck_ver_str
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+string(REGEX MATCH "([0-9]+)\\.([0-9]+)" _cppcheck_ver_match
+    "${_cppcheck_ver_str}")
+set(_cppcheck_ver_major "0")
+set(_cppcheck_ver_minor "0")
+if(_cppcheck_ver_match)
+    string(REGEX REPLACE "([0-9]+)\\.([0-9]+)" "\\1"
+        _cppcheck_ver_major "${_cppcheck_ver_match}")
+    string(REGEX REPLACE "([0-9]+)\\.([0-9]+)" "\\2"
+        _cppcheck_ver_minor "${_cppcheck_ver_match}")
+endif()
+
 set(_cppcheck_common
     --enable=all
     --language=c
     --inconclusive
-    --check-level=exhaustive
     --library=gnu
     --force
     --std=c89
@@ -106,6 +123,15 @@ set(_cppcheck_common
     --suppress=unmatchedSuppression
     --suppress=checkersReport
 )
+
+# --check-level=exhaustive was introduced in cppcheck 2.8.
+# NOT ... LESS is used instead of GREATER_EQUAL for CMake 3.5 compatibility
+# (GREATER_EQUAL was introduced in CMake 3.7).
+if(_cppcheck_ver_major GREATER 2 OR
+        (_cppcheck_ver_major EQUAL 2 AND
+         NOT _cppcheck_ver_minor LESS 8))
+    list(APPEND _cppcheck_common --check-level=exhaustive)
+endif()
 
 # --- 6. src/: cppcheck ---
 
