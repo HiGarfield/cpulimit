@@ -3,23 +3,26 @@ name: CI
 on:
   push:
     branches: [master]
+  pull_request:
+    branches: [master]
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   create-release:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     outputs:
       release_version: ${{ steps.version.outputs.release_version }}
     steps:
-      - uses: actions/checkout@main
+      - uses: actions/checkout@v4
 
       - id: version
         shell: bash
@@ -34,6 +37,10 @@ jobs:
 
   build-Linux-macOS:
     needs: [create-release]
+    if: >-
+      always() &&
+      (needs.create-release.result == 'success' ||
+       needs.create-release.result == 'skipped')
     name: Build on ${{ matrix.os }}
     permissions:
       contents: write
@@ -44,9 +51,8 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
         with:
-          ref: master
           fetch-depth: 0
 
       - name: Install tools (Ubuntu)
@@ -59,6 +65,8 @@ jobs:
       - name: Install tools (macOS)
         if: startsWith(matrix.os, 'macos-')
         run: |
+          brew install cppcheck llvm
+          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
           if [ "$(uname -m)" = "arm64" ]; then
             echo "Valgrind is not supported on Apple Silicon (arm64); skipping."
           else
@@ -74,6 +82,7 @@ jobs:
               -B build
           cmake --build build
           cmake --build build --target test
+          cmake --build build --target check
           rm -rf build
 
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
@@ -103,6 +112,7 @@ jobs:
               -B build
           cmake --build build
           cmake --build build --target test
+          cmake --build build --target check
           if command -v valgrind >/dev/null 2>&1; then
             cmake --build build --target valgrind
           fi
@@ -120,6 +130,7 @@ jobs:
               ./build/src/cpulimit-${{ matrix.os }}
 
       - name: Upload binaries to release
+        if: github.event_name != 'pull_request'
         uses: HiGarfield/action-gh-release@master
         with:
           tag_name: ${{ needs.create-release.outputs.release_version }}
@@ -128,6 +139,10 @@ jobs:
 
   build-FreeBSD:
     needs: [create-release]
+    if: >-
+      always() &&
+      (needs.create-release.result == 'success' ||
+       needs.create-release.result == 'skipped')
     name: Build on FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
     permissions:
       contents: write
@@ -139,7 +154,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
 
       - name: Build on FreeBSD
         uses: vmactions/freebsd-vm@v1
@@ -148,7 +163,7 @@ jobs:
           arch: ${{ matrix.arch }}
           usesh: true
           prepare: |
-            pkg install -y -q gcc llvm sudo cmake
+            pkg install -y -q gcc llvm sudo cmake cppcheck
           run: |
             export CTEST_OUTPUT_ON_FAILURE=1
 
@@ -163,6 +178,7 @@ jobs:
                 -B build
             cmake --build build
             cmake --build build --target test
+            cmake --build build --target check
             rm -rf build
 
             cmake -DCMAKE_C_COMPILER=clang \
@@ -170,6 +186,7 @@ jobs:
                 -B build
             cmake --build build
             cmake --build build --target test
+            cmake --build build --target check
             rm -rf build
 
             cmake -DCMAKE_C_COMPILER=gcc \
@@ -190,6 +207,7 @@ jobs:
                 ./build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
 
       - name: Upload binaries to release
+        if: github.event_name != 'pull_request'
         uses: HiGarfield/action-gh-release@master
         with:
           tag_name: ${{ needs.create-release.outputs.release_version }}
@@ -198,6 +216,7 @@ jobs:
 
   cleanup-releases:
     needs: [build-Linux-macOS, build-FreeBSD]
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -222,7 +241,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@main
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
