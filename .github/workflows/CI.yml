@@ -212,8 +212,65 @@ jobs:
           name: cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
           path: build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
 
+  build-macOS-universal:
+    needs: [create-release]
+    if: >-
+      always() &&
+      (needs.create-release.result == 'success' ||
+       needs.create-release.result == 'skipped')
+    name: Build macOS Universal Binary
+    permissions:
+      contents: read
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install tools
+        run: |
+          brew install cppcheck llvm
+          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+
+      - name: Build, test and analyse (Universal Binary)
+        run: |
+          export CTEST_OUTPUT_ON_FAILURE=1
+
+          cmake -DCMAKE_C_COMPILER=/usr/bin/clang \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+              -B build
+          cmake --build build
+          cmake --build build --target test
+          cmake --build build --target check
+
+      - name: Verify Universal Binary
+        run: |
+          lipo -info ./build/src/cpulimit
+
+      - name: Functional test with sudo
+        run: |
+          random_folder="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
+          mkdir -p "./tests/${random_folder}"
+          random_file="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
+          random_path="./tests/${random_folder}/${random_file}"
+          cp -f ./build/tests/cpulimit_test "${random_path}"
+          echo "${random_path}"
+          sudo "${random_path}"
+          cp -f ./build/src/cpulimit \
+              ./build/src/cpulimit-macos-universal
+
+      - name: Upload binary artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpulimit-macos-universal
+          path: build/src/cpulimit-macos-universal
+
   upload-releases:
-    needs: [create-release, build-Linux-macOS, build-FreeBSD]
+    needs: [create-release, build-Linux-macOS, build-FreeBSD, build-macOS-universal]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
