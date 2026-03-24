@@ -173,7 +173,7 @@ static double platform_time_to_ms(double platform_time) {
  * function skips exec_path and its padding to return the true argv[0].
  * An empty argv[0] is treated as a failure and returns -1.
  */
-int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
+static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     int mib[3] = {CTL_KERN, KERN_PROCARGS2};
     char *procargs = NULL;
     const char *ptr, *null_pos, *end;
