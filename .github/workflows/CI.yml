@@ -14,33 +14,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  create-release:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    outputs:
-      release_version: ${{ steps.version.outputs.release_version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - id: version
-        shell: bash
-        run: |
-          v=$(TZ=Asia/Shanghai git log -1 --format="%cd" --date=format-local:'%Y%m%d%H%M')
-          echo "release_version=$v" >> $GITHUB_OUTPUT
-
-      - uses: HiGarfield/action-gh-release@master
-        with:
-          tag_name: ${{ steps.version.outputs.release_version }}
-          make_latest: true
-
   build-Linux-macOS:
-    needs: [create-release]
-    if: >-
-      always() &&
-      (needs.create-release.result == 'success' ||
-       needs.create-release.result == 'skipped')
     name: Build on ${{ matrix.os }}
     permissions:
       contents: read
@@ -137,11 +111,6 @@ jobs:
           path: build/src/cpulimit-${{ matrix.os }}
 
   build-FreeBSD:
-    needs: [create-release]
-    if: >-
-      always() &&
-      (needs.create-release.result == 'success' ||
-       needs.create-release.result == 'skipped')
     name: Build on FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
     permissions:
       contents: read
@@ -213,12 +182,20 @@ jobs:
           path: build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
 
   upload-releases:
-    needs: [create-release, build-Linux-macOS, build-FreeBSD]
+    needs: [build-Linux-macOS, build-FreeBSD]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        shell: bash
+        run: |
+          v=$(TZ=Asia/Shanghai git log -1 --format="%cd" --date=format-local:'%Y%m%d%H%M')
+          echo "release_version=$v" >> $GITHUB_OUTPUT
+
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
         with:
@@ -229,8 +206,9 @@ jobs:
       - name: Upload binaries to release
         uses: HiGarfield/action-gh-release@master
         with:
-          tag_name: ${{ needs.create-release.outputs.release_version }}
+          tag_name: ${{ steps.version.outputs.release_version }}
           files: artifacts/*
+          make_latest: true
           overwrite_files: true
 
   cleanup-releases:
