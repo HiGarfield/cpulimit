@@ -311,18 +311,30 @@ See `/README.md`.
   - All possible invalid inputs.
   - All boundary values.
 - Unit tests MUST be implemented in `tests/cpulimit_test.c`.
-- Unit tests MUST be run:
-  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
-  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build && cmake --build build --target test` and ensure all tests pass without warnings or errors.
-- cmake-based static analysis MUST be tested:
-  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
-  - Run `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target check` and ensure no warnings or errors in the check report files.
-- Dynamic analysis MUST be performed using valgrind:
-  - Run `valgrind --leak-check=full --error-exitcode=1 ./build/tests/cpulimit_test` and ensure no errors or leaks are reported.
-- All issues found by static and dynamic analysis MUST be fixed before
-  submission.
 - New features MUST include corresponding tests.
 - Bug fixes MUST include regression tests.
+- All issues found by static and dynamic analysis MUST be fixed before
+  submission.
+- Tests MUST be run for both gcc and clang. For each compiler, follow
+  these steps in order:
+  1. Delete the build directory:
+     - Run `rm -rf build`
+  2. Configure and build the default target, ensuring it succeeds
+     without warnings or errors:
+     - For gcc: Run `cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all`
+     - For clang: Run `cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all`
+  3. Build the `check` target and inspect every check report file to
+     confirm there are no warnings or errors:
+     - Run `cmake --build build --target check`
+     - Inspect the following report files and ensure each contains no
+       warnings or errors:
+       - `src/cppcheck-report.txt`
+       - `src/clang-tidy-report.txt`
+       - `tests/cppcheck-report.txt`
+       - `tests/clang-tidy-report.txt`
+  4. Build the `valgrind` target and confirm no errors or leaks are
+     reported:
+     - Run `cmake --build build --target valgrind`
 
 ---
 
