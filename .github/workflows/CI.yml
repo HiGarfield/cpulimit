@@ -204,7 +204,7 @@ jobs:
           path: artifacts/
 
       - name: Upload binaries to release
-        uses: HiGarfield/action-gh-release@master
+        uses: HiGarfield/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe
         with:
           tag_name: ${{ steps.version.outputs.release_version }}
           files: artifacts/*
@@ -218,7 +218,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: HiGarfield/delete-release-action@master
+      - uses: HiGarfield/delete-release-action@0972c6da28d8829cdc95fae0e71afcb9079dadc9
         continue-on-error: true
         with:
           release-drop: true
@@ -242,7 +242,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: HiGarfield/github-push-action@master
+      - uses: HiGarfield/github-push-action@57116acb309081ee57864270b0e3c4cedbe45452
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: develop
