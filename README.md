@@ -34,28 +34,21 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
  | -e FILE, --exe=FILE | name or path of the executable                   |
  | COMMAND [ARG]...    | run the command and limit CPU usage (implies -z) |
 
-> **Note:** The input syntax for the `-e` option determines how cpulimit selects processes using pattern matching rules:
+> **Note:** The input syntax for the `-e` option determines how cpulimit selects processes:
 >
 > - **Absolute Paths** (e.g., `-e /usr/bin/myapp`) use **exact path matching**:
->   - Matches only processes whose execution command _exactly includes_ the specified absolute path.
+>   - Matches only processes whose invocation path exactly matches the specified absolute path.
 >   - Processes started without an absolute path will not match.
->   - _Example:_ `-e /usr/bin/myapp` will **NOT** match a process launched simply as `myapp`, even if the executable resides in `/usr/bin/`.
+>   - _Example:_ `-e /usr/bin/myapp` will **not** match a process launched as `myapp`, even if the executable resides in `/usr/bin/`.
 >
 > - **Relative Paths or Filenames** (e.g., `-e ./dir/myapp` or `-e myapp`) use **basename-only matching**:
->   - Directory components are ignored when selecting targets.
->   - Multiple matches may occur if different directories contain files with the same basename.
->   - _Example:_ `-e ./dir1/myapp` could also match `./dir2/myapp`.
+>   - Only the filename component is compared; directory components are ignored.
+>   - Multiple processes in different directories with the same filename will all match.
+>   - _Example:_ `-e ./dir1/myapp` also matches `./dir2/myapp`.
 >
-> - **Handling Multiple Matching Processes**:
->   1. **Initial Candidate Selection**  
->      - The process iterator selects the **first matched process** as the initial candidate.
->   2. **Ancestry Validation**  
->      - Subsequent matches are evaluated based on parent/child relationships.  
->      - A new match replaces the current candidate **only if** it:
->        - Is a valid pattern match, and  
->        - Is an ancestor of the current candidate in the process hierarchy.
->   3. **Final Selection**  
->      - After scanning all processes, the last valid candidate becomes the selected process.
+> - **When Multiple Processes Match**:
+>   - cpulimit selects the most ancestral (highest in the process hierarchy) match.
+>   - This heuristic prefers the parent or oldest ancestor over child processes.
 
 ## Examples
 
