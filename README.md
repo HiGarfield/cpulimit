@@ -76,6 +76,16 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
   cpulimit -l 50 -i -e myapp
   ```
 
+## Exit Codes
+
+| Exit Code | Description                                                  |
+| --------- | ------------------------------------------------------------ |
+| 0         | Success                                                      |
+| 1         | Error (invalid arguments, target not found, internal error)  |
+| 126       | Command found but not executable (command mode only)         |
+| 127       | Command not found (command mode only)                        |
+| 128+N     | Command terminated by signal N (command mode only)           |
+
 ## Get the Latest Source Code
 
 The latest version of the code is available here:
