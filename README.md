@@ -28,11 +28,11 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 
 - TARGET **must be exactly one of**:
 
- | Target              | Description                                      |
- | ------------------- | ------------------------------------------------ |
- | -p PID, --pid=PID   | PID of the target process (implies -z)           |
- | -e FILE, --exe=FILE | name or path of the executable                   |
- | COMMAND [ARG]...    | run the command and limit CPU usage (implies -z) |
+ | Target              | Description                                       |
+ | ------------------- | ------------------------------------------------- |
+ | -p PID, --pid=PID   | PID of the target process (implies -z)            |
+ | -e FILE, --exe=FILE | executable name or path (matched against argv[0]) |
+ | COMMAND [ARG]...    | run the command and limit CPU usage (implies -z)  |
 
 > **Note:** The `-e` option identifies a target by comparing against each
 > process's **`argv[0]`** — the command string the process supplied when it
