@@ -34,21 +34,49 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
  | -e FILE, --exe=FILE | name or path of the executable                   |
  | COMMAND [ARG]...    | run the command and limit CPU usage (implies -z) |
 
-> **Note:** The input syntax for the `-e` option determines how cpulimit selects processes:
+> **Note:** The `-e` option identifies a target by comparing against each
+> process's **`argv[0]`** — the command string the process supplied when it
+> was launched — not the resolved path of the executable on disk. A process
+> started as `./myapp` has `argv[0]` equal to `./myapp`, not
+> `/usr/bin/myapp`.
 >
-> - **Absolute Paths** (e.g., `-e /usr/bin/myapp`) use **exact path matching**:
->   - Matches only processes whose invocation path exactly matches the specified absolute path.
->   - Processes started without an absolute path will not match.
->   - _Example:_ `-e /usr/bin/myapp` will **not** match a process launched as `myapp`, even if the executable resides in `/usr/bin/`.
+> **Matching mode** depends on whether the argument starts with `/`:
 >
-> - **Relative Paths or Filenames** (e.g., `-e ./dir/myapp` or `-e myapp`) use **basename-only matching**:
->   - Only the filename component is compared; directory components are ignored.
->   - Multiple processes in different directories with the same filename will all match.
->   - _Example:_ `-e ./dir1/myapp` also matches `./dir2/myapp`.
+> - **Absolute path** (starts with `/`, e.g., `-e /usr/bin/myapp`):
+>   `argv[0]` of each process is compared **in full** against the given path.
+>   Only processes whose `argv[0]` is exactly `/usr/bin/myapp` match.
+>   Processes started as `myapp` or `./myapp` will **not** match, even if
+>   the executable is the same file.
 >
-> - **When Multiple Processes Match**:
->   - cpulimit selects the most ancestral (highest in the process hierarchy) match.
->   - This heuristic prefers the parent or oldest ancestor over child processes.
+> - **Relative path or plain name** (does not start with `/`,
+>   e.g., `-e myapp` or `-e ./dir/myapp`):
+>   Only the **basename** of the argument is compared against the
+>   **basename** of each process's `argv[0]`; directory components are
+>   ignored on both sides. As a result, `-e ./dir1/myapp` also matches
+>   a process started as `./dir2/myapp` or `/usr/bin/myapp`. If the
+>   basename of the argument is empty (e.g., `-e bin/`), no process will
+>   ever match.
+>
+> **Selecting among multiple matches** — when more than one running process
+> matches, cpulimit applies the following rule while iterating over all
+> processes:
+>
+> - A newly found matching process replaces the current candidate **only
+>   if the current candidate is a descendant** of the new process.
+> - If neither process is an ancestor of the other, the current candidate
+>   is kept (the earlier-encountered process wins).
+>
+> This means that among all matching processes, **the topmost ancestor is
+> always selected**: if processes A → B → C all match (A is the root
+> ancestor), A wins regardless of iteration order. If two matching
+> processes are unrelated (neither is an ancestor of the other), the one
+> encountered first during system process iteration wins; that order is
+> platform-defined, so the result is **non-deterministic** among those
+> unrelated processes.
+>
+> _Example:_ If a shell script `myapp` spawns a child process also named
+> `myapp`, `-e myapp` selects the parent script (the ancestor), not the
+> child.
 
 ## Examples
 
