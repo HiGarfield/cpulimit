@@ -88,9 +88,7 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 
 ## Get the Latest Source Code
 
-The latest version of the code is available here:
-
-- HiGarfield's Repository: <https://github.com/HiGarfield/cpulimit>
+Source code is available at <https://github.com/HiGarfield/cpulimit>.
 
 ## Instructions
 
