@@ -158,9 +158,25 @@ To uninstall cpulimit, use **one of** the following methods:
 
 ### Run Tests
 
-Run the following commands in the directory where the project was built.
+- **Run unit tests with `make` on Linux/macOS:**
 
-- **Run unit tests:**
+  ```sh
+  make test
+  ```
+
+- **Run unit tests with `gmake` on FreeBSD:**
+
+  ```sh
+  gmake test
+  ```
+
+- **Run unit tests with `cmake`:**
+
+  ```sh
+  cmake --build build --target test
+  ```
+
+- **Or run the test binary directly** (from the project build directory):
 
   ```sh
   ./tests/cpulimit_test
