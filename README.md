@@ -74,8 +74,8 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 > platform-defined, so the result is **non-deterministic** among those
 > unrelated processes.
 >
-> _Example:_ If a shell script `myapp` spawns a child process also named
-> `myapp`, `-e myapp` selects the parent script (the ancestor), not the
+> _Example:_ If a process `myapp` spawns a child process also named
+> `myapp`, `-e myapp` selects the parent process (the ancestor), not the
 > child.
 
 ## Examples
@@ -127,14 +127,14 @@ To build and install cpulimit from source, use **one of** the following methods:
 - **Build and install with `make` on Linux/macOS:**
 
   ```sh
-  make  # For older compilers, try: make NOFLAGS=1
+  make
   sudo make install
   ```
 
 - **Build and install with `gmake` on FreeBSD:**
 
   ```sh
-  gmake  # For older compilers, try: gmake NOFLAGS=1
+  gmake
   sudo gmake install
   ```
 
@@ -184,25 +184,9 @@ To uninstall cpulimit, use **one of** the following methods:
 
 ### Run Tests
 
-- **Run unit tests with `make` on Linux/macOS:**
+Run the tests from the project build directory.
 
-  ```sh
-  make test
-  ```
-
-- **Run unit tests with `gmake` on FreeBSD:**
-
-  ```sh
-  gmake test
-  ```
-
-- **Run unit tests with `cmake`:**
-
-  ```sh
-  cmake --build build --target test
-  ```
-
-- **Or run the test binary directly** (from the project build directory):
+- **Run unit tests:**
 
   ```sh
   ./tests/cpulimit_test
