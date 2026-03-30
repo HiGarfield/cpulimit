@@ -70,8 +70,9 @@ static void print_usage_and_exit(FILE *stream, const struct cpulimit_cfg *cfg,
     fprintf(
         stream,
         "  -p PID, --pid=PID        PID of the target process (implies -z)\n");
-    fprintf(stream,
-            "  -e FILE, --exe=FILE      executable name or path (matched against argv[0])\n");
+    fprintf(
+        stream,
+        "  -e FILE, --exe=FILE      executable name or path (matched against argv[0])\n");
     fprintf(
         stream,
         "  COMMAND [ARG]...         run the command and limit CPU usage (implies -z)\n");
