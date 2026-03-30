@@ -54,10 +54,13 @@
 
 /**
  * @def EXIT_CMD_NOT_FOUND
- * @brief Shell-compatible exit code: command not found
+ * @brief Shell-compatible exit code for execvp() ENOENT failures
  *
- * Used when the target command cannot be located in PATH or at the
- * specified path.  Mirrors the POSIX shell convention for exit status 127.
+ * Used when execvp() fails with ENOENT and the limiter cannot verify that
+ * the target file exists (for example, for a non-absolute argv[0] looked
+ * up via PATH). This includes the classic "command not found" case as well
+ * as other ENOENT-at-exec scenarios. Mirrors the POSIX shell convention
+ * for exit status 127.
  */
 #define EXIT_CMD_NOT_FOUND 127
 
