@@ -78,6 +78,10 @@
  */
 #define STATS_HEADER_PERIOD 200
 
+#if (STATS_HEADER_PERIOD % STATS_SAMPLE_PERIOD) != 0
+#error "STATS_HEADER_PERIOD must be a multiple of STATS_SAMPLE_PERIOD"
+#endif
+
 /**
  * @brief Calculate dynamic time slot duration based on system load
  * @return Time slot duration in microseconds
