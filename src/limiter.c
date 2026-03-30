@@ -43,6 +43,45 @@
 #include <unistd.h>
 
 /**
+ * @def EXIT_CMD_NOT_EXECUTABLE
+ * @brief Shell-compatible exit code: command found but not executable
+ *
+ * Used when the target file exists but cannot be executed (e.g., missing
+ * execute permission, unsupported binary format, or missing shebang
+ * interpreter).  Mirrors the POSIX shell convention for exit status 126.
+ */
+#define EXIT_CMD_NOT_EXECUTABLE 126
+
+/**
+ * @def EXIT_CMD_NOT_FOUND
+ * @brief Shell-compatible exit code: command not found
+ *
+ * Used when the target command cannot be located in PATH or at the
+ * specified path.  Mirrors the POSIX shell convention for exit status 127.
+ */
+#define EXIT_CMD_NOT_FOUND 127
+
+/**
+ * @def CHILD_KILL_TIMEOUT_MS
+ * @brief Timeout in milliseconds before escalating to SIGKILL
+ *
+ * After the limiter decides to terminate the child process group, it
+ * polls waitpid() in a loop.  If the child has not exited within this
+ * many milliseconds, SIGKILL is sent to the entire process group.
+ */
+#define CHILD_KILL_TIMEOUT_MS 5000
+
+/**
+ * @def CHILD_POLL_INTERVAL_NS
+ * @brief Nanoseconds between waitpid() polls during child cleanup
+ *
+ * While waiting for the child to exit (in collect_child_exit_status()),
+ * the parent sleeps for this interval between non-blocking waitpid()
+ * calls to avoid busy-waiting.
+ */
+#define CHILD_POLL_INTERVAL_NS 50000000L /* 50 ms */
+
+/**
  * @brief Check whether a file is a script with a missing shebang interpreter.
  * @param path Path to the file to inspect.
  * @return 1 if the file begins with "#!" and the interpreter named on the
@@ -178,16 +217,18 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         is_script_missing_interpreter(cfg->command_args[0])) {
         fprintf(stderr, "%s: cannot execute: shebang interpreter not found\n",
                 cfg->command_args[0]);
-        _exit(126); /* Script exists but shebang interpreter missing */
+        _exit(EXIT_CMD_NOT_EXECUTABLE);
     }
     execvp(cfg->command_args[0], cfg->command_args);
 
     /*
      * Execution reaches here only if execvp() failed.
      * Use shell-compatible exit codes:
-     * - 127: command not found (ENOENT with no existing file)
-     * - 126: found but not executable (permission denied, or ENOENT
-     *        when file exists but its interpreter is absent)
+     * - EXIT_CMD_NOT_FOUND (127): command not found (ENOENT with no
+     *   existing file)
+     * - EXIT_CMD_NOT_EXECUTABLE (126): found but not executable
+     *   (permission denied, or ENOENT when file exists but its
+     *   interpreter is absent)
      *
      * Note: ENOENT can occur for two distinct reasons:
      * 1. The command (or a PATH-resolved name) does not exist -> 127.
@@ -205,9 +246,9 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     close(sync_write_fd);
     if (saved_errno == ENOENT && strchr(cfg->command_args[0], '/') != NULL &&
         access(cfg->command_args[0], F_OK) == 0) {
-        _exit(126); /* File exists but exec failed (e.g. bad interpreter) */
+        _exit(EXIT_CMD_NOT_EXECUTABLE);
     }
-    _exit(saved_errno == ENOENT ? 127 : 126);
+    _exit(saved_errno == ENOENT ? EXIT_CMD_NOT_FOUND : EXIT_CMD_NOT_EXECUTABLE);
 
 error_out:
     _exit(EXIT_FAILURE);
@@ -380,7 +421,7 @@ static int collect_child_exit_status(pid_t child_pid,
              * No state changes yet (WNOHANG returned immediately).
              * Check if we've exceeded timeout for graceful termination.
              */
-            const struct timespec poll_sleep = {0, 50000000L}; /* 50 ms */
+            const struct timespec poll_sleep = {0, CHILD_POLL_INTERVAL_NS};
             struct timespec current_time;
             if (get_current_time(&current_time) != 0) {
                 perror("get_current_time");
@@ -388,13 +429,14 @@ static int collect_child_exit_status(pid_t child_pid,
             }
 
             /*
-             * After 5 seconds, forcefully kill any remaining processes.
-             * This handles cases where processes ignore SIGTERM.
-             * Send SIGKILL to the entire process group (-pgid) to also
-             * terminate any descendants that are still running, even
-             * though we cannot wait() on them directly.
+             * After CHILD_KILL_TIMEOUT_MS, forcefully kill any remaining
+             * processes.  This handles cases where processes ignore
+             * SIGTERM.  Send SIGKILL to the entire process group (-pgid)
+             * to also terminate any descendants that are still running,
+             * even though we cannot wait() on them directly.
              */
-            if (timediff_in_ms(&current_time, &start_time) > 5000.0) {
+            if (timediff_in_ms(&current_time, &start_time) >
+                (double)CHILD_KILL_TIMEOUT_MS) {
                 if (cfg->verbose) {
                     printf("Process %ld timed out, sending SIGKILL\n",
                            (long)child_pid);
