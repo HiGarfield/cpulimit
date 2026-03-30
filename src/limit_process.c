@@ -59,6 +59,26 @@
 #define BASE_TIME_SLOT_US 100000
 
 /**
+ * @def STATS_SAMPLE_PERIOD
+ * @brief Number of control cycles between each verbose statistics line
+ *
+ * In verbose mode, CPU usage and control parameters are printed every
+ * STATS_SAMPLE_PERIOD cycles.  Keeping this relatively low (10) provides
+ * timely feedback without flooding the terminal.
+ */
+#define STATS_SAMPLE_PERIOD 10
+
+/**
+ * @def STATS_HEADER_PERIOD
+ * @brief Number of control cycles between verbose statistics header lines
+ *
+ * A column-header line is printed every STATS_HEADER_PERIOD cycles so that
+ * the output remains readable when scrolling.  Must be a multiple of
+ * STATS_SAMPLE_PERIOD.
+ */
+#define STATS_HEADER_PERIOD 200
+
+/**
  * @brief Calculate dynamic time slot duration based on system load
  * @return Time slot duration in microseconds
  *
@@ -290,9 +310,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         nsec2timespec(sleep_time_ns, &sleep_time);
 
         if (verbose) {
-            /* Display statistics every 10 cycles, header every 200 cycles */
-            if (cycle_counter % 10 == 0) {
-                if (cycle_counter % 200 == 0) {
+            if (cycle_counter % STATS_SAMPLE_PERIOD == 0) {
+                if (cycle_counter % STATS_HEADER_PERIOD == 0) {
                     printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum",
                            "sleep quantum", "active rate");
                 }
@@ -347,7 +366,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         }
 
         /* Increment cycle counter with wraparound */
-        cycle_counter = (cycle_counter + 1) % 200;
+        cycle_counter = (cycle_counter + 1) % STATS_HEADER_PERIOD;
     }
 
     /*
