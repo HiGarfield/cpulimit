@@ -23,7 +23,7 @@
 #define _GNU_SOURCE
 #endif
 
-#include "util.h" /* Must be included at first!!! */
+#include "util.h"
 
 #include <errno.h>
 #include <string.h>
