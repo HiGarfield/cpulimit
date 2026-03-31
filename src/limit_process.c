@@ -27,6 +27,7 @@
 
 #include "list.h"
 #include "process_group.h"
+#include "process_iterator.h"
 #include "process_table.h"
 #include "signal_handler.h"
 #include "time_util.h"
