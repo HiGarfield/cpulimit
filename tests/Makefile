@@ -89,10 +89,12 @@ CLANG_TIDY_REPORT := clang-tidy-report.txt
 all: $(TARGETS)
 
 # Target rules
-busy: busy.c $(wildcard $(SRC)/util.*) $(wildcard $(SRC)/signal_handler.*)
+busy: busy.c $(wildcard $(SRC)/util.* $(SRC)/time_util.*) \
+	$(wildcard $(SRC)/signal_handler.*)
 	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
-multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*) \
+multi_process_busy: multi_process_busy.c \
+	$(wildcard $(SRC)/util.* $(SRC)/time_util.*) \
 	$(wildcard $(SRC)/signal_handler.*)
 	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
