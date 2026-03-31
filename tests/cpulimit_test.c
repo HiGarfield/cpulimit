@@ -4013,6 +4013,339 @@ static void test_process_table_ops_after_destroy(void) {
 }
 
 /***************************************************************************
+ * PROCESS_FINDER MODULE TESTS
+ ***************************************************************************/
+
+/**
+ * @brief Test find_process_by_pid function
+ * @note Tests finding processes by PID including invalid PIDs, boundary
+ *  values, and init process
+ */
+static void test_process_finder_find_by_pid(void) {
+    pid_t self_pid;
+    pid_t found_pid;
+    pid_t result;
+
+    self_pid = getpid();
+    found_pid = find_process_by_pid(self_pid);
+    assert(found_pid == self_pid);
+
+    /* PID 0 is rejected before kill() */
+    result = find_process_by_pid((pid_t)0);
+    assert(result == 0);
+
+    /* Negative PID is rejected before kill() */
+    result = find_process_by_pid((pid_t)-1);
+    assert(result == 0);
+
+    /* INT_MAX: virtually guaranteed non-existent PID */
+    result = find_process_by_pid((pid_t)INT_MAX);
+    assert(result == 0);
+
+    /* PID 1 (init/systemd) always exists */
+    result = find_process_by_pid((pid_t)1);
+    assert(result != 0);
+}
+
+/**
+ * @brief Test find_process_by_name function
+ * @note Tests finding processes by name including wrong names, absolute
+ *  paths, NULL, empty string, and trailing slash
+ */
+static void test_process_finder_find_by_name(void) {
+    char *self_cmd;
+    const char *self_command;
+    char *wrong_name;
+    size_t len;
+    pid_t found_pid;
+    pid_t self_pid;
+#if defined(__linux__)
+    char abs_path[64];
+#endif /* __linux__ */
+
+    /* Allocate buffers on the heap to stay within stack size limits */
+    self_cmd = (char *)malloc(CMD_BUFF_SIZE);
+    if (self_cmd == NULL) {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
+
+    /* Allocate buffer large enough for self_command plus one extra char */
+    wrong_name = (char *)malloc(CMD_BUFF_SIZE + 1);
+    if (wrong_name == NULL) {
+        free(self_cmd);
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
+
+    /*
+     * Obtain the OS-visible argv[0] of the current process via the
+     * process iterator. When running under a wrapper (e.g., valgrind),
+     * main()'s argv[0] differs from what the OS records as the process
+     * command; get_self_command() always returns the correct value.
+     */
+    self_command = get_self_command(self_cmd, CMD_BUFF_SIZE);
+    /*
+     * get_self_command() queries the current process via the iterator;
+     * a NULL return means the iterator or read_cmd is broken, which is
+     * a real regression rather than an expected skip condition.
+     */
+    assert(self_command != NULL);
+
+    /*
+     * Verify that find_process_by_name can find the current process
+     * using its OS-visible command name.
+     */
+    found_pid = find_process_by_name(self_command);
+    self_pid = getpid();
+    assert(found_pid == self_pid);
+
+    /*
+     * Test Case 2: Pass an incorrect process name by appending 'x'
+     * to the current process's command.
+     * Expectation: Should return 0 (process not found).
+     */
+    strcpy(wrong_name, self_command); /* Copy the OS-visible command */
+    strcat(wrong_name, "x");          /* Append 'x' to make it non-matching */
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
+
+    /*
+     * Test Case 3: Pass a copy of the current process's command with
+     * the last character removed.
+     * Expectation: Should return 0 (process not found).
+     */
+    strcpy(wrong_name, self_command); /* Copy the OS-visible command */
+    len = strlen(wrong_name);
+    wrong_name[len - 1] = '\0'; /* Remove the last character */
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
+
+#if defined(__linux__)
+    /*
+     * Test the absolute-path comparison branch: when process_name starts
+     * with '/', find_process_by_name compares the full path against each
+     * process's cmdline.  Use a path incorporating the current PID so it
+     * is unique enough to never match any running process's cmdline,
+     * even in shared CI environments.
+     */
+    snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
+             (long)getpid());
+    found_pid = find_process_by_name(abs_path);
+    assert(found_pid == 0);
+#endif /* __linux__ */
+
+    /*
+     * Test Case 1: Pass an empty string to find_process_by_name.
+     * Expectation: Should return 0 (process not found).
+     */
+    strcpy(wrong_name, "");
+    found_pid = find_process_by_name(wrong_name);
+    assert(found_pid == 0);
+
+    /* NULL name must return 0 without crashing */
+    found_pid = find_process_by_name(NULL);
+    assert(found_pid == 0);
+
+    /* Trailing slash yields an empty basename; must return 0 */
+    found_pid = find_process_by_name("bin/");
+    assert(found_pid == 0);
+
+    free(wrong_name);
+    free(self_cmd);
+}
+
+/**
+ * @brief Test find_process_by_name with self's executable basename
+ * @note The OS-visible command basename must be found; result > 0 or
+ *  result is -PID (EPERM in confined environments). Uses the process
+ *  iterator to obtain the real argv[0] so the test passes when the
+ *  binary is launched via a wrapper such as valgrind.
+ */
+static void test_process_finder_find_by_name_self(void) {
+    char *self_buf;
+    const char *self_command;
+    const char *self_name;
+    pid_t result;
+
+    self_buf = (char *)malloc(CMD_BUFF_SIZE);
+    if (self_buf == NULL) {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
+    self_command = get_self_command(self_buf, CMD_BUFF_SIZE);
+    if (self_command == NULL) {
+        free(self_buf);
+        return;
+    }
+    self_name = file_basename(self_command);
+    if (self_name == NULL || self_name[0] == '\0') {
+        free(self_buf);
+        return;
+    }
+    result = find_process_by_name(self_name);
+    free(self_buf);
+    /* Must find at least itself (positive) or get EPERM (-pid) */
+    assert(result != 0);
+}
+
+/**
+ * @brief Test find_process_by_name with process launched via symlink
+ * @note Creates a temporary symlink to /bin/sleep, execs it so that
+ *  argv[0] is the symlink path, and verifies that find_process_by_name
+ *  finds the child using the symlink's basename. Skipped if /bin/sleep
+ *  is unavailable or the symlink cannot be created.
+ *
+ * This exercises the requirement that proc->command stores argv[0] as
+ * seen by the OS: the symlink path, not the resolved binary path.
+ */
+static void test_process_finder_find_by_name_symlink(void) {
+    char *sym_path;
+    char sym_name[64];
+    pid_t child_pid;
+    pid_t found_pid;
+    int i;
+    const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
+
+    /* Skip if /bin/sleep is not executable on this platform */
+    if (access("/bin/sleep", X_OK) != 0) {
+        return;
+    }
+
+    /*
+     * Build a unique symlink name derived from the current PID to avoid
+     * collisions when tests run in parallel.
+     */
+    if (snprintf(sym_name, sizeof(sym_name), "cpulimit_sym_%ld",
+                 (long)getpid()) >= (int)sizeof(sym_name)) {
+        return; /* Skip if name was truncated (should never happen) */
+    }
+
+    sym_path = (char *)malloc(PATH_MAX);
+    if (sym_path == NULL) {
+        return;
+    }
+    if (snprintf(sym_path, (size_t)PATH_MAX, "/tmp/%s", sym_name) >= PATH_MAX) {
+        free(sym_path);
+        return; /* Skip if path was truncated (should never happen) */
+    }
+
+    /* Remove any stale symlink left by a previous failed run */
+    unlink(sym_path);
+
+    if (symlink("/bin/sleep", sym_path) != 0) {
+        free(sym_path);
+        return; /* Skip if symlink creation fails */
+    }
+
+    /* Fork a child that execs sleep via the symlink */
+    child_pid = fork();
+    if (child_pid < 0) {
+        unlink(sym_path);
+        free(sym_path);
+        return;
+    }
+    if (child_pid == 0) {
+        char sleep_arg[] = "100";
+        char *child_argv[3];
+        child_argv[0] = sym_path;
+        child_argv[1] = sleep_arg;
+        child_argv[2] = NULL;
+        execv(sym_path, child_argv);
+        _exit(1);
+    }
+
+    /*
+     * Poll until the child appears in the process table with the
+     * symlink basename as its command, or until the timeout expires.
+     * A short per-iteration sleep avoids busy-waiting.
+     */
+    found_pid = 0;
+    for (i = 0; i < 50 && found_pid == 0; i++) {
+        sleep_timespec(&poll_wait);
+        found_pid = find_process_by_name(sym_name);
+    }
+
+    /* Cleanup: kill child and remove symlink */
+    kill_and_wait(child_pid, SIGKILL);
+    unlink(sym_path);
+    free(sym_path);
+
+    /*
+     * The child must be found by the symlink's basename, confirming
+     * that proc->command stores argv[0] (the symlink path), not the
+     * resolved binary path.
+     */
+    assert(found_pid == child_pid || found_pid == -child_pid);
+}
+
+/**
+ * @brief Test find_process_by_name with process launched with custom argv[0]
+ * @note Forks a child that execs /bin/sleep with a unique alias string
+ *  as argv[0]. Verifies that find_process_by_name finds the child by
+ *  that alias name. Skipped if /bin/sleep is not available.
+ *
+ * This exercises the requirement that proc->command stores the exact
+ * argv[0] passed to execve(), regardless of the real binary name.
+ */
+static void test_process_finder_find_by_name_alias(void) {
+    char alias_name[64];
+    pid_t child_pid;
+    pid_t found_pid;
+    int i;
+    const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
+
+    /* Skip if /bin/sleep is not executable on this platform */
+    if (access("/bin/sleep", X_OK) != 0) {
+        return;
+    }
+
+    /*
+     * Build a unique alias name derived from the current PID. Using a
+     * PID-qualified name avoids false matches with other processes.
+     */
+    if (snprintf(alias_name, sizeof(alias_name), "cpulimit_ali_%ld",
+                 (long)getpid()) >= (int)sizeof(alias_name)) {
+        return; /* Skip if name was truncated (should never happen) */
+    }
+
+    /* Fork a child that execs /bin/sleep with the alias as argv[0] */
+    child_pid = fork();
+    if (child_pid < 0) {
+        return;
+    }
+    if (child_pid == 0) {
+        char sleep_arg[] = "100";
+        char *child_argv[3];
+        child_argv[0] = alias_name;
+        child_argv[1] = sleep_arg;
+        child_argv[2] = NULL;
+        execv("/bin/sleep", child_argv);
+        _exit(1);
+    }
+
+    /*
+     * Poll until the child appears in the process table with the alias
+     * as its command, or until the timeout expires.
+     */
+    found_pid = 0;
+    for (i = 0; i < 50 && found_pid == 0; i++) {
+        sleep_timespec(&poll_wait);
+        found_pid = find_process_by_name(alias_name);
+    }
+
+    /* Cleanup: kill child */
+    kill_and_wait(child_pid, SIGKILL);
+
+    /*
+     * The child must be found by the alias name, confirming that
+     * proc->command stores argv[0] as passed to execve(), not the
+     * resolved binary name (/bin/sleep).
+     */
+    assert(found_pid == child_pid || found_pid == -child_pid);
+}
+
+/***************************************************************************
  * PROCESS_GROUP MODULE TESTS
  ***************************************************************************/
 
@@ -4276,178 +4609,6 @@ static void test_process_group_init_null(void) {
 }
 
 /**
- * @brief Test find_process_by_pid function
- * @note Verifies that the current process can be found by its PID
- */
-static void test_process_group_find_by_pid(void) {
-    pid_t self_pid;
-    pid_t found_pid;
-    self_pid = getpid();
-    found_pid = find_process_by_pid(self_pid);
-    assert(found_pid == self_pid);
-}
-
-/**
- * @brief Test find_process_by_name function
- * @note Tests various cases: correct process name, empty string, modified
- *  process names that should not match. Uses the OS-visible argv[0]
- *  (from the process iterator) rather than main()'s argv[0] so the
- *  test passes when launched via a wrapper such as valgrind.
- */
-static void test_process_group_find_by_name(void) {
-    char *self_cmd;
-    const char *self_command;
-    char *wrong_name;
-    size_t len;
-    pid_t found_pid;
-    pid_t self_pid;
-#if defined(__linux__)
-    char abs_path[64];
-#endif /* __linux__ */
-
-    /* Allocate buffers on the heap to stay within stack size limits */
-    self_cmd = (char *)malloc(CMD_BUFF_SIZE);
-    if (self_cmd == NULL) {
-        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
-        exit(EXIT_FAILURE);
-    }
-
-    /* Allocate buffer large enough for self_command plus one extra char */
-    wrong_name = (char *)malloc(CMD_BUFF_SIZE + 1);
-    if (wrong_name == NULL) {
-        free(self_cmd);
-        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
-        exit(EXIT_FAILURE);
-    }
-
-    /*
-     * Obtain the OS-visible argv[0] of the current process via the
-     * process iterator. When running under a wrapper (e.g., valgrind),
-     * main()'s argv[0] differs from what the OS records as the process
-     * command; get_self_command() always returns the correct value.
-     */
-    self_command = get_self_command(self_cmd, CMD_BUFF_SIZE);
-    /*
-     * get_self_command() queries the current process via the iterator;
-     * a NULL return means the iterator or read_cmd is broken, which is
-     * a real regression rather than an expected skip condition.
-     */
-    assert(self_command != NULL);
-
-    /*
-     * Verify that find_process_by_name can find the current process
-     * using its OS-visible command name.
-     */
-    found_pid = find_process_by_name(self_command);
-    self_pid = getpid();
-    assert(found_pid == self_pid);
-
-    /*
-     * Test Case 2: Pass an incorrect process name by appending 'x'
-     * to the current process's command.
-     * Expectation: Should return 0 (process not found).
-     */
-    strcpy(wrong_name, self_command); /* Copy the OS-visible command */
-    strcat(wrong_name, "x");          /* Append 'x' to make it non-matching */
-    found_pid = find_process_by_name(wrong_name);
-    assert(found_pid == 0);
-
-    /*
-     * Test Case 3: Pass a copy of the current process's command with
-     * the last character removed.
-     * Expectation: Should return 0 (process not found).
-     */
-    strcpy(wrong_name, self_command); /* Copy the OS-visible command */
-    len = strlen(wrong_name);
-    wrong_name[len - 1] = '\0'; /* Remove the last character */
-    found_pid = find_process_by_name(wrong_name);
-    assert(found_pid == 0);
-
-#if defined(__linux__)
-    /*
-     * Test the absolute-path comparison branch: when process_name starts
-     * with '/', find_process_by_name compares the full path against each
-     * process's cmdline.  Use a path incorporating the current PID so it
-     * is unique enough to never match any running process's cmdline,
-     * even in shared CI environments.
-     */
-    snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
-             (long)getpid());
-    found_pid = find_process_by_name(abs_path);
-    assert(found_pid == 0);
-#endif /* __linux__ */
-
-    /*
-     * Test Case 1: Pass an empty string to find_process_by_name.
-     * Expectation: Should return 0 (process not found).
-     */
-    strcpy(wrong_name, "");
-    found_pid = find_process_by_name(wrong_name);
-    assert(found_pid == 0);
-
-    free(wrong_name);
-    free(self_cmd);
-}
-
-/**
- * @brief Test find_process_by_pid with invalid and boundary PIDs
- * @note PID 0 and negative PIDs must return 0; current PID must be found
- */
-static void test_process_group_find_by_pid_edges(void) {
-    pid_t result;
-    pid_t self_pid;
-
-    /* PID 0 is rejected before kill() */
-    result = find_process_by_pid((pid_t)0);
-    assert(result == 0);
-
-    /* Negative PID is rejected before kill() */
-    result = find_process_by_pid((pid_t)-1);
-    assert(result == 0);
-
-    /* INT_MAX: virtually guaranteed non-existent PID */
-    result = find_process_by_pid((pid_t)INT_MAX);
-    assert(result == 0);
-
-    /* Current process must be found */
-    self_pid = getpid();
-    result = find_process_by_pid(self_pid);
-    assert(result == self_pid);
-}
-
-/**
- * @brief Test find_process_by_name with NULL process name
- * @note Must return 0 without crashing
- */
-static void test_process_group_find_by_name_null(void) {
-    pid_t found_pid;
-    found_pid = find_process_by_name(NULL);
-    assert(found_pid == 0);
-}
-
-/**
- * @brief Test find_process_by_name with empty string (early-return path)
- * @note Must return 0 immediately without iterating processes
- */
-static void test_process_group_find_by_name_empty_string(void) {
-    pid_t found_pid;
-    found_pid = find_process_by_name("");
-    assert(found_pid == 0);
-}
-
-/**
- * @brief Test find_process_by_name with a relative path ending in '/'
- * @note The basename of "bin/" is an empty string, so no process can match;
- *  must return 0 without crashing
- */
-static void test_process_group_find_by_name_trailing_slash(void) {
-    pid_t found_pid;
-    /* Relative path with trailing slash yields an empty basename */
-    found_pid = find_process_by_name("bin/");
-    assert(found_pid == 0);
-}
-
-/**
  * @brief Test get_process_group_cpu_usage when process list is empty
  * @note Must return -1.0 when no processes are tracked
  */
@@ -4478,17 +4639,6 @@ static void test_process_group_cpu_usage_empty_list(void) {
 static void test_process_group_cpu_usage_null(void) {
     double usage = get_process_group_cpu_usage(NULL);
     assert(usage >= -1.00001 && usage <= -0.99999);
-}
-
-/**
- * @brief Test find_process_by_pid with PID 1 (init/systemd)
- * @note PID 1 always exists: returns positive if accessible, -1 if EPERM,
- *  never 0
- */
-static void test_process_group_find_by_pid_init(void) {
-    pid_t result;
-    result = find_process_by_pid((pid_t)1);
-    assert(result != 0);
 }
 
 /**
@@ -4558,196 +4708,6 @@ static void test_process_group_double_update(void) {
     update_process_group(&proc_group);
     ret = close_process_group(&proc_group);
     assert(ret == 0);
-}
-
-/**
- * @brief Test find_process_by_name with self's executable basename
- * @note The OS-visible command basename must be found; result > 0 or
- *  result is -PID (EPERM in confined environments). Uses the process
- *  iterator to obtain the real argv[0] so the test passes when the
- *  binary is launched via a wrapper such as valgrind.
- */
-static void test_process_group_find_by_name_self(void) {
-    char *self_buf;
-    const char *self_command;
-    const char *self_name;
-    pid_t result;
-
-    self_buf = (char *)malloc(CMD_BUFF_SIZE);
-    if (self_buf == NULL) {
-        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
-        exit(EXIT_FAILURE);
-    }
-    self_command = get_self_command(self_buf, CMD_BUFF_SIZE);
-    if (self_command == NULL) {
-        free(self_buf);
-        return;
-    }
-    self_name = file_basename(self_command);
-    if (self_name == NULL || self_name[0] == '\0') {
-        free(self_buf);
-        return;
-    }
-    result = find_process_by_name(self_name);
-    free(self_buf);
-    /* Must find at least itself (positive) or get EPERM (-pid) */
-    assert(result != 0);
-}
-
-/**
- * @brief Test find_process_by_name with process launched via symlink
- * @note Creates a temporary symlink to /bin/sleep, execs it so that
- *  argv[0] is the symlink path, and verifies that find_process_by_name
- *  finds the child using the symlink's basename. Skipped if /bin/sleep
- *  is unavailable or the symlink cannot be created.
- *
- * This exercises the requirement that proc->command stores argv[0] as
- * seen by the OS: the symlink path, not the resolved binary path.
- */
-static void test_process_group_find_by_name_symlink(void) {
-    char *sym_path;
-    char sym_name[64];
-    pid_t child_pid;
-    pid_t found_pid;
-    int i;
-    const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
-
-    /* Skip if /bin/sleep is not executable on this platform */
-    if (access("/bin/sleep", X_OK) != 0) {
-        return;
-    }
-
-    /*
-     * Build a unique symlink name derived from the current PID to avoid
-     * collisions when tests run in parallel.
-     */
-    if (snprintf(sym_name, sizeof(sym_name), "cpulimit_sym_%ld",
-                 (long)getpid()) >= (int)sizeof(sym_name)) {
-        return; /* Skip if name was truncated (should never happen) */
-    }
-
-    sym_path = (char *)malloc(PATH_MAX);
-    if (sym_path == NULL) {
-        return;
-    }
-    if (snprintf(sym_path, (size_t)PATH_MAX, "/tmp/%s", sym_name) >= PATH_MAX) {
-        free(sym_path);
-        return; /* Skip if path was truncated (should never happen) */
-    }
-
-    /* Remove any stale symlink left by a previous failed run */
-    unlink(sym_path);
-
-    if (symlink("/bin/sleep", sym_path) != 0) {
-        free(sym_path);
-        return; /* Skip if symlink creation fails */
-    }
-
-    /* Fork a child that execs sleep via the symlink */
-    child_pid = fork();
-    if (child_pid < 0) {
-        unlink(sym_path);
-        free(sym_path);
-        return;
-    }
-    if (child_pid == 0) {
-        char sleep_arg[] = "100";
-        char *child_argv[3];
-        child_argv[0] = sym_path;
-        child_argv[1] = sleep_arg;
-        child_argv[2] = NULL;
-        execv(sym_path, child_argv);
-        _exit(1);
-    }
-
-    /*
-     * Poll until the child appears in the process table with the
-     * symlink basename as its command, or until the timeout expires.
-     * A short per-iteration sleep avoids busy-waiting.
-     */
-    found_pid = 0;
-    for (i = 0; i < 50 && found_pid == 0; i++) {
-        sleep_timespec(&poll_wait);
-        found_pid = find_process_by_name(sym_name);
-    }
-
-    /* Cleanup: kill child and remove symlink */
-    kill_and_wait(child_pid, SIGKILL);
-    unlink(sym_path);
-    free(sym_path);
-
-    /*
-     * The child must be found by the symlink's basename, confirming
-     * that proc->command stores argv[0] (the symlink path), not the
-     * resolved binary path.
-     */
-    assert(found_pid == child_pid || found_pid == -child_pid);
-}
-
-/**
- * @brief Test find_process_by_name with process launched with custom argv[0]
- * @note Forks a child that execs /bin/sleep with a unique alias string
- *  as argv[0]. Verifies that find_process_by_name finds the child by
- *  that alias name. Skipped if /bin/sleep is not available.
- *
- * This exercises the requirement that proc->command stores the exact
- * argv[0] passed to execve(), regardless of the real binary name.
- */
-static void test_process_group_find_by_name_alias(void) {
-    char alias_name[64];
-    pid_t child_pid;
-    pid_t found_pid;
-    int i;
-    const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
-
-    /* Skip if /bin/sleep is not executable on this platform */
-    if (access("/bin/sleep", X_OK) != 0) {
-        return;
-    }
-
-    /*
-     * Build a unique alias name derived from the current PID. Using a
-     * PID-qualified name avoids false matches with other processes.
-     */
-    if (snprintf(alias_name, sizeof(alias_name), "cpulimit_ali_%ld",
-                 (long)getpid()) >= (int)sizeof(alias_name)) {
-        return; /* Skip if name was truncated (should never happen) */
-    }
-
-    /* Fork a child that execs /bin/sleep with the alias as argv[0] */
-    child_pid = fork();
-    if (child_pid < 0) {
-        return;
-    }
-    if (child_pid == 0) {
-        char sleep_arg[] = "100";
-        char *child_argv[3];
-        child_argv[0] = alias_name;
-        child_argv[1] = sleep_arg;
-        child_argv[2] = NULL;
-        execv("/bin/sleep", child_argv);
-        _exit(1);
-    }
-
-    /*
-     * Poll until the child appears in the process table with the alias
-     * as its command, or until the timeout expires.
-     */
-    found_pid = 0;
-    for (i = 0; i < 50 && found_pid == 0; i++) {
-        sleep_timespec(&poll_wait);
-        found_pid = find_process_by_name(alias_name);
-    }
-
-    /* Cleanup: kill child */
-    kill_and_wait(child_pid, SIGKILL);
-
-    /*
-     * The child must be found by the alias name, confirming that
-     * proc->command stores argv[0] as passed to execve(), not the
-     * resolved binary name (/bin/sleep).
-     */
-    assert(found_pid == child_pid || found_pid == -child_pid);
 }
 
 /**
@@ -6427,6 +6387,14 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_table_destroy_edge_cases);
     RUN_TEST(test_process_table_ops_after_destroy);
 
+    /* Process finder module tests */
+    printf("\n=== PROCESS_FINDER MODULE TESTS ===\n");
+    RUN_TEST(test_process_finder_find_by_pid);
+    RUN_TEST(test_process_finder_find_by_name);
+    RUN_TEST(test_process_finder_find_by_name_self);
+    RUN_TEST(test_process_finder_find_by_name_symlink);
+    RUN_TEST(test_process_finder_find_by_name_alias);
+
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
     RUN_TEST(test_process_group_cpu_usage);
@@ -6435,22 +6403,12 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_init_single);
     RUN_TEST(test_process_group_init_invalid_pid);
     RUN_TEST(test_process_group_init_null);
-    RUN_TEST(test_process_group_find_by_pid);
-    RUN_TEST(test_process_group_find_by_name);
-    RUN_TEST(test_process_group_find_by_pid_edges);
-    RUN_TEST(test_process_group_find_by_name_null);
-    RUN_TEST(test_process_group_find_by_name_empty_string);
-    RUN_TEST(test_process_group_find_by_name_trailing_slash);
     RUN_TEST(test_process_group_cpu_usage_empty_list);
     RUN_TEST(test_process_group_cpu_usage_null);
-    RUN_TEST(test_process_group_find_by_pid_init);
     RUN_TEST(test_process_group_close_null);
     RUN_TEST(test_process_group_close_zeros_fields);
     RUN_TEST(test_process_group_update_null);
     RUN_TEST(test_process_group_double_update);
-    RUN_TEST(test_process_group_find_by_name_self);
-    RUN_TEST(test_process_group_find_by_name_symlink);
-    RUN_TEST(test_process_group_find_by_name_alias);
     RUN_TEST(test_process_group_cpu_usage_with_usage);
     RUN_TEST(test_process_group_race_target_exits_between_init_and_update);
     RUN_TEST(test_process_group_race_rapid_child_spawn_exit);
