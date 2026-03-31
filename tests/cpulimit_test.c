@@ -180,11 +180,16 @@ static const char *get_self_command(char *buf, size_t buf_size) {
     return found ? buf : NULL;
 }
 
+/***************************************************************************
+ * TIME_UTIL MODULE TESTS
+ ***************************************************************************/
+
 /**
  * @brief Test nsec2timespec conversion
- * @note Tests conversion from nanoseconds to timespec structure
+ * @note Tests conversion from nanoseconds to timespec including rollover
+ *       and boundary values
  */
-static void test_util_nsec2timespec(void) {
+static void test_time_util_nsec2timespec(void) {
     struct timespec result_ts;
 
     /* Test 0 nanoseconds */
@@ -216,25 +221,69 @@ static void test_util_nsec2timespec(void) {
     nsec2timespec(500000000.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 500000000L);
+
+    /* Test very large value: 10 seconds */
+    nsec2timespec(10000000000.0, &result_ts);
+    assert(result_ts.tv_sec == 10);
+    assert(result_ts.tv_nsec == 0);
+
+    /* A large multiple of 1e9 can round tv_nsec up to 1e9 */
+    nsec2timespec(3e9, &result_ts);
+    assert(result_ts.tv_sec >= 2 && result_ts.tv_sec <= 4);
+    assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
+
+    /* 2 seconds exactly */
+    nsec2timespec(2e9, &result_ts);
+    assert(result_ts.tv_sec == 2);
+    assert(result_ts.tv_nsec == 0L);
+
+    /* 0.999999999 s = 999999999 ns -- must stay sub-second */
+    nsec2timespec(999999999.0, &result_ts);
+    assert(result_ts.tv_sec == 0);
+    assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
+
+    /* General invariant: result is always normalised */
+    nsec2timespec(1234567890.123, &result_ts);
+    assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
 }
 
 /**
- * @brief Test get_current_time and sleep_timespec
- * @note Tests high-resolution time retrieval and sleeping
+ * @brief Test get_current_time function
+ * @note Tests time retrieval and monotonicity
  */
-static void test_util_time_functions(void) {
-    struct timespec ts_before, ts_after, sleep_time;
+static void test_time_util_get_current_time(void) {
+    struct timespec ts_before, ts_later;
     int ret;
-    double elapsed_ms;
+    double diff;
 
-    /* Test get_current_time */
+    /* Test get_current_time returns valid values */
     ret = get_current_time(&ts_before);
     assert(ret == 0);
     assert(ts_before.tv_sec >= 0);
     assert(ts_before.tv_nsec >= 0 && ts_before.tv_nsec < 1000000000L);
     assert(ts_before.tv_sec > 0 || ts_before.tv_nsec > 0);
 
+    /* Two successive calls must return non-decreasing time */
+    ret = get_current_time(&ts_later);
+    assert(ret == 0);
+    diff = timediff_in_ms(&ts_later, &ts_before);
+    assert(diff >= 0.0); /* monotonic: must not go backwards */
+}
+
+/**
+ * @brief Test sleep_timespec function
+ * @note Tests sleeping with various durations including zero
+ */
+static void test_time_util_sleep_timespec(void) {
+    struct timespec ts_before, ts_after, sleep_time;
+    const struct timespec zero_sleep = {0, 0};
+    int ret;
+    double elapsed_ms;
+
     /* Test sleep_timespec with 50ms */
+    ret = get_current_time(&ts_before);
+    assert(ret == 0);
+
     sleep_time.tv_sec = 0;
     sleep_time.tv_nsec = 50000000L; /* 50 ms */
     ret = sleep_timespec(&sleep_time);
@@ -253,13 +302,19 @@ static void test_util_time_functions(void) {
     elapsed_ms = timediff_in_ms(&ts_after, &ts_before);
     assert(elapsed_ms >= 0.0);
     /* Should be at least close to 50ms if sleep succeeded */
+
+    /* Test zero-duration sleep returns immediately without error */
+    ret = sleep_timespec(&zero_sleep);
+    /* 0 on success; -1 only if interrupted (EINTR) */
+    assert(ret == 0 || ret == -1);
 }
 
 /**
  * @brief Test timediff_in_ms calculations
- * @note Tests time difference calculation in milliseconds
+ * @note Tests time difference including edge cases, negative differences,
+ *       and sub-millisecond values
  */
-static void test_util_timediff_in_ms(void) {
+static void test_time_util_timediff_in_ms(void) {
     struct timespec earlier, later;
     double diff_ms;
 
@@ -294,7 +349,51 @@ static void test_util_timediff_in_ms(void) {
     later.tv_nsec = 123456789L;
     diff_ms = timediff_in_ms(&later, &earlier);
     assert(diff_ms >= -0.001 && diff_ms <= 0.001);
+
+    /* Test very small difference: 1 millisecond */
+    earlier.tv_sec = 1000;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 1000;
+    later.tv_nsec = 1000000L; /* 1 millisecond */
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms >= 0.999 && diff_ms <= 1.001);
+
+    /* Test large difference: 1000 seconds */
+    earlier.tv_sec = 1000;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 2000;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms >= 999999.0 && diff_ms <= 1000001.0);
+
+    /* 100 seconds backward */
+    earlier.tv_sec = 200;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 100;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms <= -99999.0 && diff_ms >= -100001.0);
+
+    /* 500 ms backward (nanoseconds only) */
+    earlier.tv_sec = 100;
+    earlier.tv_nsec = 500000000L;
+    later.tv_sec = 100;
+    later.tv_nsec = 0;
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms <= -499.0 && diff_ms >= -501.0);
+
+    /* Sub-millisecond: only nanoseconds differ (0.999 ms) */
+    earlier.tv_sec = 500;
+    earlier.tv_nsec = 0;
+    later.tv_sec = 500;
+    later.tv_nsec = 999000L; /* 0.999 ms */
+    diff_ms = timediff_in_ms(&later, &earlier);
+    assert(diff_ms >= 0.998 && diff_ms <= 1.0);
 }
+
+/***************************************************************************
+ * UTIL MODULE TESTS
+ ***************************************************************************/
 
 /**
  * @brief Test file_basename extraction
@@ -388,45 +487,6 @@ static void test_util_long2pid_t(void) {
 
     result = long2pid_t(-100L);
     assert(result == -1);
-}
-
-/**
- * @brief Test util edge cases for time operations
- * @note Tests boundary conditions and special values
- */
-static void test_util_time_edge_cases(void) {
-    struct timespec result_ts;
-    double diff_ms;
-    struct timespec ts_earlier, ts_later;
-
-    /* Test nsec2timespec with very large value */
-    nsec2timespec(10000000000.0, &result_ts); /* 10 seconds */
-    assert(result_ts.tv_sec == 10);
-    assert(result_ts.tv_nsec == 0);
-
-    /* Test timediff_in_ms with same time */
-    ts_earlier.tv_sec = 1000;
-    ts_earlier.tv_nsec = 500000000L;
-    ts_later.tv_sec = 1000;
-    ts_later.tv_nsec = 500000000L;
-    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff_ms >= -0.001 && diff_ms <= 0.001);
-
-    /* Test timediff_in_ms with very small difference */
-    ts_earlier.tv_sec = 1000;
-    ts_earlier.tv_nsec = 0;
-    ts_later.tv_sec = 1000;
-    ts_later.tv_nsec = 1000000L; /* 1 millisecond */
-    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff_ms >= 0.999 && diff_ms <= 1.001);
-
-    /* Test timediff_in_ms with large difference */
-    ts_earlier.tv_sec = 1000;
-    ts_earlier.tv_nsec = 0;
-    ts_later.tv_sec = 2000;
-    ts_later.tv_nsec = 0;
-    diff_ms = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff_ms >= 999999.0 && diff_ms <= 1000001.0);
 }
 
 /**
@@ -609,110 +669,6 @@ static void test_util_macros(void) {
     val = 10;
     macro_val = CLAMP(val, clamp_low, clamp_high);
     assert(macro_val == 10);
-}
-
-/**
- * @brief Test timediff_in_ms when the "later" timestamp is actually earlier
- * @note Covers the negative-difference branch (backwards / rewound time)
- */
-static void test_util_timediff_negative(void) {
-    struct timespec earlier, later;
-    double diff_ms;
-
-    /* 100 seconds backward */
-    earlier.tv_sec = 200;
-    earlier.tv_nsec = 0;
-    later.tv_sec = 100;
-    later.tv_nsec = 0;
-    diff_ms = timediff_in_ms(&later, &earlier);
-    assert(diff_ms <= -99999.0 && diff_ms >= -100001.0);
-
-    /* 500 ms backward (nanoseconds only) */
-    earlier.tv_sec = 100;
-    earlier.tv_nsec = 500000000L;
-    later.tv_sec = 100;
-    later.tv_nsec = 0;
-    diff_ms = timediff_in_ms(&later, &earlier);
-    assert(diff_ms <= -499.0 && diff_ms >= -501.0);
-}
-
-/**
- * @brief Test sleep_timespec with a zero-duration sleep
- * @note A zero sleep must return immediately without error
- */
-static void test_util_sleep_timespec_zero(void) {
-    const struct timespec zero_sleep = {0, 0};
-    int ret;
-    ret = sleep_timespec(&zero_sleep);
-    /* 0 on success; -1 only if interrupted (EINTR) */
-    assert(ret == 0 || ret == -1);
-}
-
-/**
- * @brief Test nsec2timespec rollover correction for floating-point edge cases
- * @note Verifies that tv_nsec stays in [0, 999999999] and tv_sec is adjusted
- *       when floating-point rounding pushes tv_nsec out of range
- */
-static void test_util_nsec2timespec_rollover(void) {
-    struct timespec t;
-
-    /*
-     * Values very close to an integer-second boundary can trigger
-     * floating-point rounding that makes tv_nsec negative or >= 1e9.
-     * Use nextafter to obtain a value that is representable just below
-     * or just above a boundary and verify the correction branches.
-     */
-
-    /* A large multiple of 1e9 can round tv_nsec up to 1e9 */
-    nsec2timespec(3e9, &t);
-    assert(t.tv_sec >= 2 && t.tv_sec <= 4);
-    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
-
-    /* 2 seconds exactly */
-    nsec2timespec(2e9, &t);
-    assert(t.tv_sec == 2);
-    assert(t.tv_nsec == 0L);
-
-    /* 0.999999999 s = 999999999 ns -- must stay sub-second */
-    nsec2timespec(999999999.0, &t);
-    assert(t.tv_sec == 0);
-    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
-
-    /* General invariant: result is always normalised */
-    nsec2timespec(1234567890.123, &t);
-    assert(t.tv_nsec >= 0L && t.tv_nsec <= 999999999L);
-}
-
-/**
- * @brief Test timediff_in_ms when only nanoseconds differ
- * @note Covers the sub-millisecond sub-second difference path
- */
-static void test_util_timediff_nsec_only(void) {
-    struct timespec ts_earlier, ts_later;
-    double diff;
-
-    ts_earlier.tv_sec = 500;
-    ts_earlier.tv_nsec = 0;
-    ts_later.tv_sec = 500;
-    ts_later.tv_nsec = 999000L; /* 0.999 ms */
-    diff = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff >= 0.998 && diff <= 1.0);
-}
-
-/**
- * @brief Test get_current_time returns a non-decreasing timestamp
- * @note Two successive calls must return increasing or equal time
- */
-static void test_util_get_current_time_monotonic(void) {
-    struct timespec ts_earlier, ts_later;
-    double diff;
-    int ret;
-    ret = get_current_time(&ts_earlier);
-    assert(ret == 0);
-    ret = get_current_time(&ts_later);
-    assert(ret == 0);
-    diff = timediff_in_ms(&ts_later, &ts_earlier);
-    assert(diff >= 0.0); /* monotonic: must not go backwards */
 }
 
 /***************************************************************************
@@ -6454,16 +6410,19 @@ int main(int argc, char *argv[]) {
     configure_signal_handler();
     printf("Starting tests...\n");
 
+    /* Time util module tests */
+    printf("\n=== TIME_UTIL MODULE TESTS ===\n");
+    RUN_TEST(test_time_util_nsec2timespec);
+    RUN_TEST(test_time_util_get_current_time);
+    RUN_TEST(test_time_util_sleep_timespec);
+    RUN_TEST(test_time_util_timediff_in_ms);
+
     /* Util module tests */
     printf("\n=== UTIL MODULE TESTS ===\n");
-    RUN_TEST(test_util_nsec2timespec);
-    RUN_TEST(test_util_time_functions);
-    RUN_TEST(test_util_timediff_in_ms);
     RUN_TEST(test_util_file_basename);
     RUN_TEST(test_util_get_ncpu);
     RUN_TEST(test_util_increase_priority);
     RUN_TEST(test_util_long2pid_t);
-    RUN_TEST(test_util_time_edge_cases);
     RUN_TEST(test_util_file_basename_edge_cases);
     RUN_TEST(test_util_long2pid_t_edge_cases);
     RUN_TEST(test_util_long2pid_t_overflow);
@@ -6471,11 +6430,6 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_read_line_from_file);
 #endif
     RUN_TEST(test_util_macros);
-    RUN_TEST(test_util_timediff_negative);
-    RUN_TEST(test_util_sleep_timespec_zero);
-    RUN_TEST(test_util_nsec2timespec_rollover);
-    RUN_TEST(test_util_timediff_nsec_only);
-    RUN_TEST(test_util_get_current_time_monotonic);
 
     /* List module tests */
     printf("\n=== LIST MODULE TESTS ===\n");
