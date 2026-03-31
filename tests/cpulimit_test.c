@@ -34,6 +34,7 @@
 #include "../src/process_iterator.h"
 #include "../src/process_table.h"
 #include "../src/signal_handler.h"
+#include "../src/time_util.h"
 #include "../src/util.h"
 
 #include <assert.h>

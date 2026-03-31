@@ -28,6 +28,7 @@
 #include "limit_process.h"
 #include "process_finder.h"
 #include "signal_handler.h"
+#include "time_util.h"
 #include "util.h"
 
 #include <errno.h>

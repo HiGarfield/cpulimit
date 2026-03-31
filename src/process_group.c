@@ -28,6 +28,7 @@
 #include "list.h"
 #include "process_iterator.h"
 #include "process_table.h"
+#include "time_util.h"
 #include "util.h"
 
 #include <stdio.h>
