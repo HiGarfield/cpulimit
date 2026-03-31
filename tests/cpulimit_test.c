@@ -688,6 +688,7 @@ static void test_list_init_and_empty(void) {
 /**
  * @brief Test adding elements to list
  * @note Tests add_elem, get_list_count, first_node with non-empty list
+ *       and link integrity
  */
 static void test_list_add_elem(void) {
     struct list lst;
@@ -739,6 +740,14 @@ static void test_list_add_elem(void) {
     list_count = get_list_count(&lst);
     assert(list_count == 3);
 
+    /* Verify first_node returns first element with correct links */
+    first_node_result = first_node(&lst);
+    assert(first_node_result == node1);
+    assert(first_node_result->data == &data1);
+    assert(first_node_result->next != NULL);
+    assert(first_node_result->next->data == &data2);
+    assert(first_node_result->previous == NULL);
+
     /* Test add_elem with NULL list */
     null_node = add_elem(NULL, &data1);
     assert(null_node == NULL);
@@ -749,12 +758,13 @@ static void test_list_add_elem(void) {
 
 /**
  * @brief Test deleting nodes from list
- * @note Tests delete_node without freeing data
+ * @note Tests delete_node without freeing data, including empty-list guard
  */
 static void test_list_delete_node(void) {
     struct list lst;
     int data1 = 1, data2 = 2, data3 = 3;
     struct list_node *node1, *node2, *node3;
+    struct list_node fake_node = {NULL, NULL, NULL};
     size_t list_count;
     int empty;
 
@@ -793,11 +803,17 @@ static void test_list_delete_node(void) {
     /* Test delete_node with NULL */
     delete_node(NULL, NULL);
     delete_node(&lst, NULL);
+
+    /* Test delete_node on empty list (count==0 guard path) */
+    delete_node(&lst, &fake_node);
+    list_count = get_list_count(&lst);
+    assert(list_count == 0);
 }
 
 /**
  * @brief Test destroying nodes from list
- * @note Tests destroy_node which frees both node and data
+ * @note Tests destroy_node which frees both node and data, including
+ *       NULL list safety
  */
 static void test_list_destroy_node(void) {
     struct list lst;
@@ -805,6 +821,9 @@ static void test_list_destroy_node(void) {
     struct list_node *node1, *node2;
     size_t list_count;
     int empty;
+    int *null_data;
+    struct list_node *null_node;
+    int null_val;
 
     init_list(&lst);
 
@@ -836,11 +855,30 @@ static void test_list_destroy_node(void) {
     /* Test destroy_node with NULL */
     destroy_node(NULL, NULL);
     destroy_node(&lst, NULL);
+
+    /* Test destroy_node with NULL list is a no-op */
+    null_data = (int *)malloc(sizeof(int));
+    assert(null_data != NULL);
+    *null_data = 42;
+    null_node = (struct list_node *)malloc(sizeof(struct list_node));
+    assert(null_node != NULL);
+    null_node->data = null_data;
+    null_node->previous = NULL;
+    null_node->next = NULL;
+    destroy_node(NULL, null_node);
+    /* Verify the call was truly a no-op */
+    assert(null_node->data == null_data);
+    null_val = *(int *)null_node->data;
+    assert(null_val == 42);
+    assert(null_node->previous == NULL);
+    assert(null_node->next == NULL);
+    free(null_data);
+    free(null_node);
 }
 
 /**
  * @brief Test locating nodes and elements in list
- * @note Tests locate_node and locate_elem
+ * @note Tests locate_node and locate_elem including single-element list
  */
 static void test_list_locate(void) {
     struct list lst;
@@ -850,6 +888,7 @@ static void test_list_locate(void) {
     pid_t search_pid;
     const struct process *found_proc;
     const void *void_elem;
+    int single_val, single_miss, single_node_val;
 
     init_list(&lst);
 
@@ -924,11 +963,29 @@ static void test_list_locate(void) {
     free(proc1);
     free(proc2);
     free(proc3);
+
+    /* Test locate with a single-element list */
+    init_list(&lst);
+    single_val = 42;
+    add_elem(&lst, &single_val);
+    found_node = locate_node(&lst, &single_val, 0, sizeof(int));
+    assert(found_node != NULL);
+    single_node_val = *(int *)found_node->data;
+    assert(single_node_val == 42);
+    void_elem = locate_elem(&lst, &single_val, 0, sizeof(int));
+    assert(void_elem == &single_val);
+    /* Miss case in single-element list */
+    single_miss = 99;
+    found_node = locate_node(&lst, &single_miss, 0, sizeof(int));
+    assert(found_node == NULL);
+    void_elem = locate_elem(&lst, &single_miss, 0, sizeof(int));
+    assert(void_elem == NULL);
+    clear_list(&lst);
 }
 
 /**
  * @brief Test clearing and destroying lists
- * @note Tests clear_list and destroy_list
+ * @note Tests clear_list and destroy_list including empty-list no-op paths
  */
 static void test_list_clear_and_destroy(void) {
     struct list lst1, lst2;
@@ -984,6 +1041,22 @@ static void test_list_clear_and_destroy(void) {
 
     /* Test destroy_list with NULL */
     destroy_list(NULL);
+
+    /* Test clear_list on already-empty list (no-op path) */
+    init_list(&lst1);
+    clear_list(&lst1);
+    list_count = get_list_count(&lst1);
+    assert(list_count == 0);
+    empty = is_empty_list(&lst1);
+    assert(empty == 1);
+
+    /* Test destroy_list on already-empty list (no-op path) */
+    init_list(&lst1);
+    destroy_list(&lst1);
+    list_count = get_list_count(&lst1);
+    assert(list_count == 0);
+    empty = is_empty_list(&lst1);
+    assert(empty == 1);
 }
 
 /**
@@ -1098,141 +1171,6 @@ static void test_list_null_data_operations(void) {
     /* destroy_node with NULL data must not crash (branch: node->data == NULL)
      */
     destroy_node(&lst, node);
-    list_count = get_list_count(&lst);
-    assert(list_count == 0);
-    empty = is_empty_list(&lst);
-    assert(empty == 1);
-}
-
-/**
- * @brief Test first_node with non-empty list
- * @note first_node must return the first node after elements are added
- */
-static void test_list_first_node_nonempty(void) {
-    struct list lst;
-    int elem_val_1 = 1, elem_val_2 = 2;
-    const struct list_node *first_node_result;
-
-    init_list(&lst);
-    add_elem(&lst, &elem_val_1);
-    add_elem(&lst, &elem_val_2);
-
-    first_node_result = first_node(&lst);
-    assert(first_node_result != NULL);
-    assert(first_node_result->data == &elem_val_1);
-    assert(first_node_result->next != NULL);
-    assert(first_node_result->next->data == &elem_val_2);
-    assert(first_node_result->previous == NULL);
-
-    clear_list(&lst);
-}
-
-/**
- * @brief Test delete_node on empty list (count==0 guard path)
- * @note Must be a no-op when count is 0
- */
-static void test_list_delete_node_empty(void) {
-    struct list lst;
-    struct list_node fake_node;
-    size_t list_count;
-
-    init_list(&lst);
-    /* count == 0 guard: should silently return */
-    delete_node(&lst, &fake_node);
-    list_count = get_list_count(&lst);
-    assert(list_count == 0);
-}
-
-/**
- * @brief Test destroy_node with a NULL list does nothing and does not crash
- * @note Exercises the NULL list guard: destroy_node returns immediately
- */
-static void test_list_destroy_node_null_list(void) {
-    struct list_node *node;
-    int *data;
-
-    data = (int *)malloc(sizeof(int));
-    assert(data != NULL);
-    *data = 42;
-
-    node = (struct list_node *)malloc(sizeof(struct list_node));
-    assert(node != NULL);
-    node->data = data;
-    node->previous = NULL;
-    node->next = NULL;
-
-    /* destroy_node with NULL list does nothing (returns immediately) */
-    destroy_node(NULL, node);
-    /* Verify the call was truly a no-op: node and data remain unchanged */
-    assert(node->data == data);
-    assert(*(int *)node->data == 42);
-    assert(node->previous == NULL);
-    assert(node->next == NULL);
-
-    /* Free manually since destroy_node(NULL, ...) is a no-op */
-    free(data);
-    free(node);
-}
-
-/**
- * @brief Test locate_node/locate_elem with a single-element list
- * @note Ensures the single-node match and single-node miss paths work
- */
-static void test_list_locate_single(void) {
-    struct list lst;
-    int val = 42, miss = 99;
-    struct list_node *node;
-    const void *elem;
-    int node_val;
-    const struct list_node *tmp_node;
-    const void *void_elem;
-
-    init_list(&lst);
-    add_elem(&lst, &val);
-
-    node = locate_node(&lst, &val, 0, sizeof(int));
-    assert(node != NULL);
-    node_val = *(int *)node->data;
-    assert(node_val == 42);
-
-    elem = locate_elem(&lst, &val, 0, sizeof(int));
-    assert(elem == &val);
-
-    /* Miss case */
-    tmp_node = locate_node(&lst, &miss, 0, sizeof(int));
-    assert(tmp_node == NULL);
-    void_elem = locate_elem(&lst, &miss, 0, sizeof(int));
-    assert(void_elem == NULL);
-
-    clear_list(&lst);
-}
-
-/**
- * @brief Test clear_list on an already-empty list (no-op path)
- * @note Must not crash and count stays 0
- */
-static void test_list_clear_empty(void) {
-    struct list lst;
-    size_t list_count;
-    int empty;
-    init_list(&lst);
-    clear_list(&lst);
-    list_count = get_list_count(&lst);
-    assert(list_count == 0);
-    empty = is_empty_list(&lst);
-    assert(empty == 1);
-}
-
-/**
- * @brief Test destroy_list on an already-empty list (no-op path)
- * @note Must not crash and count stays 0
- */
-static void test_list_destroy_empty(void) {
-    struct list lst;
-    size_t list_count;
-    int empty;
-    init_list(&lst);
-    destroy_list(&lst);
     list_count = get_list_count(&lst);
     assert(list_count == 0);
     empty = is_empty_list(&lst);
@@ -6410,12 +6348,6 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_list_clear_and_destroy);
     RUN_TEST(test_list_edge_cases);
     RUN_TEST(test_list_null_data_operations);
-    RUN_TEST(test_list_first_node_nonempty);
-    RUN_TEST(test_list_delete_node_empty);
-    RUN_TEST(test_list_destroy_node_null_list);
-    RUN_TEST(test_list_locate_single);
-    RUN_TEST(test_list_clear_empty);
-    RUN_TEST(test_list_destroy_empty);
 
     /* Signal handler module tests */
     printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
