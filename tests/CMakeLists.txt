@@ -4,7 +4,6 @@ find_package(Threads REQUIRED)
 add_executable(busy
     busy.c
     ${PROJECT_SOURCE_DIR}/src/signal_handler.c
-    ${PROJECT_SOURCE_DIR}/src/time_util.c
     ${PROJECT_SOURCE_DIR}/src/util.c
 )
 target_link_libraries(busy ${CPULIMIT_PLATFORM_LIBS} Threads::Threads)
@@ -14,7 +13,6 @@ add_checked_flags(busy CPULIMIT_C_FLAGS)
 add_executable(multi_process_busy
     multi_process_busy.c
     ${PROJECT_SOURCE_DIR}/src/signal_handler.c
-    ${PROJECT_SOURCE_DIR}/src/time_util.c
     ${PROJECT_SOURCE_DIR}/src/util.c
 )
 target_link_libraries(multi_process_busy ${CPULIMIT_PLATFORM_LIBS})
