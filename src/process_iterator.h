@@ -26,10 +26,6 @@
 extern "C" {
 #endif
 
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-
 #if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__APPLE__)
 #error "Platform not supported"
 #endif

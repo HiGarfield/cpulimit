@@ -19,6 +19,10 @@
  * <https://www.gnu.org/licenses/>.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "../src/signal_handler.h"
 #include "../src/util.h"
 

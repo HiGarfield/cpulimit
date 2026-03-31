@@ -26,10 +26,6 @@
 extern "C" {
 #endif
 
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-
 /**
  * @brief Set up signal handlers for graceful program termination
  *
