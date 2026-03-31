@@ -33,8 +33,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
-#include <time.h>
 
 /**
  * @def PROCESS_TABLE_HASHSIZE

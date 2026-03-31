@@ -26,9 +26,17 @@
 extern "C" {
 #endif
 
+/*
+ * struct timespec (used by time_util.h) requires _POSIX_C_SOURCE >= 199309L
+ * in strict C89 mode.  Define it before any system headers that may
+ * transitively include <time.h>.
+ */
+#if !defined(_GNU_SOURCE) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
+
 #include <sys/param.h>
 #include <sys/types.h>
-#include <time.h>
 
 /*
  * Time utilities (nsec2timespec, get_current_time, sleep_timespec,
