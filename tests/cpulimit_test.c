@@ -397,7 +397,7 @@ static void test_time_util_timediff_in_ms(void) {
 
 /**
  * @brief Test file_basename extraction
- * @note Tests extracting filename from path
+ * @note Tests extracting filename from path including edge cases
  */
 static void test_util_file_basename(void) {
     const char *result;
@@ -432,6 +432,33 @@ static void test_util_file_basename(void) {
     result = file_basename("./file");
     cmp_ret = strcmp(result, "file");
     assert(cmp_ret == 0);
+
+    /* Test multiple consecutive slashes */
+    result = file_basename("//usr//bin//test");
+    cmp_ret = strcmp(result, "test");
+    assert(cmp_ret == 0);
+
+    /* Test path with no directory separator */
+    result = file_basename("filename");
+    cmp_ret = strcmp(result, "filename");
+    assert(cmp_ret == 0);
+
+    /* Test path with dot directory */
+    result = file_basename("../test");
+    cmp_ret = strcmp(result, "test");
+    assert(cmp_ret == 0);
+
+    /* Test empty string - no slash, returns itself */
+    result = file_basename("");
+    assert(result != NULL);
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
+
+    /* Test NULL input */
+    result = file_basename(NULL);
+    assert(result != NULL);
+    cmp_ret = strcmp(result, "");
+    assert(cmp_ret == 0);
 }
 
 /**
@@ -462,7 +489,8 @@ static void test_util_increase_priority(void) {
 
 /**
  * @brief Test long2pid_t conversion
- * @note Tests safe conversion from long to pid_t
+ * @note Tests safe conversion from long to pid_t including edge cases and
+ * overflow
  */
 static void test_util_long2pid_t(void) {
     pid_t result;
@@ -487,70 +515,14 @@ static void test_util_long2pid_t(void) {
 
     result = long2pid_t(-100L);
     assert(result == -1);
-}
-
-/**
- * @brief Test file_basename with edge cases
- * @note Tests various path formats
- */
-static void test_util_file_basename_edge_cases(void) {
-    const char *result;
-    int cmp_ret;
-
-    /* Test multiple consecutive slashes */
-    result = file_basename("//usr//bin//test");
-    cmp_ret = strcmp(result, "test");
-    assert(cmp_ret == 0);
-
-    /* Test path with no directory separator */
-    result = file_basename("filename");
-    cmp_ret = strcmp(result, "filename");
-    assert(cmp_ret == 0);
-
-    /* Test path with dot directory */
-    result = file_basename("../test");
-    cmp_ret = strcmp(result, "test");
-    assert(cmp_ret == 0);
-
-    /* Test just a slash */
-    result = file_basename("/");
-    cmp_ret = strcmp(result, "");
-    assert(cmp_ret == 0);
-
-    /* Test empty string - no slash, returns itself */
-    result = file_basename("");
-    assert(result != NULL);
-    cmp_ret = strcmp(result, "");
-    assert(cmp_ret == 0);
-
-    /* Test NULL input */
-    result = file_basename(NULL);
-    assert(result != NULL);
-    cmp_ret = strcmp(result, "");
-    assert(cmp_ret == 0);
-}
-
-/**
- * @brief Test long2pid_t with boundary values
- * @note Tests conversion edge cases
- */
-static void test_util_long2pid_t_edge_cases(void) {
-    pid_t result;
 
     /* Test maximum reasonable PID */
     result = long2pid_t(65535L);
     assert(result == 65535);
 
-    /* Test with large positive value */
-    /* Result depends on pid_t size - just verify it doesn't crash */
+    /* Test with large positive value (must not crash) */
     long2pid_t(1000000L);
-}
 
-/**
- * @brief Test long2pid_t with LONG_MAX (overflow must return -1)
- * @note Covers the round-trip overflow detection branch
- */
-static void test_util_long2pid_t_overflow(void) {
     /* LONG_MAX overflows pid_t (32-bit) on 64-bit platforms.
      * Either the round-trip check detects overflow (-1)
      * or, on exotic platforms where pid_t == long, the value fits.
@@ -6423,9 +6395,6 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_get_ncpu);
     RUN_TEST(test_util_increase_priority);
     RUN_TEST(test_util_long2pid_t);
-    RUN_TEST(test_util_file_basename_edge_cases);
-    RUN_TEST(test_util_long2pid_t_edge_cases);
-    RUN_TEST(test_util_long2pid_t_overflow);
 #if defined(__linux__)
     RUN_TEST(test_util_read_line_from_file);
 #endif
