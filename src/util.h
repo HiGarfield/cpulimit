@@ -30,6 +30,13 @@ extern "C" {
 #include <sys/types.h>
 #include <time.h>
 
+/*
+ * Time utilities (nsec2timespec, get_current_time, sleep_timespec,
+ * timediff_in_ms) are provided by time_util.h.  Include it here so
+ * that existing code which includes only util.h continues to compile.
+ */
+#include "time_util.h"
+
 #ifndef MAX
 /**
  * @def MAX(a, b)
@@ -70,57 +77,6 @@ extern "C" {
 #define CLAMP(x, low, high)                                                    \
     ((x) < (low) ? (low) : ((x) > (high) ? (high) : (x)))
 #endif /* CLAMP */
-
-/**
- * @brief Convert nanoseconds to timespec structure
- * @param nsec Number of nanoseconds (can be >= 1 billion)
- * @param result_ts Pointer to timespec structure to populate
- *
- * Splits the nanosecond value into seconds and nanoseconds components.
- * The seconds component is the integer division by 1 billion, and the
- * nanoseconds component is the remainder. Adjusts tv_sec and tv_nsec
- * together to keep tv_nsec in [0, 999999999], guarding against
- * floating-point rounding errors.
- */
-void nsec2timespec(double nsec, struct timespec *result_ts);
-
-/**
- * @brief Get a high-resolution timestamp, preferring a monotonic clock
- * @param result_ts Pointer to timespec structure to receive current time
- * @return 0 on success, -1 on failure
- *
- * Uses CLOCK_MONOTONIC if available (unaffected by system time changes) to
- * return a monotonic timestamp, otherwise falls back to CLOCK_REALTIME, or
- * gettimeofday() as a final fallback. Provides at least microsecond
- * resolution on all supported platforms.
- */
-int get_current_time(struct timespec *result_ts);
-
-/**
- * @brief Sleep for a specified duration
- * @param duration Pointer to timespec specifying sleep duration
- * @return 0 on success, -1 on error (errno set by underlying call)
- *
- * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
- * durations that are unaffected by system time changes, otherwise falls back
- * to nanosleep(). The underlying call may return early (for example, with
- * errno set to EINTR if interrupted by a signal); this function does not
- * automatically resume sleeping in that case.
- */
-int sleep_timespec(const struct timespec *duration);
-
-/**
- * @brief Calculate elapsed time between two timestamps in milliseconds
- * @param later Pointer to the more recent timestamp
- * @param earlier Pointer to the older timestamp
- * @return Time difference in milliseconds (later - earlier)
- *
- * Computes the difference accounting for both seconds and nanoseconds fields.
- * Returns a positive value when later > earlier. The nanosecond component is
- * divided by 1e6, giving sub-microsecond precision in the returned value.
- */
-double timediff_in_ms(const struct timespec *later,
-                      const struct timespec *earlier);
 
 /**
  * @brief Extract filename from a full path

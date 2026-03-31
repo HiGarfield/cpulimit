@@ -28,10 +28,6 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/resource.h>
-#if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
-#include <sys/time.h>
-#endif
-#include <time.h>
 #include <unistd.h>
 #if defined(__APPLE__) || defined(__FreeBSD__)
 #include <stddef.h>
@@ -52,109 +48,6 @@
 #if defined(__linux__) && !defined(_SC_NPROCESSORS_ONLN)
 #include <sys/sysinfo.h>
 #endif
-
-/**
- * @brief Convert nanoseconds to timespec structure
- * @param nsec Number of nanoseconds (can be >= 1 billion)
- * @param result_ts Pointer to timespec structure to populate
- *
- * Splits the nanosecond value into seconds and nanoseconds components.
- * The seconds component is the integer division by 1 billion, and the
- * nanoseconds component is the remainder. Adjusts tv_sec and tv_nsec
- * together to keep tv_nsec in [0, 999999999], guarding against
- * floating-point rounding errors.
- */
-void nsec2timespec(double nsec, struct timespec *result_ts) {
-    result_ts->tv_sec = (time_t)(nsec / 1e9);
-    result_ts->tv_nsec = (long)(nsec - (double)result_ts->tv_sec * 1e9);
-    /* Correct tv_sec when floating-point rounding shifts tv_nsec out of
-     * range */
-    if (result_ts->tv_nsec < 0L) {
-        result_ts->tv_sec--;
-        result_ts->tv_nsec += 1000000000L;
-    } else if (result_ts->tv_nsec >= 1000000000L) {
-        result_ts->tv_sec++;
-        result_ts->tv_nsec -= 1000000000L;
-    }
-}
-
-/**
- * @brief Get a high-resolution timestamp, preferring a monotonic clock
- * @param result_ts Pointer to timespec structure to receive current time
- * @return 0 on success, -1 on failure
- *
- * Uses CLOCK_MONOTONIC if available (unaffected by system time changes) to
- * return a monotonic timestamp, otherwise falls back to CLOCK_REALTIME, or
- * gettimeofday() as a final fallback. Provides at least microsecond
- * resolution on all supported platforms.
- */
-int get_current_time(struct timespec *result_ts) {
-#if defined(CLOCK_MONOTONIC)
-    /* Prefer monotonic clock: immune to system time adjustments */
-    return clock_gettime(CLOCK_MONOTONIC, result_ts);
-#elif defined(CLOCK_REALTIME)
-    /* Fall back to real-time clock if monotonic unavailable */
-    return clock_gettime(CLOCK_REALTIME, result_ts);
-#else
-    /* Final fallback: use gettimeofday and convert to timespec */
-    struct timeval time_val;
-    if (gettimeofday(&time_val, NULL)) {
-        return -1;
-    }
-    result_ts->tv_sec = time_val.tv_sec;
-    result_ts->tv_nsec = time_val.tv_usec * 1000L;
-    return 0;
-#endif
-}
-
-/**
- * @brief Sleep for a specified duration
- * @param duration Pointer to timespec specifying sleep duration
- * @return 0 on success, -1 on error (errno set by underlying call)
- *
- * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
- * durations that are unaffected by system time changes, otherwise falls back
- * to nanosleep(). The underlying call may return early (for example, with
- * errno set to EINTR if interrupted by a signal); this function does not
- * automatically resume sleeping in that case.
- */
-int sleep_timespec(const struct timespec *duration) {
-#if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
-    defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
-    defined(CLOCK_MONOTONIC)
-    /*
-     * Use monotonic clock sleep if available.
-     * clock_nanosleep returns 0 on success or a positive error number
-     * on failure. Convert to -1/errno convention for consistency with
-     * nanosleep and the documented return value contract.
-     */
-    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, duration, NULL);
-    if (ret != 0) {
-        errno = ret;
-        return -1;
-    }
-    return 0;
-#else
-    /* Fall back to standard nanosleep */
-    return nanosleep(duration, NULL);
-#endif
-}
-
-/**
- * @brief Calculate elapsed time between two timestamps in milliseconds
- * @param later Pointer to the more recent timestamp
- * @param earlier Pointer to the older timestamp
- * @return Time difference in milliseconds (later - earlier)
- *
- * Computes the difference accounting for both seconds and nanoseconds fields.
- * Returns a positive value when later > earlier. The nanosecond component is
- * divided by 1e6, giving sub-microsecond precision in the returned value.
- */
-double timediff_in_ms(const struct timespec *later,
-                      const struct timespec *earlier) {
-    return difftime(later->tv_sec, earlier->tv_sec) * 1e3 +
-           ((double)later->tv_nsec - (double)earlier->tv_nsec) / 1e6;
-}
 
 /**
  * @brief Extract filename from a full path
