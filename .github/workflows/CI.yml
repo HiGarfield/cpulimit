@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@main
         with:
           fetch-depth: 0
 
@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload binary artifact
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@main
         with:
           name: cpulimit-${{ matrix.os }}
           path: build/src/cpulimit-${{ matrix.os }}
@@ -122,7 +122,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@main
 
       - name: Build on FreeBSD
         uses: vmactions/freebsd-vm@v1
@@ -176,7 +176,7 @@ jobs:
 
       - name: Upload binary artifact
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@main
         with:
           name: cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
           path: build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
@@ -188,7 +188,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@main
 
       - id: version
         shell: bash
@@ -197,7 +197,7 @@ jobs:
           echo "release_version=$v" >> $GITHUB_OUTPUT
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@main
         with:
           pattern: cpulimit-*
           merge-multiple: true
@@ -238,7 +238,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@main
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
