@@ -4204,7 +4204,7 @@ static void test_process_finder_find_by_name_symlink(void) {
     char sym_name[64];
     pid_t child_pid;
     pid_t found_pid;
-    int i;
+    unsigned int i;
     const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
 
     /* Skip if /bin/sleep is not executable on this platform */
@@ -4292,7 +4292,7 @@ static void test_process_finder_find_by_name_alias(void) {
     char alias_name[64];
     pid_t child_pid;
     pid_t found_pid;
-    int i;
+    unsigned int i;
     const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
 
     /* Skip if /bin/sleep is not executable on this platform */
