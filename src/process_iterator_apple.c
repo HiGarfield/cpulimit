@@ -275,7 +275,13 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
  * converts it to the platform-independent process structure. CPU time is
  * calculated as the sum of user and system time, converted to milliseconds.
  *
- * When read_cmd is set, retrieves the executable path via sysctl.
+ * When read_cmd is set, retrieves the command using a fallback chain:
+ * 1. KERN_PROCARGS2 sysctl for the true argv[0]
+ * 2. proc_pidpath() for the full executable path
+ * 3. pbi_comm from the already-fetched BSD process info
+ *
+ * The fallback is necessary because KERN_PROCARGS2 can fail on older
+ * macOS versions or for processes with restricted permissions.
  */
 static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
@@ -289,10 +295,34 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
         return 0;
     }
 
-    if (get_proc_argv0(proc->pid, proc->command, sizeof(proc->command)) != 0) {
-        return -1;
+    /* Try KERN_PROCARGS2 first for the true argv[0] */
+    if (get_proc_argv0(proc->pid, proc->command, sizeof(proc->command)) == 0) {
+        return 0;
     }
-    return 0;
+
+    /*
+     * Fallback: use proc_pidpath() for the full executable path.
+     * This works on macOS versions where KERN_PROCARGS2 may fail
+     * (e.g., due to permissions or older kernel versions).
+     */
+    if (proc_pidpath(proc->pid, proc->command,
+                     (uint32_t)sizeof(proc->command)) > 0) {
+        return 0;
+    }
+
+    /*
+     * Last resort: use pbi_comm from the already-fetched BSD info.
+     * This field is limited to MAXCOMLEN characters and contains
+     * only the process name, not the full path.
+     */
+    if (task_info->pbsd.pbi_comm[0] != '\0') {
+        strncpy(proc->command, task_info->pbsd.pbi_comm,
+                sizeof(proc->command) - 1);
+        proc->command[sizeof(proc->command) - 1] = '\0';
+        return 0;
+    }
+
+    return -1;
 }
 
 /**
