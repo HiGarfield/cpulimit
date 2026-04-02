@@ -40,8 +40,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/proc.h>
-#include <sys/sysctl.h>
 #include <sys/types.h>
+
+/*
+ * PROC_PIDARGINFO retrieves process arguments via proc_pidinfo().
+ * It may not be defined in older macOS SDK headers, so provide
+ * fallback definitions to ensure compatibility.
+ */
+#ifndef PROC_PIDARGINFO
+#define PROC_PIDARGINFO 14
+#endif
+
+#ifndef PROC_PIDARGINFO_MAXSIZE
+#define PROC_PIDARGINFO_MAXSIZE PROC_PIDPATHINFO_MAXSIZE
+#endif
 
 /**
  * @brief Initialize a process iterator with specified filter criteria
@@ -159,108 +171,77 @@ static double platform_time_to_ms(double platform_time) {
 }
 
 /**
- * @brief Retrieve argv[0] for a process via KERN_PROCARGS2
+ * @brief Retrieve argv[0] for a process via proc_pidinfo
  * @param pid Process ID to query
  * @param buf Buffer to populate with argv[0]
  * @param bufsize Size of the buffer in bytes
  * @return 0 on success, -1 on failure (including if process doesn't exist,
  *         has no command, argv[0] is empty, or if buffer is too small)
  *
- * The KERN_PROCARGS2 buffer layout is:
- *   [argc (int)][exec_path\0][padding \0s][argv[0]\0][argv[1]\0]...
- * exec_path is the kernel-resolved executable path (symlinks resolved),
- * while argv[0] is the string passed by the caller to execve(). This
- * function skips exec_path and its padding to return the true argv[0].
+ * Uses proc_pidinfo() with PROC_PIDARGINFO to retrieve the process
+ * argument list. The returned buffer layout is:
+ *   [argc (unsigned int)][argv[0]\0][argv[1]\0]...
+ * This function extracts and returns argv[0].
  * An empty argv[0] is treated as a failure and returns -1.
  */
 static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
-    int mib[3] = {CTL_KERN, KERN_PROCARGS2};
-    char *procargs = NULL;
-    const char *ptr, *null_pos, *end;
-    size_t size = 0, arg_len;
+    char *buffer;
+    const char *args_start, *null_pos;
+    unsigned int argc;
+    int ret;
+    size_t arg_len, data_len;
 
     if (pid <= 0 || buf == NULL || bufsize == 0) {
         return -1;
     }
 
-    mib[2] = pid;
-
-    if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0) {
+    buffer = (char *)malloc(PROC_PIDARGINFO_MAXSIZE);
+    if (buffer == NULL) {
         return -1;
     }
 
-    procargs = (char *)malloc(size);
-    if (procargs == NULL) {
+    ret = proc_pidinfo(pid, PROC_PIDARGINFO, 0, buffer,
+                       (int)PROC_PIDARGINFO_MAXSIZE);
+    if (ret <= (int)sizeof(unsigned int)) {
+        free(buffer);
         return -1;
     }
 
-    if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
-        free(procargs);
+    /* Read argc from the first sizeof(unsigned int) bytes */
+    memcpy(&argc, buffer, sizeof(argc));
+    if (argc == 0) {
+        free(buffer);
         return -1;
     }
 
-    end = procargs + size;
+    /* argv[0] starts immediately after the argc field */
+    args_start = buffer + sizeof(unsigned int);
+    data_len = (size_t)ret - sizeof(unsigned int);
 
-    /* Buffer must hold at least argc */
-    if (size < sizeof(int)) {
-        free(procargs);
-        return -1;
-    }
-
-    /* Skip argc (first sizeof(int) bytes) to reach exec_path */
-    ptr = procargs + sizeof(int);
-
-    /*
-     * Skip exec_path: the kernel-resolved executable path that follows
-     * argc. Find its terminating '\0', then step past it.
-     */
-    ptr = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
-    if (ptr == NULL) {
-        free(procargs);
-        return -1;
-    }
-    ptr++; /* move past exec_path's '\0' */
-
-    /* Explicit bounds check after advancing past exec_path terminator */
-    if (ptr >= end) {
-        free(procargs);
-        return -1;
-    }
-
-    /* Skip padding '\0' bytes between exec_path and argv[0] */
-    while (ptr < end && *ptr == '\0') {
-        ptr++;
-    }
-
-    if (ptr >= end) {
-        free(procargs);
-        return -1;
-    }
-
-    /* ptr now points to argv[0]; find its terminating '\0' */
-    null_pos = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
+    /* Find the null terminator of argv[0] within the returned data */
+    null_pos = (const char *)memchr(args_start, '\0', data_len);
     if (null_pos == NULL) {
-        free(procargs);
+        free(buffer);
         return -1;
     }
 
-    arg_len = (size_t)(null_pos - ptr);
+    arg_len = (size_t)(null_pos - args_start);
 
     /* Reject empty argv[0] (e.g. execve with argv[0]=="") */
     if (arg_len == 0) {
-        free(procargs);
+        free(buffer);
         return -1;
     }
 
     if (arg_len + 1 > bufsize) {
-        free(procargs);
+        free(buffer);
         return -1;
     }
 
-    memcpy(buf, ptr, arg_len);
+    memcpy(buf, args_start, arg_len);
     buf[arg_len] = '\0';
 
-    free(procargs);
+    free(buffer);
     return 0;
 }
 
@@ -276,11 +257,11 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
  * calculated as the sum of user and system time, converted to milliseconds.
  *
  * When read_cmd is set, retrieves the command using a fallback chain:
- * 1. KERN_PROCARGS2 sysctl for the true argv[0]
+ * 1. proc_pidinfo() with PROC_PIDARGINFO for argv[0]
  * 2. proc_pidpath() for the full executable path
  * 3. pbi_comm from the already-fetched BSD process info
  *
- * The fallback is necessary because KERN_PROCARGS2 can fail on older
+ * The fallback is necessary because PROC_PIDARGINFO can fail on some
  * macOS versions or for processes with restricted permissions.
  */
 static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
@@ -295,15 +276,15 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
         return 0;
     }
 
-    /* Try KERN_PROCARGS2 first for the true argv[0] */
+    /* Try PROC_PIDARGINFO first for argv[0] */
     if (get_proc_argv0(proc->pid, proc->command, sizeof(proc->command)) == 0) {
         return 0;
     }
 
     /*
      * Fallback: use proc_pidpath() for the full executable path.
-     * This works on macOS versions where KERN_PROCARGS2 may fail
-     * (e.g., due to permissions or older kernel versions).
+     * This works when PROC_PIDARGINFO fails (e.g., due to
+     * permissions or older kernel versions).
      */
     if (proc_pidpath(proc->pid, proc->command,
                      (uint32_t)sizeof(proc->command)) > 0) {
