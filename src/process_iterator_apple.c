@@ -282,8 +282,9 @@ static int get_proc_argv0_pidinfo(pid_t pid, char *buf, size_t bufsize) {
  * or returns unexpected data (e.g. on newer macOS versions).
  */
 static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
-    int mib[3];
-    char *procargs;
+    const int max_retries = 5;
+    int mib[3], retries;
+    char *procargs = NULL;
     const char *ptr, *null_pos, *end;
     size_t size = 0, arg_len;
 
@@ -304,12 +305,35 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
         return -1;
     }
 
-    procargs = (char *)malloc(size);
+    /*
+     * KERN_PROCARGS2 can race with process state changes between
+     * the size query and data fetch. Retry with the updated size
+     * when sysctl reports ENOMEM.
+     */
+    for (retries = 0; retries < max_retries; retries++) {
+        procargs = (char *)malloc(size);
+        if (procargs == NULL) {
+            return -1;
+        }
+
+        if (sysctl(mib, 3, procargs, &size, NULL, 0) == 0) {
+            break;
+        }
+
+        free((void *)procargs);
+        procargs = NULL;
+
+        if (errno != ENOMEM || size < sizeof(int)) {
+            return -1;
+        }
+    }
+
     if (procargs == NULL) {
         return -1;
     }
 
-    if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
+    /* Re-validate size after sysctl may have updated it */
+    if (size < sizeof(int)) {
         free((void *)procargs);
         return -1;
     }
