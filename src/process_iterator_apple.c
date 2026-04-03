@@ -222,8 +222,20 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
             return -1;
         }
 
-        /* Buffer was too small; double it and retry */
-        size *= 2;
+        /*
+         * Buffer was too small. Prefer the kernel-reported required
+         * size (actual_size) when it is larger, otherwise double the
+         * current size.  Guard against size_t overflow: if doubling
+         * would exceed SIZE_MAX/2, give up.
+         */
+        if (actual_size > size) {
+            size = actual_size;
+        } else {
+            if (size > (size_t)-1 / 2) {
+                return -1;
+            }
+            size *= 2;
+        }
     }
 
     if (!success) {
