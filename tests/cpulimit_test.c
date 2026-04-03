@@ -4121,9 +4121,9 @@ static void test_process_finder_find_by_name(void) {
      */
     self_pid = getpid();
     found_pid = 0;
-    for (i = 0; i < 50 && found_pid != self_pid; i++) {
+    for (i = 0; i < 50 && found_pid == 0; i++) {
         found_pid = find_process_by_name(self_command);
-        if (found_pid != self_pid) {
+        if (found_pid == 0) {
             sleep_timespec(&poll_wait);
         }
     }
