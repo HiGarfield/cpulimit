@@ -407,20 +407,24 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
  *         has no command, argv[0] is empty, or if buffer is too small)
  *
  * Attempts to retrieve argv[0] using two methods in order:
- * 1. proc_pidinfo() with PROC_PIDARGINFO
- * 2. sysctl(KERN_PROCARGS2)
+ * 1. sysctl(KERN_PROCARGS2)
+ * 2. proc_pidinfo() with PROC_PIDARGINFO
  *
- * The fallback to KERN_PROCARGS2 is required because PROC_PIDARGINFO may
- * not return the original argv[0] on all macOS versions (e.g. macOS 26+
- * may resolve symlinks or fail silently for restricted processes).
+ * KERN_PROCARGS2 is preferred because its buffer layout explicitly
+ * separates the kernel-resolved exec_path from the original argv[0],
+ * so it reliably returns the string passed to execve() on all macOS
+ * versions. PROC_PIDARGINFO may not be supported by the kernel on
+ * older macOS releases (e.g. 10.14 and earlier), and even when
+ * supported it may resolve symlinks or fail silently for restricted
+ * processes on some versions.
  */
 static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
-    /* Try proc_pidinfo(PROC_PIDARGINFO) first */
-    if (get_proc_argv0_pidinfo(pid, buf, bufsize) == 0) {
+    /* Try KERN_PROCARGS2 via sysctl first (most reliable) */
+    if (get_proc_argv0_sysctl(pid, buf, bufsize) == 0) {
         return 0;
     }
-    /* Fall back to KERN_PROCARGS2 via sysctl */
-    return get_proc_argv0_sysctl(pid, buf, bufsize);
+    /* Fall back to proc_pidinfo(PROC_PIDARGINFO) */
+    return get_proc_argv0_pidinfo(pid, buf, bufsize);
 }
 
 /**
@@ -435,8 +439,8 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
  * calculated as the sum of user and system time, converted to milliseconds.
  *
  * When read_cmd is set, retrieves the command using a fallback chain:
- * 1. get_proc_argv0() for argv[0] (tries PROC_PIDARGINFO, then
- *    KERN_PROCARGS2)
+ * 1. get_proc_argv0() for argv[0] (tries KERN_PROCARGS2, then
+ *    PROC_PIDARGINFO)
  * 2. proc_pidpath() for the full executable path
  * 3. pbi_comm from the already-fetched BSD process info
  *
@@ -455,7 +459,7 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
         return 0;
     }
 
-    /* Try PROC_PIDARGINFO first for argv[0] */
+    /* Try get_proc_argv0 for argv[0] */
     if (get_proc_argv0(proc->pid, proc->command, sizeof(proc->command)) == 0) {
         return 0;
     }

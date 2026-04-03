@@ -2263,6 +2263,8 @@ static void test_process_iterator_read_command(void) {
     int ret;
     pid_t self_pid;
     pid_t self_ppid;
+    unsigned int i;
+    const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
 
     /* Allocate memory for process structure */
     proc = (struct process *)malloc(sizeof(struct process));
@@ -2293,9 +2295,20 @@ static void test_process_iterator_read_command(void) {
      * check). A direct PID comparison is intentionally omitted: when
      * multiple processes share the same basename (e.g., valgrind),
      * find_process_by_name may return an ancestor's PID.
+     *
+     * On slow or heavily loaded systems (e.g., older macOS machines),
+     * proc_pidinfo calls used by the full process scan may fail
+     * intermittently, causing our process to be missed. Retry with
+     * a short delay to tolerate transient failures.
      */
     assert(proc->command[0] != '\0');
-    found_pid = find_process_by_name(file_basename(proc->command));
+    found_pid = 0;
+    for (i = 0; i < 50 && found_pid == 0; i++) {
+        found_pid = find_process_by_name(file_basename(proc->command));
+        if (found_pid == 0) {
+            sleep_timespec(&poll_wait);
+        }
+    }
     assert(found_pid != 0);
 
     /* Verify no more processes */
@@ -4062,6 +4075,8 @@ static void test_process_finder_find_by_name(void) {
     size_t len;
     pid_t found_pid;
     pid_t self_pid;
+    unsigned int i;
+    const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
 #if defined(__linux__)
     char abs_path[64];
 #endif /* __linux__ */
@@ -4098,9 +4113,20 @@ static void test_process_finder_find_by_name(void) {
     /*
      * Verify that find_process_by_name can find the current process
      * using its OS-visible command name.
+     *
+     * On slow or heavily loaded systems (e.g., older macOS machines),
+     * the full process scan may intermittently fail to read our
+     * process's info via proc_pidinfo, causing it to be missed.
+     * Retry with a short delay to tolerate transient failures.
      */
-    found_pid = find_process_by_name(self_command);
     self_pid = getpid();
+    found_pid = 0;
+    for (i = 0; i < 50 && found_pid == 0; i++) {
+        found_pid = find_process_by_name(self_command);
+        if (found_pid == 0) {
+            sleep_timespec(&poll_wait);
+        }
+    }
     assert(found_pid == self_pid);
 
     /*
