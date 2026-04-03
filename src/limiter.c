@@ -594,10 +594,14 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          * collect_child_exit_status() below.
          */
         if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
-            perror("kill SIGCONT");
+            int err = errno;
+            fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n", (long)child_pid,
+                    strerror(err));
         }
         if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
-            perror("kill fwd_sig");
+            int err = errno;
+            fprintf(stderr, "kill(-%ld, %d) failed: %s\n", (long)child_pid,
+                    fwd_sig, strerror(err));
         }
     }
 
