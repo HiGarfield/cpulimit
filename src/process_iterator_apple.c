@@ -273,13 +273,18 @@ static int get_proc_argv0_pidinfo(pid_t pid, char *buf, size_t bufsize) {
  * Uses sysctl(KERN_PROCARGS2) to retrieve the process argument vector.
  * The KERN_PROCARGS2 buffer layout is:
  *   [argc (int)][exec_path\0][padding \0s][argv[0]\0][argv[1]\0]...
- * exec_path is the kernel-resolved executable path (symlinks resolved),
- * while argv[0] is the string passed by the caller to execve(). This
- * function skips exec_path and its padding to return the true argv[0].
+ * On macOS 10.15 and later, exec_path is the kernel-resolved executable
+ * path (symlinks resolved) and always differs from argv[0] when the
+ * process was started via a symlink, so skipping exec_path reliably
+ * lands the parser on argv[0]. On older releases (e.g. 10.14 and
+ * earlier), exec_path is the original (unresolved) path from execve()
+ * and may share the same argument-page slot as argv[0]; in that case
+ * the parser skips what it believes is exec_path but is actually
+ * argv[0], landing on argv[1] instead. For this reason PROC_PIDARGINFO
+ * (which returns argv[] directly without exec_path) is preferred, and
+ * this function is used as a fallback when PROC_PIDARGINFO is
+ * unavailable or when the PROC_PIDARGINFO-based lookup fails.
  * An empty argv[0] is treated as a failure and returns -1.
- *
- * This function is used as a fallback when PROC_PIDARGINFO is unavailable
- * or returns unexpected data (e.g. on newer macOS versions).
  */
 static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
     const int max_retries = 5;
@@ -342,7 +347,11 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
 
     /*
      * Skip argc (first sizeof(int) bytes) to reach exec_path.
-     * exec_path is the kernel-resolved executable path (symlinks resolved).
+     * On macOS 10.15+, exec_path is the kernel-resolved executable
+     * path (symlinks resolved), so it always differs from argv[0]
+     * for exec-via-symlink and the subsequent skip lands correctly.
+     * On older releases exec_path is the original unresolved path,
+     * which may coincide with argv[0]; see the function comment.
      */
     ptr = procargs + sizeof(int);
 
@@ -407,24 +416,26 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
  *         has no command, argv[0] is empty, or if buffer is too small)
  *
  * Attempts to retrieve argv[0] using two methods in order:
- * 1. sysctl(KERN_PROCARGS2)
- * 2. proc_pidinfo() with PROC_PIDARGINFO
+ * 1. proc_pidinfo() with PROC_PIDARGINFO
+ * 2. sysctl(KERN_PROCARGS2)
  *
- * KERN_PROCARGS2 is preferred because its buffer layout explicitly
- * separates the kernel-resolved exec_path from the original argv[0],
- * so it reliably returns the string passed to execve() on all macOS
- * versions. PROC_PIDARGINFO may not be supported by the kernel on
- * older macOS releases (e.g. 10.14 and earlier), and even when
- * supported it may resolve symlinks or fail silently for restricted
- * processes on some versions.
+ * PROC_PIDARGINFO is preferred because its buffer layout is
+ * [argc][argv[0]\0][argv[1]\0]... with no exec_path prefix, so when
+ * supported and permitted it directly returns the string passed to
+ * execve().
+ * KERN_PROCARGS2 is used as a fallback: on macOS 10.15 and later it
+ * works correctly (exec_path is kernel-resolved so it differs from
+ * argv[0]), but on older releases exec_path is the original exec path
+ * and may share the same argument-page slot as argv[0], causing the
+ * parser to return argv[1] instead of argv[0] for exec-via-symlink.
  */
 static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
-    /* Try KERN_PROCARGS2 via sysctl first (most reliable) */
-    if (get_proc_argv0_sysctl(pid, buf, bufsize) == 0) {
+    /* Try proc_pidinfo(PROC_PIDARGINFO) first (direct argv[] access) */
+    if (get_proc_argv0_pidinfo(pid, buf, bufsize) == 0) {
         return 0;
     }
-    /* Fall back to proc_pidinfo(PROC_PIDARGINFO) */
-    return get_proc_argv0_pidinfo(pid, buf, bufsize);
+    /* Fall back to sysctl(KERN_PROCARGS2) */
+    return get_proc_argv0_sysctl(pid, buf, bufsize);
 }
 
 /**
@@ -439,8 +450,8 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
  * calculated as the sum of user and system time, converted to milliseconds.
  *
  * When read_cmd is set, retrieves the command using a fallback chain:
- * 1. get_proc_argv0() for argv[0] (tries KERN_PROCARGS2, then
- *    PROC_PIDARGINFO)
+ * 1. get_proc_argv0() for argv[0] (tries PROC_PIDARGINFO, then
+ *    KERN_PROCARGS2)
  * 2. proc_pidpath() for the full executable path
  * 3. pbi_comm from the already-fetched BSD process info
  *
