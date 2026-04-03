@@ -353,12 +353,22 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
  * Polls for the child's termination, applying a 5-second SIGKILL timeout
  * if the child does not exit in time. Translates signal termination to
  * shell-compatible exit codes (128 + signal number).
+ *
+ * Handles the race where a quit signal is delivered after
+ * run_command_mode()'s is_quit_flag_set() check: if quit_flag becomes set
+ * during polling, the exact received signal is forwarded to the child
+ * process group so it exits with the correct status (128 + signal number)
+ * rather than waiting for the SIGKILL timeout.  A SIGCONT is always sent
+ * first so that a stopped child (e.g. on macOS 10.7 where stopped processes
+ * are invisible to the process iterator) is resumed before the forwarded
+ * signal is delivered.
  */
 static int collect_child_exit_status(pid_t child_pid,
                                      const struct cpulimit_cfg *cfg) {
     int child_exit_status =
         EXIT_FAILURE;           /* Default if child not properly reaped */
     int child_reaped = 0;       /* 1 if successfully reaped child PID */
+    int sig_forwarded = 0;      /* 1 once the quit signal has been forwarded */
     struct timespec start_time; /* Timestamp when termination starts */
 
     /* Record time for timeout monitoring during cleanup */
@@ -430,6 +440,33 @@ static int collect_child_exit_status(pid_t child_pid,
             if (get_current_time(&current_time) != 0) {
                 perror("get_current_time");
                 exit(EXIT_FAILURE);
+            }
+
+            /*
+             * If a quit signal arrived after run_command_mode()'s
+             * is_quit_flag_set() check (a race on platforms like macOS 10.7
+             * where limit_process() may exit early because a stopped process
+             * is invisible to the iterator), forward it now so the child
+             * exits with 128 + signal_number rather than waiting for the
+             * SIGKILL timeout below.  Send SIGCONT first so that a stopped
+             * child can receive the forwarded signal.  Only forward once.
+             */
+            if (!sig_forwarded && is_quit_flag_set()) {
+                int fwd_sig = get_quit_signal();
+                if (fwd_sig == SIGPIPE || fwd_sig == 0) {
+                    fwd_sig = SIGTERM;
+                }
+                if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
+                    int err = errno;
+                    fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n",
+                            (long)child_pid, strerror(err));
+                }
+                if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
+                    int err = errno;
+                    fprintf(stderr, "kill(-%ld, %d) failed: %s\n",
+                            (long)child_pid, fwd_sig, strerror(err));
+                }
+                sig_forwarded = 1;
             }
 
             /*
@@ -553,6 +590,23 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
     limit_process(child_pid, cfg->limit, cfg->include_children, cfg->verbose);
 
     /*
+     * Always resume the process group after limit_process() returns.
+     * limit_process() sends SIGCONT via its process list before returning,
+     * but on some platforms (e.g. macOS 10.7) a stopped process may not be
+     * visible to the process iterator, leaving it stopped even though
+     * limit_process() has exited.  Sending SIGCONT unconditionally here
+     * ensures the child is running and able to receive any subsequent signal.
+     * SIGCONT to an already-running process group is harmless.
+     * The call may fail with ESRCH if the child has already exited; that
+     * case is handled by collect_child_exit_status() below.
+     */
+    if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
+        int err = errno;
+        fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n", (long)child_pid,
+                strerror(err));
+    }
+
+    /*
      * Check if user requested termination via signal (Ctrl+C, SIGTERM,
      * etc). If so, gracefully terminate the entire process group by
      * forwarding the exact received signal. This ensures behavior is
@@ -561,6 +615,11 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
      * (128+SIGINT), not 143 (128+SIGTERM).
      * SIGPIPE is an internal pipe-break signal; map it to SIGTERM to
      * avoid unexpected behavior in child processes that do not handle it.
+     *
+     * Note: if the quit signal arrives after this check (a race on
+     * platforms where limit_process() exits early because a stopped
+     * process is invisible to the iterator), collect_child_exit_status()
+     * will detect and forward it from inside its polling loop.
      */
     if (is_quit_flag_set()) {
         int fwd_sig = get_quit_signal();
@@ -578,25 +637,6 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          */
         if (fwd_sig == SIGPIPE || fwd_sig == 0) {
             fwd_sig = SIGTERM;
-        }
-        /*
-         * Resume any stopped processes before forwarding the
-         * termination signal.  limit_process() sends SIGCONT via its
-         * process list before returning, but on some platforms (e.g.
-         * macOS 10.7) a stopped process may not be visible to the
-         * process iterator, leaving it stopped with the forwarded
-         * signal pending but never delivered.  Sending SIGCONT to the
-         * process group here ensures the child is running and able to
-         * receive fwd_sig.  SIGCONT to an already-running process
-         * group is harmless.
-         * Both kill() calls may fail with ESRCH if the child has
-         * already exited; that case is handled by
-         * collect_child_exit_status() below.
-         */
-        if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
-            int err = errno;
-            fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n", (long)child_pid,
-                    strerror(err));
         }
         if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
             int err = errno;
