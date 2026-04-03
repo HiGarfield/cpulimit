@@ -174,10 +174,12 @@ static double platform_time_to_ms(double platform_time) {
  * An empty argv[0] is treated as a failure and returns -1.
  */
 static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
+    const int max_retries = 5;
     int mib[3] = {CTL_KERN, KERN_PROCARGS2};
     char *procargs = NULL;
     const char *ptr, *null_pos, *end;
     size_t size = 0, arg_len;
+    int retries, success = 0;
 
     if (pid <= 0 || buf == NULL || bufsize == 0) {
         return -1;
@@ -189,13 +191,41 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
         return -1;
     }
 
-    procargs = (char *)malloc(size);
-    if (procargs == NULL) {
-        return -1;
+    if (size == 0) {
+        size = 1024;
     }
 
-    if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
+    /*
+     * Retry loop: buffer size may grow between the size query and the
+     * data retrieval sysctl calls (e.g., if the process is being exec'd).
+     * On ENOMEM the buffer is doubled and the call is retried.
+     */
+    for (retries = 0; retries < max_retries; retries++) {
+        size_t actual_size = size;
+
+        procargs = (char *)malloc(size);
+        if (procargs == NULL) {
+            return -1;
+        }
+
+        if (sysctl(mib, 3, procargs, &actual_size, NULL, 0) == 0) {
+            size = actual_size;
+            success = 1;
+            break;
+        }
+
         free(procargs);
+        procargs = NULL;
+
+        if (errno != ENOMEM) {
+            return -1;
+        }
+
+        /* Buffer was too small; double it and retry */
+        size *= 2;
+    }
+
+    if (!success) {
         return -1;
     }
 
