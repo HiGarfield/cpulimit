@@ -180,6 +180,41 @@ static double platform_time_to_ms(double platform_time) {
 }
 
 /**
+ * @brief Get the Darwin kernel major version number
+ * @return Darwin major version (e.g. 19 for macOS 10.15, 18 for macOS 10.14,
+ *         11 for macOS 10.7), or 0 on failure; result is cached across calls.
+ *
+ * Uses sysctl(CTL_KERN, KERN_OSRELEASE) which returns a string such as
+ * "19.0.0". The major component determines argument-page layout in
+ * KERN_PROCARGS2:
+ *   - Darwin >= 19 (macOS 10.15+): exec_path is kernel-resolved and
+ *     stored separately from argv[0].
+ *   - Darwin <  19 (macOS < 10.15): exec_path is the original
+ *     (unresolved) path and shares the same argument-page slot as
+ *     argv[0].
+ */
+static int darwin_kernel_major_version(void) {
+    static int cached = -1;
+    int mib[2];
+    char osrelease[32];
+    size_t size;
+
+    if (cached >= 0) {
+        return cached;
+    }
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_OSRELEASE;
+    size = sizeof(osrelease);
+    if (sysctl(mib, 2, osrelease, &size, NULL, 0) == 0) {
+        cached = (int)strtol(osrelease, NULL, 10);
+    } else {
+        cached = 0;
+    }
+    return cached;
+}
+
+/**
  * @brief Retrieve argv[0] for a process via proc_pidinfo(PROC_PIDARGINFO)
  * @param pid Process ID to query
  * @param buf Buffer to populate with argv[0]
@@ -273,24 +308,23 @@ static int get_proc_argv0_pidinfo(pid_t pid, char *buf, size_t bufsize) {
  * Uses sysctl(KERN_PROCARGS2) to retrieve the process argument vector.
  * The KERN_PROCARGS2 buffer layout is:
  *   [argc (int)][exec_path\0][padding \0s][argv[0]\0][argv[1]\0]...
- * On macOS 10.15 and later, exec_path is the kernel-resolved executable
- * path (symlinks resolved) and always differs from argv[0] when the
- * process was started via a symlink, so skipping exec_path reliably
- * lands the parser on argv[0]. On older releases (e.g. 10.14 and
- * earlier), exec_path is the original (unresolved) path from execve()
- * and may share the same argument-page slot as argv[0]; in that case
- * the parser skips what it believes is exec_path but is actually
- * argv[0], landing on argv[1] instead. For this reason PROC_PIDARGINFO
- * (which returns argv[] directly without exec_path) is preferred, and
- * this function is used as a fallback when PROC_PIDARGINFO is
- * unavailable or when the PROC_PIDARGINFO-based lookup fails.
+ *
+ * On macOS 10.15+ (Darwin >= 19), exec_path is kernel-resolved (symlinks
+ * resolved) and is stored separately from argv[0], so skipping exec_path
+ * and any padding correctly lands the parser on argv[0].
+ *
+ * On macOS < 10.15 (Darwin < 19), exec_path is the original (unresolved)
+ * path from execve() and shares the same argument-page slot as argv[0].
+ * Skipping exec_path would land on argv[1] instead. For these releases
+ * exec_path IS argv[0] and is returned directly.
+ *
  * An empty argv[0] is treated as a failure and returns -1.
  */
 static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
     const int max_retries = 5;
     int mib[3], retries;
     char *procargs = NULL;
-    const char *ptr, *null_pos, *end;
+    const char *exec_path_start, *ptr, *null_pos, *end;
     size_t size = 0, arg_len;
 
     if (pid <= 0 || buf == NULL || bufsize == 0) {
@@ -345,25 +379,41 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
 
     end = procargs + size;
 
-    /*
-     * Skip argc (first sizeof(int) bytes) to reach exec_path.
-     * On macOS 10.15+, exec_path is the kernel-resolved executable
-     * path (symlinks resolved), so it always differs from argv[0]
-     * for exec-via-symlink and the subsequent skip lands correctly.
-     * On older releases exec_path is the original unresolved path,
-     * which may coincide with argv[0]; see the function comment.
-     */
-    ptr = procargs + sizeof(int);
+    /* Skip argc (first sizeof(int) bytes) to reach exec_path */
+    exec_path_start = procargs + sizeof(int);
 
-    /*
-     * Skip exec_path: find its terminating '\0', then step past it.
-     */
-    ptr = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
-    if (ptr == NULL) {
+    /* Find exec_path's terminating '\0' */
+    null_pos = (const char *)memchr(exec_path_start, '\0',
+                                    (size_t)(end - exec_path_start));
+    if (null_pos == NULL) {
         free((void *)procargs);
         return -1;
     }
-    ptr++; /* move past exec_path's '\0' */
+
+    /*
+     * On macOS < 10.15 (Darwin < 19), exec_path is the original
+     * (unresolved) path from execve() and shares the same
+     * argument-page slot as argv[0]. Return exec_path directly
+     * as it IS argv[0] on these releases.
+     */
+    if (darwin_kernel_major_version() < 19) {
+        arg_len = (size_t)(null_pos - exec_path_start);
+        if (arg_len == 0 || arg_len + 1 > bufsize) {
+            free((void *)procargs);
+            return -1;
+        }
+        memcpy(buf, exec_path_start, arg_len);
+        buf[arg_len] = '\0';
+        free((void *)procargs);
+        return 0;
+    }
+
+    /*
+     * macOS 10.15+ (Darwin >= 19): exec_path is kernel-resolved and
+     * differs from argv[0] for exec-via-symlink. Step past exec_path
+     * and any padding to reach argv[0].
+     */
+    ptr = null_pos + 1; /* move past exec_path's '\0' */
 
     if (ptr >= end) {
         free((void *)procargs);
@@ -415,26 +465,33 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
  * @return 0 on success, -1 on failure (including if process doesn't exist,
  *         has no command, argv[0] is empty, or if buffer is too small)
  *
- * Attempts to retrieve argv[0] using two methods in order:
- * 1. proc_pidinfo() with PROC_PIDARGINFO
- * 2. sysctl(KERN_PROCARGS2)
+ * On macOS 10.15+ (Darwin >= 19):
+ *   Tries proc_pidinfo(PROC_PIDARGINFO) first because its layout is
+ *   [argc][argv[0]\0][argv[1]\0]... with no exec_path prefix, directly
+ *   returning the original string passed to execve(). Falls back to
+ *   sysctl(KERN_PROCARGS2) which on these releases stores a
+ *   kernel-resolved exec_path separately from argv[0].
  *
- * PROC_PIDARGINFO is preferred because its buffer layout is
- * [argc][argv[0]\0][argv[1]\0]... with no exec_path prefix, so when
- * supported and permitted it directly returns the string passed to
- * execve().
- * KERN_PROCARGS2 is used as a fallback: on macOS 10.15 and later it
- * works correctly (exec_path is kernel-resolved so it differs from
- * argv[0]), but on older releases exec_path is the original exec path
- * and may share the same argument-page slot as argv[0], causing the
- * parser to return argv[1] instead of argv[0] for exec-via-symlink.
+ * On macOS < 10.15 (Darwin < 19):
+ *   Skips PROC_PIDARGINFO because it may resolve symlinks in argv[0]
+ *   on these releases, making it unreliable for exec-via-symlink.
+ *   Uses sysctl(KERN_PROCARGS2) directly, returning exec_path which
+ *   on these releases IS argv[0] (they share the same argument-page
+ *   slot).
  */
 static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
-    /* Try proc_pidinfo(PROC_PIDARGINFO) first (direct argv[] access) */
-    if (get_proc_argv0_pidinfo(pid, buf, bufsize) == 0) {
-        return 0;
+    /*
+     * On macOS < 10.15 (Darwin < 19), PROC_PIDARGINFO may resolve
+     * symlinks, making it unreliable. Use sysctl directly; exec_path
+     * in KERN_PROCARGS2 IS argv[0] on these releases.
+     */
+    if (darwin_kernel_major_version() >= 19) {
+        /* Try proc_pidinfo(PROC_PIDARGINFO) first (direct argv[] access) */
+        if (get_proc_argv0_pidinfo(pid, buf, bufsize) == 0) {
+            return 0;
+        }
     }
-    /* Fall back to sysctl(KERN_PROCARGS2) */
+    /* Fall back to (or use directly on Darwin < 19) sysctl(KERN_PROCARGS2) */
     return get_proc_argv0_sysctl(pid, buf, bufsize);
 }
 
@@ -450,8 +507,9 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
  * calculated as the sum of user and system time, converted to milliseconds.
  *
  * When read_cmd is set, retrieves the command using a fallback chain:
- * 1. get_proc_argv0() for argv[0] (tries PROC_PIDARGINFO, then
- *    KERN_PROCARGS2)
+ * 1. get_proc_argv0() for argv[0] (version-aware: uses PROC_PIDARGINFO
+ *    then KERN_PROCARGS2 on macOS 10.15+; uses KERN_PROCARGS2 exec_path
+ *    directly on older releases)
  * 2. proc_pidpath() for the full executable path
  * 3. pbi_comm from the already-fetched BSD process info
  *
@@ -477,8 +535,8 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
 
     /*
      * Fallback: use proc_pidpath() for the full executable path.
-     * This works when PROC_PIDARGINFO fails (e.g., due to
-     * permissions or older kernel versions).
+     * This works when get_proc_argv0() fails (e.g., due to
+     * permissions or sysctl errors).
      */
     if (proc_pidpath(proc->pid, proc->command,
                      (uint32_t)sizeof(proc->command)) > 0) {
