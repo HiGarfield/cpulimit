@@ -579,7 +579,30 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         if (fwd_sig == SIGPIPE || fwd_sig == 0) {
             fwd_sig = SIGTERM;
         }
-        kill(-child_pid, fwd_sig);
+        /*
+         * Resume any stopped processes before forwarding the
+         * termination signal.  limit_process() sends SIGCONT via its
+         * process list before returning, but on some platforms (e.g.
+         * macOS 10.7) a stopped process may not be visible to the
+         * process iterator, leaving it stopped with the forwarded
+         * signal pending but never delivered.  Sending SIGCONT to the
+         * process group here ensures the child is running and able to
+         * receive fwd_sig.  SIGCONT to an already-running process
+         * group is harmless.
+         * Both kill() calls may fail with ESRCH if the child has
+         * already exited; that case is handled by
+         * collect_child_exit_status() below.
+         */
+        if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
+            int err = errno;
+            fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n", (long)child_pid,
+                    strerror(err));
+        }
+        if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
+            int err = errno;
+            fprintf(stderr, "kill(-%ld, %d) failed: %s\n", (long)child_pid,
+                    fwd_sig, strerror(err));
+        }
     }
 
     exit(collect_child_exit_status(child_pid, cfg));
