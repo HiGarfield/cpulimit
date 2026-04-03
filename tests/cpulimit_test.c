@@ -1562,13 +1562,14 @@ static void test_signal_handler_reconfigure_delivers_pending(void) {
     if (pid == 0) {
         sigset_t block_set, old_set;
 
+        /*
+         * sigemptyset() and sigaddset() with a valid signal number always
+         * return 0 per POSIX; error checks are omitted to avoid
+         * -Wunreachable-code on platforms with inline implementations.
+         */
         /* Block SIGTERM so that raise() makes it pending, not delivered. */
-        if (sigemptyset(&block_set) != 0) {
-            _exit(1);
-        }
-        if (sigaddset(&block_set, SIGTERM) != 0) {
-            _exit(1);
-        }
+        sigemptyset(&block_set);
+        sigaddset(&block_set, SIGTERM);
         if (sigprocmask(SIG_BLOCK, &block_set, &old_set) != 0) {
             _exit(1);
         }
@@ -1704,10 +1705,10 @@ static void test_signal_handler_race_concurrent_signals(void) {
         /*
          * Block all signals before notifying parent, so both SIGTERM and
          * SIGINT will be pending when sigsuspend is called.
+         * sigfillset() and sigemptyset() always return 0 per POSIX.
          */
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
-            _exit(1);
-        }
+        sigfillset(&full_mask);
+        sigemptyset(&empty_mask);
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
@@ -1886,9 +1887,11 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         close(ready_pipe[0]);
         configure_signal_handler();
 
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
-            _exit(1);
-        }
+        /*
+         * sigfillset() and sigemptyset() always return 0 per POSIX.
+         */
+        sigfillset(&full_mask);
+        sigemptyset(&empty_mask);
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
@@ -1969,10 +1972,10 @@ static void test_process_iterator_is_child_of(void) {
          * block forever.  sigprocmask+sigsuspend is the POSIX-correct
          * race-free replacement: sigsuspend atomically restores the
          * empty mask and suspends, so no signal can be missed.
+         * sigfillset() and sigemptyset() always return 0 per POSIX.
          */
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
-            _exit(1);
-        }
+        sigfillset(&full_mask);
+        sigemptyset(&empty_mask);
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
@@ -2148,10 +2151,10 @@ static void test_process_iterator_multiple(void) {
          * block forever.  sigprocmask+sigsuspend is the POSIX-correct
          * race-free replacement: sigsuspend atomically restores the
          * empty mask and suspends, so no signal can be missed.
+         * sigfillset() and sigemptyset() always return 0 per POSIX.
          */
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
-            _exit(1);
-        }
+        sigfillset(&full_mask);
+        sigemptyset(&empty_mask);
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
@@ -2521,10 +2524,10 @@ static void test_process_iterator_with_children(void) {
          * block forever.  sigprocmask+sigsuspend is the POSIX-correct
          * race-free replacement: sigsuspend atomically restores the
          * empty mask and suspends, so no signal can be missed.
+         * sigfillset() and sigemptyset() always return 0 per POSIX.
          */
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
-            _exit(1);
-        }
+        sigfillset(&full_mask);
+        sigemptyset(&empty_mask);
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
@@ -5125,9 +5128,10 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
              */
             memset(&sa, 0, sizeof(sa));
             sa.sa_handler = sigcont_exit_handler;
-            if (sigemptyset(&sa.sa_mask) != 0) {
-                _exit(1);
-            }
+            /*
+             * sigemptyset() always returns 0 per POSIX.
+             */
+            sigemptyset(&sa.sa_mask);
             if (sigaction(SIGCONT, &sa, NULL) != 0) {
                 _exit(1);
             }
