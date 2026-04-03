@@ -310,7 +310,7 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
     }
 
     if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
-        free((void *)procargs);
+        free(procargs);
         return -1;
     }
 
@@ -327,13 +327,13 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
      */
     ptr = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
     if (ptr == NULL) {
-        free((void *)procargs);
+        free(procargs);
         return -1;
     }
     ptr++; /* move past exec_path's '\0' */
 
     if (ptr >= end) {
-        free((void *)procargs);
+        free(procargs);
         return -1;
     }
 
@@ -343,14 +343,14 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
     }
 
     if (ptr >= end) {
-        free((void *)procargs);
+        free(procargs);
         return -1;
     }
 
     /* ptr now points to argv[0]; find its terminating '\0' */
     null_pos = (const char *)memchr(ptr, '\0', (size_t)(end - ptr));
     if (null_pos == NULL) {
-        free((void *)procargs);
+        free(procargs);
         return -1;
     }
 
@@ -358,19 +358,19 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
 
     /* Reject empty argv[0] (e.g. execve with argv[0]=="") */
     if (arg_len == 0) {
-        free((void *)procargs);
+        free(procargs);
         return -1;
     }
 
     if (arg_len + 1 > bufsize) {
-        free((void *)procargs);
+        free(procargs);
         return -1;
     }
 
     memcpy(buf, ptr, arg_len);
     buf[arg_len] = '\0';
 
-    free((void *)procargs);
+    free(procargs);
     return 0;
 }
 
