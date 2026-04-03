@@ -127,6 +127,9 @@ int init_process_iterator(struct process_iterator *iter,
         /* Buffer too small - free and retry with larger size */
         free(iter->pid_list);
         iter->pid_list = NULL;
+        if (buffer_size > INT_MAX / 2) {
+            break;
+        }
         buffer_size *= 2;
     }
 
