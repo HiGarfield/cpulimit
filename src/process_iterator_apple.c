@@ -282,8 +282,8 @@ static int get_proc_argv0_pidinfo(pid_t pid, char *buf, size_t bufsize) {
  * the parser skips what it believes is exec_path but is actually
  * argv[0], landing on argv[1] instead. For this reason PROC_PIDARGINFO
  * (which returns argv[] directly without exec_path) is preferred, and
- * this function is used only as a fallback when PROC_PIDARGINFO is
- * unavailable.
+ * this function is used as a fallback when PROC_PIDARGINFO is
+ * unavailable or when the PROC_PIDARGINFO-based lookup fails.
  * An empty argv[0] is treated as a failure and returns -1.
  */
 static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
@@ -420,8 +420,9 @@ static int get_proc_argv0_sysctl(pid_t pid, char *buf, size_t bufsize) {
  * 2. sysctl(KERN_PROCARGS2)
  *
  * PROC_PIDARGINFO is preferred because its buffer layout is
- * [argc][argv[0]\0][argv[1]\0]... with no exec_path prefix, so it
- * directly returns the string passed to execve() on all macOS versions.
+ * [argc][argv[0]\0][argv[1]\0]... with no exec_path prefix, so when
+ * supported and permitted it directly returns the string passed to
+ * execve().
  * KERN_PROCARGS2 is used as a fallback: on macOS 10.15 and later it
  * works correctly (exec_path is kernel-resolved so it differs from
  * argv[0]), but on older releases exec_path is the original exec path
