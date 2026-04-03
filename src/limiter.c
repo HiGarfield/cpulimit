@@ -589,9 +589,16 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          * process group here ensures the child is running and able to
          * receive fwd_sig.  SIGCONT to an already-running process
          * group is harmless.
+         * Both kill() calls may fail with ESRCH if the child has
+         * already exited; that case is handled by
+         * collect_child_exit_status() below.
          */
-        kill(-child_pid, SIGCONT);
-        kill(-child_pid, fwd_sig);
+        if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
+            perror("kill SIGCONT");
+        }
+        if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
+            perror("kill fwd_sig");
+        }
     }
 
     exit(collect_child_exit_status(child_pid, cfg));
