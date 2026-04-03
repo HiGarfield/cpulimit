@@ -198,7 +198,8 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     /*
      * Retry loop: buffer size may grow between the size query and the
      * data retrieval sysctl calls (e.g., if the process is being exec'd).
-     * On ENOMEM the buffer is doubled and the call is retried.
+     * On ENOMEM the buffer is doubled and the call is retried; any other
+     * error causes immediate failure.
      */
     for (retries = 0; retries < max_retries; retries++) {
         size_t actual_size = size;
