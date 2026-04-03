@@ -579,6 +579,18 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         if (fwd_sig == SIGPIPE || fwd_sig == 0) {
             fwd_sig = SIGTERM;
         }
+        /*
+         * Resume any stopped processes before forwarding the
+         * termination signal.  limit_process() sends SIGCONT via its
+         * process list before returning, but on some platforms (e.g.
+         * macOS 10.7) a stopped process may not be visible to the
+         * process iterator, leaving it stopped with the forwarded
+         * signal pending but never delivered.  Sending SIGCONT to the
+         * process group here ensures the child is running and able to
+         * receive fwd_sig.  SIGCONT to an already-running process
+         * group is harmless.
+         */
+        kill(-child_pid, SIGCONT);
         kill(-child_pid, fwd_sig);
     }
 
