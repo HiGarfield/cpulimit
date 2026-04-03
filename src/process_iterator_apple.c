@@ -234,9 +234,32 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
         return -1; /* argv[0] missing */
     }
 
-    /* Copy argv[0] safely */
-    strncpy(buf, sp, bufsize - 1);
-    buf[bufsize - 1] = '\0';
+    /*
+     * Verify argv[0] is NUL-terminated within the valid sysctl payload
+     * [sp, end) before copying.  If no NUL exists, the kernel data is
+     * malformed; return -1 rather than reading past the payload.
+     * Also return -1 when argv[0] is too long to fit in buf: the caller
+     * relies on getting a complete, untruncated name for process matching.
+     */
+    {
+        const char *nul = sp;
+        size_t argv0_len;
+
+        while (nul < end && *nul != '\0') {
+            nul++;
+        }
+        if (nul >= end) {
+            free(procargs);
+            return -1; /* no NUL terminator within valid payload */
+        }
+        argv0_len = (size_t)(nul - sp);
+        if (argv0_len >= bufsize) {
+            free(procargs);
+            return -1; /* argv[0] too long for caller's buffer */
+        }
+        memcpy(buf, sp, argv0_len);
+        buf[argv0_len] = '\0';
+    }
 
     free(procargs);
     return 0;
