@@ -157,10 +157,13 @@ void configure_signal_handler(void) {
      * reset_signal_state() call. SIGKILL and SIGSTOP cannot be blocked and
      * are silently ignored by sigprocmask, which is harmless. The original
      * mask is restored after all handlers are in place. */
-    if (sigfillset(&block_mask) != 0) {
-        perror("sigfillset");
-        exit(EXIT_FAILURE);
-    }
+    /*
+     * sigfillset() and sigemptyset() are specified by POSIX to always
+     * return 0 when called with a valid argument. Error checks are
+     * omitted to avoid -Wunreachable-code warnings on platforms where
+     * these functions are defined as inline no-fail operations.
+     */
+    sigfillset(&block_mask);
     if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) != 0) {
         perror("sigprocmask");
         exit(EXIT_FAILURE);
@@ -172,10 +175,7 @@ void configure_signal_handler(void) {
         sig_handler; /* Unified handler for all termination signals */
     sig_action.sa_flags =
         SA_RESTART; /* Automatically restart interrupted syscalls */
-    if (sigemptyset(&sig_action.sa_mask) != 0) {
-        perror("sigemptyset");
-        exit(EXIT_FAILURE);
-    }
+    sigemptyset(&sig_action.sa_mask);
 
     /* Start from a deterministic state for each new configuration. */
     reset_signal_state();
@@ -251,10 +251,10 @@ int reset_signal_handlers_to_default(void) {
 
     memset(&def_action, 0, sizeof(def_action));
     def_action.sa_handler = SIG_DFL;
-    if (sigemptyset(&def_action.sa_mask) != 0) {
-        perror("sigemptyset");
-        return -1;
-    }
+    /*
+     * sigemptyset() always returns 0 per POSIX; no error check needed.
+     */
+    sigemptyset(&def_action.sa_mask);
     for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
         if (sigaction(reset_sigs[sig_idx], &def_action, NULL) != 0) {
             perror("sigaction reset");
