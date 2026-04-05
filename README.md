@@ -138,13 +138,15 @@ To build and install cpulimit from source, use **one of** the following methods:
   sudo gmake install
   ```
 
-- **Build and install with `cmake` on Linux/macOS/FreeBSD (CMake version 3.15 or higher):**
+- **Build and install with `cmake` on Linux/macOS/FreeBSD (CMake version 3.5 or higher):**
 
   ```sh
   rm -rf build
-  cmake -B build -DCMAKE_BUILD_TYPE=Release
-  cmake --build build
-  sudo cmake --install build --prefix /usr/local
+  mkdir -p build
+  cd build
+  cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+  cmake --build .
+  sudo cmake --build . --target install
   ```
 
 - **Without a build environment:** Use prebuilt executables from [Releases](https://github.com/HiGarfield/cpulimit/releases/latest)
