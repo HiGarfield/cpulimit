@@ -148,7 +148,6 @@ set(CPULIMIT_C_FLAGS
 
     # Additional warnings
     -Wundef
-    -Wunreachable-code
     -Winline
     -Wmissing-include-dirs
     -Wstrict-overflow=5
