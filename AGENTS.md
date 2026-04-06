@@ -78,7 +78,7 @@ See `/README.md`.
 
 # Repository Structure
 
-## Top-Level Files and Directories
+## Top-Level Files and Directories (key entries)
 
 - `/src`: main source code.
 - `/tests`: test code and test helper programs.
@@ -121,7 +121,7 @@ authoritative description.
   Platform-specific implementations:
   - `process_iterator_linux.c`: Linux implementation using `/proc`.
   - `process_iterator_freebsd.c`: FreeBSD implementation using
-    `libkvm` and `/proc`.
+    `libkvm` (`kvm(3)` APIs: `kvm_getprocs`, `kvm_getargv`).
   - `process_iterator_apple.c`: macOS implementation using
     `libproc` and `sysctl`.
   Each file is always compiled; it is guarded by a platform `#ifdef`
