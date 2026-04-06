@@ -131,7 +131,8 @@ int init_process_iterator(struct process_iterator *iter,
     proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
                                  &iter->proc_count);
     if (proc_snapshot == NULL) {
-        kvm_close(iter->kvm_descriptor);
+        fprintf(stderr, "kvm_getprocs: %s\n", kvm_geterr(iter->kvm_descriptor));
+        close_process_iterator(iter);
         return -1;
     }
     /* Copy process list to iterator's own memory */
