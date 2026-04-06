@@ -78,13 +78,92 @@ See `/README.md`.
 
 # Repository Structure
 
+## Top-Level Files and Directories
+
 - `/src`: main source code.
-- `/tests`: test code.
-- `/Makefile`: build configuration.
-- `/.clang-format`: formatting configuration.
+- `/tests`: test code and test helper programs.
+- `/cmake`: CMake helper scripts used by the build system.
+- `/CMakeLists.txt`: top-level CMake build configuration.
+- `/Makefile`: legacy Make-based build configuration.
+- `/build_with_cmake.sh`: convenience script to configure and build
+  with CMake in release mode.
+- `/.clang-format`: formatting configuration for `clang-format`.
+- `/.clang-tidy`: static analysis configuration for `clang-tidy`.
+- `/.gitignore`: specifies files excluded from version control.
+- `/.github`: GitHub Actions CI workflow and Copilot instructions.
 - `/README.md`: user documentation.
-- `/AGENTS.md`: development rules and guidelines.
+- `/AGENTS.md`: development rules and guidelines for AI agents.
 - `/LICENSE`: license file.
+
+## Source Modules (`/src`)
+
+Each module is exposed via a `.h` header and implemented in a `.c`
+file (or platform-specific `.c` files). The header comment is the
+authoritative description.
+
+- `main.c`: program entry point; parses arguments, sets up signal
+  handlers, and dispatches to the appropriate execution mode.
+- `cli.h / cli.c`: command-line argument parsing; produces the
+  `config` struct consumed by `limiter`.
+- `limiter.h / limiter.c`: top-level limiting logic; supports two
+  modes: attach-to-existing-PID/exe and fork-and-exec-command.
+- `limit_process.h / limit_process.c`: core CPU enforcement loop;
+  implements the SIGSTOP/SIGCONT algorithm and manages per-cycle
+  sampling and sleep intervals.
+- `process_group.h / process_group.c`: manages the set of monitored
+  processes (root process plus optional descendants), tracks CPU
+  usage with exponential moving average, and detects newly spawned
+  children.
+- `process_finder.h / process_finder.c`: locates a target process by
+  PID or executable name; prefers ancestor processes when multiple
+  matches exist.
+- `process_iterator.h`: cross-platform process enumeration interface.
+  Platform-specific implementations:
+  - `process_iterator_linux.c`: Linux implementation using `/proc`.
+  - `process_iterator_freebsd.c`: FreeBSD implementation using
+    `libkvm` and `/proc`.
+  - `process_iterator_apple.c`: macOS implementation using
+    `libproc` and `sysctl`.
+  Each file is always compiled; it is guarded by a platform `#ifdef`
+  and provides a placeholder `typedef` on other platforms.
+- `process_table.h / process_table.c`: hash table (separate chaining)
+  for O(1) average-case process lookup by PID; supports stale-entry
+  removal.
+- `list.h / list.c`: generic doubly linked list with O(1) append,
+  head/tail access, and field-value search.
+- `signal_handler.h / signal_handler.c`: installs handlers for
+  SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE; exposes a quit flag
+  and TTY-termination detection used by the main loop.
+- `time_util.h / time_util.c`: monotonic-clock access, nanosleep
+  wrapper, millisecond time-difference calculation, and
+  nanosecond-to-`timespec` conversion.
+- `util.h / util.c`: utility macros (`MAX`, `MIN`, `CLAMP`), CPU
+  core count, process priority adjustment, and basename extraction.
+
+## Test Files (`/tests`)
+
+- `cpulimit_test.c`: main unit and integration test suite; all tests
+  MUST be placed here.
+- `busy.c`: CPU load generator using pthreads; used by the test suite
+  to drive the process under test.
+- `multi_process_busy.c`: CPU load generator using `fork`; spawns
+  multiple busy-loop child processes to test the `-i` option.
+
+## CMake Scripts (`/cmake`)
+
+- `CpulimitOptions.cmake`: centralises compiler warning flags,
+  platform-specific library detection (`librt`, `libkvm`, `libproc`),
+  and the shared source-file list.
+- `CheckedFlags.cmake`: provides `add_checked_flags()`, which probes
+  each flag for compiler acceptance before applying it.
+- `RunCheck.cmake`: runs `cppcheck` and `clang-tidy` on `src/` and
+  `tests/`, writing four report files used by the `check` target.
+- `RunFormat.cmake`: runs `clang-format` in-place on all C source and
+  header files; invoked by the `format` target.
+- `RunValgrind.cmake`: runs the test binary under `valgrind` and
+  fails the build if memory errors or leaks are detected.
+- `Uninstall.cmake`: removes installed files listed in CMake's
+  install manifest; invoked by the `uninstall` target.
 
 ---
 
