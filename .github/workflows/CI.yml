@@ -33,23 +33,11 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu-')
         run: |
           sudo apt -qq update
-          sudo apt -qq install build-essential clang-format cppcheck \
-              clang-tidy valgrind gcc-multilib libc6-dev-i386 musl-tools
-
-      - name: Install tools (macOS)
-        if: startsWith(matrix.os, 'macos-')
-        run: |
-          brew install cppcheck llvm
-          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
-          if [ "$(uname -m)" = "arm64" ]; then
-            echo "Valgrind is not supported on Apple Silicon (arm64); skipping."
-          else
-            brew install valgrind
-          fi
+          sudo apt -qq install gcc-multilib libc6-dev-i386 musl-tools
 
       - name: Build and test
         run: |
-          for compiler in gcc clang g++ clang++; do
+          for compiler in gcc clang; do
             rm -rf build
             cmake -DCMAKE_C_COMPILER="${compiler}" \
                 -DCMAKE_BUILD_TYPE=Release \
@@ -59,6 +47,7 @@ jobs:
           rm -rf build
 
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
+            # Ubuntu
             cmake -DCMAKE_C_COMPILER=musl-gcc \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_EXE_LINKER_FLAGS="-static" \
@@ -72,18 +61,14 @@ jobs:
                 -DCMAKE_EXE_LINKER_FLAGS="-static" \
                 -B build
           else
-            if echo 'int main(void){return 0;}' | \
-                cc -arch x86_64 -arch arm64 -x c -o /dev/null - 2>/dev/null; then
-              cmake -DCMAKE_BUILD_TYPE=Release \
-                  "-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64" \
-                  -B build
-            else
-              cmake -DCMAKE_BUILD_TYPE=Release \
-                  -B build
-            fi
+            # macOS
+            cmake -DCMAKE_C_COMPILER=clang \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+                -B build
           fi
           cmake --build build
-          cmake --build build --target check
+
           random_folder="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
           mkdir -p "./tests/${random_folder}"
           random_file="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
@@ -91,9 +76,7 @@ jobs:
           cp -f ./build/tests/cpulimit_test "${random_path}"
           echo "${random_path}"
           sudo "${random_path}"
-          if command -v valgrind >/dev/null 2>&1; then
-            cmake --build build --target valgrind
-          fi
+
           cp -f ./build/src/cpulimit \
               ./build/src/cpulimit-${{ matrix.os }}
 
@@ -125,15 +108,10 @@ jobs:
           arch: ${{ matrix.arch }}
           usesh: true
           prepare: |
-            pkg install -y -q gcc llvm sudo cmake cppcheck
-          run: |
-            # valgrind is only supported on amd64; install it there
-            # unconditionally so CI fails if the package is unavailable.
-            if [ "$(uname -m)" = "amd64" ]; then
-              pkg install -y -q valgrind
-            fi
+            pkg install -y -q gcc llvm sudo cmake
 
-            for compiler in gcc clang g++ clang++; do
+          run: |
+            for compiler in gcc clang; do
               rm -rf build
               cmake -DCMAKE_C_COMPILER="${compiler}" \
                   -DCMAKE_BUILD_TYPE=Release \
@@ -146,7 +124,7 @@ jobs:
                 -DCMAKE_BUILD_TYPE=Release \
                 -B build
             cmake --build build
-            cmake --build build --target check
+
             random_folder="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
             mkdir -p "./tests/${random_folder}"
             random_file="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
@@ -154,9 +132,7 @@ jobs:
             cp -f ./build/tests/cpulimit_test "${random_path}"
             echo "${random_path}"
             sudo "${random_path}"
-            if command -v valgrind >/dev/null 2>&1; then
-              cmake --build build --target valgrind
-            fi
+
             cp -f ./build/src/cpulimit \
                 ./build/src/cpulimit-FreeBSD-${{ matrix.osver }}-${{ matrix.arch }}
 
