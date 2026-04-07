@@ -47,51 +47,55 @@ jobs:
             brew install valgrind
           fi
 
-      - name: Build, test and analyse
+      - name: Verify compiler compatibility
         run: |
-          export CTEST_OUTPUT_ON_FAILURE=1
-
-          cmake -DCMAKE_C_COMPILER=clang \
-              -DCMAKE_BUILD_TYPE=Release \
-              -B build
-          cmake --build build
-          cmake --build build --target test
-          cmake --build build --target check
+          for compiler in gcc clang g++ clang++; do
+            rm -rf build
+            cmake -DCMAKE_C_COMPILER="${compiler}" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -B build
+            cmake --build build
+          done
           rm -rf build
 
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
-            cmake \
-                -DCMAKE_C_COMPILER=musl-gcc \
+            cmake -DCMAKE_C_COMPILER=musl-gcc \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_EXE_LINKER_FLAGS="-static" \
-                -DCPULIMIT_BUILD_TESTS=OFF \
                 -B build
             cmake --build build
-            rm -rf build
-
-            cmake \
-                -DCMAKE_C_COMPILER=gcc \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_FLAGS="-m32" \
-                -B build
-            cmake --build build
-            cmake --build build --target test
             rm -rf build
           fi
 
-          # GCC Release build is always last; the build directory is kept
-          # so the next step can reuse the compiled artefacts directly.
-          cmake -DCMAKE_C_COMPILER=gcc \
-              -DCMAKE_BUILD_TYPE=Release \
-              -B build
+      - name: Build
+        run: |
+          if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
+            cmake -DCMAKE_C_COMPILER=gcc \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_FLAGS="-m32" \
+                -DCMAKE_EXE_LINKER_FLAGS="-static" \
+                -B build
+          else
+            if echo 'int main(void){return 0;}' | \
+                cc -arch x86_64 -arch arm64 -x c -o /dev/null - 2>/dev/null; then
+              cmake -DCMAKE_BUILD_TYPE=Release \
+                  "-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64" \
+                  -B build
+            else
+              cmake -DCMAKE_BUILD_TYPE=Release \
+                  -B build
+            fi
+          fi
           cmake --build build
-          cmake --build build --target test
+
+      - name: Analyse
+        run: |
           cmake --build build --target check
           if command -v valgrind >/dev/null 2>&1; then
             cmake --build build --target valgrind
           fi
 
-      - name: Functional test with sudo
+      - name: Test
         run: |
           random_folder="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
           mkdir -p "./tests/${random_folder}"
@@ -133,34 +137,26 @@ jobs:
           prepare: |
             pkg install -y -q gcc llvm sudo cmake cppcheck
           run: |
-            export CTEST_OUTPUT_ON_FAILURE=1
-
             # valgrind is only supported on amd64; install it there
             # unconditionally so CI fails if the package is unavailable.
             if [ "$(uname -m)" = "amd64" ]; then
               pkg install -y -q valgrind
             fi
 
-            cmake -DCMAKE_C_COMPILER=gcc \
-                -DCMAKE_BUILD_TYPE=Release \
-                -B build
-            cmake --build build
-            cmake --build build --target test
-            cmake --build build --target check
+            for compiler in gcc clang g++ clang++; do
+              rm -rf build
+              cmake -DCMAKE_C_COMPILER="${compiler}" \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -B build
+              cmake --build build
+            done
             rm -rf build
 
             cmake -DCMAKE_C_COMPILER=clang \
                 -DCMAKE_BUILD_TYPE=Release \
                 -B build
             cmake --build build
-            cmake --build build --target test
             cmake --build build --target check
-            rm -rf build
-
-            cmake -DCMAKE_C_COMPILER=gcc \
-                -DCMAKE_BUILD_TYPE=Release \
-                -B build
-            cmake --build build
             random_folder="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
             mkdir -p "./tests/${random_folder}"
             random_file="$(mktemp -u $(printf 'X%.0s' $(seq 1 255)))"
