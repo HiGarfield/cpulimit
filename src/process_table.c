@@ -202,7 +202,8 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid) {
 void remove_stale_from_process_table(struct process_table *proc_table,
                                      const struct list *active_list) {
     size_t bucket_idx;
-    if (proc_table == NULL || proc_table->buckets == NULL) {
+    if (proc_table == NULL || proc_table->buckets == NULL ||
+        active_list == NULL) {
         return;
     }
     for (bucket_idx = 0; bucket_idx < proc_table->hash_size; bucket_idx++) {

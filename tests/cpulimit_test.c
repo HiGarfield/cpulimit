@@ -3638,6 +3638,16 @@ static void test_process_table_remove_stale(void) {
     /* Test with NULL (should not crash) */
     remove_stale_from_process_table(NULL, &active_list);
 
+    /*
+     * Passing NULL active_list must be a no-op to preserve table
+     * contents; callers may treat "no active snapshot" as "skip prune".
+     */
+    remove_stale_from_process_table(&proc_table, NULL);
+    found = find_in_process_table(&proc_table, 100);
+    assert(found == proc1);
+    found = find_in_process_table(&proc_table, 300);
+    assert(found == proc3);
+
     clear_list(&active_list);
     destroy_process_table(&proc_table);
 }
@@ -3838,8 +3848,7 @@ static void test_process_table_null_inputs_and_dup(void) {
 
 /**
  * @brief Test remove_stale_from_process_table with NULL active_list
- * @note When active_list is NULL, locate_elem always returns NULL so all
- *  entries are treated as stale and removed
+ * @note NULL active_list must be treated as "skip stale removal"
  */
 static void test_process_table_stale_null_list(void) {
     struct process_table proc_table;
@@ -3857,12 +3866,12 @@ static void test_process_table_stale_null_list(void) {
     pt_found = find_in_process_table(&proc_table, 100);
     assert(pt_found == proc);
 
-    /* NULL active_list: every entry lacks a match, so all are removed */
+    /* NULL active_list must leave table unchanged */
     remove_stale_from_process_table(&proc_table, NULL);
     pt_found = find_in_process_table(&proc_table, 100);
-    assert(pt_found == NULL);
+    assert(pt_found == proc);
 
-    /* p was freed by remove_stale_from_process_table via destroy_node */
+    /* proc is freed by destroy_process_table */
     destroy_process_table(&proc_table);
 }
 
