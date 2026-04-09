@@ -64,6 +64,7 @@ jobs:
             # macOS
             cmake -DCMAKE_C_COMPILER=clang \
                 -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
                 -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
                 -B build
           fi
