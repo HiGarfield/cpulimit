@@ -298,7 +298,8 @@ void update_process_group(struct process_group *proc_group) {
     struct timespec now;
     double elapsed_ms;
     int ncpu;
-    if (proc_group == NULL) {
+    if (proc_group == NULL || proc_group->proc_list == NULL ||
+        proc_group->proc_table == NULL) {
         return;
     }
     ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
@@ -389,7 +390,7 @@ void update_process_group(struct process_group *proc_group) {
 double get_process_group_cpu_usage(const struct process_group *proc_group) {
     const struct list_node *node;
     double cpu_usage = -1;
-    if (proc_group == NULL) {
+    if (proc_group == NULL || proc_group->proc_list == NULL) {
         return -1;
     }
     for (node = first_node(proc_group->proc_list); node != NULL;

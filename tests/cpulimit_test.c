@@ -4693,6 +4693,28 @@ static void test_process_group_update_null(void) {
 }
 
 /**
+ * @brief Test update_process_group with uninitialized process_group members
+ * @note Must return without dereferencing NULL proc_list/proc_table
+ */
+static void test_process_group_update_uninitialized_struct(void) {
+    struct process_group proc_group;
+    memset(&proc_group, 0, sizeof(proc_group));
+    update_process_group(&proc_group);
+}
+
+/**
+ * @brief Test get_process_group_cpu_usage with uninitialized process_group
+ * @note Must return -1.0 when proc_list is NULL
+ */
+static void test_process_group_cpu_usage_uninitialized_struct(void) {
+    struct process_group proc_group;
+    double usage;
+    memset(&proc_group, 0, sizeof(proc_group));
+    usage = get_process_group_cpu_usage(&proc_group);
+    assert(usage >= -1.00001 && usage <= -0.99999);
+}
+
+/**
  * @brief Test update_process_group twice in quick succession
  * @note Second call exercises the "insufficient dt" branch
  */
@@ -6408,6 +6430,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_close_null);
     RUN_TEST(test_process_group_close_zeros_fields);
     RUN_TEST(test_process_group_update_null);
+    RUN_TEST(test_process_group_update_uninitialized_struct);
+    RUN_TEST(test_process_group_cpu_usage_uninitialized_struct);
     RUN_TEST(test_process_group_double_update);
     RUN_TEST(test_process_group_cpu_usage_with_usage);
     RUN_TEST(test_process_group_race_target_exits_between_init_and_update);
