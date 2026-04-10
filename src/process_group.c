@@ -77,7 +77,7 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
-    init_process_table(proc_group->proc_table, PROCESS_TABLE_HASHSIZE);
+    init_process_table(proc_group->proc_table, (size_t)PROCESS_TABLE_HASHSIZE);
     proc_group->target_pid = target_pid;
     proc_group->include_children = include_children;
 
