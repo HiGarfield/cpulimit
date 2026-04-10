@@ -197,7 +197,7 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * completion to the parent.  On exec failure the code below closes
      * it explicitly.
      */
-    if (write(sync_write_fd, "A", 1) != 1) {
+    if (write(sync_write_fd, "A", (size_t)1) != 1) {
         perror("write sync");
         close(sync_write_fd);
         goto error_out;
@@ -279,7 +279,7 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
      * This ensures child has completed setpgid() before parent continues.
      */
     do {
-        n_read = read(sync_read_fd, &sync_byte, 1);
+        n_read = read(sync_read_fd, &sync_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     if (n_read != 1 || sync_byte != 'A') {
         pid_t wait_result; /* Return value of waitpid in error path */
@@ -326,7 +326,7 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
      * may not handle signals safely during their exec interception phase.
      */
     do {
-        n_read = read(sync_read_fd, &sync_byte, 1);
+        n_read = read(sync_read_fd, &sync_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     close(sync_read_fd);
     if (n_read < 0) {
