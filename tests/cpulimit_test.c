@@ -568,7 +568,7 @@ static void test_util_read_line_from_file(void) {
     /* A file containing only a newline returns a non-NULL empty string */
     newline_fd = mkstemp(nl_tmp_file);
     assert(newline_fd >= 0);
-    nwritten = write(newline_fd, "\n", 1);
+    nwritten = write(newline_fd, "\n", (size_t)1);
     assert(nwritten == 1);
     close(newline_fd);
     line = read_line_from_file(nl_tmp_file);
@@ -940,21 +940,21 @@ static void test_list_locate(void) {
     assert(found_elem == NULL);
 
     /* Test with NULL list */
-    found_node = locate_node(NULL, &search_pid, 0, sizeof(pid_t));
+    found_node = locate_node(NULL, &search_pid, (size_t)0, sizeof(pid_t));
     assert(found_node == NULL);
-    void_elem = locate_elem(NULL, &search_pid, 0, sizeof(pid_t));
+    void_elem = locate_elem(NULL, &search_pid, (size_t)0, sizeof(pid_t));
     assert(void_elem == NULL);
 
     /* Test with NULL element */
-    found_node = locate_node(&lst, NULL, 0, sizeof(pid_t));
+    found_node = locate_node(&lst, NULL, (size_t)0, sizeof(pid_t));
     assert(found_node == NULL);
-    void_elem = locate_elem(&lst, NULL, 0, sizeof(pid_t));
+    void_elem = locate_elem(&lst, NULL, (size_t)0, sizeof(pid_t));
     assert(void_elem == NULL);
 
     /* Test with zero length */
-    found_node = locate_node(&lst, &search_pid, 0, 0);
+    found_node = locate_node(&lst, &search_pid, (size_t)0, (size_t)0);
     assert(found_node == NULL);
-    void_elem = locate_elem(&lst, &search_pid, 0, 0);
+    void_elem = locate_elem(&lst, &search_pid, (size_t)0, (size_t)0);
     assert(void_elem == NULL);
 
     clear_list(&lst);
@@ -968,17 +968,17 @@ static void test_list_locate(void) {
     init_list(&lst);
     single_val = 42;
     add_elem(&lst, &single_val);
-    found_node = locate_node(&lst, &single_val, 0, sizeof(int));
+    found_node = locate_node(&lst, &single_val, (size_t)0, sizeof(int));
     assert(found_node != NULL);
     single_node_val = *(int *)found_node->data;
     assert(single_node_val == 42);
-    void_elem = locate_elem(&lst, &single_val, 0, sizeof(int));
+    void_elem = locate_elem(&lst, &single_val, (size_t)0, sizeof(int));
     assert(void_elem == &single_val);
     /* Miss case in single-element list */
     single_miss = 99;
-    found_node = locate_node(&lst, &single_miss, 0, sizeof(int));
+    found_node = locate_node(&lst, &single_miss, (size_t)0, sizeof(int));
     assert(found_node == NULL);
-    void_elem = locate_elem(&lst, &single_miss, 0, sizeof(int));
+    void_elem = locate_elem(&lst, &single_miss, (size_t)0, sizeof(int));
     assert(void_elem == NULL);
     clear_list(&lst);
 }
@@ -1163,9 +1163,9 @@ static void test_list_null_data_operations(void) {
 
     /* locate_node must skip the NULL-data node (branch: cur->data == NULL) */
     search_val = 42;
-    tmp_node = locate_node(&lst, &search_val, 0, sizeof(int));
+    tmp_node = locate_node(&lst, &search_val, (size_t)0, sizeof(int));
     assert(tmp_node == NULL);
-    void_elem = locate_elem(&lst, &search_val, 0, sizeof(int));
+    void_elem = locate_elem(&lst, &search_val, (size_t)0, sizeof(int));
     assert(void_elem == NULL);
 
     /* destroy_node with NULL data must not crash (branch: node->data == NULL)
@@ -1712,7 +1712,7 @@ static void test_signal_handler_race_concurrent_signals(void) {
             _exit(1);
         }
 
-        if (write(ready_pipe[1], "R", 1) != 1) {
+        if (write(ready_pipe[1], "R", (size_t)1) != 1) {
             close(ready_pipe[1]);
             _exit(1);
         }
@@ -1750,7 +1750,7 @@ static void test_signal_handler_race_concurrent_signals(void) {
     /* Parent: wait for child to be ready, then send two signals rapidly */
     close(ready_pipe[1]);
     do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
+        n_read = read(ready_pipe[0], &ready_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'R');
     close(ready_pipe[0]);
@@ -1798,7 +1798,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
         close(ready_pipe[0]);
         configure_signal_handler();
 
-        if (write(ready_pipe[1], "R", 1) != 1) {
+        if (write(ready_pipe[1], "R", (size_t)1) != 1) {
             close(ready_pipe[1]);
             _exit(1);
         }
@@ -1824,7 +1824,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
     /* Parent: wait for child to enter sleep, then send SIGTERM */
     close(ready_pipe[1]);
     do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
+        n_read = read(ready_pipe[0], &ready_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'R');
     close(ready_pipe[0]);
@@ -1893,7 +1893,7 @@ static void test_signal_handler_race_rapid_all_signals(void) {
             _exit(1);
         }
 
-        if (write(ready_pipe[1], "R", 1) != 1) {
+        if (write(ready_pipe[1], "R", (size_t)1) != 1) {
             close(ready_pipe[1]);
             _exit(1);
         }
@@ -1921,7 +1921,7 @@ static void test_signal_handler_race_rapid_all_signals(void) {
 
     close(ready_pipe[1]);
     do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
+        n_read = read(ready_pipe[0], &ready_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'R');
     close(ready_pipe[0]);
@@ -3438,20 +3438,20 @@ static void test_process_table_init_destroy(void) {
     struct process_table proc_table;
 
     /* Test initialization with small hash_size */
-    init_process_table(&proc_table, 16);
+    init_process_table(&proc_table, (size_t)16);
     assert(proc_table.buckets != NULL);
     assert(proc_table.hash_size == 16);
     destroy_process_table(&proc_table);
     assert(proc_table.buckets == NULL);
 
     /* Test initialization with larger hash_size */
-    init_process_table(&proc_table, 256);
+    init_process_table(&proc_table, (size_t)256);
     assert(proc_table.buckets != NULL);
     assert(proc_table.hash_size == 256);
     destroy_process_table(&proc_table);
 
     /* Test zero hash_size fallback (must avoid division by zero in hashing) */
-    init_process_table(&proc_table, 0);
+    init_process_table(&proc_table, (size_t)0);
     assert(proc_table.buckets != NULL);
     assert(proc_table.hash_size == 1);
     destroy_process_table(&proc_table);
@@ -3469,7 +3469,7 @@ static void test_process_table_add_find(void) {
     struct process *proc1, *proc2, *proc3;
     const struct process *found;
 
-    init_process_table(&proc_table, 64);
+    init_process_table(&proc_table, (size_t)64);
 
     /* Create test processes */
     proc1 = (struct process *)malloc(sizeof(struct process));
@@ -3537,7 +3537,7 @@ static void test_process_table_del(void) {
     const struct process *found;
     int ret;
 
-    init_process_table(&proc_table, 64);
+    init_process_table(&proc_table, (size_t)64);
 
     proc1 = (struct process *)malloc(sizeof(struct process));
     proc2 = (struct process *)malloc(sizeof(struct process));
@@ -3599,7 +3599,7 @@ static void test_process_table_remove_stale(void) {
     struct process *proc1, *proc2, *proc3;
     const struct process *found;
 
-    init_process_table(&proc_table, 64);
+    init_process_table(&proc_table, (size_t)64);
     init_list(&active_list);
 
     /* Create and add three processes to buckets */
@@ -3669,7 +3669,7 @@ static void test_process_table_remove_stale_null_data(void) {
     size_t list_count;
     const struct process *pt_found;
 
-    init_process_table(&proc_table, 16);
+    init_process_table(&proc_table, (size_t)16);
     init_list(&active_list);
 
     /* Insert a valid process */
@@ -3718,7 +3718,7 @@ static void test_process_table_collisions(void) {
     size_t case_idx;
 
     /* Use small hash size to force collisions */
-    init_process_table(&proc_table, 4);
+    init_process_table(&proc_table, (size_t)4);
 
     /* Add many processes */
     for (case_idx = 0; case_idx < 20; case_idx++) {
@@ -3765,7 +3765,7 @@ static void test_process_table_empty_buckets(void) {
     struct process *proc1, *proc2;
     const struct process *pt_found;
 
-    init_process_table(&proc_table, 256);
+    init_process_table(&proc_table, (size_t)256);
     init_list(&active_list);
 
     /* Add sparse processes */
@@ -3806,10 +3806,10 @@ static void test_process_table_null_inputs_and_dup(void) {
     const struct process *pt_found;
 
     /* init_process_table with NULL pointer must not crash */
-    init_process_table(NULL, 16);
+    init_process_table(NULL, (size_t)16);
 
     /* Set up a valid buckets for the remaining sub-tests */
-    init_process_table(&proc_table, 16);
+    init_process_table(&proc_table, (size_t)16);
 
     /* add_to_process_table with NULL buckets must not crash */
     proc1 = (struct process *)malloc(sizeof(struct process));
@@ -3855,7 +3855,7 @@ static void test_process_table_stale_null_list(void) {
     struct process *proc;
     const struct process *pt_found;
 
-    init_process_table(&proc_table, 16);
+    init_process_table(&proc_table, (size_t)16);
 
     proc = (struct process *)malloc(sizeof(struct process));
     assert(proc != NULL);
@@ -3885,7 +3885,7 @@ static void test_process_table_init_hashsize_zero(void) {
     const struct process *pt_found;
     int pt_del;
 
-    init_process_table(&proc_table, 0);
+    init_process_table(&proc_table, (size_t)0);
     assert(proc_table.hash_size == 1);
     assert(proc_table.buckets != NULL);
 
@@ -3929,7 +3929,7 @@ static void test_process_table_del_absent_pid(void) {
     const struct process *pt_found;
 
     /* Use hash_size=1 so all PIDs go to bucket 0 */
-    init_process_table(&proc_table, 1);
+    init_process_table(&proc_table, (size_t)1);
 
     proc = (struct process *)malloc(sizeof(struct process));
     assert(proc != NULL);
@@ -3958,7 +3958,7 @@ static void test_process_table_del_empty_bucket(void) {
     struct process_table proc_table;
     int pt_del;
 
-    init_process_table(&proc_table, 16);
+    init_process_table(&proc_table, (size_t)16);
     pt_del = delete_from_process_table(&proc_table, 100);
     assert(pt_del == 1);
     destroy_process_table(&proc_table);
@@ -3976,7 +3976,7 @@ static void test_process_table_destroy_edge_cases(void) {
     destroy_process_table(NULL);
 
     /* Fresh buckets with no entries */
-    init_process_table(&proc_table, 8);
+    init_process_table(&proc_table, (size_t)8);
     destroy_process_table(&proc_table);
     /* Subsequent destroy must not crash (proc_table->buckets is NULL) */
     destroy_process_table(&proc_table);
@@ -3995,7 +3995,7 @@ static void test_process_table_ops_after_destroy(void) {
     const struct process *found;
     int ret;
 
-    init_process_table(&proc_table, 16);
+    init_process_table(&proc_table, (size_t)16);
     destroy_process_table(&proc_table);
     /* proc_table->buckets is now NULL, proc_table->hash_size is now 0 */
 
@@ -4073,14 +4073,14 @@ static void test_process_finder_find_by_name(void) {
 #endif /* __linux__ */
 
     /* Allocate buffers on the heap to stay within stack size limits */
-    self_cmd = (char *)malloc(CMD_BUFF_SIZE);
+    self_cmd = (char *)malloc((size_t)CMD_BUFF_SIZE);
     if (self_cmd == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
 
     /* Allocate buffer large enough for self_command plus one extra char */
-    wrong_name = (char *)malloc(CMD_BUFF_SIZE + 1);
+    wrong_name = (char *)malloc((size_t)(CMD_BUFF_SIZE + 1));
     if (wrong_name == NULL) {
         free(self_cmd);
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
@@ -4093,7 +4093,7 @@ static void test_process_finder_find_by_name(void) {
      * main()'s argv[0] differs from what the OS records as the process
      * command; get_self_command() always returns the correct value.
      */
-    self_command = get_self_command(self_cmd, CMD_BUFF_SIZE);
+    self_command = get_self_command(self_cmd, (size_t)CMD_BUFF_SIZE);
     /*
      * get_self_command() queries the current process via the iterator;
      * a NULL return means the iterator or read_cmd is broken, which is
@@ -4177,12 +4177,12 @@ static void test_process_finder_find_by_name_self(void) {
     const char *self_name;
     pid_t result;
 
-    self_buf = (char *)malloc(CMD_BUFF_SIZE);
+    self_buf = (char *)malloc((size_t)CMD_BUFF_SIZE);
     if (self_buf == NULL) {
         fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
-    self_command = get_self_command(self_buf, CMD_BUFF_SIZE);
+    self_command = get_self_command(self_buf, (size_t)CMD_BUFF_SIZE);
     if (self_command == NULL) {
         free(self_buf);
         return;
@@ -4230,7 +4230,7 @@ static void test_process_finder_find_by_name_symlink(void) {
         return; /* Skip if name was truncated (should never happen) */
     }
 
-    sym_path = (char *)malloc(PATH_MAX);
+    sym_path = (char *)malloc((size_t)PATH_MAX);
     if (sym_path == NULL) {
         return;
     }
@@ -4907,7 +4907,7 @@ static void test_limit_process_basic(void) {
 
         /* Wait for num_procs acknowledgements (from num_procs processes) */
         for (ack_count = 0; ack_count < num_procs; ack_count++) {
-            read_ret = read(sync_pipe[0], &ack, 1);
+            read_ret = read(sync_pipe[0], &ack, (size_t)1);
             if (read_ret == -1 && errno == EINTR) {
                 continue; /* Interrupted, retry read */
             }
@@ -4915,7 +4915,7 @@ static void test_limit_process_basic(void) {
         }
         /* Now should read EOF */
         do {
-            read_ret = read(sync_pipe[0], &ack, 1);
+            read_ret = read(sync_pipe[0], &ack, (size_t)1);
         } while (read_ret == -1 && errno == EINTR);
         assert(read_ret == 0);
         ret = close(sync_pipe[0]);
@@ -5004,7 +5004,7 @@ static void test_limit_process_basic(void) {
         }
 
         /* Send acknowledgement and close pipe */
-        nwritten = write(sync_pipe[1], "A", 1);
+        nwritten = write(sync_pipe[1], "A", (size_t)1);
         assert(nwritten == 1);
         ret = close(sync_pipe[1]);
         assert(ret == 0);
@@ -5270,7 +5270,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
         configure_signal_handler();
 
         /* Signal readiness before entering the blocking limit_process loop */
-        if (write(ready_pipe[1], "L", 1) != 1) {
+        if (write(ready_pipe[1], "L", (size_t)1) != 1) {
             close(ready_pipe[1]);
             kill(target_pid, SIGKILL);
             _exit(EXIT_FAILURE);
@@ -5288,7 +5288,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
     /* Wait for limiter to be ready */
     close(ready_pipe[1]);
     do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
+        n_read = read(ready_pipe[0], &ready_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'L');
     close(ready_pipe[0]);
@@ -5816,7 +5816,7 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         cfg.limit = 0.5;
         cfg.lazy_mode = 1;
         /* Notify test that wrapper is ready to call run_command_mode */
-        if (write(ready_pipe[1], "A", 1) != 1) {
+        if (write(ready_pipe[1], "A", (size_t)1) != 1) {
             close(ready_pipe[1]);
             _exit(EXIT_FAILURE);
         }
@@ -5830,7 +5830,7 @@ static void test_limiter_run_command_mode_quit_signal(void) {
     ret = close(ready_pipe[1]);
     assert(ret == 0);
     do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
+        n_read = read(ready_pipe[0], &ready_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'A');
     ret = close(ready_pipe[0]);
@@ -5895,7 +5895,7 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         cfg.limit = 0.5;
         cfg.lazy_mode = 1;
         /* Notify test that wrapper is ready to call run_command_mode */
-        if (write(ready_pipe[1], "A", 1) != 1) {
+        if (write(ready_pipe[1], "A", (size_t)1) != 1) {
             close(ready_pipe[1]);
             _exit(EXIT_FAILURE);
         }
@@ -5909,7 +5909,7 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
     ret = close(ready_pipe[1]);
     assert(ret == 0);
     do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
+        n_read = read(ready_pipe[0], &ready_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && ready_byte == 'A');
     ret = close(ready_pipe[0]);
@@ -6228,7 +6228,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
         configure_signal_handler();
 
         /* Notify parent just before calling run_command_mode */
-        if (write(notify_pipe[1], "G", 1) != 1) {
+        if (write(notify_pipe[1], "G", (size_t)1) != 1) {
             close(notify_pipe[1]);
             _exit(EXIT_FAILURE);
         }
@@ -6248,7 +6248,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
     /* Wait for wrapper to be ready */
     close(notify_pipe[1]);
     do {
-        n_read = read(notify_pipe[0], &notify_byte, 1);
+        n_read = read(notify_pipe[0], &notify_byte, (size_t)1);
     } while (n_read < 0 && errno == EINTR);
     assert(n_read == 1 && notify_byte == 'G');
     close(notify_pipe[0]);
