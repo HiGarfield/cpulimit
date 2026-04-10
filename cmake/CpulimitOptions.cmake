@@ -40,6 +40,7 @@ set(CPULIMIT_C_FLAGS
 
     # C language feature compliance
     -Wc++-compat
+    -Wc90-c99-compat
     -Wstrict-prototypes
     -Wold-style-definition
     -Wmissing-prototypes
@@ -65,10 +66,15 @@ set(CPULIMIT_C_FLAGS
     -Wcast-align
     -Wcast-align=strict
     -Wpointer-arith
+    -Wtype-limits
     -Wbad-function-cast
 
     # Logic and expressions
     -Wlogical-op
+    -Wduplicated-cond
+    -Wduplicated-branches
+    -Wnull-dereference
+
     -Wrestrict
     -Wimplicit-fallthrough
 
@@ -151,6 +157,10 @@ set(CPULIMIT_C_FLAGS
     -Winline
     -Wmissing-include-dirs
     -Wstrict-overflow=5
+    -Wmisleading-indentation
+    -Wsuggest-attribute=format
+    -Wmissing-format-attribute
+    -Wtraditional-conversion
 
     # Compiler optimization flags
     -pipe
