@@ -62,13 +62,15 @@ set(CPULIMIT_C_FLAGS
 
     # Variables and scope
     -Wshadow
-    -Wcast-align
     -Wcast-align=strict
     -Wpointer-arith
+    -Wtype-limits
     -Wbad-function-cast
 
     # Logic and expressions
     -Wlogical-op
+    -Wnull-dereference
+
     -Wrestrict
     -Wimplicit-fallthrough
 
@@ -143,14 +145,12 @@ set(CPULIMIT_C_FLAGS
     -Wbidi-chars=any
     -Wnormalized=nfc
 
-    # Flexible array members
-    -Wstrict-flex-arrays=3
-
     # Additional warnings
     -Wundef
     -Winline
     -Wmissing-include-dirs
     -Wstrict-overflow=5
+    -Wmisleading-indentation
 
     # Compiler optimization flags
     -pipe

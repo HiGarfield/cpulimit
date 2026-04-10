@@ -37,9 +37,6 @@ function(add_checked_flags target flag_list_var)
         return()
     endif()
 
-    set(_acf_saved_quiet ${CMAKE_REQUIRED_QUIET})
-    set(CMAKE_REQUIRED_QUIET TRUE)
-
     foreach(_acf_flag IN LISTS ${flag_list_var})
         string(MAKE_C_IDENTIFIER "HAVE_FLAG_${_acf_flag}" _acf_cache_var)
         check_c_compiler_flag("${_acf_flag}" ${_acf_cache_var})
@@ -48,5 +45,4 @@ function(add_checked_flags target flag_list_var)
         endif()
     endforeach()
 
-    set(CMAKE_REQUIRED_QUIET ${_acf_saved_quiet})
 endfunction()
