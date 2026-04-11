@@ -38,6 +38,25 @@
 #include "../src/util.h"
 
 #include <assert.h>
+
+/*
+ * On macOS, assert(e) expands to __builtin_expect(!(e), 0L), where
+ * __builtin_expect has signature long __builtin_expect(long, long).
+ * Passing the int result of !(e) triggers -Wtraditional-conversion.
+ * Redefine assert to use the same underlying abort function (__assert_rtn,
+ * already declared by the system <assert.h>) but without __builtin_expect,
+ * preserving identical runtime behaviour.
+ */
+#ifdef __APPLE__
+#undef assert
+#ifndef NDEBUG
+#define assert(e)                                                              \
+    ((e) ? (void)0 : __assert_rtn(__func__, __FILE__, __LINE__, #e))
+#else
+#define assert(e) ((void)0)
+#endif /* NDEBUG */
+#endif /* __APPLE__ */
+
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
