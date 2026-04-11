@@ -197,7 +197,8 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 
     /* Get the maximum argument size */
     size = sizeof(argmax);
-    if (sysctl(mib_argmax, 2, &argmax, &size, NULL, 0) != 0 || argmax <= 0) {
+    if (sysctl(mib_argmax, 2, &argmax, &size, NULL, (size_t)0) != 0 ||
+        argmax <= 0) {
         return -1;
     }
 
@@ -214,7 +215,7 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     }
 
     size = (size_t)argmax;
-    if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
+    if (sysctl(mib, 3, procargs, &size, NULL, (size_t)0) != 0) {
         free(procargs);
         return -1;
     }
@@ -310,8 +311,8 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
  * - System processes (pbi_flags & PROC_FLAG_SYSTEM)
  */
 static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
-    if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info,
-                     sizeof(*task_info)) != (int)sizeof(*task_info)) {
+    if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, (uint64_t)0, task_info,
+                     (int)sizeof(*task_info)) != (int)sizeof(*task_info)) {
         /* Silently skip common errors for processes we cannot access */
         if (errno != EPERM && errno != ESRCH) {
             perror("proc_pidinfo");

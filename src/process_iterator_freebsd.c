@@ -128,8 +128,8 @@ int init_process_iterator(struct process_iterator *iter,
      * Retrieve snapshot of all processes via KERN_PROC_PROC.
      * This returns a pointer to kernel data that must be copied.
      */
-    proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
-                                 &iter->proc_count);
+    proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC,
+                                 (intptr_t)0, &iter->proc_count);
     if (proc_snapshot == NULL) {
         fprintf(stderr, "kvm_getprocs: %s\n", kvm_geterr(iter->kvm_descriptor));
         close_process_iterator(iter);
@@ -214,7 +214,7 @@ static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
                              struct process *proc, int read_cmd) {
     int count;
     struct kinfo_proc *kproc =
-        kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
+        kvm_getprocs(kvm_descriptor, KERN_PROC_PID, (intptr_t)pid, &count);
     if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
         (kproc->ki_stat == SZOMB) ||
         kinfo_proc_to_proc(kvm_descriptor, kproc, proc, read_cmd) != 0) {
@@ -238,7 +238,7 @@ static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
     if (pid <= 0) {
         return (pid_t)(-1);
     }
-    kproc = kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
+    kproc = kvm_getprocs(kvm_descriptor, KERN_PROC_PID, (intptr_t)pid, &count);
     return (count == 0 || kproc == NULL) ? (pid_t)(-1) : kproc->ki_ppid;
 }
 
