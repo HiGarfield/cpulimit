@@ -120,6 +120,37 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
     }
 }
 
+#ifdef __GNUC__
+/*
+ * Per-process countdown for injecting sleep_timespec failures in tests.
+ * -1 = disabled (never fail); 0 = fail on the very next call; >0 = succeed
+ * for N more calls, then fail.  Modified only in child processes after
+ * fork(), so it does not affect the parent or sibling tests.
+ */
+static int g_sleep_fail_countdown = -1;
+
+/**
+ * @brief Strong override of the weak sleep_timespec symbol from time_util.c
+ * @param duration Pointer to timespec specifying sleep duration
+ * @return 0 on success, -1 on injected failure (errno set to EFAULT)
+ *
+ * When g_sleep_fail_countdown reaches 0, returns -1 with errno = EFAULT to
+ * simulate a fatal OS-level sleep failure.  Otherwise delegates to
+ * nanosleep(), which behaves identically to the production implementation
+ * for test purposes.
+ */
+int sleep_timespec(const struct timespec *duration) {
+    if (g_sleep_fail_countdown == 0) {
+        errno = EFAULT;
+        return -1;
+    }
+    if (g_sleep_fail_countdown > 0) {
+        g_sleep_fail_countdown--;
+    }
+    return nanosleep(duration, NULL);
+}
+#endif /* __GNUC__ */
+
 /***************************************************************************
  * UTIL MODULE TESTS
  ***************************************************************************/
@@ -5314,6 +5345,90 @@ static void test_limit_process_race_quit_during_sleep(void) {
     kill_and_wait(target_pid, SIGKILL);
 }
 
+#ifdef __GNUC__
+/**
+ * @brief Test that limit_process returns -1 on a fatal sleep_timespec error
+ * @note Uses the weak-symbol override of sleep_timespec
+ * (g_sleep_fail_countdown) to inject an immediate EFAULT failure on the very
+ * first sleep call. Verifies that limit_process cleans up (resumes the target
+ * process) and propagates the error by returning -1.
+ */
+static void test_limit_process_sleep_error(void) {
+    int ready_pipe[2];
+    pid_t target_pid;
+    pid_t limiter_pid;
+    int limiter_status;
+    pid_t waited;
+    int exited;
+    int exit_code;
+    char ready_byte;
+    ssize_t n_read;
+    int ret;
+
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
+
+    /* Fork the target: spin forever until killed */
+    target_pid = fork();
+    assert(target_pid >= 0);
+    if (target_pid == 0) {
+        close(ready_pipe[0]);
+        close(ready_pipe[1]);
+        for (;;) {
+            volatile int dummy_var;
+            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                ;
+            }
+        }
+    }
+
+    /* Fork the limiter process */
+    limiter_pid = fork();
+    assert(limiter_pid >= 0);
+    if (limiter_pid == 0) {
+        int lp_ret;
+        close(ready_pipe[0]);
+        configure_signal_handler();
+
+        /* Signal readiness before entering the limit_process loop */
+        if (write(ready_pipe[1], "L", 1) != 1) {
+            close(ready_pipe[1]);
+            kill(target_pid, SIGKILL);
+            _exit(EXIT_FAILURE);
+        }
+        close(ready_pipe[1]);
+
+        /* Inject failure: make the very first sleep_timespec call fail */
+        g_sleep_fail_countdown = 0;
+        lp_ret = limit_process(target_pid, 0.5, 0, 0);
+        /*
+         * limit_process must return -1 to signal the sleep error, and must
+         * have resumed the target (sent SIGCONT) before returning.
+         */
+        _exit(lp_ret == -1 ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+
+    /* Parent: wait for limiter to be ready */
+    close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'L');
+    close(ready_pipe[0]);
+
+    /* Limiter must exit promptly once the sleep error is injected */
+    waited = waitpid(limiter_pid, &limiter_status, 0);
+    assert(waited == limiter_pid);
+    exited = WIFEXITED(limiter_status);
+    assert(exited);
+    exit_code = WEXITSTATUS(limiter_status);
+    assert(exit_code == EXIT_SUCCESS);
+
+    /* Clean up the spinning target */
+    kill_and_wait(target_pid, SIGKILL);
+}
+#endif /* __GNUC__ */
+
 /***************************************************************************
  * LIMITER MODULE TESTS
  ***************************************************************************/
@@ -6454,6 +6569,9 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limit_process_include_children);
     RUN_TEST(test_limit_process_race_process_exits_on_sigcont);
     RUN_TEST(test_limit_process_race_quit_during_sleep);
+#ifdef __GNUC__
+    RUN_TEST(test_limit_process_sleep_error);
+#endif
 
     /* Limiter module tests */
     printf("\n=== LIMITER MODULE TESTS ===\n");

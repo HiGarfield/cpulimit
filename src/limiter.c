@@ -633,65 +633,83 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
     if (cfg->verbose) {
         printf("Limiting process %ld\n", (long)child_pid);
     }
-    limit_process(child_pid, cfg->limit, cfg->include_children, cfg->verbose);
+    {
+        int lp_ret = limit_process(child_pid, cfg->limit, cfg->include_children,
+                                   cfg->verbose);
 
-    /*
-     * Always resume the process group after limit_process() returns.
-     * limit_process() sends SIGCONT via its process list before returning,
-     * but on some platforms (e.g. macOS 10.7) a stopped process may not be
-     * visible to the process iterator, leaving it stopped even though
-     * limit_process() has exited.  Sending SIGCONT unconditionally here
-     * ensures the child is running and able to receive any subsequent signal.
-     * SIGCONT to an already-running process group is harmless.
-     * The call may fail with ESRCH if the child has already exited; that
-     * case is handled by collect_child_exit_status() below.
-     */
-    if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
-        int err = errno;
-        fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n", (long)child_pid,
-                strerror(err));
-    }
-
-    /*
-     * Check if user requested termination via signal (Ctrl+C, SIGTERM,
-     * etc). If so, gracefully terminate the entire process group by
-     * forwarding the exact received signal. This ensures behavior is
-     * consistent with a standard shell: for example, Ctrl+C (SIGINT)
-     * is forwarded as SIGINT so the child exits with status 130
-     * (128+SIGINT), not 143 (128+SIGTERM).
-     * SIGPIPE is an internal pipe-break signal; map it to SIGTERM to
-     * avoid unexpected behavior in child processes that do not handle it.
-     *
-     * Note: if the quit signal arrives after this check (a race on
-     * platforms where limit_process() exits early because a stopped
-     * process is invisible to the iterator), collect_child_exit_status()
-     * will detect and forward it from inside its polling loop.
-     */
-    if (is_quit_flag_set()) {
-        int fwd_sig = get_quit_signal();
         /*
-         * Forward the actual received signal. Two special cases:
-         * - fwd_sig == 0: theoretically unreachable here because
-         *   is_quit_flag_set() is true, meaning a signal was already
-         *   delivered and recorded; however, guard defensively.
-         * - fwd_sig == SIGPIPE: SIGPIPE is an internal broken-pipe
-         *   signal relevant only to the writing process; forwarding it
-         *   to the child group could cause unintended termination of
-         *   children that write to unrelated pipes. Map it to SIGTERM
-         *   so the child group is asked to exit gracefully.
-         * Negative PID targets the process group: -PGID.
+         * Always resume the process group after limit_process() returns.
+         * limit_process() sends SIGCONT via its process list before returning,
+         * but on some platforms (e.g. macOS 10.7) a stopped process may not be
+         * visible to the process iterator, leaving it stopped even though
+         * limit_process() has exited.  Sending SIGCONT unconditionally here
+         * ensures the child is running and able to receive any subsequent
+         * signal. SIGCONT to an already-running process group is harmless.
+         * The call may fail with ESRCH if the child has already exited; that
+         * case is handled by collect_child_exit_status() below.
          */
-        if (fwd_sig == SIGPIPE || fwd_sig == 0) {
-            fwd_sig = SIGTERM;
-        }
-        if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
+        if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
             int err = errno;
-            fprintf(stderr, "kill(-%ld, %d) failed: %s\n", (long)child_pid,
-                    fwd_sig, strerror(err));
+            fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n", (long)child_pid,
+                    strerror(err));
+        }
+
+        /*
+         * Check if user requested termination via signal (Ctrl+C, SIGTERM,
+         * etc). If so, gracefully terminate the entire process group by
+         * forwarding the exact received signal. This ensures behavior is
+         * consistent with a standard shell: for example, Ctrl+C (SIGINT)
+         * is forwarded as SIGINT so the child exits with status 130
+         * (128+SIGINT), not 143 (128+SIGTERM).
+         * SIGPIPE is an internal pipe-break signal; map it to SIGTERM to
+         * avoid unexpected behavior in child processes that do not handle it.
+         *
+         * Note: if the quit signal arrives after this check (a race on
+         * platforms where limit_process() exits early because a stopped
+         * process is invisible to the iterator), collect_child_exit_status()
+         * will detect and forward it from inside its polling loop.
+         */
+        if (is_quit_flag_set()) {
+            int fwd_sig = get_quit_signal();
+            /*
+             * Forward the actual received signal. Two special cases:
+             * - fwd_sig == 0: theoretically unreachable here because
+             *   is_quit_flag_set() is true, meaning a signal was already
+             *   delivered and recorded; however, guard defensively.
+             * - fwd_sig == SIGPIPE: SIGPIPE is an internal broken-pipe
+             *   signal relevant only to the writing process; forwarding it
+             *   to the child group could cause unintended termination of
+             *   children that write to unrelated pipes. Map it to SIGTERM
+             *   so the child group is asked to exit gracefully.
+             * Negative PID targets the process group: -PGID.
+             */
+            if (fwd_sig == SIGPIPE || fwd_sig == 0) {
+                fwd_sig = SIGTERM;
+            }
+            if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
+                int err = errno;
+                fprintf(stderr, "kill(-%ld, %d) failed: %s\n", (long)child_pid,
+                        fwd_sig, strerror(err));
+            }
+        }
+
+        /*
+         * If limit_process reported a fatal sleep error, terminate the
+         * child group (since we can no longer enforce the CPU limit) and
+         * exit with EXIT_FAILURE so the caller learns that limiting was
+         * not maintained for the full lifetime of the command.
+         * If a quit signal was already forwarded above the SIGTERM here
+         * is harmless redundancy.
+         */
+        if (lp_ret != 0 && !is_quit_flag_set()) {
+            kill(-child_pid, SIGTERM);
+        }
+
+        {
+            int child_ret = collect_child_exit_status(child_pid, cfg);
+            exit(lp_ret != 0 ? EXIT_FAILURE : child_ret);
         }
     }
-
-    exit(collect_child_exit_status(child_pid, cfg));
 }
 
 /**
@@ -759,8 +777,12 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
              * This call blocks until the process terminates or quit flag is
              * set.
              */
-            limit_process(found_pid, cfg->limit, cfg->include_children,
-                          cfg->verbose);
+            if (limit_process(found_pid, cfg->limit, cfg->include_children,
+                              cfg->verbose) != 0) {
+                /* Fatal sleep error: cannot maintain timing; stop retrying */
+                exit_status = EXIT_FAILURE;
+                break;
+            }
         }
 
         /*

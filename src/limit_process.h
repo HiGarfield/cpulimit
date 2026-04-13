@@ -50,11 +50,13 @@ extern "C" {
  * 4. Dynamically adjusts timing based on measured CPU usage
  * 5. Continues until the target terminates or quit signal received
  *
+ * @return 0 on normal exit (target terminated or quit signal received),
+ *         -1 if the control loop was aborted due to a fatal sleep error
  * @note This function blocks until target terminates or is_quit_flag_set()
  *       returns true
  * @note Always resumes suspended processes (sends SIGCONT) before returning
  */
-void limit_process(pid_t pid, double limit, int include_children, int verbose);
+int limit_process(pid_t pid, double limit, int include_children, int verbose);
 
 #ifdef __cplusplus
 }

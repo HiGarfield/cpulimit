@@ -95,7 +95,13 @@ int get_current_time(struct timespec *result_ts) {
  * to nanosleep(). The underlying call may return early (for example, with
  * errno set to EINTR if interrupted by a signal); this function does not
  * automatically resume sleeping in that case.
+ *
+ * @note Marked as a weak symbol so that tests can substitute a strong
+ *       override to inject failure without modifying production code.
  */
+#ifdef __GNUC__
+__attribute__((weak))
+#endif
 int sleep_timespec(const struct timespec *duration) {
 #if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
     defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
