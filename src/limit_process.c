@@ -237,6 +237,7 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
 void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     struct process_group proc_group;
     int cycle_counter = 0, ncpu = get_ncpu();
+    int sleep_error = 0;
     double work_ratio; /* Fraction of time processes should be running */
     int is_stopped =
         0; /* Current state: 1 if processes are stopped, 0 if running */
@@ -338,7 +339,11 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
                 }
             }
             /* Allow processes to run for work_time duration */
-            sleep_timespec(&work_time);
+            if (sleep_timespec(&work_time) != 0 && errno != EINTR) {
+                perror("sleep_timespec");
+                sleep_error = 1;
+                break;
+            }
         }
 
         /* Check for termination request before sleep phase */
@@ -360,7 +365,11 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
                 }
             }
             /* Keep processes suspended for sleep_time duration */
-            sleep_timespec(&sleep_time);
+            if (sleep_timespec(&sleep_time) != 0 && errno != EINTR) {
+                perror("sleep_timespec");
+                sleep_error = 1;
+                break;
+            }
         }
 
         /* Check for termination request after sleep phase */
@@ -370,6 +379,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
 
         /* Increment cycle counter with wraparound */
         cycle_counter = (cycle_counter + 1) % STATS_HEADER_PERIOD;
+    }
+
+    if (sleep_error) {
+        fprintf(stderr, "Failed to maintain timing due to sleep error.\n");
     }
 
     /*
