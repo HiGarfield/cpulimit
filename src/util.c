@@ -388,11 +388,15 @@ char *read_line_from_file(const char *file_name) {
     /*
      * Retry getline() when interrupted by a signal (EINTR). This avoids
      * spurious read failures when cpulimit receives signals while reading
-     * procfs/sysfs files.
+     * procfs/sysfs files. Because stdio stream error indicators are sticky,
+     * clear the stream state before retrying after EINTR.
      */
     do {
         errno = 0;
         read_result = getline(&line, &line_size, input_file);
+        if (read_result < 0 && errno == EINTR) {
+            clearerr(input_file);
+        }
     } while (read_result < 0 && errno == EINTR);
     if (read_result < 0) {
         free(line);
