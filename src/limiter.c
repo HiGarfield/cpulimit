@@ -698,10 +698,10 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          * child group (since we can no longer enforce the CPU limit) and
          * exit with EXIT_FAILURE so the caller learns that limiting was
          * not maintained for the full lifetime of the command.
-         * If a quit signal was already forwarded above the SIGTERM here
-         * is harmless redundancy.
+         * If a quit signal was already forwarded above, this SIGTERM is
+         * harmless redundancy.
          */
-        if (lp_ret != 0 && !is_quit_flag_set()) {
+        if (lp_ret != 0) {
             kill(-child_pid, SIGTERM);
         }
 
