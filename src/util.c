@@ -377,6 +377,7 @@ char *read_line_from_file(const char *file_name) {
     FILE *input_file;
     char *line = NULL;
     size_t line_size = 0;
+    ssize_t read_result;
     if (file_name == NULL) {
         return NULL;
     }
@@ -384,7 +385,16 @@ char *read_line_from_file(const char *file_name) {
     if (input_file == NULL) {
         return NULL;
     }
-    if (getline(&line, &line_size, input_file) < 0) {
+    /*
+     * Retry getline() when interrupted by a signal (EINTR). This avoids
+     * spurious read failures when cpulimit receives signals while reading
+     * procfs/sysfs files.
+     */
+    do {
+        errno = 0;
+        read_result = getline(&line, &line_size, input_file);
+    } while (read_result < 0 && errno == EINTR);
+    if (read_result < 0) {
         free(line);
         fclose(input_file);
         return NULL;

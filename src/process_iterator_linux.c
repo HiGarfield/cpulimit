@@ -307,6 +307,7 @@ static int earlier_than(const struct timespec *ts_lhs,
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret_child, ret_parent;
+    pid_t next_ppid;
     struct timespec child_start_time = {0, 0}, parent_start_time = {0, 0};
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
@@ -334,7 +335,16 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
                 return 0;
             }
         }
-        child_pid = getppid_of(child_pid);
+        next_ppid = getppid_of(child_pid);
+        /*
+         * Defensive guard against invalid parent links and pathological
+         * self-parenting. Either condition would otherwise risk an endless
+         * loop in a racey /proc snapshot.
+         */
+        if (next_ppid <= 0 || next_ppid == child_pid) {
+            return 0;
+        }
+        child_pid = next_ppid;
     }
     return child_pid == parent_pid;
 }
