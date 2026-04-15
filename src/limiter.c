@@ -576,6 +576,7 @@ static int collect_child_exit_status(pid_t child_pid,
 void run_command_mode(const struct cpulimit_cfg *cfg) {
     pid_t child_pid;  /* PID of forked child that will execute the command */
     int sync_pipe[2]; /* Pipe for parent-child synchronization */
+    int fd_flags;     /* Current file descriptor flags for sync_pipe[1] */
 
     /*
      * Create pipe for synchronization.
@@ -592,7 +593,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         perror("pipe");
         exit(EXIT_FAILURE);
     }
-    if (fcntl(sync_pipe[1], F_SETFD, FD_CLOEXEC) < 0) {
+    fd_flags = fcntl(sync_pipe[1], F_GETFD);
+    if (fd_flags < 0 ||
+        fcntl(sync_pipe[1], F_SETFD, fd_flags | FD_CLOEXEC) < 0) {
         perror("fcntl");
         close(sync_pipe[0]);
         close(sync_pipe[1]);
