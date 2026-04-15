@@ -52,6 +52,24 @@
 #include <unistd.h>
 
 /**
+ * @brief Send SIGKILL to a process or process group and block until reaped
+ * @param pid Process ID (positive) or negative process group ID
+ * @note Used as a fallback cleanup path when the monotonic clock is
+ *  unavailable. Sends SIGKILL, then blocks on waitpid() (retrying on EINTR)
+ *  to guarantee that no test process is left running.
+ */
+static void kill_blocking(pid_t pid) {
+    kill(pid, SIGKILL);
+    while (waitpid(pid, NULL, 0) == -1 && errno == EINTR) {
+        /* Retry on EINTR */
+    }
+    /* Reap any remaining zombies (process group case) */
+    while (waitpid(pid, NULL, WNOHANG) > 0) {
+        /* Keep reaping until none left */
+    }
+}
+
+/**
  * @brief Terminate a child process or process group and wait for it to exit
  * @param pid Process ID (positive) or negative process group ID
  * @param kill_signal Signal to send (SIGTERM or SIGKILL)
@@ -59,6 +77,8 @@
  *  as a process group ID. Sends the given signal and waits up to 5 seconds.
  *  If SIGTERM times out, escalates to SIGKILL and waits an additional 5
  *  seconds. If processes are not reaped after 5 + 5 seconds, function exits.
+ *  If the monotonic clock is unavailable at any point, falls back to
+ *  kill_blocking() to guarantee all processes are reaped.
  */
 static void kill_and_wait(pid_t pid, int kill_signal) {
     struct timespec now, end_time;
@@ -75,7 +95,9 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
 
     /* Initialize timeout: 5 seconds */
     if (get_current_time(&end_time) != 0) {
+        /* Clock unavailable: SIGKILL + blocking wait to ensure cleanup */
         fprintf(stderr, "get_current_time failed in kill_and_wait\n");
+        kill_blocking(pid);
         return;
     }
     end_time.tv_sec += 5;
@@ -98,7 +120,9 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
         } else { /* wpid == 0: process still running */
             /* Check timeout */
             if (get_current_time(&now) != 0) {
-                break; /* Clock failure: stop waiting */
+                /* Clock failed mid-loop: SIGKILL + block to ensure cleanup */
+                kill_blocking(pid);
+                return;
             }
             if (now.tv_sec > end_time.tv_sec ||
                 (now.tv_sec == end_time.tv_sec &&
@@ -109,7 +133,10 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
                     kill_signal = SIGKILL;
                     /* Reset timeout for SIGKILL (5 seconds) */
                     if (get_current_time(&end_time) != 0) {
-                        break; /* Clock failure: stop waiting */
+                        /* Clock failed after escalation: block to ensure
+                         * cleanup */
+                        kill_blocking(pid);
+                        return;
                     }
                     end_time.tv_sec += 5;
                 } else {
