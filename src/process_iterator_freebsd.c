@@ -135,6 +135,17 @@ int init_process_iterator(struct process_iterator *iter,
         close_process_iterator(iter);
         return -1;
     }
+    /*
+     * proc_count must be positive: zero means no processes returned
+     * (unexpected), and negative would cause (size_t) cast to wrap,
+     * producing a huge allocation.  Treat both as fatal errors.
+     */
+    if (iter->proc_count <= 0) {
+        fprintf(stderr, "kvm_getprocs: unexpected proc_count %d\n",
+                iter->proc_count);
+        close_process_iterator(iter);
+        return -1;
+    }
     /* Copy process list to iterator's own memory */
     iter->kinfo_procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
                                                     (size_t)iter->proc_count);
