@@ -155,13 +155,21 @@ int init_process_iterator(struct process_iterator *iter,
  * process structure.
  */
 static double platform_time_to_ms(double platform_time) {
-    static double timebase_factor = -1;
-    if (timebase_factor < 0) {
+    static int initialized = 0;
+    static double timebase_factor = 1.0; /* safe default: 1 ns per tick */
+    if (!initialized) {
         mach_timebase_info_data_t timebase_info;
-        mach_timebase_info(&timebase_info);
-        /* Convert to milliseconds: (numer/denom) gives nanoseconds per tick */
-        timebase_factor =
-            (double)timebase_info.numer / (double)timebase_info.denom;
+        /*
+         * mach_timebase_info() is documented to always succeed on Apple
+         * platforms.  Check the return value defensively and keep the
+         * safe default (1.0) if it ever fails.
+         */
+        if (mach_timebase_info(&timebase_info) == KERN_SUCCESS) {
+            /* Convert to milliseconds: (numer/denom) gives ns per tick */
+            timebase_factor =
+                (double)timebase_info.numer / (double)timebase_info.denom;
+        }
+        initialized = 1;
     }
     return platform_time * timebase_factor / 1e6;
 }
@@ -379,7 +387,15 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
-        child_pid = getppid_of(child_pid);
+        pid_t next_ppid = getppid_of(child_pid);
+        /*
+         * Guard against invalid parent links or self-parenting processes,
+         * either of which would cause an infinite loop.
+         */
+        if (next_ppid <= 0 || next_ppid == child_pid) {
+            return 0;
+        }
+        child_pid = next_ppid;
     }
     return child_pid == parent_pid;
 }

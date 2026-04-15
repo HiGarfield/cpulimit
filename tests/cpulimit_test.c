@@ -74,7 +74,10 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
     }
 
     /* Initialize timeout: 5 seconds */
-    get_current_time(&end_time);
+    if (get_current_time(&end_time) != 0) {
+        fprintf(stderr, "get_current_time failed in kill_and_wait\n");
+        return;
+    }
     end_time.tv_sec += 5;
 
     kill(pid, kill_signal); /* Send initial signal */
@@ -94,7 +97,9 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
             }
         } else { /* wpid == 0: process still running */
             /* Check timeout */
-            get_current_time(&now);
+            if (get_current_time(&now) != 0) {
+                break; /* Clock failure: stop waiting */
+            }
             if (now.tv_sec > end_time.tv_sec ||
                 (now.tv_sec == end_time.tv_sec &&
                  now.tv_nsec >= end_time.tv_nsec)) {
@@ -103,7 +108,9 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
                     kill(pid, SIGKILL);
                     kill_signal = SIGKILL;
                     /* Reset timeout for SIGKILL (5 seconds) */
-                    get_current_time(&end_time);
+                    if (get_current_time(&end_time) != 0) {
+                        break; /* Clock failure: stop waiting */
+                    }
                     end_time.tv_sec += 5;
                 } else {
                     break; /* SIGKILL timeout: stop waiting */
