@@ -304,7 +304,15 @@ static int is_child_via_kvm(kvm_t *kvm_descriptor, pid_t child_pid,
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
-        child_pid = getppid_via_kvm(kvm_descriptor, child_pid);
+        pid_t next_ppid = getppid_via_kvm(kvm_descriptor, child_pid);
+        /*
+         * Guard against invalid parent links or self-parenting processes
+         * (ki_ppid == ki_pid), either of which would cause an infinite loop.
+         */
+        if (next_ppid <= 0 || next_ppid == child_pid) {
+            return 0;
+        }
+        child_pid = next_ppid;
     }
     return child_pid == parent_pid;
 }
