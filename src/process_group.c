@@ -97,7 +97,11 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
         exit(EXIT_FAILURE);
     }
     /* Perform initial scan to populate process list */
-    update_process_group(proc_group);
+    if (update_process_group(proc_group) != 0) {
+        fprintf(stderr, "Failed initial process group scan\n");
+        close_process_group(proc_group);
+        exit(EXIT_FAILURE);
+    }
     return 0;
 }
 
@@ -286,12 +290,16 @@ static void update_existing_process_entry(struct process *proc,
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
- * @note Safe to call with NULL proc_group (returns immediately)
+ * @note Returns 0 on success
+ * @note Returns -1 if the process iterator cannot be initialized or closed
+ *       (the old process list is preserved on init failure so callers can
+ *       send SIGCONT before exiting)
+ * @note Calls exit(EXIT_FAILURE) on truly fatal errors (time retrieval,
+ *       memory allocation failure)
+ * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
- * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
- *       retrieval)
  */
-void update_process_group(struct process_group *proc_group) {
+int update_process_group(struct process_group *proc_group) {
     struct process_iterator iter;
     struct process *scan_proc;
     struct process_filter filter;
@@ -300,7 +308,7 @@ void update_process_group(struct process_group *proc_group) {
     int ncpu;
     if (proc_group == NULL || proc_group->proc_list == NULL ||
         proc_group->proc_table == NULL) {
-        return;
+        return 0;
     }
     ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
 
@@ -321,13 +329,18 @@ void update_process_group(struct process_group *proc_group) {
     filter.pid = proc_group->target_pid;
     filter.include_children = proc_group->include_children;
     filter.read_cmd = 0;
+    /*
+     * Initialize iterator BEFORE clearing the list so the old list is
+     * preserved when initialization fails, allowing callers to send
+     * SIGCONT to any stopped processes before exiting.
+     */
     if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(scan_proc);
-        exit(EXIT_FAILURE);
+        return -1;
     }
 
-    /* Clear process list (will be rebuilt from scratch) */
+    /* Clear process list (rebuilt from iterator scan below) */
     clear_list(proc_group->proc_list);
 
     /* Scan currently running processes and update tracking data */
@@ -350,7 +363,7 @@ void update_process_group(struct process_group *proc_group) {
     free(scan_proc);
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
 
     /* Remove hash table entries for processes that are no longer running */
@@ -364,6 +377,7 @@ void update_process_group(struct process_group *proc_group) {
     if (elapsed_ms < 0 || elapsed_ms >= CPU_MIN_DELTA_MS) {
         proc_group->last_update = now;
     }
+    return 0;
 }
 
 /**

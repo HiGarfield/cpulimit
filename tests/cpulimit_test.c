@@ -4432,7 +4432,8 @@ static void test_process_group_cpu_usage(void) {
     for (node_idx = 0; node_idx < 5; node_idx++) {
         const struct timespec sleep_time = {0, 100000000L}; /* 100ms */
         sleep_timespec(&sleep_time);
-        update_process_group(&proc_group);
+        ret = update_process_group(&proc_group);
+        assert(ret == 0);
     }
 
     /* Should now have valid CPU usage */
@@ -4478,7 +4479,9 @@ static void test_process_group_rapid_updates(void) {
 
     for (proc_idx = 0; proc_idx < 20; proc_idx++) {
         size_t list_count;
-        update_process_group(&proc_group);
+        int update_ret;
+        update_ret = update_process_group(&proc_group);
+        assert(update_ret == 0);
         list_count = get_list_count(proc_group.proc_list);
         assert(list_count == 1);
     }
@@ -4504,7 +4507,8 @@ static void test_process_group_init_all(void) {
     /* Initialize process group with all processes */
     ret = init_process_group(&proc_group, 0, 0);
     assert(ret == 0);
-    update_process_group(&proc_group);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
 
     /* Count processes in the group */
     for (node = proc_group.proc_list->first; node != NULL; node = node->next) {
@@ -4520,7 +4524,8 @@ static void test_process_group_init_all(void) {
     assert(count == list_cnt);
 
     /* Update and verify again */
-    update_process_group(&proc_group);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
     ret = close_process_group(&proc_group);
     assert(ret == 0);
 }
@@ -4564,8 +4569,10 @@ static void test_process_group_single(int include_children) {
         const struct list_node *node = NULL;
         size_t count = 0;
         size_t list_count;
+        int update_ret;
 
-        update_process_group(&proc_group);
+        update_ret = update_process_group(&proc_group);
+        assert(update_ret == 0);
         list_count = get_list_count(proc_group.proc_list);
         assert(list_count == 1);
 
@@ -4623,7 +4630,8 @@ static void test_process_group_init_invalid_pid(void) {
     assert(ret == 0);
     list_count = get_list_count(proc_group.proc_list);
     assert(list_count == 0);
-    update_process_group(&proc_group);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
     list_count = get_list_count(proc_group.proc_list);
     assert(list_count == 0);
     ret = close_process_group(&proc_group);
@@ -4634,7 +4642,8 @@ static void test_process_group_init_invalid_pid(void) {
     assert(ret == 0);
     list_count = get_list_count(proc_group.proc_list);
     assert(list_count == 0);
-    update_process_group(&proc_group);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
     list_count = get_list_count(proc_group.proc_list);
     assert(list_count == 0);
     ret = close_process_group(&proc_group);
@@ -4731,8 +4740,10 @@ static void test_process_group_close_zeros_fields(void) {
  * @note Must return without crashing
  */
 static void test_process_group_update_null(void) {
+    int ret;
     /* NULL proc_group must not crash */
-    update_process_group(NULL);
+    ret = update_process_group(NULL);
+    assert(ret == 0);
 }
 
 /**
@@ -4741,8 +4752,10 @@ static void test_process_group_update_null(void) {
  */
 static void test_process_group_update_uninitialized_struct(void) {
     struct process_group proc_group;
+    int ret;
     memset(&proc_group, 0, sizeof(proc_group));
-    update_process_group(&proc_group);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
 }
 
 /**
@@ -4768,9 +4781,11 @@ static void test_process_group_double_update(void) {
     self_pid = getpid();
     ret = init_process_group(&proc_group, self_pid, 0);
     assert(ret == 0);
-    update_process_group(&proc_group);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
     /* Immediate second update: dt < MIN_DT, so CPU usage stays -1 */
-    update_process_group(&proc_group);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
     ret = close_process_group(&proc_group);
     assert(ret == 0);
 }
@@ -4791,8 +4806,10 @@ static void test_process_group_cpu_usage_with_usage(void) {
     ret = init_process_group(&proc_group, self_pid, 0);
     assert(ret == 0);
     for (iter_idx = 0; iter_idx < 5; iter_idx++) {
+        int update_ret;
         sleep_timespec(&wait_time);
-        update_process_group(&proc_group);
+        update_ret = update_process_group(&proc_group);
+        assert(update_ret == 0);
     }
     usage = get_process_group_cpu_usage(&proc_group);
     /* After several updates usage should be either -1 (not yet measured)
@@ -4833,7 +4850,8 @@ static void test_process_group_race_target_exits_between_init_and_update(void) {
     assert(waited == child_pid);
 
     /* update_process_group must not crash when the target is gone */
-    update_process_group(&proc_group);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
 
     /* The process no longer exists; list must now be empty */
     list_count = get_list_count(proc_group.proc_list);
@@ -4889,7 +4907,9 @@ static void test_process_group_race_rapid_child_spawn_exit(void) {
     /* Run several updates while children may be spawning and exiting */
     for (update_idx = 0; update_idx < 10; update_idx++) {
         const struct timespec small_sleep = {0, 5000000L}; /* 5 ms */
-        update_process_group(&proc_group);
+        int update_ret;
+        update_ret = update_process_group(&proc_group);
+        assert(update_ret == 0);
         sleep_timespec(&small_sleep);
     }
 
@@ -4978,7 +4998,8 @@ static void test_limit_process_basic(void) {
                 double temp_cpu_usage;
                 size_t list_count;
                 sleep_timespec(&sleep_time);
-                update_process_group(&proc_group);
+                ret = update_process_group(&proc_group);
+                assert(ret == 0);
 
                 /* Verify all num_procs processes are being monitored */
                 list_count = get_list_count(proc_group.proc_list);
