@@ -4442,6 +4442,11 @@ static void test_process_group_cpu_usage(void) {
     ncpu = get_ncpu();
     assert(cpu_usage >= 0.0);
     assert(cpu_usage <= 1.0 * ncpu);
+    /*
+     * A busy-loop child running for ~500 ms must show non-trivial
+     * CPU usage (at least 1% of one core).
+     */
+    assert(cpu_usage > 0.01);
 
     ret = close_process_group(&proc_group);
     assert(ret == 0);
