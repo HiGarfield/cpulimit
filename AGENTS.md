@@ -179,6 +179,9 @@ authoritative description.
 - `valgrind` MUST be installed to perform dynamic analysis on the codebase.
 - In Ubuntu, the following command MUST be used to install all required tools:
   `sudo apt-get update && sudo apt-get -qqy install build-essential clang-format cppcheck clang-tidy valgrind`
+- All required tools MUST be installed before running any build or test step.
+- The absence of any required tool is considered a critical error and MUST
+  result in an immediate halt.
 
 ---
 
@@ -367,6 +370,8 @@ authoritative description.
   expressions only.
 - Function calls, macro invocations, and other complex expressions MUST NOT
   be used as arguments to the assert macro.
+- Variable scope MUST be strictly minimized. Variables' visibility MUST be
+  limited to the smallest possible scope.
 
 ---
 
@@ -414,6 +419,7 @@ authoritative description.
   4. Build the `valgrind` target and confirm no errors or leaks are
      reported:
      - Run `cmake --build build --target valgrind`
+- All test steps MUST NOT be skipped or omitted due to any reason.
 
 ---
 
@@ -476,7 +482,7 @@ However:
 - Git commit messages MUST follow the conventional commit format.
 - Git commit message header MUST NOT exceed 50 characters.
 - Git commit message body MUST be wrapped at 72 characters.
-- One git commit message MUST only solve one issue or implement one feature.
+- One git commit MUST only solve one issue or implement one feature.
 - Git commit messages MUST be descriptive and informative.
 - Breaking changes MUST be clearly indicated.
 - Refactoring MUST NOT change observable behavior unless necessary and
