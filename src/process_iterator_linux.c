@@ -78,6 +78,10 @@ int init_process_iterator(struct process_iterator *iter,
     iter->proc_dir = opendir("/proc");
     if (iter->proc_dir == NULL) {
         perror("opendir");
+        /*
+         * iter->proc_dir is NULL so close_process_iterator() would
+         * only memset an already-zeroed struct; skip the call.
+         */
         return -1;
     }
     return 0;
