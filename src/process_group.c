@@ -290,13 +290,11 @@ static void update_existing_process_entry(struct process *proc,
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
- * @note Returns 0 on success
- * @note Returns -1 if the process iterator cannot be initialized or closed
- *       (the old process list is preserved on init failure so callers can
- *       send SIGCONT before exiting)
+ * @return 0 on success or if proc_group is NULL; -1 if the process iterator
+ *         cannot be initialized or closed (on init failure the old process
+ *         list is preserved so callers can send SIGCONT before exiting)
  * @note Calls exit(EXIT_FAILURE) on truly fatal errors (time retrieval,
  *       memory allocation failure)
- * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  */
 int update_process_group(struct process_group *proc_group) {
