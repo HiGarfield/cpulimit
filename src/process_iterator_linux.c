@@ -307,7 +307,6 @@ static int earlier_than(const struct timespec *ts_lhs,
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret_child, ret_parent;
-    pid_t next_ppid;
     struct timespec child_start_time = {0, 0}, parent_start_time = {0, 0};
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
@@ -327,6 +326,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
      */
     ret_parent = get_start_time(parent_pid, &parent_start_time);
     while (child_pid > 1 && child_pid != parent_pid) {
+        pid_t next_ppid;
         if (ret_parent == 0) {
             ret_child = get_start_time(child_pid, &child_start_time);
             /* Child started before parent means PID reuse occurred */
