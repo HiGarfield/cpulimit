@@ -80,7 +80,6 @@ int init_process_iterator(struct process_iterator *iter,
     iter->proc_dir = opendir("/proc");
     if (iter->proc_dir == NULL) {
         perror("opendir");
-        close_process_iterator(iter);
         return -1;
     }
     return 0;
