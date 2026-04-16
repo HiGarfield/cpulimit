@@ -53,8 +53,8 @@
  * @return Opened kvm descriptor on success, NULL on failure
  *
  * Allocates a temporary error buffer, opens the kvm interface in read-only
- * mode, and frees the buffer. On allocation failure, exits the program.
- * On kvm_openfiles() failure, prints an error and returns NULL.
+ * mode, and frees the buffer. On allocation failure or kvm_openfiles()
+ * failure, prints an error and returns NULL.
  *
  * Callers must close the returned descriptor with kvm_close().
  */
@@ -65,7 +65,7 @@ static kvm_t *open_kvm(void) {
     errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX);
     if (errbuf == NULL) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
     kvm_descriptor = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
     if (kvm_descriptor == NULL) {
@@ -79,9 +79,7 @@ static kvm_t *open_kvm(void) {
  * @brief Initialize a process iterator with specified filter criteria
  * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL iter or filter);
- *         may call exit() on fatal errors
- *         (e.g., out-of-memory)
+ * @return 0 on success, -1 on failure (including NULL iter or filter)
  *
  * This function prepares the iterator for process enumeration. The behavior
  * varies by platform:
