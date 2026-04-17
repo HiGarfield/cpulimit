@@ -2059,6 +2059,113 @@ static void test_process_iterator_is_child_of(void) {
 }
 
 /**
+ * @brief Test is_child_of() with multi-level (grandchild) ancestry
+ * @note Tests that a grandchild process is correctly identified as a
+ *  descendant of its grandparent, exercising multi-hop parent-chain
+ *  traversal in is_child_of().
+ */
+static void test_process_iterator_is_child_of_deep(void) {
+    pid_t grandparent_pid;
+    pid_t child_pid;
+    pid_t grandchild_pid;
+    int pipe_fds[2];
+    ssize_t n;
+    int result;
+
+    grandparent_pid = getpid();
+
+    if (pipe(pipe_fds) != 0) {
+        assert(0 && "pipe() failed in test_process_iterator_is_child_of_deep");
+        return;
+    }
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+
+    if (child_pid == 0) {
+        /*
+         * Child process: become a new process group leader so the
+         * grandparent can kill both child and grandchild together via
+         * kill(-child_pid, SIGKILL).
+         */
+        pid_t gc_pid;
+        sigset_t full_mask, empty_mask;
+
+        close(pipe_fds[0]);
+        setpgid(0, 0); /* new process group */
+
+        gc_pid = fork();
+        if (gc_pid < 0) {
+            close(pipe_fds[1]);
+            _exit(1);
+        }
+
+        if (gc_pid > 0) {
+            /* Intermediate child: relay grandchild PID to grandparent */
+            if (write(pipe_fds[1], &gc_pid, sizeof(gc_pid)) !=
+                (ssize_t)sizeof(gc_pid)) {
+                kill(gc_pid, SIGKILL);
+                close(pipe_fds[1]);
+                _exit(1);
+            }
+            close(pipe_fds[1]);
+            /* Wait until killed */
+            if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0 ||
+                sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+                kill(gc_pid, SIGKILL);
+                _exit(1);
+            }
+            sigsuspend(&empty_mask);
+            /*
+             * sigsuspend returns only for non-SIGKILL signals.  The
+             * grandparent kills this whole process group with SIGKILL, so
+             * this path is only reached if an unexpected signal arrives first.
+             * Kill the grandchild defensively before exiting.
+             */
+            kill(gc_pid, SIGKILL);
+            _exit(EXIT_SUCCESS);
+        }
+
+        /* Grandchild: close pipe and wait until killed */
+        close(pipe_fds[1]);
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0 ||
+            sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(1);
+        }
+        sigsuspend(&empty_mask);
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Parent (grandparent): read grandchild PID from pipe */
+    close(pipe_fds[1]);
+    n = read(pipe_fds[0], &grandchild_pid, sizeof(grandchild_pid));
+    close(pipe_fds[0]);
+    assert(n == (ssize_t)sizeof(grandchild_pid));
+    assert(grandchild_pid > 0);
+
+    /* Grandchild must be a descendant of grandparent (two hops up) */
+    result = is_child_of(grandchild_pid, grandparent_pid);
+    assert(result == 1);
+
+    /* Grandchild must also be a direct descendant of the intermediate child */
+    /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
+    result = is_child_of(grandchild_pid, child_pid);
+    assert(result == 1);
+
+    /* Inverse: intermediate child is NOT a descendant of grandchild */
+    /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
+    result = is_child_of(child_pid, grandchild_pid);
+    assert(result == 0);
+
+    /*
+     * Kill the entire process group (child + grandchild) and wait for
+     * our direct child to be reaped.  The grandchild gets reparented to
+     * init once child_pid exits and is reaped by init automatically.
+     */
+    kill_and_wait(-child_pid, SIGKILL);
+}
+
+/**
  * @brief Test process iterator filter edge cases
  * @note Tests various filter configurations
  */
@@ -6392,6 +6499,7 @@ int main(int argc, char *argv[]) {
     /* Process iterator module tests */
     printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
     RUN_TEST(test_process_iterator_is_child_of);
+    RUN_TEST(test_process_iterator_is_child_of_deep);
     RUN_TEST(test_process_iterator_filter_edge_cases);
     RUN_TEST(test_process_iterator_single);
     RUN_TEST(test_process_iterator_multiple);
