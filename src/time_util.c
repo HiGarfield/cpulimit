@@ -41,6 +41,10 @@
  * nanoseconds component is the remainder. Adjusts tv_sec and tv_nsec
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
+ *
+ * @note nsec must be non-negative. Passing a negative value is undefined
+ *       behavior: the resulting tv_sec will be negative, which is not a
+ *       valid sleep or timeout duration.
  */
 void nsec2timespec(double nsec, struct timespec *result_ts) {
     result_ts->tv_sec = (time_t)(nsec / 1e9);
@@ -130,6 +134,6 @@ int sleep_timespec(const struct timespec *duration) {
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier) {
-    return difftime(later->tv_sec, earlier->tv_sec) * 1e3 +
+    return (double)(later->tv_sec - earlier->tv_sec) * 1e3 +
            ((double)later->tv_nsec - (double)earlier->tv_nsec) / 1e6;
 }
