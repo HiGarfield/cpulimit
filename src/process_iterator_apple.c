@@ -371,10 +371,13 @@ pid_t getppid_of(pid_t pid) {
  * Special cases:
  * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
  * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
- * - Linux: Uses process start times to handle PID reuse
+ * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
+ *   against infinite loops caused by PID reuse cycles)
+ * - Linux: Uses process start times to detect PID reuse
  * - FreeBSD/macOS: Relies on current process hierarchy only
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
+    int depth = 0;
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
@@ -387,7 +390,17 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
-        pid_t next_ppid = getppid_of(child_pid);
+        pid_t next_ppid;
+        /*
+         * Depth limit guards against PID reuse cycles of length >= 2.
+         * Example: A has ppid=B and B has ppid=A. The self-parenting check
+         * (next_ppid == child_pid) only catches length-1 cycles; without
+         * this counter the loop would never terminate on length-2+ cycles.
+         */
+        if (depth++ >= IS_CHILD_MAX_DEPTH) {
+            return 0;
+        }
+        next_ppid = getppid_of(child_pid);
         /*
          * Guard against invalid parent links or self-parenting processes,
          * either of which would cause an infinite loop.

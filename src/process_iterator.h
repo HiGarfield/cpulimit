@@ -257,6 +257,18 @@ int get_next_process(struct process_iterator *iter, struct process *proc);
 int close_process_iterator(struct process_iterator *iter);
 
 /**
+ * @def IS_CHILD_MAX_DEPTH
+ * @brief Maximum parent-chain traversal steps in is_child_of()
+ *
+ * Bounds the while loop that walks parent PIDs to prevent an infinite loop
+ * when PID reuse creates a cycle of length >= 2 in the parent chain (e.g.,
+ * process A has ppid B and process B has ppid A). No legitimate process tree
+ * exceeds a few hundred levels, so 1024 provides ample headroom while
+ * guaranteeing termination in all adversarial cases.
+ */
+#define IS_CHILD_MAX_DEPTH 1024
+
+/**
  * @brief Determine if one process is a descendant of another
  * @param child_pid Process ID to check for descendant relationship
  * @param parent_pid Process ID of the potential ancestor
@@ -270,7 +282,9 @@ int close_process_iterator(struct process_iterator *iter);
  * Special cases:
  * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
  * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
- * - Linux: Uses process start times to handle PID reuse
+ * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
+ *   against infinite loops caused by PID reuse cycles)
+ * - Linux: Uses process start times to detect PID reuse
  * - FreeBSD/macOS: Relies on current process hierarchy only
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid);

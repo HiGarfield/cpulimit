@@ -302,11 +302,13 @@ static int earlier_than(const struct timespec *ts_lhs,
  * Special cases:
  * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
  * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
- * - Linux: Uses process start times to handle PID reuse
+ * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
+ *   against infinite loops caused by PID reuse cycles)
+ * - Linux: Uses process start times to detect PID reuse
  * - FreeBSD/macOS: Relies on current process hierarchy only
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
-    int ret_child, ret_parent;
+    int ret_child, ret_parent, depth;
     struct timespec child_start_time = {0, 0}, parent_start_time = {0, 0};
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
@@ -325,8 +327,23 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
      * that PID was reused and cannot be a true ancestor.
      */
     ret_parent = get_start_time(parent_pid, &parent_start_time);
+    depth = 0;
     while (child_pid > 1 && child_pid != parent_pid) {
         pid_t next_ppid;
+        /*
+         * Depth limit guards against PID reuse cycles of length >= 2.
+         * Example: A has ppid=B and B has ppid=A. The self-parenting check
+         * (next_ppid == child_pid) only catches length-1 cycles; without
+         * this counter the loop would never terminate on length-2+ cycles.
+         */
+        if (depth++ >= IS_CHILD_MAX_DEPTH) {
+            /*
+             * Cannot determine the relationship within the allowed
+             * traversal budget.  Return 0 (not a child) as the
+             * conservative safe choice.
+             */
+            return 0;
+        }
         if (ret_parent == 0) {
             ret_child = get_start_time(child_pid, &child_start_time);
             /* Child started before parent means PID reuse occurred */
