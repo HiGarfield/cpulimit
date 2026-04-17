@@ -41,6 +41,29 @@ extern "C" {
 #include <time.h>
 
 /**
+ * @def CPU_EMA_ALPHA
+ * @brief Smoothing factor for exponential moving average of CPU usage
+ *
+ * Value range: (0, 1)
+ * - Lower values (e.g., 0.05): more smoothing, slower response to changes
+ * - Higher values (e.g., 0.2): less smoothing, faster response to changes
+ * Formula: new_value = (1-CPU_EMA_ALPHA) * old_value + CPU_EMA_ALPHA * sample
+ */
+#define CPU_EMA_ALPHA 0.08
+
+/**
+ * @def CPU_MIN_DELTA_MS
+ * @brief Minimum time delta (milliseconds) required for valid CPU usage
+ *        calculation
+ *
+ * Updates with smaller time differences are skipped to avoid:
+ * - Division by very small numbers (numerical instability)
+ * - Amplification of measurement noise
+ * - Excessive sensitivity to timer resolution
+ */
+#define CPU_MIN_DELTA_MS 20
+
+/**
  * @struct process_group
  * @brief Represents a monitored process and optionally its descendant tree
  *
