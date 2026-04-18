@@ -4536,7 +4536,7 @@ static void test_process_group_cpu_usage(void) {
         volatile int keep_running = 1;
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
             }
         }
@@ -4588,7 +4588,7 @@ static void test_process_group_rapid_updates(void) {
         volatile int keep_running = 1;
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
             }
         }
@@ -4670,7 +4670,7 @@ static void test_process_group_single(int include_children) {
         volatile int keep_running = 1;
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
             }
         }
@@ -5169,7 +5169,7 @@ static void test_limit_process_basic(void) {
         /* Keep processes running until terminated */
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
             }
         }
@@ -5322,7 +5322,7 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
             /* Busy loop: stays alive until stopped then resumed */
             for (;;) {
                 volatile int dummy_var;
-                for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+                for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                     ;
                 }
             }
@@ -5413,7 +5413,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
         close(ready_pipe[1]);
         for (;;) {
             volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
             }
         }
@@ -6437,7 +6437,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
  * Ensures that the test function is called and cannot be inlined.
  * @param test_fn Pointer to the void(void) test function to invoke.
  */
-static NOINLINE void test_invoke_indirect(void (*volatile test_fn)(void)) {
+static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
     test_fn();
 }
 

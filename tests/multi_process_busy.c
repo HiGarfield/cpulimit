@@ -69,7 +69,7 @@ int main(int argc, const char *argv[]) {
     /* All processes (parent and children) enter infinite loop */
     while (!is_quit_flag_set()) {
         volatile int dummy_var;
-        for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+        for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
             ;
         }
     }

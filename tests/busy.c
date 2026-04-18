@@ -41,7 +41,7 @@ static void *busy_loop(void *arg) {
     (void)arg;
     while (!is_quit_flag_set()) {
         volatile int dummy_var;
-        for (dummy_var = 0; dummy_var < 1000; dummy_var++) {
+        for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
             ;
         }
     }
