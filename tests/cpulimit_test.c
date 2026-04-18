@@ -1819,6 +1819,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
     int ret;
     char ready_byte;
     ssize_t n_read;
+    const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -1864,10 +1865,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
     close(ready_pipe[0]);
 
     /* Give child a moment to reach sleep_timespec before sending signal */
-    {
-        const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
-        sleep_timespec(&small_delay);
-    }
+    sleep_timespec(&small_delay);
 
     kill(child_pid, SIGTERM);
 
@@ -1900,6 +1898,7 @@ static void test_signal_handler_race_rapid_all_signals(void) {
     ssize_t n_read;
     static const int all_sigs[] = {SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT};
     static const size_t num_sigs = sizeof(all_sigs) / sizeof(*all_sigs);
+    size_t sig_idx;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -1961,11 +1960,8 @@ static void test_signal_handler_race_rapid_all_signals(void) {
     close(ready_pipe[0]);
 
     /* Send all five signals in rapid succession */
-    {
-        size_t sig_idx;
-        for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-            kill(child_pid, all_sigs[sig_idx]);
-        }
+    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
+        kill(child_pid, all_sigs[sig_idx]);
     }
 
     waited = waitpid(child_pid, &status, 0);
@@ -2071,6 +2067,8 @@ static void test_process_iterator_is_child_of_deep(void) {
     int pipe_fds[2];
     ssize_t n;
     int result;
+    char *buf;
+    size_t remaining;
 
     grandparent_pid = getpid();
 
@@ -2141,20 +2139,18 @@ static void test_process_iterator_is_child_of_deep(void) {
 
     /* Parent (grandparent): read grandchild PID from pipe */
     close(pipe_fds[1]);
-    {
-        char *buf = (char *)&grandchild_pid;
-        size_t remaining = sizeof(grandchild_pid);
-        while (remaining > 0) {
-            n = read(pipe_fds[0], buf, remaining);
-            if (n > 0) {
-                remaining -= (size_t)n;
-                buf += n;
-            } else if (n == 0 || errno != EINTR) {
-                /* EOF or unrecoverable error */
-                break;
-            }
-            /* EINTR: retry */
+    buf = (char *)&grandchild_pid;
+    remaining = sizeof(grandchild_pid);
+    while (remaining > 0) {
+        n = read(pipe_fds[0], buf, remaining);
+        if (n > 0) {
+            remaining -= (size_t)n;
+            buf += n;
+        } else if (n == 0 || errno != EINTR) {
+            /* EOF or unrecoverable error */
+            break;
         }
+        /* EINTR: retry */
     }
     close(pipe_fds[0]);
     assert(grandchild_pid > 0);
@@ -5299,6 +5295,7 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
         pid_t target_pid;
         pid_t limiter_pid;
         int limiter_status;
+        pid_t res;
 
         /* Fork the target process */
         target_pid = fork();
@@ -5347,25 +5344,21 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
             waited = waitpid(limiter_pid, &limiter_status, 0);
         } while (waited == -1 && errno == EINTR);
         /* Reap any leftover target, if still running */
-        {
-            pid_t res;
+        do {
+            res = waitpid(target_pid, NULL, WNOHANG);
+        } while (res == -1 && errno == EINTR);
 
-            do {
-                res = waitpid(target_pid, NULL, WNOHANG);
-            } while (res == -1 && errno == EINTR);
-
-            if (res == 0) {
-                /* Child still running: kill and reap */
-                if (kill(target_pid, SIGKILL) == -1 && errno != ESRCH) {
-                    /* kill failed for unexpected reason; fall through to
-                     * reap anyway to avoid zombies */
-                }
-                do {
-                    res = waitpid(target_pid, NULL, 0);
-                } while (res == -1 && errno == EINTR);
+        if (res == 0) {
+            /* Child still running: kill and reap */
+            if (kill(target_pid, SIGKILL) == -1 && errno != ESRCH) {
+                /* kill failed for unexpected reason; fall through to
+                 * reap anyway to avoid zombies */
             }
-            /* If res == target_pid or errno == ECHILD, already reaped */
+            do {
+                res = waitpid(target_pid, NULL, 0);
+            } while (res == -1 && errno == EINTR);
         }
+        /* If res == target_pid or errno == ECHILD, already reaped */
 
         if (!WIFEXITED(limiter_status) ||
             WEXITSTATUS(limiter_status) != EXIT_SUCCESS) {
@@ -5402,6 +5395,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
     char ready_byte;
     ssize_t n_read;
     int ret;
+    const struct timespec delay = {0, 100000000L}; /* 100 ms */
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -5452,10 +5446,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
     close(ready_pipe[0]);
 
     /* Give limiter a moment to enter its sleep loop */
-    {
-        const struct timespec delay = {0, 100000000L}; /* 100 ms */
-        sleep_timespec(&delay);
-    }
+    sleep_timespec(&delay);
 
     /* Deliver SIGTERM to the limiter: interrupts sleep, sets quit_flag */
     kill(limiter_pid, SIGTERM);
