@@ -6439,7 +6439,28 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
  * @param test_fn Pointer to the void(void) test function to invoke.
  */
 static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
-    test_fn();
+    void (*volatile fn_slot_array[2])(void) = {NULL, NULL};
+    void (*volatile *volatile fn_slot_ptr)(void);
+    if (test_fn == NULL) {
+        fprintf(
+            stderr,
+            "Error: test_invoke_indirect called with NULL function pointer\n");
+        exit(EXIT_FAILURE);
+    }
+    fn_slot_ptr = fn_slot_array;
+    do {
+        volatile long idx = (random() >> 1) & 1;
+        if (idx << 1 > 1) {
+            *(fn_slot_array + idx) = test_fn;
+        } else {
+            fn_slot_ptr[idx] = test_fn;
+        }
+        *(fn_slot_array + 1 - idx) = fn_slot_array[idx];
+        *(fn_slot_ptr + ((random() >> 1) & 1)) =
+            *(fn_slot_array + ((random() >> 1) & 1));
+    } while (*fn_slot_ptr == NULL);
+    fn_slot_ptr = fn_slot_ptr + ((random() >> 1) & 1);
+    (*fn_slot_ptr)();
 }
 
 /** @def RUN_TEST(test_func)
@@ -6463,8 +6484,17 @@ static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
  *  shutdown of the test run instead of abrupt termination.
  */
 int main(int argc, char *argv[]) {
+    struct timespec time_seed;
+
     assert(argc >= 1);
     argv0 = argv[0];
+
+    if (clock_gettime(CLOCK_MONOTONIC, &time_seed) != 0) {
+        fprintf(stderr, "Failed to get time for random seed: %s\n",
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    srandom((unsigned int)(time_seed.tv_sec ^ time_seed.tv_nsec));
 
     configure_signal_handler();
     printf("Starting tests...\n");
