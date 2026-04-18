@@ -32,18 +32,15 @@ endif()
 
 # --- 5. Parallel Build Configuration ---
 #
-# Detects the number of logical processors and, if the count is
-# available, sets CMAKE_BUILD_PARALLEL_LEVEL so that cmake --build
-# uses all cores on CMake 3.12 or later.  On CMake 3.5 the variable
-# has no effect, but passing -- -j${CMAKE_BUILD_PARALLEL_LEVEL} to
-# the native build tool achieves the same result (see
-# build_with_cmake.sh).
-include(ProcessorCount)
-ProcessorCount(_cpulimit_n_cpus)
-if(NOT _cpulimit_n_cpus EQUAL 0)
-    set(CMAKE_BUILD_PARALLEL_LEVEL ${_cpulimit_n_cpus}
-        CACHE STRING "Number of parallel build jobs")
-endif()
+# Parallelism for cmake --build must be provided by the invoking
+# environment or command line, for example:
+#
+#   cmake --build . --parallel <n>   (CMake >= 3.12)
+#   cmake --build . -- -j<n>         (CMake 3.5 compatible)
+#
+# or by setting the CMAKE_BUILD_PARALLEL_LEVEL environment variable
+# before invoking the build.  It is not configured through the CMake
+# cache here.  See build_with_cmake.sh for the recommended invocation.
 
 # --- 6. Project Options ---
 option(CPULIMIT_BUILD_TESTS "Build test binaries" ON)

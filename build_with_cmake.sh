@@ -16,11 +16,15 @@ mkdir build
 (cd build && cmake -DCMAKE_BUILD_TYPE=Release ..)
 
 # Detect the number of logical processors for parallel builds.
-# nproc is available on Linux; sysctl is available on macOS and FreeBSD.
+# nproc is available on Linux; sysctl is available on macOS and FreeBSD
+# (hw.logicalcpu on macOS, hw.ncpu on FreeBSD); getconf provides a
+# portable fallback on systems without either tool.
 if command -v nproc >/dev/null 2>&1; then
 	_nproc=$(nproc)
 elif command -v sysctl >/dev/null 2>&1; then
-	_nproc=$(sysctl -n hw.logicalcpu 2>/dev/null || echo 1)
+	_nproc=$(sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+elif command -v getconf >/dev/null 2>&1; then
+	_nproc=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
 else
 	_nproc=1
 fi
