@@ -1813,7 +1813,6 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
     int ready_pipe[2];
     pid_t child_pid;
     int status;
-    pid_t waited;
     int ret;
 
     ret = pipe(ready_pipe);
@@ -1855,6 +1854,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
         ssize_t n_read;
         int exited;
         int exit_code;
+        pid_t waited;
 
         /* Parent: wait for child to enter sleep, then send SIGTERM */
         close(ready_pipe[1]);
@@ -1891,7 +1891,6 @@ static void test_signal_handler_race_rapid_all_signals(void) {
     int ready_pipe[2];
     pid_t child_pid;
     int status;
-    pid_t waited;
     int ret;
     static const int all_sigs[] = {SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT};
     static const size_t num_sigs = sizeof(all_sigs) / sizeof(*all_sigs);
@@ -1952,6 +1951,7 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         ssize_t n_read;
         int exited;
         int exit_code;
+        pid_t waited;
 
         close(ready_pipe[1]);
         do {
@@ -5392,7 +5392,6 @@ static void test_limit_process_race_quit_during_sleep(void) {
     pid_t target_pid;
     pid_t limiter_pid;
     int limiter_status;
-    pid_t waited;
     int ret;
 
     ret = pipe(ready_pipe);
@@ -5439,6 +5438,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
         ssize_t n_read;
         int exited;
         int exit_code;
+        pid_t waited;
 
         /* Wait for limiter to be ready */
         close(ready_pipe[1]);
