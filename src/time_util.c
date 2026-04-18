@@ -134,6 +134,6 @@ int sleep_timespec(const struct timespec *duration) {
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier) {
-    return (double)(later->tv_sec - earlier->tv_sec) * 1e3 +
+    return ((double)later->tv_sec - (double)earlier->tv_sec) * 1e3 +
            ((double)later->tv_nsec - (double)earlier->tv_nsec) / 1e6;
 }
