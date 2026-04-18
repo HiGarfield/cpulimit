@@ -2092,7 +2092,10 @@ static void test_process_iterator_is_child_of_deep(void) {
         sigset_t full_mask, empty_mask;
 
         close(pipe_fds[0]);
-        setpgid(0, 0); /* new process group */
+        if (setpgid(0, 0) != 0) { /* new process group */
+            close(pipe_fds[1]);
+            _exit(1);
+        }
 
         gc_pid = fork();
         if (gc_pid < 0) {
@@ -2138,9 +2141,22 @@ static void test_process_iterator_is_child_of_deep(void) {
 
     /* Parent (grandparent): read grandchild PID from pipe */
     close(pipe_fds[1]);
-    n = read(pipe_fds[0], &grandchild_pid, sizeof(grandchild_pid));
+    {
+        char *buf = (char *)&grandchild_pid;
+        size_t remaining = sizeof(grandchild_pid);
+        while (remaining > 0) {
+            n = read(pipe_fds[0], buf, remaining);
+            if (n > 0) {
+                remaining -= (size_t)n;
+                buf += n;
+            } else if (n == 0 || errno != EINTR) {
+                /* EOF or unrecoverable error */
+                break;
+            }
+            /* EINTR: retry */
+        }
+    }
     close(pipe_fds[0]);
-    assert(n == (ssize_t)sizeof(grandchild_pid));
     assert(grandchild_pid > 0);
 
     /* Grandchild must be a descendant of grandparent (two hops up) */
