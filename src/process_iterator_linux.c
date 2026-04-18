@@ -38,9 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/types.h>
-#include <time.h>
 #include <unistd.h>
 
 /**
@@ -238,57 +236,6 @@ pid_t getppid_of(pid_t pid) {
 }
 
 /**
- * @brief Retrieve process start time from /proc filesystem
- * @param pid Process ID to query
- * @param start_time Pointer to timespec structure to populate
- * @return 0 on success, -1 on failure
- *
- * Uses stat() on /proc/[pid] directory to get the modification time,
- * which corresponds to the process start time. This is used to detect
- * PID reuse by comparing start times when checking parent-child
- * relationships.
- *
- * On systems supporting high-resolution timestamps (POSIX.1-2008),
- * uses st_mtim for nanosecond precision. Otherwise falls back to
- * st_mtime with second precision.
- */
-static int get_start_time(pid_t pid, struct timespec *start_time) {
-    struct stat procfs_stat;
-    char procfs_path[64];
-    int ret;
-    snprintf(procfs_path, sizeof(procfs_path), "/proc/%ld", (long)pid);
-    ret = stat(procfs_path, &procfs_stat);
-    if (ret == 0) {
-#if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200809L) ||                \
-    (defined(_XOPEN_SOURCE) && _XOPEN_SOURCE >= 700)
-        /* Use high-resolution timestamp if available */
-        *start_time = procfs_stat.st_mtim;
-#else
-        /* Fall back to second-precision timestamp */
-        start_time->tv_sec = procfs_stat.st_mtime;
-        start_time->tv_nsec = 0;
-#endif
-    }
-    return ret;
-}
-
-/**
- * @brief Compare two timestamps to determine chronological order
- * @param ts_lhs First timestamp
- * @param ts_rhs Second timestamp
- * @return 1 if ts_lhs occurred before ts_rhs, 0 otherwise
- *
- * Performs chronological comparison of two timespec structures.
- * Compares seconds first, then nanoseconds if seconds are equal.
- */
-static int earlier_than(const struct timespec *ts_lhs,
-                        const struct timespec *ts_rhs) {
-    return ts_lhs->tv_sec < ts_rhs->tv_sec ||
-           (ts_lhs->tv_sec == ts_rhs->tv_sec &&
-            ts_lhs->tv_nsec < ts_rhs->tv_nsec);
-}
-
-/**
  * @brief Determine if one process is a descendant of another
  * @param child_pid Process ID to check for descendant relationship
  * @param parent_pid Process ID of the potential ancestor
@@ -304,29 +251,19 @@ static int earlier_than(const struct timespec *ts_lhs,
  * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
  * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
  *   against infinite loops caused by PID reuse cycles)
- * - Linux: Uses process start times to detect PID reuse
- * - FreeBSD/macOS: Relies on current process hierarchy only
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
-    int ret_child, ret_parent, depth;
-    struct timespec child_start_time = {0, 0}, parent_start_time = {0, 0};
+    int depth;
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
     /*
-     * Fast path: all non-init processes are descendants of init (PID 1).
-     * Only verify that the child PID currently exists.
+     * Fast-path: any existing non-init process is ultimately a child of
+     * init (PID 1).
      */
     if (parent_pid == 1) {
-        ret_child = get_start_time(child_pid, &child_start_time);
-        return (ret_child == 0) ? 1 : 0;
+        return getppid_of(child_pid) != (pid_t)(-1);
     }
-    /*
-     * Get parent's start time to detect PID reuse.
-     * If a process in the parent chain started before the supposed parent,
-     * that PID was reused and cannot be a true ancestor.
-     */
-    ret_parent = get_start_time(parent_pid, &parent_start_time);
     depth = 0;
     while (child_pid > 1 && child_pid != parent_pid) {
         pid_t next_ppid;
@@ -343,14 +280,6 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
              * conservative safe choice.
              */
             return 0;
-        }
-        if (ret_parent == 0) {
-            ret_child = get_start_time(child_pid, &child_start_time);
-            /* Child started before parent means PID reuse occurred */
-            if (ret_child == 0 &&
-                earlier_than(&child_start_time, &parent_start_time)) {
-                return 0;
-            }
         }
         next_ppid = getppid_of(child_pid);
         /*
