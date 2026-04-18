@@ -1814,12 +1814,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
     pid_t child_pid;
     int status;
     pid_t waited;
-    int exited;
-    int exit_code;
     int ret;
-    char ready_byte;
-    ssize_t n_read;
-    const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -1854,27 +1849,33 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
             _exit(3);
         }
         _exit(0);
+    } else {
+        const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
+        char ready_byte;
+        ssize_t n_read;
+        int exited;
+        int exit_code;
+
+        /* Parent: wait for child to enter sleep, then send SIGTERM */
+        close(ready_pipe[1]);
+        do {
+            n_read = read(ready_pipe[0], &ready_byte, 1);
+        } while (n_read < 0 && errno == EINTR);
+        assert(n_read == 1 && ready_byte == 'R');
+        close(ready_pipe[0]);
+
+        /* Give child a moment to reach sleep_timespec before sending signal */
+        sleep_timespec(&small_delay);
+
+        kill(child_pid, SIGTERM);
+
+        waited = waitpid(child_pid, &status, 0);
+        assert(waited == child_pid);
+        exited = WIFEXITED(status);
+        assert(exited);
+        exit_code = WEXITSTATUS(status);
+        assert(exit_code == 0);
     }
-
-    /* Parent: wait for child to enter sleep, then send SIGTERM */
-    close(ready_pipe[1]);
-    do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
-    } while (n_read < 0 && errno == EINTR);
-    assert(n_read == 1 && ready_byte == 'R');
-    close(ready_pipe[0]);
-
-    /* Give child a moment to reach sleep_timespec before sending signal */
-    sleep_timespec(&small_delay);
-
-    kill(child_pid, SIGTERM);
-
-    waited = waitpid(child_pid, &status, 0);
-    assert(waited == child_pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
 }
 
 /**
@@ -1891,14 +1892,9 @@ static void test_signal_handler_race_rapid_all_signals(void) {
     pid_t child_pid;
     int status;
     pid_t waited;
-    int exited;
-    int exit_code;
     int ret;
-    char ready_byte;
-    ssize_t n_read;
     static const int all_sigs[] = {SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT};
     static const size_t num_sigs = sizeof(all_sigs) / sizeof(*all_sigs);
-    size_t sig_idx;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -1950,26 +1946,32 @@ static void test_signal_handler_race_rapid_all_signals(void) {
             _exit(3);
         }
         _exit(0);
+    } else {
+        size_t sig_idx;
+        char ready_byte;
+        ssize_t n_read;
+        int exited;
+        int exit_code;
+
+        close(ready_pipe[1]);
+        do {
+            n_read = read(ready_pipe[0], &ready_byte, 1);
+        } while (n_read < 0 && errno == EINTR);
+        assert(n_read == 1 && ready_byte == 'R');
+        close(ready_pipe[0]);
+
+        /* Send all five signals in rapid succession */
+        for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
+            kill(child_pid, all_sigs[sig_idx]);
+        }
+
+        waited = waitpid(child_pid, &status, 0);
+        assert(waited == child_pid);
+        exited = WIFEXITED(status);
+        assert(exited);
+        exit_code = WEXITSTATUS(status);
+        assert(exit_code == 0);
     }
-
-    close(ready_pipe[1]);
-    do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
-    } while (n_read < 0 && errno == EINTR);
-    assert(n_read == 1 && ready_byte == 'R');
-    close(ready_pipe[0]);
-
-    /* Send all five signals in rapid succession */
-    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-        kill(child_pid, all_sigs[sig_idx]);
-    }
-
-    waited = waitpid(child_pid, &status, 0);
-    assert(waited == child_pid);
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
 }
 
 /***************************************************************************
@@ -2065,10 +2067,6 @@ static void test_process_iterator_is_child_of_deep(void) {
     pid_t child_pid;
     pid_t grandchild_pid;
     int pipe_fds[2];
-    ssize_t n;
-    int result;
-    char *buf;
-    size_t remaining;
 
     grandparent_pid = getpid();
 
@@ -2135,46 +2133,51 @@ static void test_process_iterator_is_child_of_deep(void) {
         }
         sigsuspend(&empty_mask);
         _exit(EXIT_SUCCESS);
-    }
+    } else {
+        char *buf;
+        size_t remaining;
+        int result;
 
-    /* Parent (grandparent): read grandchild PID from pipe */
-    close(pipe_fds[1]);
-    buf = (char *)&grandchild_pid;
-    remaining = sizeof(grandchild_pid);
-    while (remaining > 0) {
-        n = read(pipe_fds[0], buf, remaining);
-        if (n > 0) {
-            remaining -= (size_t)n;
-            buf += n;
-        } else if (n == 0 || errno != EINTR) {
-            /* EOF or unrecoverable error */
-            break;
+        /* Parent (grandparent): read grandchild PID from pipe */
+        close(pipe_fds[1]);
+        buf = (char *)&grandchild_pid;
+        remaining = sizeof(grandchild_pid);
+        while (remaining > 0) {
+            ssize_t n = read(pipe_fds[0], buf, remaining);
+            if (n > 0) {
+                remaining -= (size_t)n;
+                buf += n;
+            } else if (n == 0 || errno != EINTR) {
+                /* EOF or unrecoverable error */
+                break;
+            }
+            /* EINTR: retry */
         }
-        /* EINTR: retry */
+        close(pipe_fds[0]);
+        assert(grandchild_pid > 0);
+
+        /* Grandchild must be a descendant of grandparent (two hops up) */
+        result = is_child_of(grandchild_pid, grandparent_pid);
+        assert(result == 1);
+
+        /* Grandchild must also be a direct descendant of the intermediate child
+         */
+        /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
+        result = is_child_of(grandchild_pid, child_pid);
+        assert(result == 1);
+
+        /* Inverse: intermediate child is NOT a descendant of grandchild */
+        /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
+        result = is_child_of(child_pid, grandchild_pid);
+        assert(result == 0);
+
+        /*
+         * Kill the entire process group (child + grandchild) and wait for
+         * our direct child to be reaped.  The grandchild gets reparented to
+         * init once child_pid exits and is reaped by init automatically.
+         */
+        kill_and_wait(-child_pid, SIGKILL);
     }
-    close(pipe_fds[0]);
-    assert(grandchild_pid > 0);
-
-    /* Grandchild must be a descendant of grandparent (two hops up) */
-    result = is_child_of(grandchild_pid, grandparent_pid);
-    assert(result == 1);
-
-    /* Grandchild must also be a direct descendant of the intermediate child */
-    /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
-    result = is_child_of(grandchild_pid, child_pid);
-    assert(result == 1);
-
-    /* Inverse: intermediate child is NOT a descendant of grandchild */
-    /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
-    result = is_child_of(child_pid, grandchild_pid);
-    assert(result == 0);
-
-    /*
-     * Kill the entire process group (child + grandchild) and wait for
-     * our direct child to be reaped.  The grandchild gets reparented to
-     * init once child_pid exits and is reaped by init automatically.
-     */
-    kill_and_wait(-child_pid, SIGKILL);
 }
 
 /**
@@ -5358,7 +5361,7 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
                 res = waitpid(target_pid, NULL, 0);
             } while (res == -1 && errno == EINTR);
         }
-        /* If res == target_pid or errno == ECHILD, already reaped */
+        /* res == -1 && errno == ECHILD means already reaped */
 
         if (!WIFEXITED(limiter_status) ||
             WEXITSTATUS(limiter_status) != EXIT_SUCCESS) {
@@ -5390,12 +5393,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
     pid_t limiter_pid;
     int limiter_status;
     pid_t waited;
-    int exited;
-    int exit_code;
-    char ready_byte;
-    ssize_t n_read;
     int ret;
-    const struct timespec delay = {0, 100000000L}; /* 100 ms */
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -5435,32 +5433,38 @@ static void test_limit_process_race_quit_during_sleep(void) {
          * returning, so target_pid should be in a runnable state here.
          */
         _exit(EXIT_SUCCESS);
+    } else {
+        const struct timespec delay = {0, 100000000L}; /* 100 ms */
+        char ready_byte;
+        ssize_t n_read;
+        int exited;
+        int exit_code;
+
+        /* Wait for limiter to be ready */
+        close(ready_pipe[1]);
+        do {
+            n_read = read(ready_pipe[0], &ready_byte, 1);
+        } while (n_read < 0 && errno == EINTR);
+        assert(n_read == 1 && ready_byte == 'L');
+        close(ready_pipe[0]);
+
+        /* Give limiter a moment to enter its sleep loop */
+        sleep_timespec(&delay);
+
+        /* Deliver SIGTERM to the limiter: interrupts sleep, sets quit_flag */
+        kill(limiter_pid, SIGTERM);
+
+        /* Limiter must exit promptly */
+        waited = waitpid(limiter_pid, &limiter_status, 0);
+        assert(waited == limiter_pid);
+        exited = WIFEXITED(limiter_status);
+        assert(exited);
+        exit_code = WEXITSTATUS(limiter_status);
+        assert(exit_code == EXIT_SUCCESS);
+
+        /* Clean up the spinning target */
+        kill_and_wait(target_pid, SIGKILL);
     }
-
-    /* Wait for limiter to be ready */
-    close(ready_pipe[1]);
-    do {
-        n_read = read(ready_pipe[0], &ready_byte, 1);
-    } while (n_read < 0 && errno == EINTR);
-    assert(n_read == 1 && ready_byte == 'L');
-    close(ready_pipe[0]);
-
-    /* Give limiter a moment to enter its sleep loop */
-    sleep_timespec(&delay);
-
-    /* Deliver SIGTERM to the limiter: interrupts sleep, sets quit_flag */
-    kill(limiter_pid, SIGTERM);
-
-    /* Limiter must exit promptly */
-    waited = waitpid(limiter_pid, &limiter_status, 0);
-    assert(waited == limiter_pid);
-    exited = WIFEXITED(limiter_status);
-    assert(exited);
-    exit_code = WEXITSTATUS(limiter_status);
-    assert(exit_code == EXIT_SUCCESS);
-
-    /* Clean up the spinning target */
-    kill_and_wait(target_pid, SIGKILL);
 }
 
 /***************************************************************************

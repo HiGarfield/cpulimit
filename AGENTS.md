@@ -359,14 +359,14 @@ authoritative description.
 - Code formatting MUST be performed before every commit.
 - Standalone `{ ... }` blocks without a control-flow statement MUST NOT be
   used.
-- Every block MUST be preceded by a control-flow statement (`if`, `for`,
-  `while`, `switch`, etc.).
+- Every non-function `{ ... }` block within a function MUST be preceded by a
+  control-flow statement (`if`, `for`, `while`, `switch`, etc.).
 - Standalone `{ ... }` blocks introduced purely to limit variable scope are
   strictly prohibited, with no exceptions. To minimize variable scope in
   C89, declare variables at the start of the nearest enclosing block that
-  is already required by control flow (e.g., function body, `if` branch,
-  loop body). If no suitable enclosing block exists, declare the variable
-  at the innermost enclosing function-body scope.
+  is already required by control flow (e.g., `if` branch, loop body). If no
+  suitable enclosing control-flow block exists, declare the variable at the
+  start of the innermost enclosing function body.
 - Unnecessary headers MUST NOT be included.
 - Source code lines SHOULD NOT exceed 80 characters where reasonably possible.
 - When a line exceeds 80 characters, string literals MUST NOT be split.
