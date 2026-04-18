@@ -168,7 +168,25 @@ set(CPULIMIT_C_FLAGS
     -Wanalyzer-unsafe-call-within-signal-handler
 )
 
-# --- 4. Common Source Files ---
+# --- 4. LTO (Link Time Optimization) ---
+#
+# If the compiler accepts -flto for both compilation and linking,
+# enable link-time optimization.  The flag is tested with the linker
+# flag set first so that the try_compile probe can successfully link
+# the object produced with LTO (e.g. LLVM bitcode from Clang).
+# CMAKE_EXE_LINKER_FLAGS carries it through to the link step;
+# target_link_options() is not used because it requires CMake 3.13.
+set(_cpulimit_save_linker_flags "${CMAKE_EXE_LINKER_FLAGS}")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+check_c_compiler_flag(-flto CPULIMIT_HAVE_FLTO)
+if(CPULIMIT_HAVE_FLTO)
+    list(APPEND CPULIMIT_C_FLAGS -flto)
+else()
+    set(CMAKE_EXE_LINKER_FLAGS "${_cpulimit_save_linker_flags}")
+endif()
+unset(_cpulimit_save_linker_flags)
+
+# --- 5. Common Source Files ---
 #
 # Library sources shared between the main executable and the test
 # binary.  main.c is intentionally excluded; it provides the entry

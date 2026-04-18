@@ -15,8 +15,21 @@ mkdir build
 # that the working directory of subsequent commands is unaffected.
 (cd build && cmake -DCMAKE_BUILD_TYPE=Release ..)
 
-# Build all targets
-cmake --build build
+# Detect the number of logical processors for parallel builds.
+# nproc is available on Linux; sysctl is available on macOS and FreeBSD.
+if command -v nproc >/dev/null 2>&1; then
+	_nproc=$(nproc)
+elif command -v sysctl >/dev/null 2>&1; then
+	_nproc=$(sysctl -n hw.logicalcpu 2>/dev/null || echo 1)
+else
+	_nproc=1
+fi
+
+# Build all targets, passing the job count to the native build tool
+# so parallel compilation is used regardless of the CMake version.
+# The -- separator forwards the following arguments directly to make
+# or ninja (CMake 3.5 compatible).
+cmake --build build -- -j"${_nproc}"
 
 # Information about the build
 echo "Build completed successfully."

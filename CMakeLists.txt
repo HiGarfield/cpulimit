@@ -30,20 +30,35 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     )
 endif()
 
-# --- 5. Project Options ---
+# --- 5. Parallel Build Configuration ---
+#
+# Detects the number of logical processors and, if the count is
+# available, sets CMAKE_BUILD_PARALLEL_LEVEL so that cmake --build
+# uses all cores on CMake 3.12 or later.  On CMake 3.5 the variable
+# has no effect, but passing -- -j${CMAKE_BUILD_PARALLEL_LEVEL} to
+# the native build tool achieves the same result (see
+# build_with_cmake.sh).
+include(ProcessorCount)
+ProcessorCount(_cpulimit_n_cpus)
+if(NOT _cpulimit_n_cpus EQUAL 0)
+    set(CMAKE_BUILD_PARALLEL_LEVEL ${_cpulimit_n_cpus}
+        CACHE STRING "Number of parallel build jobs")
+endif()
+
+# --- 6. Project Options ---
 option(CPULIMIT_BUILD_TESTS "Build test binaries" ON)
 
-# --- 6. Build Utilities and Settings ---
+# --- 7. Build Utilities and Settings ---
 include(cmake/CheckedFlags.cmake)
 include(cmake/CpulimitOptions.cmake)
 
-# --- 7. Subdirectories ---
+# --- 8. Subdirectories ---
 add_subdirectory(src)
 if(CPULIMIT_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# --- 8. Tool Discovery ---
+# --- 9. Tool Discovery ---
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 find_program(CPPCHECK_EXECUTABLE cppcheck)
 find_program(CLANG_TIDY_EXECUTABLE clang-tidy)
@@ -77,7 +92,7 @@ if(CPULIMIT_BUILD_TESTS AND NOT VALGRIND_EXECUTABLE)
     )
 endif()
 
-# --- 9. Check Target (Static Analysis) ---
+# --- 10. Check Target (Static Analysis) ---
 #
 # Runs cppcheck and clang-tidy on src/ and tests/, generating
 # per-directory report files.
@@ -101,7 +116,7 @@ add_custom_target(check
     VERBATIM
 )
 
-# --- 10. Format Target ---
+# --- 11. Format Target ---
 #
 # Runs clang-format -i on all C source and header files in src/ and
 # tests/.
@@ -121,7 +136,7 @@ add_custom_target(format
     VERBATIM
 )
 
-# --- 11. Valgrind Target (Dynamic Analysis) ---
+# --- 12. Valgrind Target (Dynamic Analysis) ---
 #
 # Runs the test binary under valgrind to detect memory errors and
 # leaks.  Created when tests are enabled; fails at build time if
@@ -143,7 +158,7 @@ if(CPULIMIT_BUILD_TESTS)
     add_dependencies(valgrind cpulimit_test)
 endif()
 
-# --- 12. Uninstall Target ---
+# --- 13. Uninstall Target ---
 #
 # Removes all files recorded in the CMake install manifest.
 #
