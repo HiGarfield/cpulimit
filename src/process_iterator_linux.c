@@ -248,7 +248,8 @@ pid_t getppid_of(pid_t pid) {
  *
  * Special cases:
  * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
+ * - Returns 1 for parent_pid == 1 only when getppid_of(child_pid) succeeds
+ *   (that is, child_pid is non-init, non-zombie, and has a valid PPID)
  * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
  *   against infinite loops caused by PID reuse cycles)
  */
