@@ -367,6 +367,11 @@ authoritative description.
   is already required by control flow (e.g., `if` branch, loop body). If no
   suitable enclosing control-flow block exists, declare the variable at the
   start of the innermost enclosing function body.
+- Standalone `{ ... }` blocks MUST NOT be used as a workaround for C89's
+  requirement that variable declarations appear at the start of a block.
+  This is a strict, unconditional prohibition. To comply with C89, move
+  variable declarations to the top of the nearest enclosing control-flow
+  block or function body instead of introducing a standalone block.
 - Unnecessary headers MUST NOT be included.
 - Source code lines SHOULD NOT exceed 80 characters where reasonably possible.
 - When a line exceeds 80 characters, string literals MUST NOT be split.
