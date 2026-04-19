@@ -35,8 +35,8 @@
 #endif
 #if defined(__linux__)
 #include <ctype.h>
+#include <fcntl.h>
 #include <limits.h>
-#include <stdio.h>
 #include <stdlib.h>
 #endif
 
@@ -365,51 +365,111 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
  *         opened, or reading fails (including when the file is empty and
  *         contains no bytes at all)
  *
- * Opens the specified file, reads the first line using getline(), strips
- * trailing newlines, and returns the result. The caller must free() the
- * returned string. Used for reading single-line text files such as procfs
- * stat files and sysfs entries.
+ * Opens the specified file using low-level I/O (open/read/close), reads
+ * into a stack buffer, finds the first line, strips trailing carriage
+ * returns and newlines, and returns a heap-allocated copy. The caller must
+ * free() the returned string. Used for reading single-line text files such
+ * as procfs stat files and sysfs entries.
  *
  * @note A file containing only a newline character returns an empty string
  *       (non-NULL), not NULL.
  */
 char *read_line_from_file(const char *file_name) {
-    FILE *input_file;
-    char *line = NULL;
-    size_t line_size = 0;
-    ssize_t read_result;
+    int fd;
+    char stack_buf[256];
+    char *buf = stack_buf;
+    size_t buf_size = sizeof(stack_buf);
+    size_t total = 0;
+    ssize_t nread;
+    char *result;
+    size_t line_len;
+
     if (file_name == NULL) {
         return NULL;
     }
-    input_file = fopen(file_name, "r");
-    if (input_file == NULL) {
+    fd = open(file_name, O_RDONLY);
+    if (fd < 0) {
         return NULL;
     }
     /*
-     * Retry getline() when interrupted by a signal (EINTR). This avoids
-     * spurious read failures when cpulimit receives signals while reading
-     * procfs/sysfs files. Because stdio stream error indicators are sticky,
-     * clear the stream state before retrying after EINTR.
+     * Read until a newline is found or EOF is reached. Retry on EINTR
+     * to avoid spurious failures when cpulimit receives signals while
+     * reading procfs/sysfs files.
      */
-    do {
-        errno = 0;
-        read_result = getline(&line, &line_size, input_file);
-        if (read_result < 0 && errno == EINTR) {
-            clearerr(input_file);
+    while (1) {
+        do {
+            nread = read(fd, buf + total, buf_size - total);
+        } while (nread < 0 && errno == EINTR);
+
+        if (nread < 0) {
+            close(fd);
+            if (buf != stack_buf) {
+                free(buf);
+            }
+            return NULL;
         }
-    } while (read_result < 0 && errno == EINTR);
-    if (read_result < 0) {
-        free(line);
-        fclose(input_file);
+        if (nread == 0) {
+            break; /* EOF */
+        }
+        total += (size_t)nread;
+        /* Stop reading once a newline is found in the new data */
+        if (memchr(buf + total - (size_t)nread, '\n', (size_t)nread) != NULL) {
+            break;
+        }
+        /* Grow buffer if full and no newline found yet */
+        if (total >= buf_size) {
+            char *new_buf;
+            size_t new_size = buf_size * 2;
+            if (buf == stack_buf) {
+                new_buf = (char *)malloc(new_size);
+                if (new_buf == NULL) {
+                    close(fd);
+                    return NULL;
+                }
+                memcpy(new_buf, stack_buf, total);
+            } else {
+                new_buf = (char *)realloc(buf, new_size);
+                if (new_buf == NULL) {
+                    close(fd);
+                    free(buf);
+                    return NULL;
+                }
+            }
+            buf = new_buf;
+            buf_size = new_size;
+        }
+    }
+    /*
+     * close() on a read-only file descriptor is external and does not
+     * affect the data already read, so the return value is not checked.
+     */
+    close(fd);
+    /* Empty file (0 bytes read) returns NULL per contract */
+    if (total == 0) {
+        if (buf != stack_buf) {
+            free(buf);
+        }
         return NULL;
     }
-    if (fclose(input_file) != 0) {
-        perror("fclose");
-        /* The stream is closed regardless; the data read is still valid */
+    /* Find length of first line by locating the first \r or \n */
+    line_len = 0;
+    while (line_len < total && buf[line_len] != '\r' && buf[line_len] != '\n') {
+        line_len++;
     }
-    /* Strip trailing newline characters */
-    line[strcspn(line, "\r\n")] = '\0';
-    return line;
+    /* Allocate result string containing only the first line */
+    result = (char *)malloc(line_len + 1);
+    if (result == NULL) {
+        if (buf != stack_buf) {
+            free(buf);
+        }
+        return NULL;
+    }
+    memcpy(result, buf, line_len);
+    result[line_len] = '\0';
+    if (buf != stack_buf) {
+        free(buf);
+    }
+    return result;
 }
 #endif /* __linux__ */
 

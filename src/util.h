@@ -143,10 +143,11 @@ int cpulimit_getloadavg(double *loadavg, int nelem);
  *         opened, or reading fails (including when the file is empty and
  *         contains no bytes at all)
  *
- * Opens the specified file, reads the first line using getline(), strips
- * trailing newlines, and returns the result. The caller must free() the
- * returned string. Used for reading single-line text files such as procfs
- * stat files and sysfs entries.
+ * Opens the specified file using low-level I/O (open/read/close), reads
+ * into a stack buffer, finds the first line, strips trailing carriage
+ * returns and newlines, and returns a heap-allocated copy. The caller must
+ * free() the returned string. Used for reading single-line text files such
+ * as procfs stat files and sysfs entries.
  *
  * @note A file containing only a newline character returns an empty string
  *       (non-NULL), not NULL.
