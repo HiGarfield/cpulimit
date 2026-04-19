@@ -119,7 +119,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     proc->pid = pid;
 
     /* Parse /proc/[pid]/stat for process state and timing information */
-    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
+    sprintf(statfile, "/proc/%ld/stat", (long)pid);
     buffer = read_line_from_file(statfile);
     if (buffer == NULL) {
         return -1;
@@ -218,8 +218,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * uses NUL bytes as argument separators (no newlines), so string
      * functions naturally stop at the first NUL, giving only argv[0].
      */
-    snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%ld/cmdline",
-             (long)pid);
+    sprintf(cmdline_path, "/proc/%ld/cmdline", (long)pid);
     cmdline_file = fopen(cmdline_path, "r");
     if (cmdline_file == NULL) {
         return -1;
@@ -267,7 +266,7 @@ pid_t getppid_of(pid_t pid) {
     long ppid;
 
     /* Parse /proc/[pid]/stat for parent process ID */
-    snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid);
+    sprintf(statfile, "/proc/%ld/stat", (long)pid);
     buffer = read_line_from_file(statfile);
     if (buffer == NULL) {
         return (pid_t)-1;

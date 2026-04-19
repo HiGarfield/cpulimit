@@ -376,12 +376,10 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
  */
 char *read_line_from_file(const char *file_name) {
     int fd;
-    char *buf;
-    size_t buf_size = 256;
-    size_t total = 0;
+    char *buf, *result;
+    const char *cr_pos, *nl_pos;
+    size_t buf_size = 2048, total = 0, line_len;
     ssize_t nread;
-    char *result;
-    size_t line_len;
 
     if (file_name == NULL) {
         return NULL;
@@ -450,20 +448,18 @@ char *read_line_from_file(const char *file_name) {
         return NULL;
     }
     /* Find length of first line by locating the first \r or \n */
-    line_len = 0;
-    while (line_len < total && buf[line_len] != '\r' && buf[line_len] != '\n') {
-        line_len++;
+    cr_pos = (const char *)memchr(buf, '\r', total);
+    if (cr_pos == NULL) {
+        cr_pos = buf + total;
     }
-    /* Allocate result string containing only the first line */
-    result = (char *)malloc(line_len + 1);
-    if (result == NULL) {
-        free(buf);
-        return NULL;
+    nl_pos = (const char *)memchr(buf, '\n', total);
+    if (nl_pos == NULL) {
+        nl_pos = buf + total;
     }
-    memcpy(result, buf, line_len);
-    result[line_len] = '\0';
-    free(buf);
-    return result;
+    line_len = (size_t)(MIN(cr_pos, nl_pos) - buf);
+    buf[line_len] = '\0';
+    result = (char *)realloc(buf, line_len + 1);
+    return result != NULL ? result : buf;
 }
 #endif /* __linux__ */
 
