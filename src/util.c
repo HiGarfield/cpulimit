@@ -366,19 +366,18 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
  *         contains no bytes at all)
  *
  * Opens the specified file using low-level I/O (open/read/close), reads
- * into a stack buffer, finds the first line, strips trailing carriage
- * returns and newlines, and returns a heap-allocated copy. The caller must
- * free() the returned string. Used for reading single-line text files such
- * as procfs stat files and sysfs entries.
+ * into a malloc-allocated buffer (grown with realloc as needed), finds the
+ * first line, strips trailing carriage returns and newlines, and returns a
+ * heap-allocated copy. The caller must free() the returned string. Used for
+ * reading single-line text files such as procfs stat files and sysfs entries.
  *
  * @note A file containing only a newline character returns an empty string
  *       (non-NULL), not NULL.
  */
 char *read_line_from_file(const char *file_name) {
     int fd;
-    char stack_buf[256];
-    char *buf = stack_buf;
-    size_t buf_size = sizeof(stack_buf);
+    char *buf;
+    size_t buf_size = 256;
     size_t total = 0;
     ssize_t nread;
     char *result;
@@ -387,8 +386,13 @@ char *read_line_from_file(const char *file_name) {
     if (file_name == NULL) {
         return NULL;
     }
+    buf = (char *)malloc(buf_size);
+    if (buf == NULL) {
+        return NULL;
+    }
     fd = open(file_name, O_RDONLY);
     if (fd < 0) {
+        free(buf);
         return NULL;
     }
     /*
@@ -403,9 +407,7 @@ char *read_line_from_file(const char *file_name) {
 
         if (nread < 0) {
             close(fd);
-            if (buf != stack_buf) {
-                free(buf);
-            }
+            free(buf);
             return NULL;
         }
         if (nread == 0) {
@@ -420,20 +422,11 @@ char *read_line_from_file(const char *file_name) {
         if (total >= buf_size) {
             char *new_buf;
             size_t new_size = buf_size * 2;
-            if (buf == stack_buf) {
-                new_buf = (char *)malloc(new_size);
-                if (new_buf == NULL) {
-                    close(fd);
-                    return NULL;
-                }
-                memcpy(new_buf, stack_buf, total);
-            } else {
-                new_buf = (char *)realloc(buf, new_size);
-                if (new_buf == NULL) {
-                    close(fd);
-                    free(buf);
-                    return NULL;
-                }
+            new_buf = (char *)realloc(buf, new_size);
+            if (new_buf == NULL) {
+                close(fd);
+                free(buf);
+                return NULL;
             }
             buf = new_buf;
             buf_size = new_size;
@@ -446,9 +439,7 @@ char *read_line_from_file(const char *file_name) {
     close(fd);
     /* Empty file (0 bytes read) returns NULL per contract */
     if (total == 0) {
-        if (buf != stack_buf) {
-            free(buf);
-        }
+        free(buf);
         return NULL;
     }
     /* Find length of first line by locating the first \r or \n */
@@ -459,16 +450,12 @@ char *read_line_from_file(const char *file_name) {
     /* Allocate result string containing only the first line */
     result = (char *)malloc(line_len + 1);
     if (result == NULL) {
-        if (buf != stack_buf) {
-            free(buf);
-        }
+        free(buf);
         return NULL;
     }
     memcpy(result, buf, line_len);
     result[line_len] = '\0';
-    if (buf != stack_buf) {
-        free(buf);
-    }
+    free(buf);
     return result;
 }
 #endif /* __linux__ */
