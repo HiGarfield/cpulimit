@@ -421,7 +421,14 @@ char *read_line_from_file(const char *file_name) {
         /* Grow buffer if full and no newline found yet */
         if (total >= buf_size) {
             char *new_buf;
-            size_t new_size = buf_size * 2;
+            size_t new_size;
+            /* Guard against size_t overflow before doubling */
+            if (buf_size > (size_t)-1 / 2) {
+                close(fd);
+                free(buf);
+                return NULL;
+            }
+            new_size = buf_size * 2;
             new_buf = (char *)realloc(buf, new_size);
             if (new_buf == NULL) {
                 close(fd);

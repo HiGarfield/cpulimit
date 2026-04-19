@@ -567,7 +567,8 @@ static void test_util_long2pid_t(void) {
 #if defined(__linux__)
 /**
  * @brief Test read_line_from_file with NULL, missing, and valid files
- * @note Covers all three return paths of read_line_from_file (Linux only)
+ * @note Covers all three return paths of read_line_from_file (Linux only);
+ *       also exercises the realloc growth path with a line > 256 bytes
  */
 static void test_util_read_line_from_file(void) {
     char *line;
@@ -576,6 +577,14 @@ static void test_util_read_line_from_file(void) {
     char nl_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
     int newline_fd;
     ssize_t nwritten;
+    /* Buffer for the > 256-byte line tests */
+    char long_tmp_file[] = "/tmp/cpulimit_long_XXXXXX";
+    int long_fd;
+    char long_tmp_nonl[] = "/tmp/cpulimit_longnl_XXXXXX";
+    int long_nonl_fd;
+    /* 300 'a' characters, filling well past the initial 256-byte buffer */
+    char *long_line;
+    int li;
 
     /* NULL filename must return NULL */
     line = read_line_from_file(NULL);
@@ -610,6 +619,52 @@ static void test_util_read_line_from_file(void) {
     assert(line[0] == '\0');
     free(line);
     remove(nl_tmp_file);
+
+    /* Build a 300-character line to exercise the realloc growth path */
+    long_line = (char *)malloc(300);
+    assert(long_line != NULL);
+    for (li = 0; li < 300; li++) {
+        long_line[li] = 'a';
+    }
+
+    /*
+     * Line > 256 bytes followed by a newline: realloc path must be taken
+     * and the returned string must be exactly 300 'a' characters long.
+     */
+    long_fd = mkstemp(long_tmp_file);
+    assert(long_fd >= 0);
+    nwritten = write(long_fd, long_line, 300);
+    assert(nwritten == 300);
+    nwritten = write(long_fd, "\n", 1);
+    assert(nwritten == 1);
+    close(long_fd);
+    line = read_line_from_file(long_tmp_file);
+    assert(line != NULL);
+    assert(strlen(line) == 300);
+    for (li = 0; li < 300; li++) {
+        assert(line[li] == 'a');
+    }
+    free(line);
+    remove(long_tmp_file);
+
+    /*
+     * Line > 256 bytes with no trailing newline (EOF-terminated): realloc
+     * path must be taken and the entire content must be returned.
+     */
+    long_nonl_fd = mkstemp(long_tmp_nonl);
+    assert(long_nonl_fd >= 0);
+    nwritten = write(long_nonl_fd, long_line, 300);
+    assert(nwritten == 300);
+    close(long_nonl_fd);
+    line = read_line_from_file(long_tmp_nonl);
+    assert(line != NULL);
+    assert(strlen(line) == 300);
+    for (li = 0; li < 300; li++) {
+        assert(line[li] == 'a');
+    }
+    free(line);
+    remove(long_tmp_nonl);
+    free(long_line);
 }
 #endif /* __linux__ */
 
