@@ -254,18 +254,18 @@ pid_t getppid_of(pid_t pid) {
  *   against infinite loops caused by PID reuse cycles)
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
-    int depth;
+    int depth = 0;
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
     /*
-     * Fast-path: any existing non-init process is ultimately a child of
-     * init (PID 1).
+     * Fast-path: any existing non-init process is ultimately a child of init
+     * (PID 1)
      */
     if (parent_pid == 1) {
         return getppid_of(child_pid) != (pid_t)(-1);
     }
-    depth = 0;
+    /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
         pid_t next_ppid;
         /*
@@ -275,18 +275,12 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
          * this counter the loop would never terminate on length-2+ cycles.
          */
         if (depth++ >= IS_CHILD_MAX_DEPTH) {
-            /*
-             * Cannot determine the relationship within the allowed
-             * traversal budget.  Return 0 (not a child) as the
-             * conservative safe choice.
-             */
             return 0;
         }
         next_ppid = getppid_of(child_pid);
         /*
-         * Defensive guard against invalid parent links and pathological
-         * self-parenting. Either condition would otherwise risk an endless
-         * loop in a racey /proc snapshot.
+         * Guard against invalid parent links or self-parenting processes,
+         * either of which would cause an infinite loop.
          */
         if (next_ppid <= 0 || next_ppid == child_pid) {
             return 0;

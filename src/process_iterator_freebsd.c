@@ -342,11 +342,10 @@ static int is_child_via_kvm(kvm_t *kvm_descriptor, pid_t child_pid,
  *
  * Special cases:
  * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 1 for parent_pid == 1 only when child_pid exists and is not init
+ * - Returns 1 for parent_pid == 1 only when getppid_of(child_pid) succeeds
+ *   (that is, child_pid is non-init, non-zombie, and has a valid PPID)
  * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
  *   against infinite loops caused by PID reuse cycles)
- * - Linux: Uses process start times to detect PID reuse
- * - FreeBSD/macOS: Relies on current process hierarchy only
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret;
