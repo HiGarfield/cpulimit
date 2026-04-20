@@ -294,6 +294,7 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
         platform_time_to_ms((double)task_info->ptinfo.pti_total_user);
     proc->sys_time =
         platform_time_to_ms((double)task_info->ptinfo.pti_total_system);
+
     if (!read_cmd) {
         return 0;
     }
