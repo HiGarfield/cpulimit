@@ -83,9 +83,14 @@ int sleep_timespec(const struct timespec *duration);
  * @param earlier Pointer to the older timestamp
  * @return Time difference in milliseconds (later - earlier)
  *
- * Computes the difference accounting for both seconds and nanoseconds fields.
- * Returns a positive value when later > earlier. The nanosecond component is
- * divided by 1e6, giving sub-microsecond precision in the returned value.
+ * Computes the difference by casting tv_sec to double before subtracting,
+ * then adding the nanoseconds delta. For 32-bit time_t, all representable
+ * values fit exactly in a double (53-bit mantissa exceeds 32-bit range),
+ * so the subtraction is exact. When a 32-bit time_t overflows (e.g., Y2038
+ * for CLOCK_REALTIME), tv_sec wraps to a large negative value and the
+ * return value becomes a large negative number. Callers must treat any
+ * negative result as a backward or overflowed clock step and reset CPU
+ * usage statistics accordingly.
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier);
