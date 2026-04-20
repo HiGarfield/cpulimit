@@ -34,6 +34,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -112,8 +113,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     long ppid;
     int skip_idx;
     static long sc_clk_tck = -1;
-    FILE *cmdline_file;
-    size_t bytes_read;
+    int cmdline_fd;
+    ssize_t bytes_read;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -207,30 +208,33 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         }
     }
     /* Convert CPU times from clock ticks to milliseconds */
-    proc->cpu_time = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
+    proc->user_time = user_time * 1000.0 / (double)sc_clk_tck;
+    proc->sys_time = sys_time * 1000.0 / (double)sc_clk_tck;
 
     if (!read_cmd) {
         return 0;
     }
     /*
-     * Read argv[0] from /proc/[pid]/cmdline using fread() to avoid
+     * Read argv[0] from /proc/[pid]/cmdline using open/read to avoid
      * allocating a buffer for the entire argument list. The cmdline file
      * uses NUL bytes as argument separators (no newlines), so string
      * functions naturally stop at the first NUL, giving only argv[0].
      */
     sprintf(cmdline_path, "/proc/%ld/cmdline", (long)pid);
-    cmdline_file = fopen(cmdline_path, "r");
-    if (cmdline_file == NULL) {
+    cmdline_fd = open(cmdline_path, O_RDONLY);
+    if (cmdline_fd < 0) {
         return -1;
     }
-    bytes_read =
-        fread(proc->command, 1, sizeof(proc->command) - 1, cmdline_file);
-    if (fclose(cmdline_file) != 0) {
-        perror("fclose");
+    do {
+        bytes_read =
+            read(cmdline_fd, proc->command, sizeof(proc->command) - 1);
+    } while (bytes_read < 0 && errno == EINTR);
+    if (close(cmdline_fd) != 0) {
+        perror("close");
         /* The file descriptor is closed regardless; the data read is
          * still valid */
     }
-    if (bytes_read == 0) {
+    if (bytes_read <= 0) {
         return -1;
     }
     proc->command[bytes_read] = '\0';
@@ -375,7 +379,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cpu_time
+ * - Always populated: pid, ppid, user_time, sys_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),

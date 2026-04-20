@@ -169,8 +169,9 @@ int init_process_iterator(struct process_iterator *iter,
  * @return 0 on success, -1 on failure
  *
  * Extracts essential process information from FreeBSD's kinfo_proc and
- * converts it to the platform-independent process structure. The ki_runtime
- * field (in microseconds) is converted to milliseconds for cpu_time.
+ * converts it to the platform-independent process structure. The
+ * ki_rusage fields (ru_utime and ru_stime) are converted to milliseconds
+ * for user_time and sys_time.
  *
  * When read_cmd is set, retrieves command arguments via kvm_getargv()
  * and uses the first argument (argv[0]) as the command path.
@@ -185,8 +186,16 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     memset(proc, 0, sizeof(struct process));
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;
-    /* Convert runtime from microseconds to milliseconds */
-    proc->cpu_time = (double)kproc->ki_runtime / 1000.0;
+    /*
+     * Convert user and system CPU times from timeval to milliseconds.
+     * tv_sec is in seconds and tv_usec is in microseconds.
+     */
+    proc->user_time =
+        (double)kproc->ki_rusage.ru_utime.tv_sec * 1000.0 +
+        (double)kproc->ki_rusage.ru_utime.tv_usec / 1000.0;
+    proc->sys_time =
+        (double)kproc->ki_rusage.ru_stime.tv_sec * 1000.0 +
+        (double)kproc->ki_rusage.ru_stime.tv_usec / 1000.0;
     if (!read_cmd) {
         return 0;
     }
@@ -369,7 +378,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cpu_time
+ * - Always populated: pid, ppid, user_time, sys_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),

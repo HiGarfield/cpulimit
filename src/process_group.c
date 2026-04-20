@@ -198,23 +198,27 @@ static struct process *process_dup(const struct process *proc) {
  * @param ncpu      Number of available CPU cores (used to cap the sample).
  *
  * Handles four mutually exclusive cases:
- * - PID reuse (scan_proc->cpu_time < proc->cpu_time): resets all fields.
- * - Backward clock (elapsed_ms < 0): updates ppid and cpu_time, marks
- *   usage unknown so the next cycle starts from a clean baseline.
+ * - Wrap or PID reuse (user_time or sys_time decreased): resets all fields.
+ * - Backward clock / overflow (elapsed_ms < 0): the system clock went
+ *   backwards or the time_t value overflowed to a negative result; updates
+ *   ppid, user_time, and sys_time, and marks usage unknown so the next
+ *   cycle starts from a clean baseline.
  * - Short interval (elapsed_ms < CPU_MIN_DELTA_MS): updates ppid only;
- *   holds cpu_time so the next valid update spans the full accumulated
- *   delta.
+ *   holds user_time and sys_time so the next valid update spans the full
+ *   accumulated delta.
  * - Normal: computes a CPU sample, applies exponential moving average,
- *   and updates ppid and cpu_time.
+ *   and updates ppid, user_time, and sys_time.
  */
 static void update_existing_process_entry(struct process *proc,
                                           const struct process *scan_proc,
                                           double elapsed_ms, int ncpu) {
     double sample;
-    if (scan_proc->cpu_time < proc->cpu_time) {
+    if (scan_proc->user_time < proc->user_time ||
+        scan_proc->sys_time < proc->sys_time) {
         /*
-         * CPU time decreased: PID has been reused for a new process.
-         * Reset all historical data.
+         * User or system CPU time decreased: either field wrapped
+         * around, or the PID was reused for a new process. Reset all
+         * historical data.
          */
         *proc = *scan_proc;
         /* Mark CPU usage as unknown for new process */
@@ -228,18 +232,20 @@ static void update_existing_process_entry(struct process *proc,
     proc->ppid = scan_proc->ppid;
     if (elapsed_ms < 0) {
         /*
-         * Time moved backwards (system clock adjustment, NTP
-         * correction). Update cpu_time but don't calculate usage this
-         * cycle.
+         * Time moved backwards or the time_t value overflowed to a
+         * negative result (system clock adjustment, NTP correction,
+         * or time_t wrap). Update user_time and sys_time but don't
+         * calculate usage this cycle.
          */
-        proc->cpu_time = scan_proc->cpu_time;
+        proc->user_time = scan_proc->user_time;
+        proc->sys_time = scan_proc->sys_time;
         proc->cpu_usage = -1;
         return;
     }
     if (elapsed_ms < CPU_MIN_DELTA_MS) {
         /* Time delta too small for accurate CPU measurement; keep
-         * cpu_time unchanged so the next valid update accumulates
-         * the full delta over the interval. */
+         * user_time and sys_time unchanged so the next valid update
+         * accumulates the full delta over the interval. */
         return;
     }
     /*
@@ -247,7 +253,9 @@ static void update_existing_process_entry(struct process *proc,
      * sample = (delta_cputime / delta_walltime)
      * This represents the fraction of one CPU core used.
      */
-    sample = (scan_proc->cpu_time - proc->cpu_time) / elapsed_ms;
+    sample = ((scan_proc->user_time + scan_proc->sys_time) -
+              (proc->user_time + proc->sys_time)) /
+             elapsed_ms;
     /* Cap sample at total CPU capacity (shouldn't exceed N cores) */
     sample = MIN(sample, (double)ncpu);
     if (proc->cpu_usage < 0) {
@@ -262,8 +270,9 @@ static void update_existing_process_entry(struct process *proc,
         proc->cpu_usage =
             (1.0 - CPU_EMA_ALPHA) * proc->cpu_usage + CPU_EMA_ALPHA * sample;
     }
-    /* Update stored CPU time for next delta calculation */
-    proc->cpu_time = scan_proc->cpu_time;
+    /* Update stored CPU times for next delta calculation */
+    proc->user_time = scan_proc->user_time;
+    proc->sys_time = scan_proc->sys_time;
 }
 
 /**
@@ -282,8 +291,10 @@ static void update_existing_process_entry(struct process *proc,
  * - Requires minimum time delta (CPU_MIN_DELTA_MS = 20ms) for accuracy
  * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample,
  *   alpha = CPU_EMA_ALPHA = 0.08
- * - Detects PID reuse when cpu_time decreases (resets history)
- * - Handles backward time jumps (system clock adjustment)
+ * - Detects wrap or PID reuse when user_time or sys_time decreases
+ *   (resets history)
+ * - Handles backward clock / overflow (elapsed_ms < 0; resets per-process
+ *   CPU usage)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
  * @note Safe to call with NULL proc_group (returns immediately)
@@ -359,7 +370,8 @@ void update_process_group(struct process_group *proc_group) {
 
     /*
      * Update timestamp only if sufficient time passed for CPU calculation
-     * or if time moved backwards (to establish new baseline).
+     * or if time moved backwards or overflowed (to establish a new
+     * baseline).
      */
     if (elapsed_ms < 0 || elapsed_ms >= CPU_MIN_DELTA_MS) {
         proc_group->last_update = now;

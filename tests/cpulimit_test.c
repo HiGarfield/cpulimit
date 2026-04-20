@@ -2304,7 +2304,8 @@ static void test_process_iterator_single(void) {
     while (get_next_process(&iter, proc) == 0) {
         assert(proc->pid == self_pid);
         assert(proc->ppid == self_ppid);
-        assert(proc->cpu_time >= 0);
+        assert(proc->user_time >= 0);
+        assert(proc->sys_time >= 0);
         count++;
     }
     assert(count == 1);
@@ -2322,7 +2323,8 @@ static void test_process_iterator_single(void) {
     while (get_next_process(&iter, proc) == 0) {
         assert(proc->pid == self_pid);
         assert(proc->ppid == self_ppid);
-        assert(proc->cpu_time >= 0);
+        assert(proc->user_time >= 0);
+        assert(proc->sys_time >= 0);
         count++;
     }
     assert(count == 1);
@@ -2395,7 +2397,8 @@ static void test_process_iterator_multiple(void) {
         } else {
             assert(0);
         }
-        assert(proc->cpu_time >= 0);
+        assert(proc->user_time >= 0);
+        assert(proc->sys_time >= 0);
         count++;
     }
     assert(count == 2);
@@ -2441,7 +2444,8 @@ static void test_process_iterator_all(void) {
     while (get_next_process(&iter, proc) == 0) {
         if (proc->pid == getpid()) {
             assert(proc->ppid == self_ppid);
-            assert(proc->cpu_time >= 0);
+            assert(proc->user_time >= 0);
+            assert(proc->sys_time >= 0);
             found_self = 1;
         }
         count++;
@@ -3692,15 +3696,18 @@ static void test_process_table_add_find(void) {
 
     proc1->pid = 100;
     proc1->ppid = 1;
-    proc1->cpu_time = 0.0;
+    proc1->user_time = 0.0;
+    proc1->sys_time = 0.0;
 
     proc2->pid = 200;
     proc2->ppid = 1;
-    proc2->cpu_time = 0.0;
+    proc2->user_time = 0.0;
+    proc2->sys_time = 0.0;
 
     proc3->pid = 300;
     proc3->ppid = 1;
-    proc3->cpu_time = 0.0;
+    proc3->user_time = 0.0;
+    proc3->sys_time = 0.0;
 
     /* Test find on empty buckets */
     found = find_in_process_table(&proc_table, 100);
@@ -4027,7 +4034,8 @@ static void test_process_table_null_inputs_and_dup(void) {
     assert(proc1 != NULL);
     proc1->pid = 100;
     proc1->ppid = 1;
-    proc1->cpu_time = 0.0;
+    proc1->user_time = 0.0;
+    proc1->sys_time = 0.0;
     add_to_process_table(NULL, proc1);
 
     /* add_to_process_table with NULL process must not crash */
@@ -4045,7 +4053,8 @@ static void test_process_table_null_inputs_and_dup(void) {
     assert(proc2 != NULL);
     proc2->pid = 100; /* same PID as proc1 */
     proc2->ppid = 1;
-    proc2->cpu_time = 0.0;
+    proc2->user_time = 0.0;
+    proc2->sys_time = 0.0;
     add_to_process_table(&proc_table, proc2);
     found = find_in_process_table(&proc_table, 100);
     assert(found == proc1); /* proc1 must still be the stored entry */
@@ -4072,7 +4081,8 @@ static void test_process_table_stale_null_list(void) {
     assert(proc != NULL);
     proc->pid = 100;
     proc->ppid = 1;
-    proc->cpu_time = 0.0;
+    proc->user_time = 0.0;
+    proc->sys_time = 0.0;
     add_to_process_table(&proc_table, proc);
     pt_found = find_in_process_table(&proc_table, 100);
     assert(pt_found == proc);
@@ -4104,7 +4114,8 @@ static void test_process_table_init_hashsize_zero(void) {
     assert(proc != NULL);
     proc->pid = 77;
     proc->ppid = 1;
-    proc->cpu_time = 0.0;
+    proc->user_time = 0.0;
+    proc->sys_time = 0.0;
     proc->cpu_usage = -1.0;
 
     add_to_process_table(&proc_table, proc);
@@ -4146,7 +4157,8 @@ static void test_process_table_del_absent_pid(void) {
     assert(proc != NULL);
     proc->pid = 5;
     proc->ppid = 1;
-    proc->cpu_time = 0.0;
+    proc->user_time = 0.0;
+    proc->sys_time = 0.0;
     proc->cpu_usage = -1.0;
     add_to_process_table(&proc_table, proc);
 
@@ -4219,7 +4231,8 @@ static void test_process_table_ops_after_destroy(void) {
     assert(proc != NULL);
     proc->pid = 100;
     proc->ppid = 1;
-    proc->cpu_time = 0.0;
+    proc->user_time = 0.0;
+    proc->sys_time = 0.0;
     proc->cpu_usage = -1.0;
     add_to_process_table(&proc_table, proc);
     free(proc); /* p was never added to the buckets; must be freed manually */

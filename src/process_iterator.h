@@ -80,10 +80,20 @@ struct process {
     pid_t ppid;
 
     /**
-     * Cumulative CPU time consumed by the process in milliseconds.
-     * Includes both user and system time.
+     * Cumulative user-mode CPU time consumed by the process in
+     * milliseconds. Stored separately from sys_time so that an
+     * independent wraparound in either component can be detected
+     * and the CPU usage statistics reset.
      */
-    double cpu_time;
+    double user_time;
+
+    /**
+     * Cumulative kernel-mode CPU time consumed by the process in
+     * milliseconds. Stored separately from user_time so that an
+     * independent wraparound in either component can be detected
+     * and the CPU usage statistics reset.
+     */
+    double sys_time;
 
     /**
      * Estimated current CPU usage as a multiplier of one CPU core.
@@ -234,7 +244,7 @@ int init_process_iterator(struct process_iterator *iter,
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cpu_time
+ * - Always populated: pid, ppid, user_time, sys_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),

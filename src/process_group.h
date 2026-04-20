@@ -134,14 +134,16 @@ int close_process_group(struct process_group *proc_group);
  * 3. Calculates CPU usage for each process using exponential moving average
  * 4. Handles edge cases: PID reuse, clock skew, insufficient time delta
  * 5. Updates last_update timestamp if sufficient time has elapsed or if
- *    time moved backwards (to establish a new baseline)
+ *    time moved backwards or overflowed (to establish a new baseline)
  *
  * CPU usage calculation:
  * - Requires minimum time delta (CPU_MIN_DELTA_MS = 20ms) for accuracy
  * - Uses exponential smoothing: cpu = (1-alpha)*old + alpha*sample,
  *   alpha = CPU_EMA_ALPHA = 0.08
- * - Detects PID reuse when cpu_time decreases (resets history)
- * - Handles backward time jumps (system clock adjustment)
+ * - Detects wrap or PID reuse when user_time or sys_time decreases
+ *   (resets history)
+ * - Handles backward clock / overflow (elapsed_ms < 0; resets per-process
+ *   CPU usage)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
  * @note Safe to call with NULL proc_group (returns immediately)
