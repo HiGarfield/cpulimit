@@ -238,8 +238,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     struct process_group proc_group;
     int cycle_counter = 0, ncpu = get_ncpu();
     double work_ratio; /* Fraction of time processes should be running */
-    int is_stopped =
-        0; /* Current state: 1 if processes are stopped, 0 if running */
+    /* 1 if processes are stopped, 0 if running */
+    int is_stopped = 0;
 
     /* Clamp limit to valid range and calculate initial work ratio */
     limit = CLAMP(limit, WORK_RATIO_EPSILON, ncpu);

@@ -376,8 +376,8 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
  */
 static int collect_child_exit_status(pid_t child_pid,
                                      const struct cpulimit_cfg *cfg) {
-    int child_exit_status =
-        EXIT_FAILURE;     /* Default if child not properly reaped */
+    /* Default if child not properly reaped */
+    int child_exit_status = EXIT_FAILURE;
     int child_reaped = 0; /* 1 if successfully reaped child PID */
     /*
      * Three-state forwarding flag:

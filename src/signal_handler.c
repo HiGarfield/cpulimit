@@ -170,10 +170,10 @@ void configure_signal_handler(void) {
 
     /* Configure sigaction structure with unified handler */
     memset(&sig_action, 0, sizeof(sig_action));
-    sig_action.sa_handler =
-        sig_handler; /* Unified handler for all termination signals */
-    sig_action.sa_flags =
-        SA_RESTART; /* Automatically restart interrupted syscalls */
+    /* Unified handler for all termination signals */
+    sig_action.sa_handler = sig_handler;
+    /* Automatically restart interrupted syscalls */
+    sig_action.sa_flags = SA_RESTART;
     if (sigemptyset(&sig_action.sa_mask) != 0) {
         perror("sigemptyset");
         exit(EXIT_FAILURE);
