@@ -191,11 +191,11 @@ static struct process *process_dup(const struct process *proc) {
 #define CPU_MIN_DELTA_MS 20
 
 /**
- * @brief Update the CPU usage of an existing tracked process entry.
- * @param proc      The stored process entry to update (modified in place).
- * @param scan_proc Fresh snapshot of the same process from the iterator.
- * @param elapsed_ms Milliseconds elapsed since the last update cycle.
- * @param ncpu      Number of available CPU cores (used to cap the sample).
+ * @brief Update the CPU usage of an existing tracked process entry
+ * @param proc The stored process entry to update (modified in place)
+ * @param scan_proc Fresh snapshot of the same process from the iterator
+ * @param elapsed_ms Milliseconds elapsed since the last update cycle
+ * @param ncpu Number of available CPU cores (used to cap the sample)
  *
  * Handles four mutually exclusive cases:
  * - Wrap or PID reuse (user_time or sys_time decreased): resets all fields.
@@ -243,9 +243,11 @@ static void update_existing_process_entry(struct process *proc,
         return;
     }
     if (elapsed_ms < CPU_MIN_DELTA_MS) {
-        /* Time delta too small for accurate CPU measurement; keep
+        /*
+         * Time delta too small for accurate CPU measurement; keep
          * user_time and sys_time unchanged so the next valid update
-         * accumulates the full delta over the interval. */
+         * accumulates the full delta over the interval.
+         */
         return;
     }
     /*
@@ -285,7 +287,7 @@ static void update_existing_process_entry(struct process *proc,
  * 3. Calculates CPU usage for each process using exponential moving average
  * 4. Handles edge cases: PID reuse, clock skew, insufficient time delta
  * 5. Updates last_update timestamp if sufficient time has elapsed or if
- *    time moved backwards (to establish a new baseline)
+ *    time moved backwards or overflowed (to establish a new baseline)
  *
  * CPU usage calculation:
  * - Requires minimum time delta (CPU_MIN_DELTA_MS = 20ms) for accuracy
