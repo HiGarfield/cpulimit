@@ -376,29 +376,49 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
  */
 char *read_line_from_file(const char *file_name) {
     int fd;
-    char *buf, *result;
-    const char *cr_pos, *nl_pos;
-    size_t buf_size = 2048, total = 0, line_len;
+    char *buf;
+    size_t buf_size = 2048, total = 0;
     ssize_t nread;
 
     if (file_name == NULL) {
         return NULL;
     }
+
     buf = (char *)malloc(buf_size);
     if (buf == NULL) {
         return NULL;
     }
+
     fd = open(file_name, O_RDONLY);
     if (fd < 0) {
         free(buf);
         return NULL;
     }
-    /*
-     * Read until a newline is found or EOF is reached. Retry on EINTR
-     * to avoid spurious failures when cpulimit receives signals while
-     * reading procfs/sysfs files.
-     */
+
     while (1) {
+        char *nl_pos;
+        if (total == buf_size) {
+            size_t new_size;
+            char *new_buf;
+
+            if (buf_size > (size_t)-1 / 2) {
+                close(fd);
+                free(buf);
+                return NULL;
+            }
+
+            new_size = buf_size * 2;
+            new_buf = (char *)realloc(buf, new_size);
+            if (new_buf == NULL) {
+                close(fd);
+                free(buf);
+                return NULL;
+            }
+
+            buf = new_buf;
+            buf_size = new_size;
+        }
+
         do {
             nread = read(fd, buf + total, buf_size - total);
         } while (nread < 0 && errno == EINTR);
@@ -408,58 +428,30 @@ char *read_line_from_file(const char *file_name) {
             free(buf);
             return NULL;
         }
+
         if (nread == 0) {
             break; /* EOF */
         }
+
+        nl_pos = (char *)memchr(buf + total, '\n', (size_t)nread);
+        if (nl_pos != NULL) {
+            *nl_pos = '\0';
+            close(fd);
+            return buf;
+        }
+
         total += (size_t)nread;
-        /* Stop reading once a newline is found in the new data */
-        if (memchr(buf + total - (size_t)nread, '\n', (size_t)nread) != NULL) {
-            break;
-        }
-        /* Grow buffer if full and no newline found yet */
-        if (total >= buf_size) {
-            char *new_buf;
-            size_t new_size;
-            /* Guard against size_t overflow before doubling */
-            if (buf_size > (size_t)-1 / 2) {
-                close(fd);
-                free(buf);
-                return NULL;
-            }
-            new_size = buf_size * 2;
-            new_buf = (char *)realloc(buf, new_size);
-            if (new_buf == NULL) {
-                close(fd);
-                free(buf);
-                return NULL;
-            }
-            buf = new_buf;
-            buf_size = new_size;
-        }
     }
-    /*
-     * close() on a read-only file descriptor is external and does not
-     * affect the data already read, so the return value is not checked.
-     */
+
     close(fd);
-    /* Empty file (0 bytes read) returns NULL per contract */
+
     if (total == 0) {
         free(buf);
         return NULL;
     }
-    /* Find length of first line by locating the first \r or \n */
-    cr_pos = (const char *)memchr(buf, '\r', total);
-    if (cr_pos == NULL) {
-        cr_pos = buf + total;
-    }
-    nl_pos = (const char *)memchr(buf, '\n', total);
-    if (nl_pos == NULL) {
-        nl_pos = buf + total;
-    }
-    line_len = (size_t)(MIN(cr_pos, nl_pos) - buf);
-    buf[line_len] = '\0';
-    result = (char *)realloc(buf, line_len + 1);
-    return result != NULL ? result : buf;
+
+    buf[total] = '\0';
+    return buf;
 }
 #endif /* __linux__ */
 
