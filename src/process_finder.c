@@ -51,8 +51,10 @@ pid_t find_process_by_pid(pid_t pid) {
     if (pid <= 0) {
         return 0;
     }
-    /* Attempt to send null signal (doesn't actually signal, just checks
-     * permission) */
+    /*
+     * Attempt to send null signal (doesn't actually signal, just checks
+     * permission).
+     */
     if (kill(pid, 0) == 0) {
         return pid;
     }

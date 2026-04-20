@@ -150,13 +150,15 @@ void configure_signal_handler(void) {
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
-    /* Block all signals at function entry so that no termination signal can
+    /*
+     * Block all signals at function entry so that no termination signal can
      * be delivered between here and the completion of handler installation.
      * This eliminates the race where a signal fires before sigprocmask takes
      * effect, sets quit_flag, and then has that state wiped by the subsequent
      * reset_signal_state() call. SIGKILL and SIGSTOP cannot be blocked and
      * are silently ignored by sigprocmask, which is harmless. The original
-     * mask is restored after all handlers are in place. */
+     * mask is restored after all handlers are in place.
+     */
     if (sigfillset(&block_mask) != 0) {
         perror("sigfillset");
         exit(EXIT_FAILURE);
@@ -188,8 +190,10 @@ void configure_signal_handler(void) {
         }
     }
 
-    /* Restore the original signal mask; any signals pending during the
-     * blocked window are now delivered through the newly installed handlers. */
+    /*
+     * Restore the original signal mask; any signals pending during the
+     * blocked window are now delivered through the newly installed handlers.
+     */
     if (sigprocmask(SIG_SETMASK, &old_mask, NULL) != 0) {
         perror("sigprocmask");
         exit(EXIT_FAILURE);
