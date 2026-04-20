@@ -106,15 +106,13 @@ int init_process_iterator(struct process_iterator *iter,
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char statfile[64], cmdline_path[64], state;
-    char *buffer;
+    char *buffer, *endptr;
     const char *p;
-    char *endptr;
     double user_time, sys_time;
     long ppid;
-    int skip_idx;
-    static long sc_clk_tck = -1;
-    int cmdline_fd;
+    int skip_idx, cmdline_fd;
     ssize_t bytes_read;
+    static long sc_clk_tck = -1;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -231,8 +229,10 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     } while (bytes_read < 0 && errno == EINTR);
     if (close(cmdline_fd) != 0) {
         perror("close");
-        /* The file descriptor is closed regardless; the data read is
-         * still valid */
+        /*
+         * The file descriptor is closed regardless; the data read is
+         * still valid.
+         */
     }
     if (bytes_read <= 0) {
         return -1;
@@ -264,9 +264,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
  */
 pid_t getppid_of(pid_t pid) {
     char statfile[64], state;
-    char *buffer;
+    char *buffer, *endptr;
     const char *p;
-    char *endptr;
     long ppid;
 
     /* Parse /proc/[pid]/stat for parent process ID */
