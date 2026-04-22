@@ -82,7 +82,12 @@ int main(int argc, const char *argv[]) {
 
     if (is_quit_flag_set() && is_terminated_by_tty() && isatty(STDIN_FILENO) &&
         isatty(STDOUT_FILENO)) {
-        write(STDOUT_FILENO, "\n", 1);
+        ssize_t write_result;
+        write_result = write(STDOUT_FILENO, "\n", 1);
+        if (write_result != 1) {
+            perror("write");
+            return EXIT_FAILURE;
+        }
     }
 
     return 0;
