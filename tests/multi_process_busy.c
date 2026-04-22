@@ -37,7 +37,7 @@
  * @brief CPU load generator using fork
  * @param argc Command line argument count
  * @param argv Command line arguments (optional: number of processes)
- * @return Always returns 0 (unreachable)
+ * @return 0 on normal shutdown
  * @note This program creates a specified number of processes (default: CPU
  *  core count) that each run an infinite busy loop, consuming CPU cycles for
  *  testing purposes. If a command line argument is provided, it specifies
@@ -76,8 +76,7 @@ int main(int argc, const char *argv[]) {
 
     if (pid > 0 && is_quit_flag_set() && is_terminated_by_tty() &&
         isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
-        ssize_t write_result = write(STDOUT_FILENO, "\n", 1);
-        (void)write_result;
+        write(STDOUT_FILENO, "\n", 1);
     }
     return 0;
 }

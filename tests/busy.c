@@ -82,8 +82,7 @@ int main(int argc, const char *argv[]) {
 
     if (is_quit_flag_set() && is_terminated_by_tty() && isatty(STDIN_FILENO) &&
         isatty(STDOUT_FILENO)) {
-        ssize_t write_result = write(STDOUT_FILENO, "\n", 1);
-        (void)write_result;
+        write(STDOUT_FILENO, "\n", 1);
     }
 
     return 0;

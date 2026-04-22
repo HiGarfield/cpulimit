@@ -576,6 +576,8 @@ static void test_util_read_line_from_file(void) {
     int tmp_fd;
     char nl_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
     int newline_fd;
+    char crlf_tmp_file[] = "/tmp/cpulimit_crlf_XXXXXX";
+    int crlf_fd;
     ssize_t nwritten;
     /* Buffer for the > 256-byte line tests */
     char long_tmp_file[] = "/tmp/cpulimit_long_XXXXXX";
@@ -619,6 +621,21 @@ static void test_util_read_line_from_file(void) {
     assert(line[0] == '\0');
     free(line);
     remove(nl_tmp_file);
+
+    /*
+     * A CRLF-terminated line must have both '\r' and '\n' stripped.
+     * Expected result is the clean logical line content.
+     */
+    crlf_fd = mkstemp(crlf_tmp_file);
+    assert(crlf_fd >= 0);
+    nwritten = write(crlf_fd, "abc\r\n", 5);
+    assert(nwritten == 5);
+    close(crlf_fd);
+    line = read_line_from_file(crlf_tmp_file);
+    assert(line != NULL);
+    assert(strcmp(line, "abc") == 0);
+    free(line);
+    remove(crlf_tmp_file);
 
     /* Build a 300-character line to exercise the realloc growth path */
     long_line = (char *)malloc(300);
