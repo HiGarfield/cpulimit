@@ -578,6 +578,10 @@ static void test_util_read_line_from_file(void) {
     int newline_fd;
     char crlf_tmp_file[] = "/tmp/cpulimit_crlf_XXXXXX";
     int crlf_fd;
+    char cr_only_tmp_file[] = "/tmp/cpulimit_cronly_XXXXXX";
+    int cr_only_fd;
+    char cr_middle_tmp_file[] = "/tmp/cpulimit_crmiddle_XXXXXX";
+    int cr_middle_fd;
     ssize_t nwritten;
     /* Buffer for the > 256-byte line tests */
     char long_tmp_file[] = "/tmp/cpulimit_long_XXXXXX";
@@ -636,6 +640,33 @@ static void test_util_read_line_from_file(void) {
     assert(strcmp(line, "abc") == 0);
     free(line);
     remove(crlf_tmp_file);
+
+    /* EOF-terminated line with trailing CR must also be normalized. */
+    cr_only_fd = mkstemp(cr_only_tmp_file);
+    assert(cr_only_fd >= 0);
+    nwritten = write(cr_only_fd, "abc\r", 4);
+    assert(nwritten == 4);
+    close(cr_only_fd);
+    line = read_line_from_file(cr_only_tmp_file);
+    assert(line != NULL);
+    assert(strcmp(line, "abc") == 0);
+    free(line);
+    remove(cr_only_tmp_file);
+
+    /*
+     * Embedded CR must be preserved; only trailing CR/LF at line ending
+     * are stripped.
+     */
+    cr_middle_fd = mkstemp(cr_middle_tmp_file);
+    assert(cr_middle_fd >= 0);
+    nwritten = write(cr_middle_fd, "a\rb\n", 4);
+    assert(nwritten == 4);
+    close(cr_middle_fd);
+    line = read_line_from_file(cr_middle_tmp_file);
+    assert(line != NULL);
+    assert(strcmp(line, "a\rb") == 0);
+    free(line);
+    remove(cr_middle_tmp_file);
 
     /* Build a 300-character line to exercise the realloc growth path */
     long_line = (char *)malloc(300);

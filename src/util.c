@@ -460,6 +460,11 @@ char *read_line_from_file(const char *file_name) {
         return NULL;
     }
 
+    /*
+     * Trim trailing line endings for EOF-terminated files (no '\n' found).
+     * If the file contains only CR/LF bytes, the resulting logical line is
+     * the empty string.
+     */
     while (total > 0 && (buf[total - 1] == '\r' || buf[total - 1] == '\n')) {
         total--;
     }
