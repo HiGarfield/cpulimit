@@ -435,7 +435,17 @@ char *read_line_from_file(const char *file_name) {
 
         nl_pos = (char *)memchr(buf + total, '\n', (size_t)nread);
         if (nl_pos != NULL) {
-            *nl_pos = '\0';
+            char *trim_pos;
+            /*
+             * Keep only the first line and strip trailing CR/LF so callers
+             * receive a clean logical line regardless of line ending style.
+             */
+            trim_pos = nl_pos;
+            while (trim_pos > buf &&
+                   (trim_pos[-1] == '\r' || trim_pos[-1] == '\n')) {
+                trim_pos--;
+            }
+            *trim_pos = '\0';
             close(fd);
             return buf;
         }
@@ -450,6 +460,14 @@ char *read_line_from_file(const char *file_name) {
         return NULL;
     }
 
+    /*
+     * Trim trailing line endings for EOF-terminated files (no '\n' found).
+     * If the file contains only CR/LF bytes, the resulting logical line is
+     * the empty string.
+     */
+    while (total > 0 && (buf[total - 1] == '\r' || buf[total - 1] == '\n')) {
+        total--;
+    }
     buf[total] = '\0';
     return buf;
 }

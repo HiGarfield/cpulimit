@@ -32,7 +32,7 @@ extern "C" {
  * @brief Execute and monitor a user-specified command with CPU limiting
  * @param cfg Pointer to configuration structure containing command and options
  *
- * This function implements command execution mode (-COMMAND):
+ * This function implements command execution mode (COMMAND [ARG]...):
  * 1. Forks a child process to execute the specified command
  * 2. Creates a new process group for the child
  * 3. Applies CPU limiting to the command and optionally its descendants

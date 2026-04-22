@@ -223,8 +223,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         return -1;
     }
     do {
-        bytes_read =
-            read(cmdline_fd, proc->command, sizeof(proc->command) - 1);
+        bytes_read = read(cmdline_fd, proc->command, sizeof(proc->command) - 1);
     } while (bytes_read < 0 && errno == EINTR);
     if (close(cmdline_fd) != 0) {
         perror("close");
