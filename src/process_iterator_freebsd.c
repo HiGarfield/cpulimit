@@ -189,12 +189,10 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
      * Convert user and system CPU times from timeval to milliseconds.
      * tv_sec is in seconds and tv_usec is in microseconds.
      */
-    proc->user_time =
-        (double)kproc->ki_rusage.ru_utime.tv_sec * 1000.0 +
-        (double)kproc->ki_rusage.ru_utime.tv_usec / 1000.0;
-    proc->sys_time =
-        (double)kproc->ki_rusage.ru_stime.tv_sec * 1000.0 +
-        (double)kproc->ki_rusage.ru_stime.tv_usec / 1000.0;
+    proc->user_time = (double)kproc->ki_rusage.ru_utime.tv_sec * 1000.0 +
+                      (double)kproc->ki_rusage.ru_utime.tv_usec / 1000.0;
+    proc->sys_time = (double)kproc->ki_rusage.ru_stime.tv_sec * 1000.0 +
+                     (double)kproc->ki_rusage.ru_stime.tv_usec / 1000.0;
 
     if (!read_cmd) {
         return 0;
