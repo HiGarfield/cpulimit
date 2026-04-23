@@ -50,10 +50,10 @@ extern "C" {
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
  *
- * Y2038 note: this function is only used for short sleep durations
- * (at most MAX_TIME_SLOT = 500 ms worth of nanoseconds), so the tv_sec
- * value is far below any 32-bit overflow threshold and is not affected
- * by the Y2038 problem.
+ * Y2038 note: this function is currently used only for short sleep
+ * durations (sub-second intervals, up to 0.5 s), so the tv_sec value
+ * is far below any 32-bit overflow threshold and is not affected by
+ * the Y2038 problem.
  */
 void nsec2timespec(double nsec, struct timespec *result_ts);
 
@@ -75,9 +75,10 @@ void nsec2timespec(double nsec, struct timespec *result_ts);
  * overflow on a 32-bit system in 2038; however, since all callers use
  * timediff_in_ms() with difftime() for interval calculations rather than
  * comparing absolute timestamps, the computed differences remain correct
- * even after overflow.  On supported platforms (Linux, macOS, FreeBSD),
- * _TIME_BITS=64 is set at compile time to promote time_t to 64 bits,
- * eliminating any overflow concern on the primary code paths.
+ * even after overflow. On glibc-based Linux builds, _TIME_BITS=64 can be
+ * used at compile time to request a 64-bit time_t; on macOS and FreeBSD,
+ * supported environments typically already provide a 64-bit time_t, so
+ * this macro may be unnecessary or have no effect there.
  */
 int get_current_time(struct timespec *result_ts);
 
@@ -104,10 +105,10 @@ int sleep_timespec(const struct timespec *duration);
  * Returns a positive value when later > earlier. The nanosecond component is
  * divided by 1e6, giving sub-microsecond precision in the returned value.
  *
- * Y2038 note: difftime() is used for the seconds component because it is
- * specified to compute the correct difference even when time_t is a 32-bit
- * signed integer that has wrapped around; it returns the difference as a
- * double, preserving correctness for relative interval measurements.
+ * Y2038 note: difftime() is used for the seconds component because it avoids
+ * overflow in direct subtraction of large time_t values by returning the
+ * difference as a double. This helps when both timestamps are representable,
+ * but it does not make results correct if time_t itself has overflowed.
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier);

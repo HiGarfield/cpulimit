@@ -229,8 +229,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     } while (bytes_read < 0 && errno == EINTR);
     if (close(cmdline_fd) != 0) {
         perror("close");
-        /* The file descriptor is closed regardless; the data read is
-         * still valid */
+        /* Even if close() fails, any data already read into
+         * proc->command remains valid. */
     }
     if (bytes_read <= 0) {
         return -1;
