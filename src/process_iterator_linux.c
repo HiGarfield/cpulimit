@@ -228,6 +228,9 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (bytes_read <= 0) {
         return -1;
     }
+    if ((size_t)bytes_read >= sizeof(proc->command)) {
+        return -1;
+    }
     proc->command[(size_t)bytes_read] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with

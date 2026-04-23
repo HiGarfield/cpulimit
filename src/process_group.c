@@ -191,6 +191,16 @@ static struct process *process_dup(const struct process *proc) {
 #define CPU_MIN_DELTA_MS 20
 
 /**
+ * @def ELAPSED_MS_RESET_SENTINEL
+ * @brief Sentinel elapsed_ms value used to force baseline reset logic
+ *
+ * Negative elapsed_ms already maps to "clock anomaly/reset baseline" handling
+ * in update_existing_process_entry(). This named sentinel documents intentional
+ * reuse of that path when a backward/wraparound timestamp is detected.
+ */
+#define ELAPSED_MS_RESET_SENTINEL (-1.0)
+
+/**
  * @brief Compare two timestamps and check whether left is earlier than right
  * @param left Timestamp to compare as potential earlier value
  * @param right Timestamp to compare as reference later value
@@ -353,7 +363,7 @@ void update_process_group(struct process_group *proc_group) {
     }
     /* Calculate elapsed time since last update (milliseconds) */
     elapsed_ms = reset_cpu_baseline
-                     ? -1
+                     ? ELAPSED_MS_RESET_SENTINEL
                      : timediff_in_ms(&now, &proc_group->last_update);
 
     /* Configure iterator to scan target process and optionally descendants */
