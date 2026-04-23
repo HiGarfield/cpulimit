@@ -118,7 +118,6 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     int stop_reading;
     size_t total_bytes;
     ssize_t bytes_read;
-    char *nul_pos;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -226,6 +225,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     total_bytes = 0;
     stop_reading = 0;
     while (!stop_reading && total_bytes < sizeof(proc->command) - 1) {
+        const char *nul_pos;
         do {
             bytes_read = read(cmdline_fd, proc->command + total_bytes,
                               (sizeof(proc->command) - 1) - total_bytes);
@@ -237,8 +237,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         if (bytes_read == 0) {
             break;
         }
-        nul_pos = (char *)memchr(proc->command + total_bytes, '\0',
-                                 (size_t)bytes_read);
+        nul_pos = (const char *)memchr(proc->command + total_bytes, '\0',
+                                       (size_t)bytes_read);
         if (nul_pos != NULL) {
             total_bytes = (size_t)(nul_pos - proc->command);
             stop_reading = 1;
@@ -249,7 +249,6 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     close_ret = close(cmdline_fd);
     if (close_ret != 0) {
         perror("close");
-        return -1;
     }
     if (total_bytes == 0) {
         return -1;
