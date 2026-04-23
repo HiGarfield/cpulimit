@@ -53,8 +53,7 @@
  * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
  * @return 0 on success, -1 on failure (including NULL iter or filter);
- *         may call exit() on fatal errors
- *         (e.g., out-of-memory)
+ *         may call exit() on fatal errors (e.g., out-of-memory)
  *
  * This function prepares the iterator for process enumeration. The behavior
  * varies by platform:
@@ -81,7 +80,7 @@ int init_process_iterator(struct process_iterator *iter,
     if (filter->pid != 0 && !filter->include_children) {
         /*
          * Skip retrieving process list; get_next_process() will
-         * query the single process directly
+         * query the single process directly.
          */
         iter->proc_count = 1;
         return 0;
@@ -382,7 +381,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     }
     /*
      * Fast-path: any existing non-init process is ultimately a child of init
-     * (PID 1)
+     * (PID 1).
      */
     if (parent_pid == 1) {
         return getppid_of(child_pid) != (pid_t)(-1);
@@ -512,6 +511,6 @@ int close_process_iterator(struct process_iterator *iter) {
 
 #endif /* CPULIMIT_PROCESS_ITERATOR_APPLE_C */
 #else
-/* Placeholder to avoid empty compilation unit on non-Apple platforms. */
+/* Placeholder to avoid empty compilation unit on non-Apple platforms */
 typedef int cpulimit_process_iterator_apple_placeholder;
 #endif /* __APPLE__ */

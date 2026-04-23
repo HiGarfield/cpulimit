@@ -98,7 +98,7 @@ static void parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     pid = strtol(pid_str, &endptr, 10);
     /*
      * Validate conversion: check for errors, empty strings, trailing
-     * characters, and ensure PID is greater than 1 (PIDs 0 and 1 are reserved)
+     * characters, and ensure PID is greater than 1 (PIDs 0 and 1 are reserved).
      */
     if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid <= 1) {
         fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
@@ -168,9 +168,8 @@ static void parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
  * @note Exits the program with error message if validation fails
  */
 static void validate_target_options(const struct cpulimit_cfg *cfg) {
-    int pid_mode = cfg->target_pid > 0;
-    int exe_mode = cfg->exe_name != NULL;
-    int command_mode = cfg->command_mode;
+    int pid_mode = cfg->target_pid > 0, exe_mode = cfg->exe_name != NULL,
+        command_mode = cfg->command_mode;
 
     /* Verify exactly one target method is specified */
     if (pid_mode + exe_mode + command_mode != 1) {
@@ -194,9 +193,7 @@ static void validate_target_options(const struct cpulimit_cfg *cfg) {
  */
 void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     int option_char, ncpu;
-    int pid_option_seen = 0;
-    int exe_option_seen = 0;
-    int limit_option_seen = 0;
+    int pid_option_seen = 0, exe_option_seen = 0, limit_option_seen = 0;
     const struct option long_options[] = {
         {"pid", required_argument, NULL, 'p'},
         {"exe", required_argument, NULL, 'e'},
@@ -257,7 +254,7 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     opterr = 0; /* Suppress getopt's built-in error messages */
     /*
      * Process all options using getopt_long.
-     * Leading '+' stops parsing at first non-option (for COMMAND mode)
+     * Leading '+' stops parsing at first non-option (for COMMAND mode).
      */
     while (1) {
         option_char =

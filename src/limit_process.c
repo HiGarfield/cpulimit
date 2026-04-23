@@ -40,18 +40,23 @@
 #include <string.h>
 #include <unistd.h>
 
-/*
- * Very small positive value used to:
- * - Prevent division by zero in work_ratio calculation (MAX(cpu_usage,
- * WORK_RATIO_EPSILON))
- * - Bound work_ratio strictly away from 0 and 1 in
- *   CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON), ensuring
+/**
+ * @def WORK_RATIO_EPSILON
+ * @brief Very small positive value used to prevent division by zero and
+ *        bound work_ratio strictly away from 0 and 1
+ *
+ * Used in:
+ * - MAX(cpu_usage, WORK_RATIO_EPSILON): prevents division by zero in
+ *   work_ratio calculation
+ * - CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON): ensures
  *   both work and sleep phases always have positive duration
  */
 #define WORK_RATIO_EPSILON 1e-12
 
-/*
- * Base control time slot in microseconds.
+/**
+ * @def BASE_TIME_SLOT_US
+ * @brief Base control time slot in microseconds
+ *
  * Each limiting cycle divides this slot into work time and sleep time.
  * The dynamic algorithm may adjust this value based on system load.
  */
@@ -132,7 +137,7 @@ static double get_dynamic_time_slot(void) {
          * - load / ncpu = normalized load per CPU
          * - Divide by 0.3 to scale: target is 30% baseline load
          * - Higher load -> larger time slot -> less frequent
-         *   adjustments
+         *   adjustments.
          */
         new_time_slot = time_slot * load / get_ncpu() / 0.3;
         new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);
@@ -295,7 +300,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
          * Adaptive control: adjust work ratio based on deviation from target.
          * If actual usage > limit: decrease work_ratio (more stopping)
          * If actual usage < limit: increase work_ratio (less stopping)
-         * Formula: new_ratio = old_ratio * (target / actual)
+         * Formula: new_ratio = old_ratio * (target / actual).
          */
         work_ratio = work_ratio * limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
         /* Ensure work_ratio stays in valid range, never exactly 0 or 1 */
@@ -325,7 +330,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         }
 
         /*
-         * WORK PHASE: Allow processes to execute
+         * WORK PHASE: Allow processes to execute.
          */
         if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
             if (is_stopped) {
@@ -347,7 +352,7 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         }
 
         /*
-         * SLEEP PHASE: Suspend processes to limit CPU usage
+         * SLEEP PHASE: Suspend processes to limit CPU usage.
          */
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
             if (!is_stopped) {

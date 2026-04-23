@@ -127,7 +127,7 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid);
  *
  * @note Safe to call with NULL pointer (does nothing)
  * @note Safe to call on a destroyed table (proc_table->buckets is NULL): does
- * nothing
+ *       nothing
  */
 void remove_stale_from_process_table(struct process_table *proc_table,
                                      const struct list *active_list);
