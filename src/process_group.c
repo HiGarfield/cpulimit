@@ -352,8 +352,9 @@ void update_process_group(struct process_group *proc_group) {
         exit(EXIT_FAILURE);
     }
     /* Calculate elapsed time since last update (milliseconds) */
-    elapsed_ms =
-        reset_cpu_baseline ? -1 : timediff_in_ms(&now, &proc_group->last_update);
+    elapsed_ms = reset_cpu_baseline
+                     ? -1
+                     : timediff_in_ms(&now, &proc_group->last_update);
 
     /* Configure iterator to scan target process and optionally descendants */
     filter.pid = proc_group->target_pid;

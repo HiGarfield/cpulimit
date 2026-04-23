@@ -5057,7 +5057,8 @@ static void test_process_group_reset_on_backward_time(void) {
     update_process_group(&proc_group);
 
     saw_process = 0;
-    for (node = first_node(proc_group.proc_list); node != NULL; node = node->next) {
+    for (node = first_node(proc_group.proc_list); node != NULL;
+         node = node->next) {
         const struct process *proc = (const struct process *)node->data;
         if (proc == NULL) {
             continue;
