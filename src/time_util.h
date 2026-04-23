@@ -49,6 +49,10 @@ extern "C" {
  * nanoseconds component is the remainder. Adjusts tv_sec and tv_nsec
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
+ *
+ * Y2038 note: this function is only used for short sleep durations
+ * (at most a few seconds), so the tv_sec value is far below any 32-bit
+ * overflow threshold and is not affected by the Y2038 problem.
  */
 void nsec2timespec(double nsec, struct timespec *result_ts);
 
@@ -61,6 +65,18 @@ void nsec2timespec(double nsec, struct timespec *result_ts);
  * return a monotonic timestamp, otherwise falls back to CLOCK_REALTIME, or
  * gettimeofday() as a final fallback. Provides at least microsecond
  * resolution on all supported platforms.
+ *
+ * Y2038 note: CLOCK_MONOTONIC measures time elapsed since system boot and
+ * is unaffected by the Unix epoch overflow; on a 32-bit system it would not
+ * overflow until the system has been running continuously for ~68 years.
+ * The gettimeofday() fallback (used only when neither CLOCK_MONOTONIC nor
+ * CLOCK_REALTIME is available) stores a wall-clock time_t which would
+ * overflow on a 32-bit system in 2038; however, since all callers use
+ * timediff_in_ms() with difftime() for interval calculations rather than
+ * comparing absolute timestamps, the computed differences remain correct
+ * even after overflow.  On supported platforms (Linux, macOS, FreeBSD),
+ * _TIME_BITS=64 is set at compile time to promote time_t to 64 bits,
+ * eliminating any overflow concern on the primary code paths.
  */
 int get_current_time(struct timespec *result_ts);
 
@@ -86,6 +102,11 @@ int sleep_timespec(const struct timespec *duration);
  * Computes the difference accounting for both seconds and nanoseconds fields.
  * Returns a positive value when later > earlier. The nanosecond component is
  * divided by 1e6, giving sub-microsecond precision in the returned value.
+ *
+ * Y2038 note: difftime() is used for the seconds component because it is
+ * specified to compute the correct difference even when time_t is a 32-bit
+ * signed integer that has wrapped around; it returns the difference as a
+ * double, preserving correctness for relative interval measurements.
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier);
