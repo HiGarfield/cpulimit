@@ -713,8 +713,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
 void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     /* Wait interval between search attempts when target not found */
     const struct timespec wait_time = {2, 0}; /* 2 seconds */
-    int pid_mode = cfg->target_pid > 0;
-    int exit_status = EXIT_SUCCESS;
+    int pid_mode = cfg->target_pid > 0, exit_status = EXIT_SUCCESS;
 
     while (!is_quit_flag_set()) {
         pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)

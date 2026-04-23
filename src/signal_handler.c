@@ -145,10 +145,10 @@ static void sig_handler(int sig) {
 void configure_signal_handler(void) {
     struct sigaction sig_action;
     sigset_t block_mask, old_mask;
-    size_t sig_idx;
     /* Array of signals that should trigger graceful termination */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
+    size_t sig_idx;
 
     /* Block all signals at function entry so that no termination signal can
      * be delivered between here and the completion of handler installation.

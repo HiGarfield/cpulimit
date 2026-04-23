@@ -80,8 +80,7 @@ static kvm_t *open_kvm(void) {
  * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
  * @return 0 on success, -1 on failure (including NULL iter or filter);
- *         may call exit() on fatal errors
- *         (e.g., out-of-memory)
+ *         may call exit() on fatal errors (e.g., out-of-memory)
  *
  * This function prepares the iterator for process enumeration. The behavior
  * varies by platform:
@@ -190,8 +189,8 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     if (!read_cmd) {
         return 0;
     }
-    len_max = (int)(sizeof(proc->command) -
-                    1); /* CMD_BUFF_SIZE (MAXPATHLEN) always fits in int */
+    /* CMD_BUFF_SIZE (MAXPATHLEN) always fits in int */
+    len_max = (int)(sizeof(proc->command) - 1);
     /* Retrieve command arguments as string array */
     args = kvm_getargv(kvm_descriptor, kproc, len_max);
     if (args == NULL || args[0] == NULL) {
