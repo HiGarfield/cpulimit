@@ -215,8 +215,8 @@ static struct process *process_dup(const struct process *proc) {
  * This comparison is performed component-wise without subtracting tv_sec to
  * avoid arithmetic overflow in edge cases such as 32-bit time_t wraparound.
  */
-static int timespec_is_earlier(const struct timespec *left,
-                               const struct timespec *right) {
+static int timespec_less_than(const struct timespec *left,
+                              const struct timespec *right) {
     if (left->tv_sec < right->tv_sec) {
         return 1;
     }
@@ -361,7 +361,7 @@ void update_process_group(struct process_group *proc_group) {
      * 32-bit time_t wraparound). Reset historical CPU usage immediately to
      * minimize wrong control decisions after the anomaly.
      */
-    reset_cpu_baseline = timespec_is_earlier(&now, &proc_group->last_update);
+    reset_cpu_baseline = timespec_less_than(&now, &proc_group->last_update);
     scan_proc = (struct process *)malloc(sizeof(struct process));
     if (scan_proc == NULL) {
         fprintf(stderr, "Memory allocation failed for scan_proc\n");

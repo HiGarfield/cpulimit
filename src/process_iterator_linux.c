@@ -114,7 +114,11 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     int skip_idx;
     static long sc_clk_tck = -1;
     int cmdline_fd;
+    int close_ret;
+    int stop_reading;
+    size_t total_bytes;
     ssize_t bytes_read;
+    char *nul_pos;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -219,17 +223,38 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (cmdline_fd < 0) {
         return -1;
     }
-    do {
-        bytes_read = read(cmdline_fd, proc->command, sizeof(proc->command) - 1);
-    } while (bytes_read < 0 && errno == EINTR);
-    if (close(cmdline_fd) != 0) {
-        perror("close");
+    total_bytes = 0;
+    stop_reading = 0;
+    while (!stop_reading && total_bytes < sizeof(proc->command) - 1) {
+        do {
+            bytes_read = read(cmdline_fd, proc->command + total_bytes,
+                              (sizeof(proc->command) - 1) - total_bytes);
+        } while (bytes_read < 0 && errno == EINTR);
+        if (bytes_read < 0) {
+            close(cmdline_fd);
+            return -1;
+        }
+        if (bytes_read == 0) {
+            break;
+        }
+        nul_pos = (char *)memchr(proc->command + total_bytes, '\0',
+                                 (size_t)bytes_read);
+        if (nul_pos != NULL) {
+            total_bytes = (size_t)(nul_pos - proc->command);
+            stop_reading = 1;
+        } else {
+            total_bytes += (size_t)bytes_read;
+        }
     }
-    if (bytes_read <= 0) {
+    close_ret = close(cmdline_fd);
+    if (close_ret != 0) {
+        perror("close");
         return -1;
     }
-    /* bytes_read > 0 is guaranteed above, so this cast is safe. */
-    proc->command[(size_t)bytes_read] = '\0';
+    if (total_bytes == 0) {
+        return -1;
+    }
+    proc->command[total_bytes] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
