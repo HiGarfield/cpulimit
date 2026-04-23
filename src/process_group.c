@@ -191,13 +191,36 @@ static struct process *process_dup(const struct process *proc) {
 #define CPU_MIN_DELTA_MS 20
 
 /**
+ * @brief Compare two timestamps and check whether left is earlier than right
+ * @param left Timestamp to compare as potential earlier value
+ * @param right Timestamp to compare as reference later value
+ * @return Non-zero when left < right, zero otherwise
+ *
+ * This comparison is performed component-wise without subtracting tv_sec to
+ * avoid arithmetic overflow in edge cases such as 32-bit time_t wraparound.
+ */
+static int timespec_is_earlier(const struct timespec *left,
+                               const struct timespec *right) {
+    if (left->tv_sec < right->tv_sec) {
+        return 1;
+    }
+    if (left->tv_sec > right->tv_sec) {
+        return 0;
+    }
+    return left->tv_nsec < right->tv_nsec;
+}
+
+/**
  * @brief Update the CPU usage of an existing tracked process entry.
  * @param proc      The stored process entry to update (modified in place).
  * @param scan_proc Fresh snapshot of the same process from the iterator.
  * @param elapsed_ms Milliseconds elapsed since the last update cycle.
  * @param ncpu      Number of available CPU cores (used to cap the sample).
+ * @param reset_cpu_baseline Non-zero to discard historical usage and start a
+ *                           fresh baseline from scan_proc values.
  *
  * Handles four mutually exclusive cases:
+ * - Baseline reset request: marks usage unknown and updates timing fields.
  * - PID reuse (scan_proc->cpu_time < proc->cpu_time): resets all fields.
  * - Backward clock (elapsed_ms < 0): updates ppid and cpu_time, marks
  *   usage unknown so the next cycle starts from a clean baseline.
@@ -209,8 +232,15 @@ static struct process *process_dup(const struct process *proc) {
  */
 static void update_existing_process_entry(struct process *proc,
                                           const struct process *scan_proc,
-                                          double elapsed_ms, int ncpu) {
+                                          double elapsed_ms, int ncpu,
+                                          int reset_cpu_baseline) {
     double sample;
+    if (reset_cpu_baseline) {
+        proc->ppid = scan_proc->ppid;
+        proc->cpu_time = scan_proc->cpu_time;
+        proc->cpu_usage = -1;
+        return;
+    }
     if (scan_proc->cpu_time < proc->cpu_time) {
         /*
          * CPU time decreased: PID has been reused for a new process.
@@ -298,6 +328,7 @@ void update_process_group(struct process_group *proc_group) {
     struct timespec now;
     double elapsed_ms;
     int ncpu;
+    int reset_cpu_baseline;
     if (proc_group == NULL || proc_group->proc_list == NULL ||
         proc_group->proc_table == NULL) {
         return;
@@ -309,13 +340,20 @@ void update_process_group(struct process_group *proc_group) {
         perror("get_current_time");
         exit(EXIT_FAILURE);
     }
+    /*
+     * A backwards timestamp indicates clock anomaly (including possible
+     * 32-bit time_t wraparound). Reset historical CPU usage immediately to
+     * minimize wrong control decisions after the anomaly.
+     */
+    reset_cpu_baseline = timespec_is_earlier(&now, &proc_group->last_update);
     scan_proc = (struct process *)malloc(sizeof(struct process));
     if (scan_proc == NULL) {
         fprintf(stderr, "Memory allocation failed for scan_proc\n");
         exit(EXIT_FAILURE);
     }
     /* Calculate elapsed time since last update (milliseconds) */
-    elapsed_ms = timediff_in_ms(&now, &proc_group->last_update);
+    elapsed_ms =
+        reset_cpu_baseline ? -1 : timediff_in_ms(&now, &proc_group->last_update);
 
     /* Configure iterator to scan target process and optionally descendants */
     filter.pid = proc_group->target_pid;
@@ -344,7 +382,8 @@ void update_process_group(struct process_group *proc_group) {
         } else {
             /* Existing process: re-add to list for this cycle */
             add_elem(proc_group->proc_list, proc);
-            update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
+            update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu,
+                                          reset_cpu_baseline);
         }
     }
     free(scan_proc);

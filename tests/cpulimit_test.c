@@ -5028,6 +5028,50 @@ static void test_process_group_cpu_usage_with_usage(void) {
 }
 
 /**
+ * @brief Test process-group CPU baseline reset on backward time anomaly
+ * @note Simulates a post-wrap/backward timestamp by forcing last_update to a
+ *  future value; update_process_group must immediately mark cpu_usage unknown.
+ */
+static void test_process_group_reset_on_backward_time(void) {
+    struct process_group proc_group;
+    const struct timespec wait_time = {0, 50000000L}; /* 50 ms */
+    const struct list_node *node;
+    struct timespec forced_future;
+    int ret;
+    int iter_idx;
+    int saw_process;
+
+    ret = init_process_group(&proc_group, getpid(), 0);
+    assert(ret == 0);
+
+    for (iter_idx = 0; iter_idx < 3; iter_idx++) {
+        sleep_timespec(&wait_time);
+        update_process_group(&proc_group);
+    }
+
+    ret = get_current_time(&forced_future);
+    assert(ret == 0);
+    forced_future.tv_sec += 1;
+    proc_group.last_update = forced_future;
+
+    update_process_group(&proc_group);
+
+    saw_process = 0;
+    for (node = first_node(proc_group.proc_list); node != NULL; node = node->next) {
+        const struct process *proc = (const struct process *)node->data;
+        if (proc == NULL) {
+            continue;
+        }
+        saw_process = 1;
+        assert(proc->cpu_usage >= -1.00001 && proc->cpu_usage <= -0.99999);
+    }
+    assert(saw_process);
+
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+}
+
+/**
  * @brief Test update_process_group when the target exits between init and
  *        the first explicit update call
  * @note Exercises the race where the target terminates after
@@ -6730,6 +6774,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_cpu_usage_uninitialized_struct);
     RUN_TEST(test_process_group_double_update);
     RUN_TEST(test_process_group_cpu_usage_with_usage);
+    RUN_TEST(test_process_group_reset_on_backward_time);
     RUN_TEST(test_process_group_race_target_exits_between_init_and_update);
     RUN_TEST(test_process_group_race_rapid_child_spawn_exit);
 

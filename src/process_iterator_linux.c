@@ -34,6 +34,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -112,8 +113,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     long ppid;
     int skip_idx;
     static long sc_clk_tck = -1;
-    FILE *cmdline_file;
-    size_t bytes_read;
+    int cmdline_fd;
+    ssize_t bytes_read;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -212,28 +213,22 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (!read_cmd) {
         return 0;
     }
-    /*
-     * Read argv[0] from /proc/[pid]/cmdline using fread() to avoid
-     * allocating a buffer for the entire argument list. The cmdline file
-     * uses NUL bytes as argument separators (no newlines), so string
-     * functions naturally stop at the first NUL, giving only argv[0].
-     */
+    /* Read argv[0] from /proc/[pid]/cmdline via POSIX read(). */
     sprintf(cmdline_path, "/proc/%ld/cmdline", (long)pid);
-    cmdline_file = fopen(cmdline_path, "r");
-    if (cmdline_file == NULL) {
+    cmdline_fd = open(cmdline_path, O_RDONLY);
+    if (cmdline_fd < 0) {
         return -1;
     }
-    bytes_read =
-        fread(proc->command, 1, sizeof(proc->command) - 1, cmdline_file);
-    if (fclose(cmdline_file) != 0) {
-        perror("fclose");
-        /* The file descriptor is closed regardless; the data read is
-         * still valid */
+    do {
+        bytes_read = read(cmdline_fd, proc->command, sizeof(proc->command) - 1);
+    } while (bytes_read < 0 && errno == EINTR);
+    if (close(cmdline_fd) != 0) {
+        perror("close");
     }
-    if (bytes_read == 0) {
+    if (bytes_read <= 0) {
         return -1;
     }
-    proc->command[bytes_read] = '\0';
+    proc->command[(size_t)bytes_read] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="")
