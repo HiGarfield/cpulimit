@@ -5033,6 +5033,8 @@ static void test_process_group_cpu_usage_with_usage(void) {
  *  future value; update_process_group must immediately mark cpu_usage unknown.
  */
 static void test_process_group_reset_on_backward_time(void) {
+    const double cpu_usage_unknown = -1.0;
+    const double cpu_usage_tolerance = 1e-9;
     struct process_group proc_group;
     const struct timespec wait_time = {0, 50000000L}; /* 50 ms */
     const struct list_node *node;
@@ -5064,7 +5066,8 @@ static void test_process_group_reset_on_backward_time(void) {
             continue;
         }
         saw_process = 1;
-        assert(proc->cpu_usage <= -0.5 && proc->cpu_usage >= -1.5);
+        assert(proc->cpu_usage > cpu_usage_unknown - cpu_usage_tolerance &&
+               proc->cpu_usage < cpu_usage_unknown + cpu_usage_tolerance);
     }
     assert(saw_process);
 

@@ -210,7 +210,7 @@ static struct process *process_dup(const struct process *proc) {
  * @brief Compare two timestamps and check whether left is earlier than right
  * @param left Timestamp to compare as potential earlier value
  * @param right Timestamp to compare as reference later value
- * @return Non-zero when left < right, zero otherwise
+ * @return Non-zero when left < right, zero when left >= right
  *
  * This comparison is performed component-wise without subtracting tv_sec to
  * avoid arithmetic overflow in edge cases such as 32-bit time_t wraparound.
