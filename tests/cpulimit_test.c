@@ -55,8 +55,9 @@
  * @brief Send SIGKILL to a process or process group and block until reaped
  * @param pid Process ID (positive) or negative process group ID
  * @note Used as a fallback cleanup path when the monotonic clock is
- *  unavailable. Sends SIGKILL, then blocks on waitpid() (retrying on EINTR)
- *  to guarantee that no test process is left running.
+ *       unavailable. Sends SIGKILL, then blocks on waitpid()
+ *       (retrying on EINTR) to guarantee that no test process is
+ *       left running.
  */
 static void kill_blocking(pid_t pid) {
     kill(pid, SIGKILL);
@@ -74,11 +75,12 @@ static void kill_blocking(pid_t pid) {
  * @param pid Process ID (positive) or negative process group ID
  * @param kill_signal Signal to send (SIGTERM or SIGKILL)
  * @note If pid > 0, treats pid as a single process. If pid < 0, treats -pid
- *  as a process group ID. Sends the given signal and waits up to 5 seconds.
- *  If SIGTERM times out, escalates to SIGKILL and waits an additional 5
- *  seconds. If processes are not reaped after 5 + 5 seconds, function exits.
- *  If the monotonic clock is unavailable at any point, falls back to
- *  kill_blocking() to guarantee all processes are reaped.
+ *       as a process group ID. Sends the given signal and waits up to 5
+ *       seconds. If SIGTERM times out, escalates to SIGKILL and waits an
+ *       additional 5 seconds. If processes are not reaped after 5 + 5
+ *       seconds, function exits. If the monotonic clock is unavailable at
+ *       any point, falls back to kill_blocking() to guarantee all processes
+ *       are reaped.
  */
 static void kill_and_wait(pid_t pid, int kill_signal) {
     struct timespec now, end_time;
@@ -133,8 +135,10 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
                     kill_signal = SIGKILL;
                     /* Reset timeout for SIGKILL (5 seconds) */
                     if (get_current_time(&end_time) != 0) {
-                        /* Clock failed after escalation: block to ensure
-                         * cleanup */
+                        /*
+                         * Clock failed after escalation: block to ensure
+                         * cleanup.
+                         */
                         kill_blocking(pid);
                         return;
                     }
@@ -500,8 +504,7 @@ static void test_util_file_basename(void) {
  * @note Tests retrieval of CPU count
  */
 static void test_util_get_ncpu(void) {
-    int ncpu;
-    int ncpu_cached;
+    int ncpu, ncpu_cached;
 
     ncpu = get_ncpu();
     assert(ncpu >= 1);
@@ -524,7 +527,7 @@ static void test_util_increase_priority(void) {
 /**
  * @brief Test long2pid_t conversion
  * @note Tests safe conversion from long to pid_t including edge cases and
- * overflow
+ *       overflow
  */
 static void test_util_long2pid_t(void) {
     pid_t result;
@@ -557,10 +560,12 @@ static void test_util_long2pid_t(void) {
     /* Test with large positive value (must not crash) */
     long2pid_t(1000000L);
 
-    /* LONG_MAX overflows pid_t (32-bit) on 64-bit platforms.
+    /*
+     * LONG_MAX overflows pid_t (32-bit) on 64-bit platforms.
      * Either the round-trip check detects overflow (-1)
      * or, on exotic platforms where pid_t == long, the value fits.
-     * Either way, the function must not crash. */
+     * Either way, the function must not crash.
+     */
     long2pid_t(LONG_MAX);
 }
 
@@ -574,7 +579,7 @@ static void test_util_read_line_from_file(void) {
     char *line;
     char tmp_file[] = "/tmp/cpulimit_empty_XXXXXX";
     int tmp_fd;
-    char nl_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
+    char newline_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
     int newline_fd;
     char crlf_tmp_file[] = "/tmp/cpulimit_crlf_XXXXXX";
     int crlf_fd;
@@ -605,8 +610,10 @@ static void test_util_read_line_from_file(void) {
     assert(line != NULL);
     free(line);
 
-    /* Empty file must return NULL (getline returns -1 on immediate EOF).
-     * Use mkstemp() to avoid name collisions in parallel test runs. */
+    /*
+     * Empty file must return NULL (getline returns -1 on immediate EOF).
+     * Use mkstemp() to avoid name collisions in parallel test runs.
+     */
     tmp_fd = mkstemp(tmp_file);
     assert(tmp_fd >= 0);
     close(tmp_fd);
@@ -615,16 +622,16 @@ static void test_util_read_line_from_file(void) {
     remove(tmp_file);
 
     /* A file containing only a newline returns a non-NULL empty string */
-    newline_fd = mkstemp(nl_tmp_file);
+    newline_fd = mkstemp(newline_tmp_file);
     assert(newline_fd >= 0);
     nwritten = write(newline_fd, "\n", 1);
     assert(nwritten == 1);
     close(newline_fd);
-    line = read_line_from_file(nl_tmp_file);
+    line = read_line_from_file(newline_tmp_file);
     assert(line != NULL);
     assert(line[0] == '\0');
     free(line);
-    remove(nl_tmp_file);
+    remove(newline_tmp_file);
 
     /*
      * A CRLF-terminated line must have both '\r' and '\n' stripped.
@@ -641,7 +648,7 @@ static void test_util_read_line_from_file(void) {
     free(line);
     remove(crlf_tmp_file);
 
-    /* EOF-terminated line with trailing CR must also be normalized. */
+    /* EOF-terminated line with trailing CR must also be normalized */
     cr_only_fd = mkstemp(cr_only_tmp_file);
     assert(cr_only_fd >= 0);
     nwritten = write(cr_only_fd, "abc\r", 4);
@@ -721,8 +728,10 @@ static void test_util_read_line_from_file(void) {
  * @note Covers a>b, a<b, a==b for MAX/MIN; below/above/in-range for CLAMP
  */
 static void test_util_macros(void) {
-    /* Use volatile to prevent value-propagation in static analysers while
-     * still testing the equal-argument and boundary-value edge cases */
+    /*
+     * Use volatile to prevent value-propagation in static analysers while
+     * still testing the equal-argument and boundary-value edge cases.
+     */
     volatile int clamp_low = 0, clamp_high = 10;
     volatile int a, b, val, macro_val;
 
@@ -1276,7 +1285,7 @@ static void test_list_edge_cases(void) {
 /**
  * @brief Test add_elem with NULL data and locate_node skipping NULL-data nodes
  * @note Covers: add_elem(l, NULL), locate_node branch cur->data==NULL,
- *  destroy_node with NULL data pointer
+ *       destroy_node with NULL data pointer
  */
 static void test_list_null_data_operations(void) {
     struct list lst;
@@ -1305,7 +1314,8 @@ static void test_list_null_data_operations(void) {
     void_elem = locate_elem(&lst, &search_val, 0, sizeof(int));
     assert(void_elem == NULL);
 
-    /* destroy_node with NULL data must not crash (branch: node->data == NULL)
+    /*
+     * destroy_node with NULL data must not crash (branch: node->data == NULL)
      */
     destroy_node(&lst, node);
     list_count = get_list_count(&lst);
@@ -1323,11 +1333,8 @@ static void test_list_null_data_operations(void) {
  * @note Installs handlers in a child, raises signals, and checks flags
  */
 static void test_signal_handler_flags(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     /* Test behavior on SIGTERM: quit flag set, not terminated by tty */
     pid = fork();
@@ -1384,17 +1391,14 @@ static void test_signal_handler_flags(void) {
 
 /**
  * @brief Test SIGQUIT signal handling
- * @note SIGQUIT must set both quit_flag and terminated_by_tty.
- *  The child calls setsid() to create a new session and detach from the
- *  controlling terminal, preventing BSD terminal drivers from propagating
- *  SIGQUIT to the parent's process group.
+ * @note SIGQUIT must set both quit_flag and terminated_by_tty
+ *       The child calls setsid() to create a new session and detach from the
+ *       controlling terminal, preventing BSD terminal drivers from propagating
+ *       SIGQUIT to the parent's process group.
  */
 static void test_signal_handler_sigquit(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1435,11 +1439,8 @@ static void test_signal_handler_sigquit(void) {
  * @note SIGHUP must set quit_flag but must NOT set terminated_by_tty
  */
 static void test_signal_handler_sighup(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1470,11 +1471,8 @@ static void test_signal_handler_sighup(void) {
  * @note SIGPIPE must set quit_flag but must NOT set terminated_by_tty
  */
 static void test_signal_handler_sigpipe(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1505,11 +1503,8 @@ static void test_signal_handler_sigpipe(void) {
  * @note Both quit_flag and terminated_by_tty must be 0 before any signal
  */
 static void test_signal_handler_initial_state(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1533,17 +1528,13 @@ static void test_signal_handler_initial_state(void) {
 
 /**
  * @brief Test get_quit_signal before and after receiving signals
- * @note Before any signal: returns 0.  After SIGTERM: returns SIGTERM.
- *  After SIGINT: returns SIGINT.  First signal wins; subsequent signals
- *  do not overwrite the recorded number.
+ * @note Before any signal: returns 0.  After SIGTERM: returns SIGTERM
+ *       After SIGINT: returns SIGINT.  First signal wins; subsequent signals
+ *       do not overwrite the recorded number.
  */
 static void test_signal_handler_get_quit_signal(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-    int sig_val;
+    pid_t pid, waited;
+    int status, exited, exit_code, sig_val;
 
     /* Sub-test 1: before any signal, get_quit_signal() returns 0 */
     pid = fork();
@@ -1621,15 +1612,12 @@ static void test_signal_handler_get_quit_signal(void) {
 /**
  * @brief Test configure_signal_handler() resets internal state each call
  * @note In a single process, after a signal sets quit flags, reconfiguring
- *  handlers must clear all flags so a new run starts from a deterministic
- *  baseline.
+ *       handlers must clear all flags so a new run starts from a deterministic
+ *       baseline.
  */
 static void test_signal_handler_reconfigure_resets_state(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1669,9 +1657,9 @@ static void test_signal_handler_reconfigure_resets_state(void) {
 /**
  * @brief Test pending signal during reconfigure is delivered, not dropped
  * @note configure_signal_handler() blocks handled signals during the
- *  reset-and-install window. A signal that becomes pending during that
- *  window must be delivered through the new handler after the mask is
- *  restored, not silently dropped.
+ *       reset-and-install window. A signal that becomes pending during that
+ *       window must be delivered through the new handler after the mask is
+ *       restored, not silently dropped.
  *
  *  Scenario:
  *   1. Block SIGTERM in the caller.
@@ -1688,18 +1676,15 @@ static void test_signal_handler_reconfigure_resets_state(void) {
  *   7. Verify quit_flag is 1 and quit_signal_num is SIGTERM.
  */
 static void test_signal_handler_reconfigure_delivers_pending(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
         sigset_t block_set, old_set;
 
-        /* Block SIGTERM so that raise() makes it pending, not delivered. */
+        /* Block SIGTERM so that raise() makes it pending, not delivered */
         if (sigemptyset(&block_set) != 0) {
             _exit(1);
         }
@@ -1710,37 +1695,43 @@ static void test_signal_handler_reconfigure_delivers_pending(void) {
             _exit(1);
         }
 
-        /* First configure: installs handlers with SIGTERM blocked. */
+        /* First configure: installs handlers with SIGTERM blocked */
         configure_signal_handler();
 
-        /* Raise SIGTERM: pending because it is still blocked. */
+        /* Raise SIGTERM: pending because it is still blocked */
         if (raise(SIGTERM) != 0) {
             _exit(2);
         }
 
-        /* Quit flag must still be 0 (signal pending, not delivered). */
+        /* Quit flag must still be 0 (signal pending, not delivered) */
         if (is_quit_flag_set()) {
             _exit(3);
         }
 
-        /* Reconfigure: must block SIGTERM, reset state, install new
-         * handlers, then restore our mask (SIGTERM remains blocked). */
+        /*
+         * Reconfigure: must block SIGTERM, reset state, install new
+         * handlers, then restore our mask (SIGTERM remains blocked).
+         */
         configure_signal_handler();
 
-        /* After reconfigure, quit_flag must still be 0; the pending
+        /*
+         * After reconfigure, quit_flag must still be 0; the pending
          * SIGTERM has not been delivered yet because our mask still
-         * blocks it. */
+         * blocks it.
+         */
         if (is_quit_flag_set()) {
             _exit(4);
         }
 
-        /* Restore original mask: pending SIGTERM is now delivered via
-         * the new handler. */
+        /*
+         * Restore original mask: pending SIGTERM is now delivered via
+         * the new handler.
+         */
         if (sigprocmask(SIG_SETMASK, &old_set, NULL) != 0) {
             _exit(5);
         }
 
-        /* The new handler must have set quit_flag. */
+        /* The new handler must have set quit_flag */
         if (!is_quit_flag_set()) {
             _exit(6);
         }
@@ -1761,16 +1752,13 @@ static void test_signal_handler_reconfigure_delivers_pending(void) {
 /**
  * @brief Test reset_signal_handlers_to_default() restores SIG_DFL
  * @note After configure_signal_handler() installs custom handlers,
- *  reset_signal_handlers_to_default() must restore SIGINT, SIGQUIT,
- *  SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.  Verified by checking
- *  that sa_handler == SIG_DFL for each signal after the reset.
+ *       reset_signal_handlers_to_default() must restore SIGINT, SIGQUIT,
+ *       SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.  Verified by checking
+ *       that sa_handler == SIG_DFL for each signal after the reset.
  */
 static void test_signal_handler_reset_to_default(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     static const int check_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_check_sigs =
         sizeof(check_sigs) / sizeof(*check_sigs);
@@ -1808,21 +1796,17 @@ static void test_signal_handler_reset_to_default(void) {
 /**
  * @brief Test that two signals delivered concurrently produce consistent state
  * @note The child blocks all signals, signals readiness to the parent, then
- *  the parent sends SIGTERM followed immediately by SIGINT.  The child
- *  unblocks both signals at once via sigsuspend, allowing one pending signal
- *  to be delivered.  After delivery, quit_flag must be set and
- *  quit_signal_num must be one of the two sent signals (delivery order and
- *  which signal is ultimately observed are implementation-defined and not
- *  asserted by this test).
+ *       the parent sends SIGTERM followed immediately by SIGINT.  The child
+ *       unblocks both signals at once via sigsuspend, allowing one pending
+ *       signal to be delivered.  After delivery, quit_flag must be set and
+ *       quit_signal_num must be one of the two sent signals (delivery order
+ *       and which signal is ultimately observed are implementation-defined
+ *       and not asserted by this test).
  */
 static void test_signal_handler_race_concurrent_signals(void) {
     int ready_pipe[2];
-    pid_t child_pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-    int ret;
+    pid_t child_pid, waited;
+    int status, exited, exit_code, ret;
     char ready_byte;
     ssize_t n_read;
 
@@ -1906,17 +1890,16 @@ static void test_signal_handler_race_concurrent_signals(void) {
 
 /**
  * @brief Test that a signal from an external process interrupts sleep_timespec
- * @note Exercises the interaction between SA_RESTART and clock_nanosleep.
- *  clock_nanosleep is NOT automatically restarted by SA_RESTART, so a
- *  signal interrupts the sleep and returns EINTR.  The child installs
- *  handlers, enters a long sleep, and verifies that an externally
- *  delivered SIGTERM wakes the sleep and sets quit_flag.
+ * @note Exercises the interaction between SA_RESTART and clock_nanosleep
+ *       clock_nanosleep is NOT automatically restarted by SA_RESTART, so a
+ *       signal interrupts the sleep and returns EINTR.  The child installs
+ *       handlers, enters a long sleep, and verifies that an externally
+ *       delivered SIGTERM wakes the sleep and sets quit_flag.
  */
 static void test_signal_handler_race_signal_interrupts_sleep(void) {
     int ready_pipe[2];
     pid_t child_pid;
-    int status;
-    int ret;
+    int status, ret;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -1955,8 +1938,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
         const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
         char ready_byte;
         ssize_t n_read;
-        int exited;
-        int exit_code;
+        int exited, exit_code;
         pid_t waited;
 
         /* Parent: wait for child to enter sleep, then send SIGTERM */
@@ -1984,17 +1966,17 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
 /**
  * @brief Test rapid delivery of all five handled signals
  * @note All five handled signals (SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT)
- *  are sent from the parent in rapid succession while the child blocks them.
- *  The child then unblocks all signals at once (sigsuspend), allowing any
- *  one of the five to be delivered.  After the first delivery, quit_flag
- *  must be set and quit_signal_num must be one of the five valid numbers.
- *  The remaining pending signals are harmlessly cleared on _exit().
+ *       are sent from the parent in rapid succession while the child blocks
+ *       them. The child then unblocks all signals at once (sigsuspend),
+ *       allowing any one of the five to be delivered.  After the first
+ *       delivery, quit_flag must be set and quit_signal_num must be one of
+ *       the five valid numbers. The remaining pending signals are harmlessly
+ *       cleared on _exit().
  */
 static void test_signal_handler_race_rapid_all_signals(void) {
     int ready_pipe[2];
     pid_t child_pid;
-    int status;
-    int ret;
+    int status, ret;
     static const int all_sigs[] = {SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT};
     static const size_t num_sigs = sizeof(all_sigs) / sizeof(*all_sigs);
 
@@ -2052,8 +2034,7 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         size_t sig_idx;
         char ready_byte;
         ssize_t n_read;
-        int exited;
-        int exit_code;
+        int exited, exit_code;
         pid_t waited;
 
         close(ready_pipe[1]);
@@ -2162,8 +2143,8 @@ static void test_process_iterator_is_child_of(void) {
 /**
  * @brief Test is_child_of() with multi-level (grandchild) ancestry
  * @note Tests that a grandchild process is correctly identified as a
- *  descendant of its grandparent, exercising multi-hop parent-chain
- *  traversal in is_child_of().
+ *       descendant of its grandparent, exercising multi-hop parent-chain
+ *       traversal in is_child_of().
  */
 static void test_process_iterator_is_child_of_deep(void) {
     pid_t grandparent_pid;
@@ -2263,7 +2244,9 @@ static void test_process_iterator_is_child_of_deep(void) {
         result = is_child_of(grandchild_pid, grandparent_pid);
         assert(result == 1);
 
-        /* Grandchild must also be a direct descendant of the intermediate child
+        /*
+         * Grandchild must also be a direct descendant of the intermediate
+         * child.
          */
         /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
         result = is_child_of(grandchild_pid, child_pid);
@@ -2319,7 +2302,7 @@ static void test_process_iterator_filter_edge_cases(void) {
 /**
  * @brief Test process iterator with a single process
  * @note Tests that the process iterator can retrieve the current process
- *  information correctly, both with and without child processes
+ *       information correctly, both with and without child processes
  */
 static void test_process_iterator_single(void) {
     struct process_iterator iter;
@@ -2382,7 +2365,7 @@ static void test_process_iterator_single(void) {
 /**
  * @brief Test process iterator with multiple processes
  * @note Creates a child process and verifies that the iterator can retrieve
- *  both parent and child process information
+ *       both parent and child process information
  */
 static void test_process_iterator_multiple(void) {
     struct process_iterator iter;
@@ -2458,7 +2441,7 @@ static void test_process_iterator_multiple(void) {
 /**
  * @brief Test process iterator with all system processes
  * @note Verifies that the iterator can retrieve processes and that the
- *  current process is correctly identified
+ *       current process is correctly identified
  */
 static void test_process_iterator_all(void) {
     struct process_iterator iter;
@@ -2506,10 +2489,10 @@ static void test_process_iterator_all(void) {
 /**
  * @brief Test process name retrieval
  * @note Verifies that the process iterator correctly retrieves the
- *  OS-visible argv[0] (command field) of the current process, and that
- *  it can be used to find the process by name. When running under a
- *  wrapper (e.g., valgrind), the OS-visible argv[0] is the wrapper's
- *  path, not main()'s argv[0]; this test handles both cases.
+ *       OS-visible argv[0] (command field) of the current process, and that
+ *       it can be used to find the process by name. When running under a
+ *       wrapper (e.g., valgrind), the OS-visible argv[0] is the wrapper's
+ *       path, not main()'s argv[0]; this test handles both cases.
  */
 static void test_process_iterator_read_command(void) {
     struct process_iterator iter;
@@ -2565,7 +2548,7 @@ static void test_process_iterator_read_command(void) {
 /**
  * @brief Test getppid_of function
  * @note Verifies that getppid_of returns the correct parent PID for multiple
- *  processes, including the current process
+ *       processes, including the current process
  */
 static void test_process_iterator_getppid_of(void) {
     struct process_iterator iter;
@@ -2843,7 +2826,7 @@ static void test_process_iterator_close_null_dip(void) {
 
 /**
  * @brief Test that get_next_process handles NULL proc_dir defensively
- * @note On Linux, the single-PID optimisation leaves proc_dir=NULL.
+ * @note On Linux, the single-PID optimisation leaves proc_dir=NULL
  *       Switching the filter to general mode (pid=0) without reinitialising
  *       exercises the NULL-proc_dir guard added to get_next_process.
  */
@@ -2897,11 +2880,9 @@ static void test_process_iterator_null_proc_dir_guard(void) {
  * @return Exit status from the child process
  */
 static int run_parse_in_child(int argc, char **argv) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited;
     struct cpulimit_cfg cfg;
-    pid_t waited;
-    int exited;
 
     pid = fork();
     assert(pid >= 0);
@@ -3109,11 +3090,8 @@ static void test_cli_optional_flags(void) {
  * @note -v causes a "N CPUs detected" print; run in fork to suppress it
  */
 static void test_cli_verbose_flag(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -3198,7 +3176,7 @@ static void test_cli_missing_limit(void) {
 /**
  * @brief Test parse_arguments with various invalid limit values
  * @note zero, negative, non-numeric, NaN, and above-max all cause
- *  EXIT_FAILURE
+ *       EXIT_FAILURE
  */
 static void test_cli_invalid_limits(void) {
     char arg0[] = "cpulimit";
@@ -3244,7 +3222,7 @@ static void test_cli_invalid_limits(void) {
 /**
  * @brief Test parse_arguments with various invalid PID values
  * @note 0, 1 (reserved), -1, non-numeric, and trailing-char PIDs all cause
- *  EXIT_FAILURE
+ *       EXIT_FAILURE
  */
 static void test_cli_invalid_pids(void) {
     char arg0[] = "cpulimit";
@@ -3648,11 +3626,8 @@ static void test_cli_long_options_lazy_verbose(void) {
     char arg_e[] = "-e";
     char arg_exe[] = "foo";
     char *test_argv[7];
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     test_argv[0] = arg0;
     test_argv[1] = arg_limit;
@@ -4055,8 +4030,8 @@ static void test_process_table_empty_buckets(void) {
 /**
  * @brief Test init_process_table and add_to_process_table with NULL inputs
  * @note Covers: init_process_table(NULL,...), add_to_process_table(NULL,p),
- *  add_to_process_table(pt,NULL), and duplicate-PID insertion (silently
- * ignored)
+ *       add_to_process_table(pt,NULL), and duplicate-PID insertion (silently
+ *       ignored)
  */
 static void test_process_table_null_inputs_and_dup(void) {
     struct process_table proc_table;
@@ -4244,9 +4219,9 @@ static void test_process_table_destroy_edge_cases(void) {
 /**
  * @brief Test that process_table operations are safe after destroy
  * @note After destroy_process_table,
- * find_in_process_table/add_to_process_table/
- *  delete_from_process_table/remove_stale_from_process_table must not
- *  crash even though pt->buckets is NULL and pt->hash_size is 0
+ *       find_in_process_table/add_to_process_table/
+ *       delete_from_process_table/remove_stale_from_process_table must not
+ *       crash even though pt->buckets is NULL and pt->hash_size is 0
  */
 static void test_process_table_ops_after_destroy(void) {
     struct process_table proc_table;
@@ -4287,7 +4262,7 @@ static void test_process_table_ops_after_destroy(void) {
 /**
  * @brief Test find_process_by_pid function
  * @note Tests finding processes by PID including invalid PIDs, boundary
- *  values, and init process
+ *       values, and init process
  */
 static void test_process_finder_find_by_pid(void) {
     pid_t self_pid;
@@ -4318,7 +4293,7 @@ static void test_process_finder_find_by_pid(void) {
 /**
  * @brief Test find_process_by_name function
  * @note Tests finding processes by name including wrong names, absolute
- *  paths, NULL, empty string, and trailing slash
+ *       paths, NULL, empty string, and trailing slash
  */
 static void test_process_finder_find_by_name(void) {
     char *self_cmd;
@@ -4426,9 +4401,9 @@ static void test_process_finder_find_by_name(void) {
 /**
  * @brief Test find_process_by_name with self's executable basename
  * @note The OS-visible command basename must be found; result > 0 or
- *  result is -PID (EPERM in confined environments). Uses the process
- *  iterator to obtain the real argv[0] so the test passes when the
- *  binary is launched via a wrapper such as valgrind.
+ *       result is -PID (EPERM in confined environments). Uses the process
+ *       iterator to obtain the real argv[0] so the test passes when the
+ *       binary is launched via a wrapper such as valgrind.
  */
 static void test_process_finder_find_by_name_self(void) {
     char *self_buf;
@@ -4460,9 +4435,9 @@ static void test_process_finder_find_by_name_self(void) {
 /**
  * @brief Test find_process_by_name with process launched via symlink
  * @note Creates a temporary symlink to /bin/sleep, execs it so that
- *  argv[0] is the symlink path, and verifies that find_process_by_name
- *  finds the child using the symlink's basename. Skipped if /bin/sleep
- *  is unavailable or the symlink cannot be created.
+ *       argv[0] is the symlink path, and verifies that find_process_by_name
+ *       finds the child using the symlink's basename. Skipped if /bin/sleep
+ *       is unavailable or the symlink cannot be created.
  *
  * This exercises the requirement that proc->command stores argv[0] as
  * seen by the OS: the symlink path, not the resolved binary path.
@@ -4550,8 +4525,8 @@ static void test_process_finder_find_by_name_symlink(void) {
 /**
  * @brief Test find_process_by_name with process launched with custom argv[0]
  * @note Forks a child that execs /bin/sleep with a unique alias string
- *  as argv[0]. Verifies that find_process_by_name finds the child by
- *  that alias name. Skipped if /bin/sleep is not available.
+ *       as argv[0]. Verifies that find_process_by_name finds the child by
+ *       that alias name. Skipped if /bin/sleep is not available.
  *
  * This exercises the requirement that proc->command stores the exact
  * argv[0] passed to execve(), regardless of the real binary name.
@@ -4625,9 +4600,7 @@ static void test_process_group_cpu_usage(void) {
     struct process_group proc_group;
     double cpu_usage;
     pid_t child_pid;
-    int node_idx;
-    int ret;
-    int ncpu;
+    int node_idx, ret, ncpu;
 
     /* Create a child process that uses CPU */
     child_pid = fork();
@@ -4716,7 +4689,7 @@ static void test_process_group_rapid_updates(void) {
 /**
  * @brief Test process group initialization with all processes
  * @note Verifies that a process group initialized with PID 0 (all processes)
- *  is non-empty and contains the current process
+ *       is non-empty and contains the current process
  */
 static void test_process_group_init_all(void) {
     struct process_group proc_group;
@@ -4754,7 +4727,7 @@ static void test_process_group_init_all(void) {
  * @brief Test process group with a single process
  * @param include_children Flag indicating whether to include child processes
  * @note Creates a child process and verifies that the process group
- *  correctly tracks it, with or without child process inclusion
+ *       correctly tracks it, with or without child process inclusion
  */
 static void test_process_group_single(int include_children) {
     struct process_group proc_group;
@@ -4823,7 +4796,7 @@ static void test_process_group_single(int include_children) {
  * @brief Test process group with a single process (both with and without
  * children)
  * @note Wrapper function to test process group with include_children set to
- *  0 and 1
+ *       0 and 1
  */
 static void test_process_group_init_single(void) {
     /* Test without including children */
@@ -4836,7 +4809,7 @@ static void test_process_group_init_single(void) {
 /**
  * @brief Test process group initialization with invalid PIDs
  * @note Verifies that process group initialization with invalid PIDs (-1 and
- *  INT_MAX) results in empty process lists
+ *       INT_MAX) results in empty process lists
  */
 static void test_process_group_init_invalid_pid(void) {
     struct process_group proc_group;
@@ -5020,8 +4993,10 @@ static void test_process_group_cpu_usage_with_usage(void) {
         update_process_group(&proc_group);
     }
     usage = get_process_group_cpu_usage(&proc_group);
-    /* After several updates usage should be either -1 (not yet measured)
-     * or a valid non-negative value */
+    /*
+     * After several updates usage should be either -1 (not yet measured)
+     * or a valid non-negative value.
+     */
     assert(usage >= -1.00001);
     ret = close_process_group(&proc_group);
     assert(ret == 0);
@@ -5031,9 +5006,9 @@ static void test_process_group_cpu_usage_with_usage(void) {
  * @brief Test update_process_group when the target exits between init and
  *        the first explicit update call
  * @note Exercises the race where the target terminates after
- *  init_process_group (which performs one internal update) but before the
- *  caller invokes update_process_group again.  The function must handle a
- *  missing process gracefully and leave proc_list empty without crashing.
+ *       init_process_group (which performs one internal update) but before the
+ *       caller invokes update_process_group again.  The function must handle a
+ *       missing process gracefully and leave proc_list empty without crashing.
  */
 static void test_process_group_race_target_exits_between_init_and_update(void) {
     struct process_group proc_group;
@@ -5071,9 +5046,9 @@ static void test_process_group_race_target_exits_between_init_and_update(void) {
 /**
  * @brief Test update_process_group with rapidly spawning and exiting children
  * @note Exercises the race where child processes are created and destroyed
- *  between successive update_process_group calls.  The function must never
- *  crash or corrupt internal state regardless of how quickly descendants
- *  appear and disappear.
+ *       between successive update_process_group calls.  The function must never
+ *       crash or corrupt internal state regardless of how quickly descendants
+ *       appear and disappear.
  */
 static void test_process_group_race_rapid_child_spawn_exit(void) {
     struct process_group proc_group;
@@ -5135,7 +5110,7 @@ static void test_process_group_race_rapid_child_spawn_exit(void) {
 /**
  * @brief Test limit_process function
  * @note Creates a process group with multi processes and applies CPU
- *  limiting to verify that the CPU usage stays within the specified limit
+ *       limiting to verify that the CPU usage stays within the specified limit
  */
 static void test_limit_process_basic(void) {
     const double cpu_usage_limit = 0.5;
@@ -5308,11 +5283,8 @@ static void test_limit_process_exits_early(void) {
  * @note Exercises the verbose printf branches; output suppressed via fork
  */
 static void test_limit_process_verbose(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -5383,17 +5355,14 @@ static void sigcont_exit_handler(int sig) {
 /**
  * @brief Test that limit_process handles ESRCH when target exits on SIGCONT
  * @note Exercises the race between SIGCONT and the subsequent SIGSTOP:
- *  the target installs a SIGCONT handler that calls _exit(), so when
- *  limit_process resumes the stopped process, it dies immediately.
- *  The next SIGSTOP attempt must get ESRCH, remove the entry, and exit
- *  the control loop cleanly without crashing.
+ *       the target installs a SIGCONT handler that calls _exit(), so when
+ *       limit_process resumes the stopped process, it dies immediately.
+ *       The next SIGSTOP attempt must get ESRCH, remove the entry, and exit
+ *       the control loop cleanly without crashing.
  */
 static void test_limit_process_race_process_exits_on_sigcont(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -5457,8 +5426,10 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
         if (res == 0) {
             /* Child still running: kill and reap */
             if (kill(target_pid, SIGKILL) == -1 && errno != ESRCH) {
-                /* kill failed for unexpected reason; fall through to
-                 * reap anyway to avoid zombies */
+                /*
+                 * kill failed for unexpected reason; fall through to
+                 * reap anyway to avoid zombies.
+                 */
             }
             do {
                 res = waitpid(target_pid, NULL, 0);
@@ -5485,10 +5456,10 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
  * @brief Test that a quit signal received during limit_process sleep exits
  *        the control loop gracefully
  * @note Exercises the race where clock_nanosleep (or nanosleep) is
- *  interrupted by a SIGTERM delivered from an external process.  Because
- *  neither clock_nanosleep nor nanosleep honours SA_RESTART, the sleep
- *  returns EINTR and the loop immediately checks is_quit_flag_set(),
- *  which must now be true, causing a clean exit.
+ *       interrupted by a SIGTERM delivered from an external process.  Because
+ *       neither clock_nanosleep nor nanosleep honours SA_RESTART, the sleep
+ *       returns EINTR and the loop immediately checks is_quit_flag_set(),
+ *       which must now be true, causing a clean exit.
  */
 static void test_limit_process_race_quit_during_sleep(void) {
     int ready_pipe[2];
@@ -5577,17 +5548,14 @@ static void test_limit_process_race_quit_during_sleep(void) {
 /**
  * @brief Test run_command_mode with a command that exits immediately
  * @note Forks a child to call run_command_mode and checks the exit code
- *  matches the command's exit code
+ *       matches the command's exit code
  */
 static void test_limiter_run_command_mode(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "true";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -5628,16 +5596,13 @@ static void test_limiter_run_command_mode(void) {
 /**
  * @brief Test run_pid_or_exe_mode when the target process does not exist
  * @note Verifies that lazy mode exits with EXIT_FAILURE when the target
- *  executable name is not found
+ *       executable name is not found
  */
 static void test_limiter_run_pid_or_exe_mode(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     const char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -5670,14 +5635,11 @@ static void test_limiter_run_pid_or_exe_mode(void) {
  * @note execvp ENOENT in child; parent should return shell code 127
  */
 static void test_limiter_run_command_mode_nonexistent(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "/nonexistent_cpulimit_test_binary_xyz";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -5709,26 +5671,23 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  * @brief Test run_command_mode with a script whose shebang interpreter
  *        does not exist
  * @note execvp returns ENOENT but the file itself exists; the parent
- *  should return shell code 126 (found but not executable / bad
- *  interpreter), not 127 (command not found)
+ *       should return shell code 126 (found but not executable / bad
+ *       interpreter), not 127 (command not found)
  */
 static void test_limiter_run_command_mode_bad_shebang(void) {
-    pid_t pid;
-    int status;
-    struct cpulimit_cfg cfg;
-    char tmp_path[] = "/tmp/cpulimit_test_shebang_XXXXXX";
-    int fd;
+    pid_t pid, waited;
+    int status, fd, fchmod_ret, exited, exit_code;
     static const char shebang[] = "#!/nonexistent_interpreter_cpulimit_xyz\n";
     ssize_t nwritten;
-    int fchmod_ret;
+    struct cpulimit_cfg cfg;
+    char tmp_path[] = "/tmp/cpulimit_test_shebang_XXXXXX";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
-    /* Create a temporary executable script with a missing shebang
+    /*
+     * Create a temporary executable script with a missing shebang
      * interpreter so that execvp() fails with ENOENT even though
-     * the file itself exists. */
+     * the file itself exists.
+     */
     fd = mkstemp(tmp_path);
     assert(fd >= 0);
     /* sizeof(shebang) - 1: exclude the null terminator from the write */
@@ -5770,14 +5729,11 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
  * @note Exercises the verbose printf branches in run_command_mode
  */
 static void test_limiter_run_command_mode_verbose(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "true";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -5809,15 +5765,12 @@ static void test_limiter_run_command_mode_verbose(void) {
 /**
  * @brief Test run_pid_or_exe_mode with a PID (pid_mode=1) that does not exist
  * @note Uses INT_MAX which is virtually guaranteed to be non-existent;
- *  lazy_mode=1 -> EXIT_FAILURE
+ *       lazy_mode=1 -> EXIT_FAILURE
  */
 static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -5847,14 +5800,11 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
  * @note Exit status of 'false' is 1; run_command_mode should propagate it
  */
 static void test_limiter_run_command_mode_false(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "false";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -5884,21 +5834,18 @@ static void test_limiter_run_command_mode_false(void) {
 
 /**
  * @brief Test run_command_mode exit status when command is killed by SIGTERM
- * @note Shell convention: exit status = 128 + signal_number.
- *  'sh -c "kill -TERM $$"' causes the shell to send SIGTERM to itself;
- *  run_command_mode must propagate exit status 128 + SIGTERM.
+ * @note Shell convention: exit status = 128 + signal_number
+ *       'sh -c "kill -TERM $$"' causes the shell to send SIGTERM to itself;
+ *       run_command_mode must propagate exit status 128 + SIGTERM.
  */
 static void test_limiter_run_command_mode_signal_term(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "sh";
     char arg1[] = "-c";
     char arg2[] = "kill -TERM $$";
     char *args[4];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = arg1;
@@ -5931,21 +5878,18 @@ static void test_limiter_run_command_mode_signal_term(void) {
 
 /**
  * @brief Test run_command_mode exit status when command is killed by SIGKILL
- * @note Shell convention: exit status = 128 + signal_number.
- *  'sh -c "kill -KILL $$"' causes the shell to send SIGKILL to itself;
- *  run_command_mode must propagate exit status 128 + SIGKILL.
+ * @note Shell convention: exit status = 128 + signal_number
+ *       'sh -c "kill -KILL $$"' causes the shell to send SIGKILL to itself;
+ *       run_command_mode must propagate exit status 128 + SIGKILL.
  */
 static void test_limiter_run_command_mode_signal_kill(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "sh";
     char arg1[] = "-c";
     char arg2[] = "kill -9 $$";
     char *args[4];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = arg1;
@@ -5979,22 +5923,19 @@ static void test_limiter_run_command_mode_signal_kill(void) {
 /**
  * @brief Test run_command_mode when the command forks a background grandchild
  * @note Verifies that run_command_mode exits correctly (with the shell's exit
- *  status) even when the executed command itself forks a child process that
- *  outlives it.  The grandchild is reparented to init and does not affect
- *  the parent's wait loop, matching standard POSIX shell semantics.
+ *       status) even when the executed command itself forks a child process
+ *       that outlives it.  The grandchild is reparented to init and does not
+ *       affect the parent's wait loop, matching standard POSIX shell semantics.
  */
 static void test_limiter_run_command_mode_with_fork(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "sh";
     char arg1[] = "-c";
     /* Fork a short-lived background child; the shell exits immediately */
     char arg2[] = "sleep 1 &";
     char *args[4];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = arg1;
@@ -6032,19 +5973,15 @@ static void test_limiter_run_command_mode_with_fork(void) {
 /**
  * @brief Test run_command_mode forwards SIGTERM when quit flag is set
  * @note Sends SIGTERM to the wrapper process while it is running a long-lived
- *  command ('sleep 60').  run_command_mode must forward SIGTERM to the command
- *  process group and exit with 128 + SIGTERM = 143.
+ *       command ('sleep 60').  run_command_mode must forward SIGTERM to the
+ *       command process group and exit with 128 + SIGTERM = 143.
  */
 static void test_limiter_run_command_mode_quit_signal(void) {
     int ready_pipe[2];
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code, ret;
     char ready_byte;
     ssize_t n_read;
-    int ret;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -6109,21 +6046,17 @@ static void test_limiter_run_command_mode_quit_signal(void) {
 
 /**
  * @brief Test run_command_mode forwards the exact received signal (SIGINT)
- * @note Sends SIGINT to the wrapper process while it runs 'sleep 60'.
- *  With correct signal forwarding, the command receives SIGINT and exits
- *  with 128 + SIGINT = 130 (matching standard shell Ctrl+C behavior).
- *  Without the fix, the command would receive SIGTERM and exit with 143.
+ * @note Sends SIGINT to the wrapper process while it runs 'sleep 60'
+ *       With correct signal forwarding, the command receives SIGINT and exits
+ *       with 128 + SIGINT = 130 (matching standard shell Ctrl+C behavior).
+ *       Without the fix, the command would receive SIGTERM and exit with 143.
  */
 static void test_limiter_run_command_mode_signal_forwarding(void) {
     int ready_pipe[2];
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code, ret;
     char ready_byte;
     ssize_t n_read;
-    int ret;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -6192,13 +6125,10 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
  * @note Uses a nonexistent exe so proc_list stays empty, quit flag breaks loop
  */
 static void test_limiter_run_pid_or_exe_mode_quit(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     const char exe[] = "nonexistent_cpulimit_quit_test_xyz";
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -6230,16 +6160,13 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
 /**
  * @brief Test run_pid_or_exe_mode with verbose=0 when process is found
  * @note Verifies that the non-verbose code path (verbose guard is false)
- *  works correctly when a process is found: the function limits it and exits
- *  with EXIT_SUCCESS when the target terminates naturally.
+ *       works correctly when a process is found: the function limits it and
+ *       exits with EXIT_SUCCESS when the target terminates naturally.
  */
 static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
     const struct timespec target_life = {0, 500000000L}; /* 500 ms */
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -6280,14 +6207,11 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
 /**
  * @brief Test run_pid_or_exe_mode exits with failure when target is self
  * @note When the found PID matches the calling process, run_pid_or_exe_mode
- *  must exit with EXIT_FAILURE to prevent cpulimit from limiting itself.
+ *       must exit with EXIT_FAILURE to prevent cpulimit from limiting itself.
  */
 static void test_limiter_run_pid_or_exe_mode_self(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -6319,17 +6243,15 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
 /**
  * @brief Test run_pid_or_exe_mode with verbose=1 exercises the verbose path
  * @note Forks a short-lived target process, then calls run_pid_or_exe_mode
- *  with verbose=1 and lazy_mode=1. Suppresses output. Verifies the function
- *  exits cleanly when the target terminates, confirming the verbose code path
- *  (including the "Process found" message guard) does not crash.
+ *       with verbose=1 and lazy_mode=1. Suppresses output. Verifies the
+ *       function exits cleanly when the target terminates, confirming the
+ *       verbose code path (including the "Process found" message guard)
+ *       does not crash.
  */
 static void test_limiter_run_pid_or_exe_mode_verbose(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
     const struct timespec target_life = {0, 500000000L}; /* 500 ms */
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -6371,18 +6293,15 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
  * @brief Test run_command_mode when the quit flag is already set before
  *        limit_process is entered
  * @note Exercises the race where a termination signal (SIGTERM) arrives
- *  before run_command_mode is called, so quit_flag is true by the time
- *  limit_process is invoked.  limit_process must detect the preset quit
- *  flag, skip the control loop, resume any stopped processes, and return
- *  immediately.  run_command_mode then forwards the quit signal to the
- *  command process group and exits with 128 + SIGTERM.
+ *       before run_command_mode is called, so quit_flag is true by the time
+ *       limit_process is invoked.  limit_process must detect the preset quit
+ *       flag, skip the control loop, resume any stopped processes, and return
+ *       immediately.  run_command_mode then forwards the quit signal to the
+ *       command process group and exits with 128 + SIGTERM.
  */
 static void test_limiter_race_quit_flag_preset_before_limit(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -6440,22 +6359,18 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
 /**
  * @brief Test run_command_mode when SIGTERM arrives during the sync pipe read
  * @note Exercises the SA_RESTART race in the sync pipe read: with SA_RESTART
- *  the underlying read() syscall is transparently restarted after signal
- *  delivery, so the parent does not observe EINTR.  The signal handler has
- *  already set quit_flag by the time the read completes, causing
- *  limit_process to return immediately and the command to receive the
- *  forwarded signal.
+ *       the underlying read() syscall is transparently restarted after signal
+ *       delivery, so the parent does not observe EINTR.  The signal handler has
+ *       already set quit_flag by the time the read completes, causing
+ *       limit_process to return immediately and the command to receive the
+ *       forwarded signal.
  */
 static void test_limiter_race_signal_during_sync_pipe_read(void) {
     int notify_pipe[2];
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code, ret;
     char notify_byte;
     ssize_t n_read;
-    int ret;
 
     ret = pipe(notify_pipe);
     assert(ret == 0);
@@ -6532,9 +6447,9 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
 #endif
 
 /**
- * @brief Robust test function invocation.
+ * @brief Robust test function invocation
  * Ensures that the test function is called and cannot be inlined.
- * @param test_fn Pointer to the void(void) test function to invoke.
+ * @param test_fn Pointer to the void(void) test function to invoke
  */
 static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
     void (*volatile fn_slot_array[2])(void) = {NULL, NULL};
@@ -6577,9 +6492,9 @@ static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
  * @param argc Argument count
  * @param argv Argument vector
  * @return 0 on success
- * @note Runs all test functions organized by module and prints their results.
- *  Installs signal handlers for SIGINT and SIGTERM to request graceful
- *  shutdown of the test run instead of abrupt termination.
+ * @note Runs all test functions organized by module and prints their results
+ *       Installs signal handlers for SIGINT and SIGTERM to request graceful
+ *       shutdown of the test run instead of abrupt termination.
  */
 int main(int argc, char *argv[]) {
     struct timespec time_seed;

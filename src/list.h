@@ -105,7 +105,7 @@ void init_list(struct list *lst);
  * the data remains with the caller.
  *
  * @note On memory allocation failure for the new node, this function
- *       terminates the process and does not return to the caller.
+ *       terminates the process and does not return to the caller
  */
 struct list_node *add_elem(struct list *lst, void *elem);
 
@@ -131,7 +131,7 @@ void delete_node(struct list *lst, struct list_node *node);
  * then frees the node structure. Use this only when the data was allocated
  * with malloc() and has no other references.
  *
- * @note Safe to call with NULL list or node; does nothing when either is NULL.
+ * @note Safe to call with NULL list or node; does nothing when either is NULL
  */
 void destroy_node(struct list *lst, struct list_node *node);
 

@@ -86,8 +86,8 @@
 #define CHILD_POLL_INTERVAL_NS 50000000L /* 50 ms */
 
 /**
- * @brief Check whether a file is a script with a missing shebang interpreter.
- * @param path Path to the file to inspect.
+ * @brief Check whether a file is a script with a missing shebang interpreter
+ * @param path Path to the file to inspect
  * @return 1 if the file begins with "#!" and the interpreter named on the
  *         shebang line cannot be accessed (access(F_OK) fails); 0 otherwise.
  *
@@ -139,16 +139,16 @@ static int is_script_missing_interpreter(const char *path) {
 }
 
 /**
- * @brief Execute a child process for command mode.
- * @param cfg Pointer to configuration structure containing command and options.
- * @param sync_read_fd Read end of the synchronization pipe.
- * @param sync_write_fd Write end of the synchronization pipe.
+ * @brief Execute a child process for command mode
+ * @param cfg Pointer to configuration structure containing command and options
+ * @param sync_read_fd Read end of the synchronization pipe
+ * @param sync_write_fd Write end of the synchronization pipe
  *
  * This function executes in the child process after fork(). It sets up the
  * process group, resets signal handlers, signals readiness to the parent,
  * and replaces the process image with the user command via execvp().
  *
- * @note This function never returns; it calls _exit() on any failure.
+ * @note This function never returns; it calls _exit() on any failure
  */
 static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
                                int sync_write_fd) {
@@ -259,9 +259,9 @@ error_out:
 }
 
 /**
- * @brief Wait for the child process to complete exec setup.
- * @param child_pid PID of the forked child process.
- * @param sync_read_fd Read end of the synchronization pipe.
+ * @brief Wait for the child process to complete exec setup
+ * @param child_pid PID of the forked child process
+ * @param sync_read_fd Read end of the synchronization pipe
  *
  * Reads the readiness byte written by the child after setpgid() and signal
  * handler reset, then blocks until the pipe EOF that indicates exec has
@@ -344,9 +344,9 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
 }
 
 /**
- * @brief Wait for the child process to exit and collect its exit status.
- * @param child_pid PID of the child process to wait for.
- * @param cfg Pointer to configuration structure (used for verbose output).
+ * @brief Wait for the child process to exit and collect its exit status
+ * @param child_pid PID of the child process to wait for
+ * @param cfg Pointer to configuration structure (used for verbose output)
  * @return The child's exit status if successfully reaped, EXIT_FAILURE
  *         otherwise.
  *
@@ -713,8 +713,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
 void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     /* Wait interval between search attempts when target not found */
     const struct timespec wait_time = {2, 0}; /* 2 seconds */
-    int pid_mode = cfg->target_pid > 0;
-    int exit_status = EXIT_SUCCESS;
+    int pid_mode = cfg->target_pid > 0, exit_status = EXIT_SUCCESS;
 
     while (!is_quit_flag_set()) {
         pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
@@ -731,7 +730,7 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                         cfg->exe_name, cfg->lazy_mode ? "" : ", retrying...");
             }
             if (cfg->lazy_mode) {
-                /* In lazy mode, missing target is an error condition. */
+                /* In lazy mode, missing target is an error condition */
                 exit_status = EXIT_FAILURE;
             }
         } else if (found_pid < 0) {

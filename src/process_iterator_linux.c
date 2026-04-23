@@ -47,8 +47,7 @@
  * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
  * @return 0 on success, -1 on failure (including NULL iter or filter);
- *         may call exit() on fatal errors
- *         (e.g., out-of-memory)
+ *         may call exit() on fatal errors (e.g., out-of-memory)
  *
  * This function prepares the iterator for process enumeration. The behavior
  * varies by platform:
@@ -70,7 +69,7 @@ int init_process_iterator(struct process_iterator *iter,
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         /*
          * Optimization: when querying a single process without children,
-         * we can skip opening /proc directory entirely
+         * we can skip opening /proc directory entirely.
          */
         iter->proc_dir = NULL;
         return 0;
@@ -229,8 +228,10 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     } while (bytes_read < 0 && errno == EINTR);
     if (close(cmdline_fd) != 0) {
         perror("close");
-        /* Even if close() fails, any data already read into
-         * proc->command remains valid. */
+        /*
+         * Even if close() fails, any data already read into
+         * proc->command remains valid.
+         */
     }
     if (bytes_read <= 0) {
         return -1;
@@ -238,7 +239,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     proc->command[(size_t)bytes_read] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
-     * argv[0]=="")
+     * argv[0]=="").
      */
     if (proc->command[0] == '\0') {
         return -1;
@@ -281,7 +282,7 @@ pid_t getppid_of(pid_t pid) {
     }
     /*
      * Parse state and ppid manually for performance (replaces sscanf).
-     * Format after ')': " state ppid ..."
+     * Format after ')': " state ppid ...".
      */
     p++; /* Skip ')' */
     /* Skip whitespace before state (matches sscanf " " before %c) */
@@ -337,7 +338,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     }
     /*
      * Fast-path: any existing non-init process is ultimately a child of init
-     * (PID 1)
+     * (PID 1).
      */
     if (parent_pid == 1) {
         return getppid_of(child_pid) != (pid_t)(-1);
@@ -482,6 +483,6 @@ int close_process_iterator(struct process_iterator *iter) {
 
 #endif /* CPULIMIT_PROCESS_ITERATOR_LINUX_C */
 #else
-/* Placeholder to avoid empty compilation unit on non-Linux platforms. */
+/* Placeholder to avoid empty compilation unit on non-Linux platforms */
 typedef int cpulimit_process_iterator_linux_placeholder;
 #endif /* __linux__ */

@@ -191,11 +191,11 @@ static struct process *process_dup(const struct process *proc) {
 #define CPU_MIN_DELTA_MS 20
 
 /**
- * @brief Update the CPU usage of an existing tracked process entry.
- * @param proc      The stored process entry to update (modified in place).
- * @param scan_proc Fresh snapshot of the same process from the iterator.
- * @param elapsed_ms Milliseconds elapsed since the last update cycle.
- * @param ncpu      Number of available CPU cores (used to cap the sample).
+ * @brief Update the CPU usage of an existing tracked process entry
+ * @param proc      The stored process entry to update (modified in place)
+ * @param scan_proc Fresh snapshot of the same process from the iterator
+ * @param elapsed_ms Milliseconds elapsed since the last update cycle
+ * @param ncpu      Number of available CPU cores (used to cap the sample)
  *
  * Handles four mutually exclusive cases:
  * - PID reuse (scan_proc->cpu_time < proc->cpu_time): resets all fields.
@@ -237,9 +237,11 @@ static void update_existing_process_entry(struct process *proc,
         return;
     }
     if (elapsed_ms < CPU_MIN_DELTA_MS) {
-        /* Time delta too small for accurate CPU measurement; keep
+        /*
+         * Time delta too small for accurate CPU measurement; keep
          * cpu_time unchanged so the next valid update accumulates
-         * the full delta over the interval. */
+         * the full delta over the interval.
+         */
         return;
     }
     /*

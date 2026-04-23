@@ -49,7 +49,7 @@ static volatile sig_atomic_t quit_flag = 0;
 static volatile sig_atomic_t tty_quit_flag = 0;
 
 /**
- * @brief Compile-time assertion: sig_atomic_t can hold values up to 127.
+ * @brief Compile-time assertion: sig_atomic_t can hold values up to 127
  *
  * POSIX.1-2001 requires SIG_ATOMIC_MAX >= 127, so any value in the range
  * [0, 127] can be stored in a sig_atomic_t without truncation or overflow.
@@ -145,18 +145,20 @@ static void sig_handler(int sig) {
 void configure_signal_handler(void) {
     struct sigaction sig_action;
     sigset_t block_mask, old_mask;
-    size_t sig_idx;
     /* Array of signals that should trigger graceful termination */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
+    size_t sig_idx;
 
-    /* Block all signals at function entry so that no termination signal can
+    /*
+     * Block all signals at function entry so that no termination signal can
      * be delivered between here and the completion of handler installation.
      * This eliminates the race where a signal fires before sigprocmask takes
      * effect, sets quit_flag, and then has that state wiped by the subsequent
      * reset_signal_state() call. SIGKILL and SIGSTOP cannot be blocked and
      * are silently ignored by sigprocmask, which is harmless. The original
-     * mask is restored after all handlers are in place. */
+     * mask is restored after all handlers are in place.
+     */
     if (sigfillset(&block_mask) != 0) {
         perror("sigfillset");
         exit(EXIT_FAILURE);
@@ -177,7 +179,7 @@ void configure_signal_handler(void) {
         exit(EXIT_FAILURE);
     }
 
-    /* Start from a deterministic state for each new configuration. */
+    /* Start from a deterministic state for each new configuration */
     reset_signal_state();
 
     /* Register the same handler for all termination signals */
@@ -188,8 +190,10 @@ void configure_signal_handler(void) {
         }
     }
 
-    /* Restore the original signal mask; any signals pending during the
-     * blocked window are now delivered through the newly installed handlers. */
+    /*
+     * Restore the original signal mask; any signals pending during the
+     * blocked window are now delivered through the newly installed handlers.
+     */
     if (sigprocmask(SIG_SETMASK, &old_mask, NULL) != 0) {
         perror("sigprocmask");
         exit(EXIT_FAILURE);

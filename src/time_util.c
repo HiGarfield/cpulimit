@@ -42,15 +42,18 @@
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
  *
- * Y2038 note: this function is currently only used with short sleep
- * durations, so the tv_sec value remains far below any 32-bit overflow
- * threshold and is not affected by the Y2038 problem.
+ * Y2038 note: this function is currently used only for short sleep
+ * durations (sub-second intervals, up to 0.5 s), so the tv_sec value
+ * is far below any 32-bit overflow threshold and is not affected by
+ * the Y2038 problem.
  */
 void nsec2timespec(double nsec, struct timespec *result_ts) {
     result_ts->tv_sec = (time_t)(nsec / 1e9);
     result_ts->tv_nsec = (long)(nsec - (double)result_ts->tv_sec * 1e9);
-    /* Correct tv_sec when floating-point rounding shifts tv_nsec out of
-     * range */
+    /*
+     * Correct tv_sec when floating-point rounding shifts tv_nsec out of
+     * range.
+     */
     if (result_ts->tv_nsec < 0L) {
         result_ts->tv_sec--;
         result_ts->tv_nsec += 1000000000L;

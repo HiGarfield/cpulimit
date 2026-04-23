@@ -51,8 +51,10 @@ pid_t find_process_by_pid(pid_t pid) {
     if (pid <= 0) {
         return 0;
     }
-    /* Attempt to send null signal (doesn't actually signal, just checks
-     * permission) */
+    /*
+     * Attempt to send null signal (doesn't actually signal, just checks
+     * permission).
+     */
     if (kill(pid, 0) == 0) {
         return pid;
     }
@@ -142,7 +144,7 @@ pid_t find_process_by_name(const char *process_name) {
              * - No match found yet (!found), OR
              * - This process is an ancestor of the previous match
              * This heuristic prefers older/parent processes over newer/child
-             * ones
+             * ones.
              */
             if (!found || is_child_of(pid, proc->pid)) {
                 pid = proc->pid;
