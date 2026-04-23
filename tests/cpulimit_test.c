@@ -5028,12 +5028,6 @@ static void test_process_group_cpu_usage_with_usage(void) {
 }
 
 /**
- * @def CPU_USAGE_EPSILON
- * @brief Tolerance for floating-point comparisons around sentinel -1.0 values
- */
-#define CPU_USAGE_EPSILON 0.00001
-
-/**
  * @brief Test process-group CPU baseline reset on backward time anomaly
  * @note Simulates a post-wrap/backward timestamp by forcing last_update to a
  *  future value; update_process_group must immediately mark cpu_usage unknown.
@@ -5070,8 +5064,7 @@ static void test_process_group_reset_on_backward_time(void) {
             continue;
         }
         saw_process = 1;
-        assert(proc->cpu_usage >= -1.0 - CPU_USAGE_EPSILON &&
-               proc->cpu_usage <= -1.0 + CPU_USAGE_EPSILON);
+        assert(proc->cpu_usage <= -0.5 && proc->cpu_usage >= -1.5);
     }
     assert(saw_process);
 

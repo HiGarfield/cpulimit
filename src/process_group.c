@@ -191,6 +191,12 @@ static struct process *process_dup(const struct process *proc) {
 #define CPU_MIN_DELTA_MS 20
 
 /**
+ * @def CPU_USAGE_UNKNOWN
+ * @brief Sentinel for "CPU usage has not been measured yet"
+ */
+#define CPU_USAGE_UNKNOWN (-1.0)
+
+/**
  * @def ELAPSED_MS_RESET_SENTINEL
  * @brief Sentinel elapsed_ms value used to force baseline reset logic
  *
@@ -248,7 +254,7 @@ static void update_existing_process_entry(struct process *proc,
     if (reset_cpu_baseline) {
         proc->ppid = scan_proc->ppid;
         proc->cpu_time = scan_proc->cpu_time;
-        proc->cpu_usage = -1;
+        proc->cpu_usage = CPU_USAGE_UNKNOWN;
         return;
     }
     if (scan_proc->cpu_time < proc->cpu_time) {
@@ -258,7 +264,7 @@ static void update_existing_process_entry(struct process *proc,
          */
         *proc = *scan_proc;
         /* Mark CPU usage as unknown for new process */
-        proc->cpu_usage = -1;
+        proc->cpu_usage = CPU_USAGE_UNKNOWN;
         return;
     }
     /*
@@ -273,7 +279,7 @@ static void update_existing_process_entry(struct process *proc,
          * cycle.
          */
         proc->cpu_time = scan_proc->cpu_time;
-        proc->cpu_usage = -1;
+        proc->cpu_usage = CPU_USAGE_UNKNOWN;
         return;
     }
     if (elapsed_ms < CPU_MIN_DELTA_MS) {
@@ -387,7 +393,7 @@ void update_process_group(struct process_group *proc_group) {
             /* New process detected: add to hashtable and list */
             proc = process_dup(scan_proc);
             /* Mark CPU usage as unknown until we have a time delta */
-            proc->cpu_usage = -1;
+            proc->cpu_usage = CPU_USAGE_UNKNOWN;
             add_to_process_table(proc_group->proc_table, proc);
             add_elem(proc_group->proc_list, proc);
         } else {
@@ -439,7 +445,7 @@ void update_process_group(struct process_group *proc_group) {
  */
 double get_process_group_cpu_usage(const struct process_group *proc_group) {
     const struct list_node *node;
-    double cpu_usage = -1;
+    double cpu_usage = CPU_USAGE_UNKNOWN;
     if (proc_group == NULL || proc_group->proc_list == NULL) {
         return -1;
     }
