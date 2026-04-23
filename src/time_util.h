@@ -51,8 +51,9 @@ extern "C" {
  * floating-point rounding errors.
  *
  * Y2038 note: this function is only used for short sleep durations
- * (at most a few seconds), so the tv_sec value is far below any 32-bit
- * overflow threshold and is not affected by the Y2038 problem.
+ * (at most MAX_TIME_SLOT = 500 ms worth of nanoseconds), so the tv_sec
+ * value is far below any 32-bit overflow threshold and is not affected
+ * by the Y2038 problem.
  */
 void nsec2timespec(double nsec, struct timespec *result_ts);
 
