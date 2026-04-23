@@ -500,8 +500,7 @@ static void test_util_file_basename(void) {
  * @note Tests retrieval of CPU count
  */
 static void test_util_get_ncpu(void) {
-    int ncpu;
-    int ncpu_cached;
+    int ncpu, ncpu_cached;
 
     ncpu = get_ncpu();
     assert(ncpu >= 1);
@@ -574,7 +573,7 @@ static void test_util_read_line_from_file(void) {
     char *line;
     char tmp_file[] = "/tmp/cpulimit_empty_XXXXXX";
     int tmp_fd;
-    char nl_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
+    char newline_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
     int newline_fd;
     char crlf_tmp_file[] = "/tmp/cpulimit_crlf_XXXXXX";
     int crlf_fd;
@@ -615,16 +614,16 @@ static void test_util_read_line_from_file(void) {
     remove(tmp_file);
 
     /* A file containing only a newline returns a non-NULL empty string */
-    newline_fd = mkstemp(nl_tmp_file);
+    newline_fd = mkstemp(newline_tmp_file);
     assert(newline_fd >= 0);
     nwritten = write(newline_fd, "\n", 1);
     assert(nwritten == 1);
     close(newline_fd);
-    line = read_line_from_file(nl_tmp_file);
+    line = read_line_from_file(newline_tmp_file);
     assert(line != NULL);
     assert(line[0] == '\0');
     free(line);
-    remove(nl_tmp_file);
+    remove(newline_tmp_file);
 
     /*
      * A CRLF-terminated line must have both '\r' and '\n' stripped.
@@ -1323,11 +1322,8 @@ static void test_list_null_data_operations(void) {
  * @note Installs handlers in a child, raises signals, and checks flags
  */
 static void test_signal_handler_flags(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     /* Test behavior on SIGTERM: quit flag set, not terminated by tty */
     pid = fork();
@@ -1390,11 +1386,8 @@ static void test_signal_handler_flags(void) {
  *  SIGQUIT to the parent's process group.
  */
 static void test_signal_handler_sigquit(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1435,11 +1428,8 @@ static void test_signal_handler_sigquit(void) {
  * @note SIGHUP must set quit_flag but must NOT set terminated_by_tty
  */
 static void test_signal_handler_sighup(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1470,11 +1460,8 @@ static void test_signal_handler_sighup(void) {
  * @note SIGPIPE must set quit_flag but must NOT set terminated_by_tty
  */
 static void test_signal_handler_sigpipe(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1505,11 +1492,8 @@ static void test_signal_handler_sigpipe(void) {
  * @note Both quit_flag and terminated_by_tty must be 0 before any signal
  */
 static void test_signal_handler_initial_state(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1538,12 +1522,8 @@ static void test_signal_handler_initial_state(void) {
  *  do not overwrite the recorded number.
  */
 static void test_signal_handler_get_quit_signal(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-    int sig_val;
+    pid_t pid, waited;
+    int status, exited, exit_code, sig_val;
 
     /* Sub-test 1: before any signal, get_quit_signal() returns 0 */
     pid = fork();
@@ -1625,11 +1605,8 @@ static void test_signal_handler_get_quit_signal(void) {
  *  baseline.
  */
 static void test_signal_handler_reconfigure_resets_state(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1688,11 +1665,8 @@ static void test_signal_handler_reconfigure_resets_state(void) {
  *   7. Verify quit_flag is 1 and quit_signal_num is SIGTERM.
  */
 static void test_signal_handler_reconfigure_delivers_pending(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -1766,11 +1740,8 @@ static void test_signal_handler_reconfigure_delivers_pending(void) {
  *  that sa_handler == SIG_DFL for each signal after the reset.
  */
 static void test_signal_handler_reset_to_default(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     static const int check_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_check_sigs =
         sizeof(check_sigs) / sizeof(*check_sigs);
@@ -1817,12 +1788,8 @@ static void test_signal_handler_reset_to_default(void) {
  */
 static void test_signal_handler_race_concurrent_signals(void) {
     int ready_pipe[2];
-    pid_t child_pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
-    int ret;
+    pid_t child_pid, waited;
+    int status, exited, exit_code, ret;
     char ready_byte;
     ssize_t n_read;
 
@@ -1915,8 +1882,7 @@ static void test_signal_handler_race_concurrent_signals(void) {
 static void test_signal_handler_race_signal_interrupts_sleep(void) {
     int ready_pipe[2];
     pid_t child_pid;
-    int status;
-    int ret;
+    int status, ret;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -1955,8 +1921,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
         const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
         char ready_byte;
         ssize_t n_read;
-        int exited;
-        int exit_code;
+        int exited, exit_code;
         pid_t waited;
 
         /* Parent: wait for child to enter sleep, then send SIGTERM */
@@ -1993,8 +1958,7 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
 static void test_signal_handler_race_rapid_all_signals(void) {
     int ready_pipe[2];
     pid_t child_pid;
-    int status;
-    int ret;
+    int status, ret;
     static const int all_sigs[] = {SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT};
     static const size_t num_sigs = sizeof(all_sigs) / sizeof(*all_sigs);
 
@@ -2052,8 +2016,7 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         size_t sig_idx;
         char ready_byte;
         ssize_t n_read;
-        int exited;
-        int exit_code;
+        int exited, exit_code;
         pid_t waited;
 
         close(ready_pipe[1]);
@@ -2897,11 +2860,9 @@ static void test_process_iterator_null_proc_dir_guard(void) {
  * @return Exit status from the child process
  */
 static int run_parse_in_child(int argc, char **argv) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited;
     struct cpulimit_cfg cfg;
-    pid_t waited;
-    int exited;
 
     pid = fork();
     assert(pid >= 0);
@@ -3109,11 +3070,8 @@ static void test_cli_optional_flags(void) {
  * @note -v causes a "N CPUs detected" print; run in fork to suppress it
  */
 static void test_cli_verbose_flag(void) {
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -3648,11 +3606,8 @@ static void test_cli_long_options_lazy_verbose(void) {
     char arg_e[] = "-e";
     char arg_exe[] = "foo";
     char *test_argv[7];
-    pid_t pid;
-    int status;
-    pid_t waited;
-    int exited;
-    int exit_code;
+    pid_t pid, waited;
+    int status, exited, exit_code;
 
     test_argv[0] = arg0;
     test_argv[1] = arg_limit;
@@ -4625,9 +4580,7 @@ static void test_process_group_cpu_usage(void) {
     struct process_group proc_group;
     double cpu_usage;
     pid_t child_pid;
-    int node_idx;
-    int ret;
-    int ncpu;
+    int node_idx, ret, ncpu;
 
     /* Create a child process that uses CPU */
     child_pid = fork();
@@ -5308,11 +5261,8 @@ static void test_limit_process_exits_early(void) {
  * @note Exercises the verbose printf branches; output suppressed via fork
  */
 static void test_limit_process_verbose(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -5389,11 +5339,8 @@ static void sigcont_exit_handler(int sig) {
  *  the control loop cleanly without crashing.
  */
 static void test_limit_process_race_process_exits_on_sigcont(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -5580,14 +5527,11 @@ static void test_limit_process_race_quit_during_sleep(void) {
  *  matches the command's exit code
  */
 static void test_limiter_run_command_mode(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "true";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -5631,13 +5575,10 @@ static void test_limiter_run_command_mode(void) {
  *  executable name is not found
  */
 static void test_limiter_run_pid_or_exe_mode(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     const char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -5670,14 +5611,11 @@ static void test_limiter_run_pid_or_exe_mode(void) {
  * @note execvp ENOENT in child; parent should return shell code 127
  */
 static void test_limiter_run_command_mode_nonexistent(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "/nonexistent_cpulimit_test_binary_xyz";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -5713,18 +5651,13 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  *  interpreter), not 127 (command not found)
  */
 static void test_limiter_run_command_mode_bad_shebang(void) {
-    pid_t pid;
-    int status;
-    struct cpulimit_cfg cfg;
-    char tmp_path[] = "/tmp/cpulimit_test_shebang_XXXXXX";
-    int fd;
+    pid_t pid, waited;
+    int status, fd, fchmod_ret, exited, exit_code;
     static const char shebang[] = "#!/nonexistent_interpreter_cpulimit_xyz\n";
     ssize_t nwritten;
-    int fchmod_ret;
+    struct cpulimit_cfg cfg;
+    char tmp_path[] = "/tmp/cpulimit_test_shebang_XXXXXX";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     /* Create a temporary executable script with a missing shebang
      * interpreter so that execvp() fails with ENOENT even though
@@ -5770,14 +5703,11 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
  * @note Exercises the verbose printf branches in run_command_mode
  */
 static void test_limiter_run_command_mode_verbose(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "true";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -5812,12 +5742,9 @@ static void test_limiter_run_command_mode_verbose(void) {
  *  lazy_mode=1 -> EXIT_FAILURE
  */
 static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -5847,14 +5774,11 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
  * @note Exit status of 'false' is 1; run_command_mode should propagate it
  */
 static void test_limiter_run_command_mode_false(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "false";
     char *args[2];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -5889,16 +5813,13 @@ static void test_limiter_run_command_mode_false(void) {
  *  run_command_mode must propagate exit status 128 + SIGTERM.
  */
 static void test_limiter_run_command_mode_signal_term(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "sh";
     char arg1[] = "-c";
     char arg2[] = "kill -TERM $$";
     char *args[4];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = arg1;
@@ -5936,16 +5857,13 @@ static void test_limiter_run_command_mode_signal_term(void) {
  *  run_command_mode must propagate exit status 128 + SIGKILL.
  */
 static void test_limiter_run_command_mode_signal_kill(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "sh";
     char arg1[] = "-c";
     char arg2[] = "kill -9 $$";
     char *args[4];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = arg1;
@@ -5984,17 +5902,14 @@ static void test_limiter_run_command_mode_signal_kill(void) {
  *  the parent's wait loop, matching standard POSIX shell semantics.
  */
 static void test_limiter_run_command_mode_with_fork(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "sh";
     char arg1[] = "-c";
     /* Fork a short-lived background child; the shell exits immediately */
     char arg2[] = "sleep 1 &";
     char *args[4];
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     args[0] = cmd;
     args[1] = arg1;
@@ -6037,14 +5952,10 @@ static void test_limiter_run_command_mode_with_fork(void) {
  */
 static void test_limiter_run_command_mode_quit_signal(void) {
     int ready_pipe[2];
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code, ret;
     char ready_byte;
     ssize_t n_read;
-    int ret;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -6116,14 +6027,10 @@ static void test_limiter_run_command_mode_quit_signal(void) {
  */
 static void test_limiter_run_command_mode_signal_forwarding(void) {
     int ready_pipe[2];
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code, ret;
     char ready_byte;
     ssize_t n_read;
-    int ret;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -6192,13 +6099,10 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
  * @note Uses a nonexistent exe so proc_list stays empty, quit flag breaks loop
  */
 static void test_limiter_run_pid_or_exe_mode_quit(void) {
-    pid_t pid;
-    int status;
+    pid_t pid, waited;
+    int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     const char exe[] = "nonexistent_cpulimit_quit_test_xyz";
-    pid_t waited;
-    int exited;
-    int exit_code;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -6234,12 +6138,9 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
  *  with EXIT_SUCCESS when the target terminates naturally.
  */
 static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
     const struct timespec target_life = {0, 500000000L}; /* 500 ms */
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -6283,11 +6184,8 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
  *  must exit with EXIT_FAILURE to prevent cpulimit from limiting itself.
  */
 static void test_limiter_run_pid_or_exe_mode_self(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -6324,12 +6222,9 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
  *  (including the "Process found" message guard) does not crash.
  */
 static void test_limiter_run_pid_or_exe_mode_verbose(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
     const struct timespec target_life = {0, 500000000L}; /* 500 ms */
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -6378,11 +6273,8 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
  *  command process group and exits with 128 + SIGTERM.
  */
 static void test_limiter_race_quit_flag_preset_before_limit(void) {
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
 
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
@@ -6448,14 +6340,10 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
  */
 static void test_limiter_race_signal_during_sync_pipe_read(void) {
     int notify_pipe[2];
-    pid_t wrapper_pid;
-    int wrapper_status;
-    pid_t waited;
-    int w_exited;
-    int w_exit_code;
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code, ret;
     char notify_byte;
     ssize_t n_read;
-    int ret;
 
     ret = pipe(notify_pipe);
     assert(ret == 0);
