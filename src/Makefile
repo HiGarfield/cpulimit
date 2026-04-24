@@ -65,7 +65,8 @@ CPPCHECK_OPTS := \
     --suppress=missingIncludeSystem \
     --suppress=ConfigurationNotChecked \
     --suppress=unmatchedSuppression \
-    --suppress=checkersReport
+    --suppress=checkersReport \
+    --inline-suppr
 
 # clang-tidy options
 CLANG_TIDY_OPTS :=

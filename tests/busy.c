@@ -48,6 +48,7 @@ static void *busy_loop(void *arg) {
     return NULL;
 }
 
+/* cppcheck-suppress-begin constParameter */
 /**
  * @brief Main function for CPU load generator
  * @param argc Argument count
@@ -58,6 +59,7 @@ static void *busy_loop(void *arg) {
  *       command line argument.
  */
 int main(int argc, char *argv[]) {
+    /* cppcheck-suppress-end constParameter */
     int thread_idx, num_threads;
     pthread_attr_t attr;
 

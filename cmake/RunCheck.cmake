@@ -122,6 +122,7 @@ set(_cppcheck_common
     --suppress=ConfigurationNotChecked
     --suppress=unmatchedSuppression
     --suppress=checkersReport
+    --inline-suppr
 )
 
 # --check-level=exhaustive was introduced in cppcheck 2.8.

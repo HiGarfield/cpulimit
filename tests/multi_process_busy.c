@@ -33,6 +33,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+/* cppcheck-suppress-begin constParameter */
 /**
  * @brief CPU load generator using fork
  * @param argc Command line argument count
@@ -45,6 +46,7 @@
  *       of CPU cores is used.
  */
 int main(int argc, char *argv[]) {
+    /* cppcheck-suppress-end constParameter */
     int proc_idx, num_procs;
     pid_t pid = -1;
     configure_signal_handler();
