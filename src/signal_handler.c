@@ -209,7 +209,7 @@ void configure_signal_handler(void) {
  * loop should periodically check this flag to initiate graceful shutdown.
  */
 int is_quit_flag_set(void) {
-    return !!quit_flag;
+    return quit_flag != 0;
 }
 
 /**
@@ -221,7 +221,7 @@ int is_quit_flag_set(void) {
  * customize shutdown behavior or messages based on how termination occurred.
  */
 int is_terminated_by_tty(void) {
-    return !!tty_quit_flag;
+    return tty_quit_flag != 0;
 }
 
 /**
