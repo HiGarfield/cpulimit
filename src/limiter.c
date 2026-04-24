@@ -271,8 +271,10 @@ error_out:
  * On any error, kills and reaps the child, then calls exit(EXIT_FAILURE).
  */
 static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
-    char sync_byte; /* Synchronization byte from child */
-    ssize_t n_read; /* Bytes read from pipe */
+    /* Synchronization byte from child */
+    char sync_byte;
+    /* Bytes read from pipe */
+    ssize_t n_read;
 
     /*
      * Block until child signals readiness by writing to pipe.
@@ -282,7 +284,8 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
         n_read = read(sync_read_fd, &sync_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     if (n_read != 1 || sync_byte != 'A') {
-        pid_t wait_result; /* Return value of waitpid in error path */
+        /* Return value of waitpid in error path */
+        pid_t wait_result;
         if (n_read < 0) {
             perror("read sync");
         } else if (n_read == 0) {
@@ -376,9 +379,10 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
  */
 static int collect_child_exit_status(pid_t child_pid,
                                      const struct cpulimit_cfg *cfg) {
-    int child_exit_status =
-        EXIT_FAILURE;     /* Default if child not properly reaped */
-    int child_reaped = 0; /* 1 if successfully reaped child PID */
+    /* Default exit status if child is not properly reaped */
+    int child_exit_status = EXIT_FAILURE;
+    /* 1 if child PID was successfully reaped, 0 otherwise */
+    int child_reaped = 0;
     /*
      * Three-state forwarding flag:
      *   0  => no quit observed yet in this function
@@ -386,7 +390,8 @@ static int collect_child_exit_status(pid_t child_pid,
      *   1  => signal forwarded from this function
      */
     int sig_forwarded = 0;
-    struct timespec start_time; /* Timeout anchor; reset when forwarding */
+    /* Timeout anchor; reset when forwarding signal */
+    struct timespec start_time;
 
     /* Record time for timeout monitoring during cleanup */
     if (get_current_time(&start_time) != 0) {
@@ -574,9 +579,12 @@ static int collect_child_exit_status(pid_t child_pid,
  * @note This function calls exit() and does not return
  */
 void run_command_mode(const struct cpulimit_cfg *cfg) {
-    pid_t child_pid;  /* PID of forked child that will execute the command */
-    int sync_pipe[2]; /* Pipe for parent-child synchronization */
-    int fd_flags;     /* Current file descriptor flags for sync_pipe[1] */
+    /* PID of forked child that will execute the command */
+    pid_t child_pid;
+    /* Pipe for parent-child synchronization */
+    int sync_pipe[2];
+    /* Current file descriptor flags for sync_pipe[1] */
+    int fd_flags;
 
     /*
      * Create pipe for synchronization.
@@ -620,7 +628,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
 
     if (child_pid == 0) {
         exec_child_process(cfg, sync_pipe[0], sync_pipe[1]);
-        /* NOT REACHED */
+        /* exec_child_process() never returns */
     }
 
     /* Parent: close unused write end before waiting for child */
@@ -711,8 +719,11 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
  * @note This function calls exit() and does not return
  */
 void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
-    /* Wait interval between search attempts when target not found */
-    const struct timespec wait_time = {2, 0}; /* 2 seconds */
+    /*
+     * Wait interval between search attempts when target not found.
+     * Uses 2-second delay: {tv_sec=2, tv_nsec=0}.
+     */
+    const struct timespec wait_time = {2, 0};
     int pid_mode = cfg->target_pid > 0, exit_status = EXIT_SUCCESS;
 
     while (!is_quit_flag_set()) {
