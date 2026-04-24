@@ -76,8 +76,9 @@ int main(int argc, char *argv[]) {
 
     if (pid > 0 && is_quit_flag_set() && is_terminated_by_tty() &&
         isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
-        ssize_t write_result = write(STDOUT_FILENO, "\n", 1);
-        (void)write_result;
+        if (write(STDOUT_FILENO, "\n", 1) != 1) {
+            /* non-fatal: cosmetic newline at shutdown */
+        }
     }
     return 0;
 }
