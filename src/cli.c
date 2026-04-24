@@ -98,7 +98,7 @@ static void parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     pid = strtol(pid_str, &endptr, 10);
     /*
      * Validate conversion: check for errors, empty strings, trailing
-     * characters, and ensure PID is greater than 1 (PIDs 0 and 1 are reserved)
+     * characters, and ensure PID is greater than 1 (PIDs 0 and 1 are reserved).
      */
     if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid <= 1) {
         fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
@@ -254,7 +254,7 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     opterr = 0; /* Suppress getopt's built-in error messages */
     /*
      * Process all options using getopt_long.
-     * Leading '+' stops parsing at first non-option (for COMMAND mode)
+     * Leading '+' stops parsing at first non-option (for COMMAND mode).
      */
     while (1) {
         option_char =

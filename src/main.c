@@ -30,7 +30,7 @@
 int main(int argc, char *argv[]) {
     /*
      * Configuration structure to store parsed command line arguments
-     * including target specification, CPU limit, and behavior flags
+     * including target specification, CPU limit, and behavior flags.
      */
     struct cpulimit_cfg cfg;
 
@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
 
     /*
      * Install signal handlers for SIGTERM, SIGINT, SIGQUIT, SIGHUP, and
-     * SIGPIPE to ensure graceful cleanup when the program is interrupted
+     * SIGPIPE to ensure graceful cleanup when the program is interrupted.
      */
     configure_signal_handler();
 

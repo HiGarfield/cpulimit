@@ -104,7 +104,7 @@ int init_process_iterator(struct process_iterator *iter,
 
     /*
      * Open kvm(3) interface to access kernel virtual memory and
-     * process information
+     * process information.
      */
     iter->kvm_descriptor = open_kvm();
     if (iter->kvm_descriptor == NULL) {
@@ -115,7 +115,7 @@ int init_process_iterator(struct process_iterator *iter,
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         /*
          * Skip retrieving full process list when querying a single
-         * process; get_next_process() will use kvm_getprocs() directly
+         * process; get_next_process() will use kvm_getprocs() directly.
          */
         iter->kinfo_procs = NULL;
         iter->current_index = 0;
@@ -200,7 +200,7 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     proc->command[len_max] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
-     * argv[0]=="")
+     * argv[0]=="").
      */
     if (proc->command[0] == '\0') {
         return -1;
@@ -298,7 +298,7 @@ static int is_child_via_kvm(kvm_t *kvm_descriptor, pid_t child_pid,
     }
     /*
      * Fast-path: any existing non-init process is ultimately a child of init
-     * (PID 1)
+     * (PID 1).
      */
     if (parent_pid == 1) {
         return getppid_via_kvm(kvm_descriptor, child_pid) != (pid_t)(-1);
@@ -403,7 +403,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         }
         /*
          * Apply PID filter early using kinfo_proc data before
-         * performing expensive conversion and command reading
+         * performing expensive conversion and command reading.
          */
         if (iter->filter->pid != 0 && iter->filter->include_children &&
             kproc->ki_pid != iter->filter->pid &&
@@ -452,6 +452,6 @@ int close_process_iterator(struct process_iterator *iter) {
 
 #endif /* CPULIMIT_PROCESS_ITERATOR_FREEBSD_C */
 #else
-/* Placeholder to avoid empty compilation unit on non-FreeBSD platforms. */
+/* Placeholder to avoid empty compilation unit on non-FreeBSD platforms */
 typedef int cpulimit_process_iterator_freebsd_placeholder;
 #endif /* __FreeBSD__ */

@@ -50,8 +50,10 @@
 void nsec2timespec(double nsec, struct timespec *result_ts) {
     result_ts->tv_sec = (time_t)(nsec / 1e9);
     result_ts->tv_nsec = (long)(nsec - (double)result_ts->tv_sec * 1e9);
-    /* Correct tv_sec when floating-point rounding shifts tv_nsec out of
-     * range */
+    /*
+     * Correct tv_sec when floating-point rounding shifts tv_nsec out of
+     * range.
+     */
     if (result_ts->tv_nsec < 0L) {
         result_ts->tv_sec--;
         result_ts->tv_nsec += 1000000000L;
