@@ -57,7 +57,7 @@ static void *busy_loop(void *arg) {
  *       testing cpulimit functionality. Number of threads can be specified via
  *       command line argument.
  */
-int main(int argc, const char *argv[]) {
+int main(int argc, char *argv[]) {
     int thread_idx, num_threads;
     pthread_attr_t attr;
 

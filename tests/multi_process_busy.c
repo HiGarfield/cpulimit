@@ -44,7 +44,7 @@
  *       specifies the number of processes to create. Otherwise, the number
  *       of CPU cores is used.
  */
-int main(int argc, const char *argv[]) {
+int main(int argc, char *argv[]) {
     int proc_idx, num_procs;
     pid_t pid = -1;
     configure_signal_handler();
