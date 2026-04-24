@@ -26,10 +26,28 @@
 #include "time_util.h"
 
 #include <errno.h>
+#include <stdio.h>
 #if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
 #include <sys/time.h>
 #endif
 #include <time.h>
+
+/**
+ * @brief Detect and report time_t size limitations.
+ *
+ * Checks whether time_t is 32-bit or 64-bit at runtime. If 32-bit is
+ * detected, emits a warning about possible Year 2038 (Y2038) issues.
+ *
+ * Recommended to call at program startup to ensure users are aware of
+ * potential time representation limitations.
+ */
+void check_time_t_size(void) {
+#ifndef CLOCK_MONOTONIC
+    if (sizeof(time_t) < 8) {
+        fprintf(stderr, "Y2038 risk: 32-bit time_t.\n");
+    }
+#endif
+}
 
 /**
  * @brief Convert nanoseconds to timespec structure

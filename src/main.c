@@ -26,6 +26,7 @@
 #include "cli.h"
 #include "limiter.h"
 #include "signal_handler.h"
+#include "time_util.h"
 
 int main(int argc, char *argv[]) {
     /*
@@ -39,6 +40,14 @@ int main(int argc, char *argv[]) {
      * This function exits the program if arguments are invalid.
      */
     parse_arguments(argc, argv, &cfg);
+
+    if (cfg.verbose) {
+        /*
+         * Check for potential time_t size issues and warn the user if
+         * a 32-bit time_t is detected, which could lead to Y2038 problems.
+         */
+        check_time_t_size();
+    }
 
     /*
      * Install signal handlers for SIGTERM, SIGINT, SIGQUIT, SIGHUP, and

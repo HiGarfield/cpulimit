@@ -40,6 +40,17 @@ extern "C" {
 #include <time.h>
 
 /**
+ * @brief Detect and report time_t size limitations.
+ *
+ * Checks whether time_t is 32-bit or 64-bit at runtime. If 32-bit is
+ * detected, emits a warning about possible Year 2038 (Y2038) issues.
+ *
+ * Recommended to call at program startup to ensure users are aware of
+ * potential time representation limitations.
+ */
+void check_time_t_size(void);
+
+/**
  * @brief Convert nanoseconds to timespec structure
  * @param nsec Number of nanoseconds (can be >= 1 billion)
  * @param result_ts Pointer to timespec structure to populate
