@@ -6502,7 +6502,7 @@ int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];
 
-    if (clock_gettime(CLOCK_MONOTONIC, &time_seed) != 0) {
+    if (get_current_time(&time_seed) != 0) {
         fprintf(stderr, "Failed to get time for random seed: %s\n",
                 strerror(errno));
         exit(EXIT_FAILURE);
