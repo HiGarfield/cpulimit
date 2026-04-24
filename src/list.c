@@ -62,7 +62,7 @@ struct list_node *add_elem(struct list *lst, void *elem) {
     if (lst == NULL) {
         return NULL;
     }
-    new_node = (struct list_node *)malloc(sizeof(struct list_node));
+    new_node = (struct list_node *)malloc(sizeof(*new_node));
     if (new_node == NULL) {
         fprintf(stderr, "Memory allocation failed for the new list node\n");
         exit(EXIT_FAILURE);

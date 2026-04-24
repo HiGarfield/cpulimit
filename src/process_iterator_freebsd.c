@@ -62,7 +62,7 @@ static kvm_t *open_kvm(void) {
     kvm_t *kvm_descriptor;
     char *errbuf;
     /* Allocate error buffer for kvm interface */
-    errbuf = (char *)malloc(sizeof(char) * _POSIX2_LINE_MAX);
+    errbuf = (char *)malloc((size_t)_POSIX2_LINE_MAX);
     if (errbuf == NULL) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         exit(EXIT_FAILURE);
@@ -146,7 +146,7 @@ int init_process_iterator(struct process_iterator *iter,
         return -1;
     }
     /* Copy process list to iterator's own memory */
-    iter->kinfo_procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
+    iter->kinfo_procs = (struct kinfo_proc *)malloc(sizeof(*iter->kinfo_procs) *
                                                     (size_t)iter->proc_count);
     if (iter->kinfo_procs == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
@@ -154,7 +154,7 @@ int init_process_iterator(struct process_iterator *iter,
         return -1;
     }
     memcpy(iter->kinfo_procs, proc_snapshot,
-           sizeof(struct kinfo_proc) * (size_t)iter->proc_count);
+           sizeof(*iter->kinfo_procs) * (size_t)iter->proc_count);
     iter->current_index = 0;
     return 0;
 }
