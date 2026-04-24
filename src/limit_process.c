@@ -175,8 +175,8 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
                                      int verbose) {
     struct list_node *node = first_node(proc_group->proc_list);
     while (node != NULL) {
-        struct list_node *next_node =
-            node->next; /* Save before potential deletion */
+        /* Save next pointer before potential node deletion */
+        struct list_node *next_node = node->next;
         pid_t pid;
         int kill_result;
         if (node->data == NULL) {
@@ -242,9 +242,10 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
 void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     struct process_group proc_group;
     int cycle_counter = 0, ncpu = get_ncpu();
-    double work_ratio; /* Fraction of time processes should be running */
-    int is_stopped =
-        0; /* Current state: 1 if processes are stopped, 0 if running */
+    /* Fraction of time processes should be running */
+    double work_ratio;
+    /* Current state: 1 if processes are stopped, 0 if running */
+    int is_stopped = 0;
 
     /* Clamp limit to valid range and calculate initial work ratio */
     limit = CLAMP(limit, WORK_RATIO_EPSILON, ncpu);
