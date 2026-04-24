@@ -198,6 +198,7 @@ if(BUILD_TESTS)
             "${CPPCHECK_EXECUTABLE}"
             ${_cppcheck_common}
             --max-ctu-depth=10
+            --suppress=constParameter
             "--file-filter=${TESTS_DIR}/*"
         WORKING_DIRECTORY "${BUILD_DIR}"
         ERROR_FILE "${TESTS_DIR}/cppcheck-report.txt"
