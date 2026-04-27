@@ -27,24 +27,42 @@
 
 #include <errno.h>
 #include <stdio.h>
-#if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
+#include <time.h>
+#include <unistd.h>
+#if !defined(__APPLE__) &&                                                     \
+    !(defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 &&                           \
+      (defined(CLOCK_MONOTONIC) || defined(CLOCK_REALTIME)))
 #include <sys/time.h>
 #endif
-#include <time.h>
+#if defined(__APPLE__)
+#include <mach/mach_time.h>
+#include <sys/time.h>
+#endif
 
 /**
- * @brief Detect and report time_t size limitations.
+ * @brief Checks for potential Y2038 risk based on platform and time_t size.
  *
- * Checks whether time_t is 32-bit or 64-bit at runtime. If 32-bit is
- * detected, emits a warning about possible Year 2038 (Y2038) issues.
+ * Performs a lightweight runtime assessment of potential Year 2038 (Y2038)
+ * risk. The check is based on a combination of platform assumptions and the
+ * size of time_t:
  *
- * Recommended to call at program startup to ensure users are aware of
- * potential time representation limitations.
+ * - On Apple platforms, no check is performed (64-bit time_t is guaranteed).
+ * - On POSIX systems with monotonic clock support, no check is performed,
+ *   assuming a modern time implementation.
+ * - Otherwise, if time_t is smaller than 64 bits, a warning is printed
+ *   indicating possible Y2038-related limitations.
+ *
+ * Note: This is a heuristic check and does not guarantee full compliance
+ * with 2038-safe time handling across all environments.
+ *
+ * It is recommended to call this function early during program startup
+ * to surface potential portability or time representation issues.
  */
-void check_time_t_size(void) {
-#ifndef CLOCK_MONOTONIC
+void check_y2038(void) {
+#if !defined(__APPLE__) &&                                                     \
+    !(defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC))
     if (sizeof(time_t) < 8) {
-        fprintf(stderr, "Y2038 risk: 32-bit time_t.\n");
+        fprintf(stderr, "Y2038 risk detected.\n");
     }
 #endif
 }
@@ -105,10 +123,27 @@ void nsec2timespec(double nsec, struct timespec *result_ts) {
  * this macro may be unnecessary or have no effect there.
  */
 int get_current_time(struct timespec *result_ts) {
-#if defined(CLOCK_MONOTONIC)
+#if defined(__APPLE__)
+    static double factor = -1;
+    double nsec;
+    if (result_ts == NULL) {
+        return -1;
+    }
+    if (factor < 0) {
+        mach_timebase_info_data_t timebase_info;
+        kern_return_t ret = mach_timebase_info(&timebase_info);
+        if (ret != KERN_SUCCESS) {
+            return -1;
+        }
+        factor = (double)timebase_info.numer / (double)timebase_info.denom;
+    }
+    nsec = mach_absolute_time() * factor;
+    nsec2timespec(nsec, result_ts);
+    return 0;
+#elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
     /* Prefer monotonic clock: immune to system time adjustments */
     return clock_gettime(CLOCK_MONOTONIC, result_ts);
-#elif defined(CLOCK_REALTIME)
+#elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_REALTIME)
     /* Fall back to real-time clock if monotonic unavailable */
     return clock_gettime(CLOCK_REALTIME, result_ts);
 #else
@@ -135,9 +170,10 @@ int get_current_time(struct timespec *result_ts) {
  * automatically resume sleeping in that case.
  */
 int sleep_timespec(const struct timespec *duration) {
-#if (defined(__linux__) || defined(__FreeBSD__)) &&                            \
-    defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
-    defined(CLOCK_MONOTONIC)
+#if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
+    defined(_POSIX_CLOCK_SELECTION) && _POSIX_CLOCK_SELECTION > 0 &&           \
+    defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC) && \
+    (defined(__linux__) || defined(__FreeBSD__))
     /*
      * Use monotonic clock sleep if available.
      * clock_nanosleep returns 0 on success or a positive error number

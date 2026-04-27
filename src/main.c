@@ -43,10 +43,9 @@ int main(int argc, char *argv[]) {
 
     if (cfg.verbose) {
         /*
-         * Check for potential time_t size issues and warn the user if
-         * a 32-bit time_t is detected, which could lead to Y2038 problems.
+         * Check for potential Y2038 risk.
          */
-        check_time_t_size();
+        check_y2038();
     }
 
     /*
