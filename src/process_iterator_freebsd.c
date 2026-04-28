@@ -93,14 +93,12 @@ static kvm_t *open_kvm(void) {
  * close_process_iterator() is called.
  */
 /* Compare function for qsort: sort by PID */
-static int compare_kinfo_proc_by_pid(a, b) const void *a;
-const void *b;
-{
+static int compare_kinfo_proc_by_pid(const void *a, const void *b) {
     pid_t pa;
     pid_t pb;
 
-    pa = ((const struct kinfo_proc *)a)->kp_proc.ki_pid;
-    pb = ((const struct kinfo_proc *)b)->kp_proc.ki_pid;
+    pa = ((const struct kinfo_proc *)a)->ki_pid;
+    pb = ((const struct kinfo_proc *)b)->ki_pid;
 
     if (pa < pb)
         return -1;
@@ -194,7 +192,7 @@ int init_process_iterator(struct process_iterator *iter,
     for (i = 0; i < raw_count; i++) {
         pid_t pid;
 
-        pid = sorted[i].kp_proc.ki_pid;
+        pid = sorted[i].ki_pid;
 
         if (has_last && pid == last_pid) {
             continue;
