@@ -44,8 +44,8 @@
  * risk. The check is based on a combination of platform assumptions and the
  * size of time_t:
  *
- * - On Apple platforms, the function returns without performing checks.
- * - On POSIX systems with monotonic clock support, the function returns,
+ * - On Apple platforms, no check is performed (64-bit time_t is guaranteed).
+ * - On POSIX systems with monotonic clock support, no check is performed,
  *   assuming a modern time implementation.
  * - Otherwise, if time_t is smaller than 64 bits, a warning is printed
  *   indicating possible Y2038-related limitations.
@@ -57,11 +57,8 @@
  * to surface potential portability or time representation issues.
  */
 void check_y2038(void) {
-#if defined(__APPLE__)
-    return;
-#elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
-    return;
-#else
+#if !defined(__APPLE__) &&                                                     \
+    !(defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC))
     if (sizeof(time_t) < 8) {
         fprintf(stderr, "Y2038 risk detected.\n");
     }
@@ -124,8 +121,7 @@ void nsec2timespec(double nsec, struct timespec *result_ts) {
  * this macro may be unnecessary or have no effect there.
  */
 int get_current_time(struct timespec *result_ts) {
-
-#if defined(__APPLE__) /* macOS */
+#if defined(__APPLE__)
     static double factor = -1;
     double nsec;
     if (result_ts == NULL) {
@@ -142,16 +138,12 @@ int get_current_time(struct timespec *result_ts) {
     nsec = mach_absolute_time() * factor;
     nsec2timespec(nsec, result_ts);
     return 0;
-#else /* Non-macOS */
-
-#if defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0
-#if defined(CLOCK_MONOTONIC)
+#elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
     /* Prefer monotonic clock: immune to system time adjustments */
     return clock_gettime(CLOCK_MONOTONIC, result_ts);
-#elif defined(CLOCK_REALTIME)
+#elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_REALTIME)
     /* Fall back to real-time clock if monotonic unavailable */
     return clock_gettime(CLOCK_REALTIME, result_ts);
-#endif
 #else
     /* Final fallback: use gettimeofday and convert to timespec */
     struct timeval time_val;
@@ -162,7 +154,6 @@ int get_current_time(struct timespec *result_ts) {
     result_ts->tv_nsec = time_val.tv_usec * 1000L;
     return 0;
 #endif
-#endif /* Non-macOS */
 }
 
 /**

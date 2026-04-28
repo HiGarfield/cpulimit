@@ -46,8 +46,8 @@ extern "C" {
  * risk. The check is based on a combination of platform assumptions and the
  * size of time_t:
  *
- * - On Apple platforms, the function returns without performing checks.
- * - On POSIX systems with monotonic clock support, the function returns,
+ * - On Apple platforms, no check is performed (64-bit time_t is guaranteed).
+ * - On POSIX systems with monotonic clock support, no check is performed,
  *   assuming a modern time implementation.
  * - Otherwise, if time_t is smaller than 64 bits, a warning is printed
  *   indicating possible Y2038-related limitations.
