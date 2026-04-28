@@ -124,10 +124,13 @@ int init_process_iterator(struct process_iterator *iter,
     }
 
     /*
-     * Retrieve snapshot of all processes via KERN_PROC_PROC.
+     * Retrieve snapshot of all processes and threads via KERN_PROC_ALL.
+     * KERN_PROC_PROC is not available on FreeBSD < 5.2, so KERN_PROC_ALL
+     * is used instead; thread entries are filtered out below using
+     * ki_flag & P_THREAD.
      * This returns a pointer to kernel data that must be copied.
      */
-    proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
+    proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_ALL, 0,
                                  &iter->proc_count);
     if (proc_snapshot == NULL) {
         fprintf(stderr, "kvm_getprocs: %s\n", kvm_geterr(iter->kvm_descriptor));
@@ -225,8 +228,8 @@ static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
     int count;
     struct kinfo_proc *kproc =
         kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
-    if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
-        (kproc->ki_stat == SZOMB) ||
+    if (count == 0 || kproc == NULL || (kproc->ki_flag & P_THREAD) ||
+        (kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB) ||
         kinfo_proc_to_proc(kvm_descriptor, kproc, proc, read_cmd) != 0) {
         return -1;
     }
@@ -397,8 +400,13 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     /* Iterate through process snapshot */
     while (iter->current_index < iter->proc_count) {
         struct kinfo_proc *kproc = &iter->kinfo_procs[iter->current_index++];
-        /* Skip kernel threads and zombie processes */
-        if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
+        /*
+         * Skip threads (KERN_PROC_ALL returns both processes and
+         * threads; P_THREAD marks thread entries), kernel processes,
+         * and zombie processes.
+         */
+        if ((kproc->ki_flag & P_THREAD) || (kproc->ki_flag & P_SYSTEM) ||
+            (kproc->ki_stat == SZOMB)) {
             continue;
         }
         /*
