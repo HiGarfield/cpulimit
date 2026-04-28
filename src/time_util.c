@@ -29,7 +29,9 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
-#if !defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME)
+#if !defined(__APPLE__) &&                                                     \
+    !(defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 &&                           \
+      (defined(CLOCK_MONOTONIC) || defined(CLOCK_REALTIME)))
 #include <sys/time.h>
 #endif
 #if defined(__APPLE__)
