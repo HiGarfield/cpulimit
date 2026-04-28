@@ -596,7 +596,7 @@ static void test_util_read_line_from_file(void) {
     /* 300 'a' characters, filling well past the initial 256-byte buffer */
     char *long_line;
     int li;
-    int cmp_result;
+    int cmp_ret;
     size_t line_len;
 
     /* NULL filename must return NULL */
@@ -646,8 +646,8 @@ static void test_util_read_line_from_file(void) {
     close(crlf_fd);
     line = read_line_from_file(crlf_tmp_file);
     assert(line != NULL);
-    cmp_result = strcmp(line, "abc");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(line, "abc");
+    assert(cmp_ret == 0);
     free(line);
     remove(crlf_tmp_file);
 
@@ -659,8 +659,8 @@ static void test_util_read_line_from_file(void) {
     close(cr_only_fd);
     line = read_line_from_file(cr_only_tmp_file);
     assert(line != NULL);
-    cmp_result = strcmp(line, "abc");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(line, "abc");
+    assert(cmp_ret == 0);
     free(line);
     remove(cr_only_tmp_file);
 
@@ -675,8 +675,8 @@ static void test_util_read_line_from_file(void) {
     close(cr_middle_fd);
     line = read_line_from_file(cr_middle_tmp_file);
     assert(line != NULL);
-    cmp_result = strcmp(line, "a\rb");
-    assert(cmp_result == 0);
+    cmp_ret = strcmp(line, "a\rb");
+    assert(cmp_ret == 0);
     free(line);
     remove(cr_middle_tmp_file);
 
@@ -2164,6 +2164,8 @@ static void test_process_iterator_is_child_of_deep(void) {
     grandparent_pid = getpid();
 
     if (pipe(pipe_fds) != 0) {
+        fprintf(stderr, "pipe() failed in "
+                        "test_process_iterator_is_child_of_deep\n");
         assert(0);
         return;
     }
@@ -3569,7 +3571,7 @@ static void test_cli_null_cfg(void) {
     char *test_argv[6];
     pid_t pid;
     int status;
-    int run_ret;
+    int parse_ret;
     pid_t waited_pid;
     int exited;
     int exit_code;
@@ -3581,8 +3583,8 @@ static void test_cli_null_cfg(void) {
     test_argv[4] = arg_2;
     test_argv[5] = NULL;
 
-    run_ret = run_parse_in_child(5, test_argv);
-    assert(run_ret == 99);
+    parse_ret = run_parse_in_child(5, test_argv);
+    assert(parse_ret == 99);
 
     pid = fork();
     assert(pid >= 0);
