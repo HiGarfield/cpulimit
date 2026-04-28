@@ -596,6 +596,8 @@ static void test_util_read_line_from_file(void) {
     /* 300 'a' characters, filling well past the initial 256-byte buffer */
     char *long_line;
     int li;
+    int cmp_result;
+    size_t line_len;
 
     /* NULL filename must return NULL */
     line = read_line_from_file(NULL);
@@ -644,7 +646,8 @@ static void test_util_read_line_from_file(void) {
     close(crlf_fd);
     line = read_line_from_file(crlf_tmp_file);
     assert(line != NULL);
-    assert(strcmp(line, "abc") == 0);
+    cmp_result = strcmp(line, "abc");
+    assert(cmp_result == 0);
     free(line);
     remove(crlf_tmp_file);
 
@@ -656,7 +659,8 @@ static void test_util_read_line_from_file(void) {
     close(cr_only_fd);
     line = read_line_from_file(cr_only_tmp_file);
     assert(line != NULL);
-    assert(strcmp(line, "abc") == 0);
+    cmp_result = strcmp(line, "abc");
+    assert(cmp_result == 0);
     free(line);
     remove(cr_only_tmp_file);
 
@@ -671,7 +675,8 @@ static void test_util_read_line_from_file(void) {
     close(cr_middle_fd);
     line = read_line_from_file(cr_middle_tmp_file);
     assert(line != NULL);
-    assert(strcmp(line, "a\rb") == 0);
+    cmp_result = strcmp(line, "a\rb");
+    assert(cmp_result == 0);
     free(line);
     remove(cr_middle_tmp_file);
 
@@ -695,7 +700,8 @@ static void test_util_read_line_from_file(void) {
     close(long_fd);
     line = read_line_from_file(long_tmp_file);
     assert(line != NULL);
-    assert(strlen(line) == 300);
+    line_len = strlen(line);
+    assert(line_len == 300);
     for (li = 0; li < 300; li++) {
         assert(line[li] == 'a');
     }
@@ -713,7 +719,8 @@ static void test_util_read_line_from_file(void) {
     close(long_nonl_fd);
     line = read_line_from_file(long_tmp_nonl);
     assert(line != NULL);
-    assert(strlen(line) == 300);
+    line_len = strlen(line);
+    assert(line_len == 300);
     for (li = 0; li < 300; li++) {
         assert(line[li] == 'a');
     }
@@ -1411,8 +1418,10 @@ static void test_signal_handler_sigquit(void) {
          * corrupting the parent's state. setsid() prevents this.
          */
         pid_t session_id;
+        pid_t invalid_pid;
         session_id = setsid();
-        assert(session_id != (pid_t)-1);
+        invalid_pid = (pid_t)-1;
+        assert(session_id != invalid_pid);
         configure_signal_handler();
         if (raise(SIGQUIT) != 0) {
             _exit(1);
@@ -2155,7 +2164,7 @@ static void test_process_iterator_is_child_of_deep(void) {
     grandparent_pid = getpid();
 
     if (pipe(pipe_fds) != 0) {
-        assert(0 && "pipe() failed in test_process_iterator_is_child_of_deep");
+        assert(0);
         return;
     }
 
@@ -2652,17 +2661,19 @@ static void test_process_iterator_getppid_of_edges(void) {
     pid_t ppid_of_max;
     pid_t ppid_self;
     pid_t expected_ppid;
+    pid_t invalid_pid;
     /* PID 0: /proc/0/stat does not exist */
+    invalid_pid = (pid_t)-1;
     ppid_of_zero = getppid_of((pid_t)0);
-    assert(ppid_of_zero == (pid_t)-1);
+    assert(ppid_of_zero == invalid_pid);
 
     /* Negative PID: invalid, must return -1 */
     ppid_of_neg = getppid_of((pid_t)-1);
-    assert(ppid_of_neg == (pid_t)-1);
+    assert(ppid_of_neg == invalid_pid);
 
     /* INT_MAX: virtually guaranteed non-existent PID */
     ppid_of_max = getppid_of((pid_t)INT_MAX);
-    assert(ppid_of_max == (pid_t)-1);
+    assert(ppid_of_max == invalid_pid);
 
     /* Current process: must match getppid() */
     ppid_self = getppid_of(getpid());
@@ -3424,6 +3435,8 @@ static void test_cli_limit_at_max(void) {
     char arg_exe[] = "foo";
     char *test_argv[6];
     int ncpu = get_ncpu();
+    double lower_limit;
+    double upper_limit;
 
     snprintf(arg_max, sizeof(arg_max), "%d", 100 * ncpu);
     test_argv[0] = arg0;
@@ -3436,8 +3449,10 @@ static void test_cli_limit_at_max(void) {
     memset(&cfg, 0, sizeof(cfg));
     parse_arguments(5, test_argv, &cfg);
     /* Limit stored as fraction: 100*ncpu/100 == ncpu */
-    assert(cfg.limit >= (double)ncpu - 0.001 &&
-           cfg.limit <= (double)ncpu + 0.001);
+    lower_limit = (double)ncpu - 0.001;
+    upper_limit = (double)ncpu + 0.001;
+    assert(cfg.limit >= lower_limit);
+    assert(cfg.limit <= upper_limit);
 }
 
 /**
@@ -3554,6 +3569,10 @@ static void test_cli_null_cfg(void) {
     char *test_argv[6];
     pid_t pid;
     int status;
+    int run_ret;
+    pid_t waited_pid;
+    int exited;
+    int exit_code;
 
     test_argv[0] = arg0;
     test_argv[1] = arg_l;
@@ -3562,7 +3581,8 @@ static void test_cli_null_cfg(void) {
     test_argv[4] = arg_2;
     test_argv[5] = NULL;
 
-    assert(run_parse_in_child(5, test_argv) == 99);
+    run_ret = run_parse_in_child(5, test_argv);
+    assert(run_ret == 99);
 
     pid = fork();
     assert(pid >= 0);
@@ -3572,9 +3592,12 @@ static void test_cli_null_cfg(void) {
         parse_arguments(5, test_argv, NULL);
         _exit(99);
     }
-    assert(waitpid(pid, &status, 0) == pid);
-    assert(WIFEXITED(status));
-    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    waited_pid = waitpid(pid, &status, 0);
+    assert(waited_pid == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_FAILURE);
 }
 
 /**
@@ -3585,6 +3608,9 @@ static void test_cli_invalid_api_inputs(void) {
     char *test_argv[2];
     pid_t pid;
     int status;
+    pid_t waited_pid;
+    int exited;
+    int exit_code;
 
     pid = fork();
     assert(pid >= 0);
@@ -3594,9 +3620,12 @@ static void test_cli_invalid_api_inputs(void) {
         parse_arguments(0, NULL, &cfg);
         _exit(99);
     }
-    assert(waitpid(pid, &status, 0) == pid);
-    assert(WIFEXITED(status));
-    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    waited_pid = waitpid(pid, &status, 0);
+    assert(waited_pid == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_FAILURE);
 
     test_argv[0] = NULL;
     test_argv[1] = NULL;
@@ -3608,9 +3637,12 @@ static void test_cli_invalid_api_inputs(void) {
         parse_arguments(1, test_argv, &cfg);
         _exit(99);
     }
-    assert(waitpid(pid, &status, 0) == pid);
-    assert(WIFEXITED(status));
-    assert(WEXITSTATUS(status) == EXIT_FAILURE);
+    waited_pid = waitpid(pid, &status, 0);
+    assert(waited_pid == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_FAILURE);
 }
 
 /**
@@ -5177,12 +5209,14 @@ static void test_limit_process_basic(void) {
                  iter_idx++) {
                 double temp_cpu_usage;
                 size_t list_count;
+                size_t expected_count;
                 sleep_timespec(&sleep_time);
                 update_process_group(&proc_group);
 
                 /* Verify all num_procs processes are being monitored */
                 list_count = get_list_count(proc_group.proc_list);
-                assert(list_count == (size_t)num_procs);
+                expected_count = (size_t)num_procs;
+                assert(list_count == expected_count);
 
                 temp_cpu_usage = get_process_group_cpu_usage(&proc_group);
                 if (temp_cpu_usage > 0) {
@@ -5676,9 +5710,10 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  */
 static void test_limiter_run_command_mode_bad_shebang(void) {
     pid_t pid, waited;
-    int status, fd, fchmod_ret, exited, exit_code;
+    int status, fd, fchmod_ret, exited, exit_code, close_ret;
     static const char shebang[] = "#!/nonexistent_interpreter_cpulimit_xyz\n";
     ssize_t nwritten;
+    ssize_t expected_len;
     struct cpulimit_cfg cfg;
     char tmp_path[] = "/tmp/cpulimit_test_shebang_XXXXXX";
     char *args[2];
@@ -5692,10 +5727,12 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
     assert(fd >= 0);
     /* sizeof(shebang) - 1: exclude the null terminator from the write */
     nwritten = write(fd, shebang, sizeof(shebang) - 1);
-    assert(nwritten == (ssize_t)(sizeof(shebang) - 1));
+    expected_len = (ssize_t)(sizeof(shebang) - 1);
+    assert(nwritten == expected_len);
     fchmod_ret = fchmod(fd, 0755);
     assert(fchmod_ret == 0);
-    assert(close(fd) == 0);
+    close_ret = close(fd);
+    assert(close_ret == 0);
 
     args[0] = tmp_path;
     args[1] = NULL;
