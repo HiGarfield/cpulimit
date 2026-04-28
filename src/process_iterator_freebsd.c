@@ -95,6 +95,8 @@ static kvm_t *open_kvm(void) {
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
     const struct kinfo_proc *proc_snapshot;
+    int raw_count;
+    int i;
 
     if (iter == NULL || filter == NULL) {
         return -1;
@@ -126,38 +128,47 @@ int init_process_iterator(struct process_iterator *iter,
     /*
      * Retrieve snapshot of all processes and threads via KERN_PROC_ALL.
      * KERN_PROC_PROC is not available on FreeBSD < 5.2, so KERN_PROC_ALL
-     * is used instead; thread entries are filtered out below using
-     * ki_flag & P_THREAD.
+     * is used instead. Thread entries (ki_flag & P_THREAD) are excluded
+     * while copying to make the stored snapshot equivalent to what
+     * KERN_PROC_PROC would have returned.
      * This returns a pointer to kernel data that must be copied.
      */
     proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_ALL, 0,
-                                 &iter->proc_count);
+                                 &raw_count);
     if (proc_snapshot == NULL) {
         fprintf(stderr, "kvm_getprocs: %s\n", kvm_geterr(iter->kvm_descriptor));
         close_process_iterator(iter);
         return -1;
     }
     /*
-     * proc_count must be positive: zero means no processes returned
+     * raw_count must be positive: zero means no processes returned
      * (unexpected), and negative would cause (size_t) cast to wrap,
      * producing a huge allocation.  Treat both as fatal errors.
      */
-    if (iter->proc_count <= 0) {
+    if (raw_count <= 0) {
         fprintf(stderr, "kvm_getprocs: unexpected proc_count %d\n",
-                iter->proc_count);
+                raw_count);
         close_process_iterator(iter);
         return -1;
     }
-    /* Copy process list to iterator's own memory */
+    /*
+     * Allocate enough space to hold all entries; the actual count of
+     * process-only entries will be stored in iter->proc_count afterward.
+     */
     iter->kinfo_procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
-                                                    (size_t)iter->proc_count);
+                                                    (size_t)raw_count);
     if (iter->kinfo_procs == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         close_process_iterator(iter);
         return -1;
     }
-    memcpy(iter->kinfo_procs, proc_snapshot,
-           sizeof(struct kinfo_proc) * (size_t)iter->proc_count);
+    /* Copy only process entries, skipping thread entries */
+    iter->proc_count = 0;
+    for (i = 0; i < raw_count; i++) {
+        if (!(proc_snapshot[i].ki_flag & P_THREAD)) {
+            iter->kinfo_procs[iter->proc_count++] = proc_snapshot[i];
+        }
+    }
     iter->current_index = 0;
     return 0;
 }
@@ -228,8 +239,8 @@ static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
     int count;
     struct kinfo_proc *kproc =
         kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
-    if (count == 0 || kproc == NULL || (kproc->ki_flag & P_THREAD) ||
-        (kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB) ||
+    if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
+        (kproc->ki_stat == SZOMB) ||
         kinfo_proc_to_proc(kvm_descriptor, kproc, proc, read_cmd) != 0) {
         return -1;
     }
@@ -400,13 +411,8 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     /* Iterate through process snapshot */
     while (iter->current_index < iter->proc_count) {
         struct kinfo_proc *kproc = &iter->kinfo_procs[iter->current_index++];
-        /*
-         * Skip threads (KERN_PROC_ALL returns both processes and
-         * threads; P_THREAD marks thread entries), kernel processes,
-         * and zombie processes.
-         */
-        if ((kproc->ki_flag & P_THREAD) || (kproc->ki_flag & P_SYSTEM) ||
-            (kproc->ki_stat == SZOMB)) {
+        /* Skip kernel processes and zombie processes */
+        if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
             continue;
         }
         /*
