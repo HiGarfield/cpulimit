@@ -92,70 +92,140 @@ static kvm_t *open_kvm(void) {
  * The filter pointer is stored and must remain valid until
  * close_process_iterator() is called.
  */
+/* Compare function for qsort: sort by PID */
+static int compare_kinfo_proc_by_pid(a, b) const void *a;
+const void *b;
+{
+    pid_t pa;
+    pid_t pb;
+
+    pa = ((const struct kinfo_proc *)a)->kp_proc.p_pid;
+    pb = ((const struct kinfo_proc *)b)->kp_proc.p_pid;
+
+    if (pa < pb)
+        return -1;
+    if (pa > pb)
+        return 1;
+    return 0;
+}
+
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
     const struct kinfo_proc *proc_snapshot;
+    struct kinfo_proc *sorted;
+    struct kinfo_proc *out;
+    struct kinfo_proc *shrunk;
+
+    int raw_count;
+    int out_count;
+    int i;
+
+    pid_t last_pid;
+    int has_last;
 
     if (iter == NULL || filter == NULL) {
         return -1;
     }
+
     memset(iter, 0, sizeof(*iter));
     iter->filter = filter;
 
-    /*
-     * Open kvm(3) interface to access kernel virtual memory and
-     * process information.
-     */
     iter->kvm_descriptor = open_kvm();
     if (iter->kvm_descriptor == NULL) {
         return -1;
     }
 
-    /* Optimization for single process without children */
+    /* Fast path: single process without children */
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
-        /*
-         * Skip retrieving full process list when querying a single
-         * process; get_next_process() will use kvm_getprocs() directly.
-         */
         iter->kinfo_procs = NULL;
         iter->current_index = 0;
         iter->proc_count = 1;
         return 0;
     }
 
-    /*
-     * Retrieve snapshot of all processes via KERN_PROC_PROC.
-     * This returns a pointer to kernel data that must be copied.
-     */
-    proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
-                                 &iter->proc_count);
+    raw_count = 0;
+
+    proc_snapshot =
+        kvm_getprocs(iter->kvm_descriptor, KERN_PROC_ALL, 0, &raw_count);
+
     if (proc_snapshot == NULL) {
         fprintf(stderr, "kvm_getprocs: %s\n", kvm_geterr(iter->kvm_descriptor));
         close_process_iterator(iter);
         return -1;
     }
-    /*
-     * proc_count must be positive: zero means no processes returned
-     * (unexpected), and negative would cause (size_t) cast to wrap,
-     * producing a huge allocation.  Treat both as fatal errors.
-     */
-    if (iter->proc_count <= 0) {
-        fprintf(stderr, "kvm_getprocs: unexpected proc_count %d\n",
-                iter->proc_count);
+
+    if (raw_count <= 0) {
+        fprintf(stderr, "kvm_getprocs: invalid proc_count %d\n", raw_count);
         close_process_iterator(iter);
         return -1;
     }
-    /* Copy process list to iterator's own memory */
-    iter->kinfo_procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
-                                                    (size_t)iter->proc_count);
-    if (iter->kinfo_procs == NULL) {
-        fprintf(stderr, "Memory allocation failed for the process list\n");
+
+    /* Allocate buffer for sorting */
+    sorted = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
+                                         (size_t)raw_count);
+    if (sorted == NULL) {
+        fprintf(stderr, "Memory allocation failed (sorted buffer)\n");
         close_process_iterator(iter);
         return -1;
     }
-    memcpy(iter->kinfo_procs, proc_snapshot,
-           sizeof(struct kinfo_proc) * (size_t)iter->proc_count);
+
+    memcpy(sorted, proc_snapshot,
+           sizeof(struct kinfo_proc) * (size_t)raw_count);
+
+    /* Sort by PID to make deduplication reliable */
+    qsort(sorted, (size_t)raw_count, sizeof(struct kinfo_proc),
+          compare_kinfo_proc_by_pid);
+
+    /* Allocate output buffer */
+    out = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
+                                      (size_t)raw_count);
+    if (out == NULL) {
+        fprintf(stderr, "Memory allocation failed (output buffer)\n");
+        free(sorted);
+        close_process_iterator(iter);
+        return -1;
+    }
+
+    /* Deduplicate by PID */
+    out_count = 0;
+    has_last = 0;
+    last_pid = 0;
+
+    for (i = 0; i < raw_count; i++) {
+        pid_t pid;
+
+        pid = sorted[i].kp_proc.p_pid;
+
+        if (has_last && pid == last_pid) {
+            continue;
+        }
+
+        out[out_count] = sorted[i];
+        out_count++;
+
+        last_pid = pid;
+        has_last = 1;
+    }
+
+    free(sorted);
+
+    /* Shrink buffer to exact size */
+    if (out_count > 0) {
+        shrunk = (struct kinfo_proc *)realloc(out, sizeof(struct kinfo_proc) *
+                                                       (size_t)out_count);
+
+        if (shrunk != NULL) {
+            out = shrunk;
+        }
+    } else {
+        free(out);
+        out = NULL;
+    }
+
+    iter->kinfo_procs = out;
+    iter->proc_count = out_count;
     iter->current_index = 0;
+
     return 0;
 }
 
