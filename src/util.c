@@ -268,7 +268,7 @@ int get_ncpu(void) {
             ncpu = get_online_cpu_count();
         }
 #endif
-        cached_ncpu = (ncpu > 0 && ncpu <= (long)INT_MAX) ? (int)ncpu : 1;
+        cached_ncpu = (ncpu > 0 && ncpu <= INT_MAX) ? (int)ncpu : 1;
 
 #elif defined(__APPLE__) || defined(__FreeBSD__)
         /* macOS and FreeBSD: use sysctl interface */
