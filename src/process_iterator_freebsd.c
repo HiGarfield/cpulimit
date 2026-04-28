@@ -146,23 +146,26 @@ int init_process_iterator(struct process_iterator *iter,
      * producing a huge allocation.  Treat both as fatal errors.
      */
     if (raw_count <= 0) {
-        fprintf(stderr, "kvm_getprocs: unexpected proc_count %d\n",
+        fprintf(stderr, "kvm_getprocs: unexpected raw_count %d\n",
                 raw_count);
         close_process_iterator(iter);
         return -1;
     }
-    /*
-     * Allocate enough space to hold all entries; the actual count of
-     * process-only entries will be stored in iter->proc_count afterward.
-     */
+    /* First pass: count non-thread entries for exact allocation */
+    iter->proc_count = 0;
+    for (i = 0; i < raw_count; i++) {
+        if (!(proc_snapshot[i].ki_flag & P_THREAD)) {
+            iter->proc_count++;
+        }
+    }
     iter->kinfo_procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
-                                                    (size_t)raw_count);
+                                                    (size_t)iter->proc_count);
     if (iter->kinfo_procs == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         close_process_iterator(iter);
         return -1;
     }
-    /* Copy only process entries, skipping thread entries */
+    /* Second pass: copy only process entries, skipping thread entries */
     iter->proc_count = 0;
     for (i = 0; i < raw_count; i++) {
         if (!(proc_snapshot[i].ki_flag & P_THREAD)) {
