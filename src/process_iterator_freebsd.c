@@ -92,34 +92,15 @@ static kvm_t *open_kvm(void) {
  * The filter pointer is stored and must remain valid until
  * close_process_iterator() is called.
  */
-/* Compare function for qsort: sort by PID */
-static int compare_kinfo_proc_by_pid(const void *a, const void *b) {
-    pid_t pa;
-    pid_t pb;
-
-    pa = ((const struct kinfo_proc *)a)->ki_pid;
-    pb = ((const struct kinfo_proc *)b)->ki_pid;
-
-    if (pa < pb)
-        return -1;
-    if (pa > pb)
-        return 1;
-    return 0;
-}
-
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
     const struct kinfo_proc *proc_snapshot;
-    struct kinfo_proc *sorted;
     struct kinfo_proc *out;
     struct kinfo_proc *shrunk;
 
     int raw_count;
     int out_count;
     int i;
-    int j;
-    int best;
-    pid_t group_pid;
 
     if (iter == NULL || filter == NULL) {
         return -1;
@@ -146,12 +127,12 @@ int init_process_iterator(struct process_iterator *iter,
     /*
      * KERN_PROC_ALL returns one kinfo_proc per kernel-schedulable entity;
      * for multi-threaded processes this means multiple entries sharing the
-     * same ki_pid (one per thread).  For the main thread that represents the
-     * process itself, ki_tid equals ki_pid; for all other threads they
-     * differ.  The group-scan deduplication below uses this invariant to
-     * keep exactly the process entry for each PID, matching the behavior
-     * of KERN_PROC_PROC while remaining compatible with FreeBSD 5.1, which
-     * does not support KERN_PROC_PROC.
+     * same ki_pid (one per thread).  The main thread that represents the
+     * process itself always has ki_tid equal to ki_pid; all other threads
+     * have a different ki_tid.  A single pass that keeps only entries where
+     * ki_tid == ki_pid yields exactly one process entry per PID without
+     * sorting, reducing complexity from O(n log n) to O(n).  This approach
+     * is compatible with FreeBSD 5.1, which does not support KERN_PROC_PROC.
      */
     proc_snapshot =
         kvm_getprocs(iter->kvm_descriptor, KERN_PROC_ALL, 0, &raw_count);
@@ -168,53 +149,25 @@ int init_process_iterator(struct process_iterator *iter,
         return -1;
     }
 
-    /* Allocate buffer for sorting */
-    sorted = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
-                                         (size_t)raw_count);
-    if (sorted == NULL) {
-        fprintf(stderr, "Memory allocation failed (sorted buffer)\n");
-        close_process_iterator(iter);
-        return -1;
-    }
-
-    memcpy(sorted, proc_snapshot,
-           sizeof(struct kinfo_proc) * (size_t)raw_count);
-
-    /* Sort by PID to make deduplication reliable */
-    qsort(sorted, (size_t)raw_count, sizeof(struct kinfo_proc),
-          compare_kinfo_proc_by_pid);
-
-    /* Allocate output buffer */
+    /* Allocate output buffer (worst case: every entry is a process entry) */
     out = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
                                       (size_t)raw_count);
     if (out == NULL) {
         fprintf(stderr, "Memory allocation failed (output buffer)\n");
-        free(sorted);
         close_process_iterator(iter);
         return -1;
     }
 
     /*
-     * Deduplicate by PID, preferring the process entry (ki_tid == ki_pid).
-     * Scan each run of entries that share a ki_pid and retain the one whose
-     * ki_tid equals ki_pid (the main thread / process entry).  If no such
-     * entry exists in the group, fall back to the first entry in that group.
+     * Keep only process entries (ki_tid == ki_pid); discard thread entries
+     * (ki_tid != ki_pid).
      */
     out_count = 0;
-    i = 0;
-    while (i < raw_count) {
-        group_pid = sorted[i].ki_pid;
-        best = i;
-        for (j = i + 1; j < raw_count && sorted[j].ki_pid == group_pid; j++) {
-            if (sorted[j].ki_tid == sorted[j].ki_pid) {
-                best = j;
-            }
+    for (i = 0; i < raw_count; i++) {
+        if (proc_snapshot[i].ki_tid == proc_snapshot[i].ki_pid) {
+            out[out_count++] = proc_snapshot[i];
         }
-        out[out_count++] = sorted[best];
-        i = j;
     }
-
-    free(sorted);
 
     /* Shrink buffer to exact size */
     if (out_count > 0) {
