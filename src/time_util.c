@@ -124,8 +124,8 @@ void nsec2timespec(double nsec, struct timespec *result_ts) {
  */
 int get_current_time(struct timespec *result_ts) {
 #if defined(__APPLE__)
-    static double factor = -1;
-    double nsec;
+    static long double factor = -1;
+    long double nsec;
     if (result_ts == NULL) {
         return -1;
     }
@@ -135,10 +135,10 @@ int get_current_time(struct timespec *result_ts) {
         if (ret != KERN_SUCCESS) {
             return -1;
         }
-        factor = (double)timebase_info.numer / (double)timebase_info.denom;
+        factor = (long double)timebase_info.numer / timebase_info.denom;
     }
     nsec = mach_absolute_time() * factor;
-    nsec2timespec(nsec, result_ts);
+    nsec2timespec((double)nsec, result_ts);
     return 0;
 #elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
     /* Prefer monotonic clock: immune to system time adjustments */
