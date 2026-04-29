@@ -96,11 +96,8 @@ int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
     const struct kinfo_proc *proc_snapshot;
     struct kinfo_proc *out;
-    struct kinfo_proc *shrunk;
 
     int raw_count;
-    int out_count;
-    int i;
 
     if (iter == NULL || filter == NULL) {
         return -1;
@@ -125,17 +122,18 @@ int init_process_iterator(struct process_iterator *iter,
     raw_count = 0;
 
     /*
-     * KERN_PROC_ALL returns one kinfo_proc per kernel-schedulable entity;
-     * for multi-threaded processes this means multiple entries sharing the
-     * same ki_pid (one per thread).  The main thread that represents the
-     * process itself always has ki_tid equal to ki_pid; all other threads
-     * have a different ki_tid.  A single pass that keeps only entries where
-     * ki_tid == ki_pid yields exactly one process entry per PID without
-     * sorting, reducing complexity from O(n log n) to O(n).  This approach
-     * is compatible with FreeBSD 5.1, which does not support KERN_PROC_PROC.
+     * KERN_PROC_PROC returns exactly one kinfo_proc per process, so no
+     * deduplication or thread filtering is required.  This avoids the
+     * thread-entry noise that KERN_PROC_ALL produces for multi-threaded
+     * processes on FreeBSD 5.0+ (where thread IDs occupy a separate
+     * namespace from PIDs and ki_tid does not equal ki_pid).
+     *
+     * kvm_getprocs() returns a pointer into kvm's internal buffer, which
+     * becomes invalid on the next kvm call.  Copy it to a heap-allocated
+     * buffer so the snapshot remains valid throughout iteration.
      */
     proc_snapshot =
-        kvm_getprocs(iter->kvm_descriptor, KERN_PROC_ALL, 0, &raw_count);
+        kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0, &raw_count);
 
     if (proc_snapshot == NULL) {
         fprintf(stderr, "kvm_getprocs: %s\n", kvm_geterr(iter->kvm_descriptor));
@@ -149,41 +147,18 @@ int init_process_iterator(struct process_iterator *iter,
         return -1;
     }
 
-    /* Allocate output buffer (worst case: every entry is a process entry) */
     out = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
                                       (size_t)raw_count);
     if (out == NULL) {
-        fprintf(stderr, "Memory allocation failed (output buffer)\n");
+        fprintf(stderr, "Memory allocation failed (process snapshot)\n");
         close_process_iterator(iter);
         return -1;
     }
 
-    /*
-     * Keep only process entries (ki_tid == ki_pid); discard thread entries
-     * (ki_tid != ki_pid).
-     */
-    out_count = 0;
-    for (i = 0; i < raw_count; i++) {
-        if (proc_snapshot[i].ki_tid == proc_snapshot[i].ki_pid) {
-            out[out_count++] = proc_snapshot[i];
-        }
-    }
-
-    /* Shrink buffer to exact size */
-    if (out_count > 0) {
-        shrunk = (struct kinfo_proc *)realloc(out, sizeof(struct kinfo_proc) *
-                                                       (size_t)out_count);
-
-        if (shrunk != NULL) {
-            out = shrunk;
-        }
-    } else {
-        free(out);
-        out = NULL;
-    }
+    memcpy(out, proc_snapshot, sizeof(struct kinfo_proc) * (size_t)raw_count);
 
     iter->kinfo_procs = out;
-    iter->proc_count = out_count;
+    iter->proc_count = raw_count;
     iter->current_index = 0;
 
     return 0;
