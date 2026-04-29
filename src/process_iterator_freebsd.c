@@ -117,9 +117,9 @@ int init_process_iterator(struct process_iterator *iter,
     int raw_count;
     int out_count;
     int i;
-
-    pid_t last_pid;
-    int has_last;
+    int j;
+    int best;
+    pid_t group_pid;
 
     if (iter == NULL || filter == NULL) {
         return -1;
@@ -144,16 +144,17 @@ int init_process_iterator(struct process_iterator *iter,
     raw_count = 0;
 
     /*
-     * Use KERN_PROC_PROC instead of KERN_PROC_ALL so that kvm_getprocs()
-     * returns exactly one entry per process (the process itself), rather
-     * than one entry per thread.  KERN_PROC_ALL returns one kinfo_proc per
-     * kernel schedulable entity; for multi-threaded processes that means
-     * multiple entries sharing the same ki_pid, and the deduplication step
-     * below could end up retaining a thread entry instead of the process
-     * entry.  KERN_PROC_PROC avoids this by only reporting processes.
+     * KERN_PROC_ALL returns one kinfo_proc per kernel-schedulable entity;
+     * for multi-threaded processes this means multiple entries sharing the
+     * same ki_pid (one per thread).  For the main thread that represents the
+     * process itself, ki_tid equals ki_pid; for all other threads they
+     * differ.  The group-scan deduplication below uses this invariant to
+     * keep exactly the process entry for each PID, matching the behavior
+     * of KERN_PROC_PROC while remaining compatible with FreeBSD 5.1, which
+     * does not support KERN_PROC_PROC.
      */
     proc_snapshot =
-        kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0, &raw_count);
+        kvm_getprocs(iter->kvm_descriptor, KERN_PROC_ALL, 0, &raw_count);
 
     if (proc_snapshot == NULL) {
         fprintf(stderr, "kvm_getprocs: %s\n", kvm_geterr(iter->kvm_descriptor));
@@ -193,25 +194,24 @@ int init_process_iterator(struct process_iterator *iter,
         return -1;
     }
 
-    /* Deduplicate by PID */
+    /*
+     * Deduplicate by PID, preferring the process entry (ki_tid == ki_pid).
+     * Scan each run of entries that share a ki_pid and retain the one whose
+     * ki_tid equals ki_pid (the main thread / process entry).  If no such
+     * entry exists in the group, fall back to the first entry in that group.
+     */
     out_count = 0;
-    has_last = 0;
-    last_pid = 0;
-
-    for (i = 0; i < raw_count; i++) {
-        pid_t pid;
-
-        pid = sorted[i].ki_pid;
-
-        if (has_last && pid == last_pid) {
-            continue;
+    i = 0;
+    while (i < raw_count) {
+        group_pid = sorted[i].ki_pid;
+        best = i;
+        for (j = i + 1; j < raw_count && sorted[j].ki_pid == group_pid; j++) {
+            if (sorted[j].ki_tid == sorted[j].ki_pid) {
+                best = j;
+            }
         }
-
-        out[out_count] = sorted[i];
-        out_count++;
-
-        last_pid = pid;
-        has_last = 1;
+        out[out_count++] = sorted[best];
+        i = j;
     }
 
     free(sorted);
