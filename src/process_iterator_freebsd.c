@@ -143,8 +143,17 @@ int init_process_iterator(struct process_iterator *iter,
 
     raw_count = 0;
 
+    /*
+     * Use KERN_PROC_PROC instead of KERN_PROC_ALL so that kvm_getprocs()
+     * returns exactly one entry per process (the process itself), rather
+     * than one entry per thread.  KERN_PROC_ALL returns one kinfo_proc per
+     * kernel schedulable entity; for multi-threaded processes that means
+     * multiple entries sharing the same ki_pid, and the deduplication step
+     * below could end up retaining a thread entry instead of the process
+     * entry.  KERN_PROC_PROC avoids this by only reporting processes.
+     */
     proc_snapshot =
-        kvm_getprocs(iter->kvm_descriptor, KERN_PROC_ALL, 0, &raw_count);
+        kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0, &raw_count);
 
     if (proc_snapshot == NULL) {
         fprintf(stderr, "kvm_getprocs: %s\n", kvm_geterr(iter->kvm_descriptor));
