@@ -244,7 +244,7 @@ static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
  */
 static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
     int count;
-    struct kinfo_proc *kproc;
+    const struct kinfo_proc *kproc;
     if (pid <= 0) {
         return (pid_t)(-1);
     }
