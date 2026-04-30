@@ -286,14 +286,17 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
     /*
-     * pbi_pid and pbi_ppid are uint32_t; pid_t is int32_t on macOS.
-     * Guard against the unlikely case where the kernel returns a value
-     * that would overflow pid_t, which would produce a negative PID and
-     * cause subsequent callers to silently drop this process entry.
+     * pbi_pid and pbi_ppid are uint32_t; pid_t is int (32-bit signed)
+     * on macOS.  Guard against the unlikely case where the kernel
+     * returns a value that would overflow pid_t, which would produce a
+     * negative PID and cause subsequent callers to silently drop this
+     * process entry.  Use INT_MAX from <limits.h> (C89) rather than
+     * INT32_MAX from <stdint.h> (C99); on macOS pid_t is int, so the
+     * bound is identical and strictly C89-portable.
      * Log a warning because this indicates an unusual system state.
      */
-    if (task_info->pbsd.pbi_pid > (uint32_t)INT32_MAX ||
-        task_info->pbsd.pbi_ppid > (uint32_t)INT32_MAX) {
+    if (task_info->pbsd.pbi_pid > (uint32_t)INT_MAX ||
+        task_info->pbsd.pbi_ppid > (uint32_t)INT_MAX) {
         fprintf(stderr, "Unexpected PID overflow: pbi_pid=%u pbi_ppid=%u\n",
                 task_info->pbsd.pbi_pid, task_info->pbsd.pbi_ppid);
         return -1;
