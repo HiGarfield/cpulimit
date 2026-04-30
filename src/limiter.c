@@ -536,7 +536,9 @@ static int collect_child_exit_status(pid_t child_pid,
                 /* SIGKILL cannot be caught or ignored */
                 if (kill(-child_pid, SIGKILL) != 0 && errno != ESRCH) {
                     int err = errno;
-                    fprintf(stderr, "kill(-%ld, SIGKILL) failed: %s\n",
+                    fprintf(stderr,
+                            "Failed to forcibly terminate child process group"
+                            " -%ld: %s\n",
                             (long)child_pid, strerror(err));
                 }
             }

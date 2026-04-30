@@ -290,9 +290,12 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
      * Guard against the unlikely case where the kernel returns a value
      * that would overflow pid_t, which would produce a negative PID and
      * cause subsequent callers to silently drop this process entry.
+     * Log a warning because this indicates an unusual system state.
      */
     if (task_info->pbsd.pbi_pid > (uint32_t)INT32_MAX ||
         task_info->pbsd.pbi_ppid > (uint32_t)INT32_MAX) {
+        fprintf(stderr, "Unexpected PID overflow: pbi_pid=%u pbi_ppid=%u\n",
+                task_info->pbsd.pbi_pid, task_info->pbsd.pbi_ppid);
         return -1;
     }
     proc->pid = (pid_t)task_info->pbsd.pbi_pid;
