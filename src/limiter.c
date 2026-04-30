@@ -615,11 +615,15 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
     }
 
     /*
-     * Flush stdout before forking.
-     * This is a defensive measure to avoid duplicated buffered output if
-     * future child code paths use stdio and exit()/flush inherited streams.
+     * Flush stdout and stderr before forking.
+     * This is a defensive measure to avoid duplicated buffered output:
+     * after fork() both parent and child inherit unflushed stdio buffers,
+     * so any pending output would be flushed by both processes at their
+     * respective exit() calls. stderr may be line-buffered when redirected
+     * to a file, making this flush necessary in automated environments.
      */
     fflush(stdout);
+    fflush(stderr);
 
     /* Fork to create child process that will execute user command */
     child_pid = fork();
