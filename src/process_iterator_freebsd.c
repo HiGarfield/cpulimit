@@ -249,7 +249,19 @@ static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
         return (pid_t)(-1);
     }
     kproc = kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
-    return (count == 0 || kproc == NULL) ? (pid_t)(-1) : kproc->ki_ppid;
+    if (count == 0 || kproc == NULL) {
+        return (pid_t)(-1);
+    }
+    /*
+     * Exclude zombie processes from the ancestry walk: a zombie has a
+     * valid ki_ppid, but treating it as an active parent would violate
+     * the documented contract (returns -1 for zombies) and could
+     * attribute processes to an incorrect parent group.
+     */
+    if (kproc->ki_stat == SZOMB) {
+        return (pid_t)(-1);
+    }
+    return kproc->ki_ppid;
 }
 
 /**
