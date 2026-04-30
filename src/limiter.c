@@ -534,7 +534,11 @@ static int collect_child_exit_status(pid_t child_pid,
                            (long)child_pid);
                 }
                 /* SIGKILL cannot be caught or ignored */
-                kill(-child_pid, SIGKILL);
+                if (kill(-child_pid, SIGKILL) != 0 && errno != ESRCH) {
+                    int err = errno;
+                    fprintf(stderr, "kill(-%ld, SIGKILL) failed: %s\n",
+                            (long)child_pid, strerror(err));
+                }
             }
             /* Brief sleep to avoid busy-waiting */
             sleep_timespec(&poll_sleep);
