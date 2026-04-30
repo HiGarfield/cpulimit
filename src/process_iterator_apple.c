@@ -285,6 +285,16 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
  */
 static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
+    /*
+     * pbi_pid and pbi_ppid are uint32_t; pid_t is int32_t on macOS.
+     * Guard against the unlikely case where the kernel returns a value
+     * that would overflow pid_t, which would produce a negative PID and
+     * cause subsequent callers to silently drop this process entry.
+     */
+    if (task_info->pbsd.pbi_pid > (uint32_t)INT32_MAX ||
+        task_info->pbsd.pbi_ppid > (uint32_t)INT32_MAX) {
+        return -1;
+    }
     proc->pid = (pid_t)task_info->pbsd.pbi_pid;
     proc->ppid = (pid_t)task_info->pbsd.pbi_ppid;
     /* Sum user and system CPU time, convert to milliseconds */
