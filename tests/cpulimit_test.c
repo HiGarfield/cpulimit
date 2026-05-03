@@ -2586,7 +2586,13 @@ static void test_process_iterator_getppid_of(void) {
     while (get_next_process(&iter, proc) == 0) {
         pid_t ppid_result;
         ppid_result = getppid_of(proc->pid);
-        assert(ppid_result == proc->ppid);
+        /*
+         * The process may exit between the iterator returning it and the
+         * getppid_of() call; skip the assertion if it has already gone.
+         */
+        if (ppid_result != (pid_t)(-1)) {
+            assert(ppid_result == proc->ppid);
+        }
     }
     free(proc);
     ret = close_process_iterator(&iter);
