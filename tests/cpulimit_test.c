@@ -2897,6 +2897,8 @@ static int run_parse_in_child(int argc, char **argv) {
     int status, exited;
     struct cpulimit_cfg cfg;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -3106,6 +3108,8 @@ static void test_cli_verbose_flag(void) {
     pid_t pid, waited;
     int status, exited, exit_code;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -3586,6 +3590,8 @@ static void test_cli_null_cfg(void) {
     parse_ret = run_parse_in_child(5, test_argv);
     assert(parse_ret == 99);
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -3614,6 +3620,8 @@ static void test_cli_invalid_api_inputs(void) {
     int exited;
     int exit_code;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -3631,6 +3639,8 @@ static void test_cli_invalid_api_inputs(void) {
 
     test_argv[0] = NULL;
     test_argv[1] = NULL;
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -3672,6 +3682,8 @@ static void test_cli_long_options_lazy_verbose(void) {
     test_argv[6] = NULL;
 
     /* verbose prints to stdout; suppress it */
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5603,14 +5615,16 @@ static void test_limiter_run_command_mode(void) {
     cfg.lazy_mode = 1;
 
     /*
-     * Flush stdout before forking to prevent the child from inheriting
-     * buffered output.  run_command_mode() calls fflush(stdout) before
-     * its own inner fork; if the parent's buffer is not empty at this
-     * point, the child's fflush would write the buffered content early,
-     * and the parent's buffer would write the same content again later,
-     * producing duplicated output when stdout is piped.
+     * Flush stdout and stderr before forking to prevent the child from
+     * inheriting buffered output.  run_command_mode() calls
+     * fflush(stdout) and fflush(stderr) before its own inner fork; if
+     * the parent's buffers are not empty at this point, the child's
+     * flushes would write the buffered content early, and the parent's
+     * buffers would write the same content again later, producing
+     * duplicated output when stdout or stderr is piped.
      */
     fflush(stdout);
+    fflush(stderr);
 
     /* Run in child process since run_command_mode calls exit() */
     pid = fork();
@@ -5647,6 +5661,8 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     cfg.lazy_mode = 1;
 
     /* Run in child since run_pid_or_exe_mode calls exit() */
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5686,6 +5702,8 @@ static void test_limiter_run_command_mode_nonexistent(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5745,6 +5763,8 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5784,6 +5804,8 @@ static void test_limiter_run_command_mode_verbose(void) {
     cfg.lazy_mode = 1;
     cfg.verbose = 1;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5817,6 +5839,8 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5854,6 +5878,8 @@ static void test_limiter_run_command_mode_false(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5897,6 +5923,8 @@ static void test_limiter_run_command_mode_signal_term(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5941,6 +5969,8 @@ static void test_limiter_run_command_mode_signal_kill(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -5987,6 +6017,8 @@ static void test_limiter_run_command_mode_with_fork(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 1;
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -6025,6 +6057,8 @@ static void test_limiter_run_command_mode_quit_signal(void) {
     ret = pipe(ready_pipe);
     assert(ret == 0);
 
+    fflush(stdout);
+    fflush(stderr);
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
@@ -6100,6 +6134,8 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
     ret = pipe(ready_pipe);
     assert(ret == 0);
 
+    fflush(stdout);
+    fflush(stderr);
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
@@ -6175,6 +6211,8 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
     cfg.limit = 0.5;
     cfg.lazy_mode = 0; /* non-lazy: loop until quit */
 
+    fflush(stdout);
+    fflush(stderr);
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -6207,6 +6245,8 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
     int wrapper_status, w_exited, w_exit_code;
     const struct timespec target_life = {0, 500000000L}; /* 500 ms */
 
+    fflush(stdout);
+    fflush(stderr);
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
@@ -6252,6 +6292,8 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
     pid_t wrapper_pid, waited;
     int wrapper_status, w_exited, w_exit_code;
 
+    fflush(stdout);
+    fflush(stderr);
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
@@ -6292,6 +6334,8 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
     int wrapper_status, w_exited, w_exit_code;
     const struct timespec target_life = {0, 500000000L}; /* 500 ms */
 
+    fflush(stdout);
+    fflush(stderr);
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
@@ -6342,6 +6386,8 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
     pid_t wrapper_pid, waited;
     int wrapper_status, w_exited, w_exit_code;
 
+    fflush(stdout);
+    fflush(stderr);
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
@@ -6414,6 +6460,8 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
     ret = pipe(notify_pipe);
     assert(ret == 0);
 
+    fflush(stdout);
+    fflush(stderr);
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
