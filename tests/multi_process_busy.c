@@ -47,12 +47,24 @@
  */
 int main(int argc, char *argv[]) {
     /* cppcheck-suppress-end constParameter */
-    int proc_idx, num_procs;
+    int proc_idx, num_procs, num_children, kill_idx;
     pid_t pid = -1;
+    pid_t *child_pids;
     configure_signal_handler();
     num_procs = argc == 2 ? atoi(argv[1]) : get_ncpu();
     /* Ensure at least 2 processes to validate -i option in cpulimit */
     num_procs = MAX(num_procs, 2);
+
+    /*
+     * Allocate storage for child PIDs so we can kill only the children
+     * we actually forked on failure, rather than the whole process group.
+     */
+    child_pids = (pid_t *)malloc((size_t)(num_procs - 1) * sizeof(pid_t));
+    if (child_pids == NULL) {
+        fprintf(stderr, "malloc failed\n");
+        exit(EXIT_FAILURE);
+    }
+    num_children = 0;
 
     /* Create num_procs-1 child processes (total num_procs processes) */
     for (proc_idx = 1; proc_idx < num_procs; proc_idx++) {
@@ -61,12 +73,23 @@ int main(int argc, char *argv[]) {
         } while (pid < 0 && errno == EINTR);
         if (pid < 0) { /* fork failed */
             fprintf(stderr, "fork failed\n");
-            kill(0, SIGKILL); /* Kill all created children */
+            /*
+             * Kill only the children forked by this process.
+             * kill(0, SIGKILL) would also kill the test runner
+             * if we share a process group with it.
+             */
+            for (kill_idx = 0; kill_idx < num_children; kill_idx++) {
+                kill(child_pids[kill_idx], SIGKILL);
+            }
+            free(child_pids);
             exit(EXIT_FAILURE);
         } else if (pid == 0) { /* Child process (pid == 0) */
             break;             /* Child should not create more processes */
         }
+        child_pids[num_children++] = pid;
     }
+    free(child_pids);
+    child_pids = NULL;
 
     /* All processes (parent and children) enter infinite loop */
     while (!is_quit_flag_set()) {
