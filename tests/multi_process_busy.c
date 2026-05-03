@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
      */
     child_pids = (pid_t *)malloc((size_t)(num_procs - 1) * sizeof(pid_t));
     if (child_pids == NULL) {
-        fprintf(stderr, "malloc failed\n");
+        fprintf(stderr, "malloc failed: out of memory\n");
         exit(EXIT_FAILURE);
     }
     num_children = 0;

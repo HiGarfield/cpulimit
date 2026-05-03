@@ -231,57 +231,57 @@ static void test_time_util_nsec2timespec(void) {
     struct timespec result_ts;
 
     /* Test 0 nanoseconds */
-    nsec2timespec(0.0, &result_ts);
+    nsec2timespec(0.0L, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 0);
 
     /* Test 1 second (1e9 nanoseconds) */
-    nsec2timespec(1000000000.0, &result_ts);
+    nsec2timespec(1000000000.0L, &result_ts);
     assert(result_ts.tv_sec == 1);
     assert(result_ts.tv_nsec == 0);
 
     /* Test 1.5 seconds */
-    nsec2timespec(1500000000.0, &result_ts);
+    nsec2timespec(1500000000.0L, &result_ts);
     assert(result_ts.tv_sec == 1);
     assert(result_ts.tv_nsec == 500000000);
 
     /* Test 2.25 seconds */
-    nsec2timespec(2250000000.0, &result_ts);
+    nsec2timespec(2250000000.0L, &result_ts);
     assert(result_ts.tv_sec == 2);
     assert(result_ts.tv_nsec == 250000000);
 
     /* Test small value (100 microseconds) */
-    nsec2timespec(100000.0, &result_ts);
+    nsec2timespec(100000.0L, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 100000);
 
     /* Test 500 milliseconds */
-    nsec2timespec(500000000.0, &result_ts);
+    nsec2timespec(500000000.0L, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 500000000L);
 
     /* Test very large value: 10 seconds */
-    nsec2timespec(10000000000.0, &result_ts);
+    nsec2timespec(10000000000.0L, &result_ts);
     assert(result_ts.tv_sec == 10);
     assert(result_ts.tv_nsec == 0);
 
     /* A large multiple of 1e9 can round tv_nsec up to 1e9 */
-    nsec2timespec(3e9, &result_ts);
+    nsec2timespec(3e9L, &result_ts);
     assert(result_ts.tv_sec >= 2 && result_ts.tv_sec <= 4);
     assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
 
     /* 2 seconds exactly */
-    nsec2timespec(2e9, &result_ts);
+    nsec2timespec(2e9L, &result_ts);
     assert(result_ts.tv_sec == 2);
     assert(result_ts.tv_nsec == 0L);
 
     /* 0.999999999 s = 999999999 ns -- must stay sub-second */
-    nsec2timespec(999999999.0, &result_ts);
+    nsec2timespec(999999999.0L, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
 
     /* General invariant: result is always normalised */
-    nsec2timespec(1234567890.123, &result_ts);
+    nsec2timespec(1234567890.123L, &result_ts);
     assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
 }
 

@@ -313,10 +313,10 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
 
         /* Split time slot into work and sleep periods */
         work_time_ns = time_slot * 1000 * work_ratio;
-        nsec2timespec(work_time_ns, &work_time);
+        nsec2timespec((long double)work_time_ns, &work_time);
 
         sleep_time_ns = time_slot * 1000 - work_time_ns;
-        nsec2timespec(sleep_time_ns, &sleep_time);
+        nsec2timespec((long double)sleep_time_ns, &sleep_time);
 
         if (verbose) {
             if (cycle_counter % STATS_SAMPLE_PERIOD == 0) {
