@@ -62,7 +62,7 @@ void check_y2038(void);
 
 /**
  * @brief Convert nanoseconds to timespec structure
- * @param nsec Number of nanoseconds (can be >= 1 billion)
+ * @param nsec Number of nanoseconds as a long double (can be >= 1 billion)
  * @param result_ts Pointer to timespec structure to populate
  *
  * Splits the nanosecond value into seconds and nanoseconds components.
@@ -76,7 +76,7 @@ void check_y2038(void);
  * is far below any 32-bit overflow threshold and is not affected by
  * the Y2038 problem.
  */
-void nsec2timespec(double nsec, struct timespec *result_ts);
+void nsec2timespec(long double nsec, struct timespec *result_ts);
 
 /**
  * @brief Get a high-resolution timestamp, preferring a monotonic clock

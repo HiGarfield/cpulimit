@@ -69,7 +69,7 @@ void check_y2038(void) {
 
 /**
  * @brief Convert nanoseconds to timespec structure
- * @param nsec Number of nanoseconds (can be >= 1 billion)
+ * @param nsec Number of nanoseconds as a long double (can be >= 1 billion)
  * @param result_ts Pointer to timespec structure to populate
  *
  * Splits the nanosecond value into seconds and nanoseconds components.
@@ -83,9 +83,9 @@ void check_y2038(void) {
  * is far below any 32-bit overflow threshold and is not affected by
  * the Y2038 problem.
  */
-void nsec2timespec(double nsec, struct timespec *result_ts) {
-    result_ts->tv_sec = (time_t)(nsec / 1e9);
-    result_ts->tv_nsec = (long)(nsec - (double)result_ts->tv_sec * 1e9);
+void nsec2timespec(long double nsec, struct timespec *result_ts) {
+    result_ts->tv_sec = (time_t)(nsec / 1e9L);
+    result_ts->tv_nsec = (long)(nsec - (long double)result_ts->tv_sec * 1e9L);
     /*
      * Correct tv_sec when floating-point rounding shifts tv_nsec out of
      * range.
@@ -138,7 +138,7 @@ int get_current_time(struct timespec *result_ts) {
         factor = (long double)timebase_info.numer / timebase_info.denom;
     }
     nsec = mach_absolute_time() * factor;
-    nsec2timespec((double)nsec, result_ts);
+    nsec2timespec(nsec, result_ts);
     return 0;
 #elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
     /* Prefer monotonic clock: immune to system time adjustments */
