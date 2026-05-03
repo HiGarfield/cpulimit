@@ -184,6 +184,10 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     memset(proc, 0, sizeof(struct process));
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;
+    /* Reject kernel threads and orphaned processes with invalid PPID */
+    if (proc->ppid <= 0) {
+        return -1;
+    }
     /* Convert runtime from microseconds to milliseconds */
     proc->cpu_time = (double)kproc->ki_runtime / 1000.0;
     if (!read_cmd) {
