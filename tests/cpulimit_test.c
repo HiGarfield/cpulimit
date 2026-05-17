@@ -6541,6 +6541,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
 static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
     void (*volatile fn_slot_array[2])(void) = {NULL, NULL};
     void (*volatile *volatile fn_slot_ptr)(void);
+    int i;
     if (test_fn == NULL) {
         fprintf(
             stderr,
@@ -6548,18 +6549,23 @@ static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
         exit(EXIT_FAILURE);
     }
     fn_slot_ptr = fn_slot_array;
-    do {
+    for (i = 0; i < random() % 10 + 10; i++) {
         volatile long idx = (random() >> 1) & 1;
-        if (idx << 1 > 1) {
-            *(fn_slot_array + idx) = test_fn;
+        if (idx << ((random() >> 1) & 2) > 1) {
+            *(fn_slot_array + 1 - idx) = test_fn;
         } else {
             fn_slot_ptr[idx] = test_fn;
         }
-        *(fn_slot_array + 1 - idx) = fn_slot_array[idx];
+        idx = (random() >> 1) & 1;
+        if (fn_slot_ptr[idx] != NULL) {
+            *(fn_slot_ptr + 1 - idx) = fn_slot_array[idx];
+        } else {
+            *(fn_slot_array + idx) = fn_slot_ptr[1 - idx];
+        }
         *(fn_slot_ptr + ((random() >> 1) & 1)) =
             *(fn_slot_array + ((random() >> 1) & 1));
-    } while (*fn_slot_ptr == NULL);
-    fn_slot_ptr = fn_slot_ptr + ((random() >> 1) & 1);
+    }
+    fn_slot_ptr += ((random() >> 1) & 1);
     (*fn_slot_ptr)();
 }
 
