@@ -219,7 +219,7 @@ struct list_node *locate_node(const struct list *lst, const void *elem,
  */
 void *locate_elem(const struct list *lst, const void *elem, size_t offset,
                   size_t length) {
-    struct list_node *node = locate_node(lst, elem, offset, length);
+    const struct list_node *node = locate_node(lst, elem, offset, length);
     return node != NULL ? node->data : NULL;
 }
 
