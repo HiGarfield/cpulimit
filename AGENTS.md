@@ -3,25 +3,25 @@
 cpulimit limits CPU usage of a target process by monitoring CPU consumption
 and sending POSIX signals (`SIGSTOP` / `SIGCONT`).
 
-If `-i` / `--include-children` is enabled, the limit applies to all
+If `-i` / `--include-children` is enabled, the limit MUST apply to all
 descendants.
 
-- Language: C
-- C standard: C89
-- Supported platforms: Linux, macOS, FreeBSD
+- Implementation language MUST be C.
+- The baseline C standard MUST be C89.
+- Supported platforms MUST be Linux, macOS, and FreeBSD.
 
 ---
 
 # Rule Interpretation
 
-- Requirements use RFC 2119 keywords (`MUST`, `SHOULD`, `MAY`).
-- If requirements conflict, prioritize in this order:
+- Requirements MUST use RFC 2119 keywords (`MUST`, `SHOULD`, `MAY`).
+- If requirements conflict, resolution MUST prioritize in this order:
   1. Correctness and safety
   2. Portability and behavioral consistency
   3. Performance
   4. Maintainability
-- Requirements in this file apply to source code, tests, build scripts, and
-  CI-related changes unless explicitly scoped.
+- Requirements in this file MUST apply to source code, tests, build scripts,
+  and CI-related changes unless explicitly scoped.
 
 ---
 
@@ -38,7 +38,8 @@ descendants.
 - CPU usage MUST be sampled periodically.
 - Limiting MUST be enforced by suspending and resuming with `SIGSTOP` /
   `SIGCONT`.
-- The program MUST handle graceful termination signals (`SIGINT`, `SIGTERM`).
+- The program MUST handle graceful termination signals (`SIGINT`, `SIGQUIT`,
+  `SIGTERM`, `SIGHUP`, `SIGPIPE`).
 - On exit (including error paths), the target process set MUST be restored to a
   runnable state when possible.
 - Target exit during monitoring MUST be handled safely.
@@ -77,8 +78,8 @@ descendants.
 - Implementations MUST use C89 and POSIX.1-2001 APIs where possible.
 - GNU extensions MAY be used only when required functionality cannot be
   achieved with C89 + POSIX.1-2001.
-- Code MUST compile as C89 and as C++98 and later C++ standards without
-  warnings/errors.
+- Code MUST compile as C89 and all later C standards, and as C++98 and all
+  later C++ standards, without warnings/errors.
 - Undefined behavior MUST be avoided.
 - Implementation-defined behavior SHOULD be minimized and documented when relied
   upon.
@@ -128,10 +129,11 @@ descendants.
 - Public API declarations and definitions MUST stay semantically synchronized.
 - Comments MUST use consistent C-style block formatting (`/* ... */`).
 - Formatting MUST follow `/.clang-format`.
-- Standalone `{ ... }` blocks used only for scoping are prohibited with no
+- Standalone `{ ... }` blocks used only for scoping MUST be prohibited with no
   exceptions.
-- To limit scope in C89, declare variables at the start of the nearest
-  existing control-flow block; if none exists, declare them at function scope.
+- To limit scope in C89, variables MUST be declared at the start of the
+  nearest existing control-flow block; if none exists, they MUST be declared at
+  function scope.
 - Variable scope MUST be minimized without introducing standalone scope blocks.
 - Unnecessary headers MUST NOT be included.
 - Source lines SHOULD stay within 80 columns when practical.
@@ -144,9 +146,9 @@ descendants.
 
 ## Required Tooling
 
-- Required tools: `gcc`, `clang`, `make`, `cmake`, `clang-format`, `cppcheck`,
-  `clang-tidy`, `valgrind`.
-- Ubuntu install command:
+- Required tools MUST include: `gcc`, `clang`, `make`, `cmake`,
+  `clang-format`, `cppcheck`, `clang-tidy`, `valgrind`.
+- On Ubuntu, required tools SHOULD be installed with:
   - `sudo apt-get update && sudo apt-get -qqy install build-essential clang-format cppcheck clang-tidy valgrind`
 
 ## Build Requirements
@@ -158,20 +160,20 @@ descendants.
 
 ## Test and Analysis Requirements
 
-For each compiler (`gcc`, then `clang`), run in order:
+For each compiler (`gcc`, then `clang`), checks MUST run in this order:
 
-1. Clean and build default target.
-2. Run static checks:
+1. The workflow MUST clean and build the default target.
+2. The workflow MUST run static checks:
    - `cmake --build build --target check`
-   - review:
-     - `src/cppcheck-report.txt`
-     - `src/clang-tidy-report.txt`
-     - `tests/cppcheck-report.txt`
-     - `tests/clang-tidy-report.txt`
-3. Run dynamic checks:
+   - The workflow MUST review:
+      - `src/cppcheck-report.txt`
+      - `src/clang-tidy-report.txt`
+      - `tests/cppcheck-report.txt`
+      - `tests/clang-tidy-report.txt`
+3. The workflow MUST run dynamic checks:
    - `cmake --build build --target valgrind`
 
-Additional requirements:
+Additional requirements MUST be enforced:
 
 - New features MUST include tests.
 - Bug fixes MUST include regression tests.
@@ -186,11 +188,11 @@ Additional requirements:
 
 ## Review and Refactoring Expectations
 
-- Prioritize correctness and safety over cosmetic improvements.
+- Correctness and safety MUST be prioritized over cosmetic improvements.
 - Clearly related issues discovered in touched code SHOULD be addressed in the
   same change; if deferred, the reason SHOULD be documented.
-- Keep behavior changes, refactors, formatting, and test additions separated
-  into logically independent commits where feasible.
+- Behavior changes, refactors, formatting, and test additions SHOULD be
+  separated into logically independent commits where feasible.
 - Each commit SHOULD remain buildable and testable.
 - Refactoring MUST NOT change observable behavior unless explicitly intended and
   documented.
