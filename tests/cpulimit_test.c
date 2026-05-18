@@ -6541,7 +6541,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
 static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
     void (*volatile fn_slot_array[2])(void) = {NULL, NULL};
     void (*volatile *volatile fn_slot_ptr)(void);
-    int i;
+    size_t i, rand_iter_count;
     if (test_fn == NULL) {
         fprintf(
             stderr,
@@ -6549,7 +6549,8 @@ static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
         exit(EXIT_FAILURE);
     }
     fn_slot_ptr = fn_slot_array;
-    for (i = 0; i < random() % 10 + 10; i++) {
+    rand_iter_count = (size_t)random() % 10 + 10;
+    for (i = 0; i < rand_iter_count; i++) {
         volatile long idx = (random() >> 1) & 1;
         if (idx << ((random() >> 1) & 2) > 1) {
             *(fn_slot_array + 1 - idx) = test_fn;
