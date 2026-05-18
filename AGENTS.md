@@ -7,7 +7,7 @@ If `-i` / `--include-children` is enabled, the limit MUST apply to all
 descendants.
 
 - Implementation language MUST be C.
-- The baseline C standard MUST be C89.
+- The baseline C standard MUST be C89 (ISO C90).
 - Supported platforms MUST be Linux, macOS, and FreeBSD.
 
 ---
@@ -74,8 +74,9 @@ descendants.
 
 ## Language and Portability
 
-- Code MUST be written in C and conform to C89.
-- Implementations MUST use C89 and POSIX.1-2001 APIs where possible.
+- Code MUST be written in C and conform to C89 (ISO C90).
+- Implementations MUST use C89 (ISO C90) and POSIX.1-2001 APIs where
+  possible.
 - GNU extensions MAY be used only when required functionality cannot be
   achieved with C89 + POSIX.1-2001.
 - Code MUST compile as C89 and all later C standards, and as C++98 and all
@@ -145,8 +146,9 @@ descendants.
 
 ## Required Tooling
 
-- Required tools MUST include: `gcc`, `clang`, `make`, `cmake`,
-  `clang-format`, `cppcheck`, `clang-tidy`, `valgrind`.
+- Required tools for full build + analysis verification MUST include: `gcc`,
+  `clang`, `make`, `cmake`, `clang-format`, `cppcheck`, `clang-tidy`,
+  `valgrind`.
 - On Ubuntu, required tools SHOULD be installed with:
   - `sudo apt-get update && sudo apt-get -qqy install build-essential clang-format cppcheck clang-tidy valgrind`
 
@@ -155,6 +157,10 @@ descendants.
 - Before submission, builds MUST succeed with both compilers:
   - `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all`
   - `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all`
+- Before submission, full-source standards compatibility checks MUST succeed
+  with both compilers:
+  - `cmake --build build --target standards_check` (after gcc configure/build)
+  - `cmake --build build --target standards_check` (after clang configure/build)
 - New warnings introduced by a change MUST be resolved before submission.
 
 ## Test and Analysis Requirements
@@ -162,14 +168,16 @@ descendants.
 For each compiler (`gcc`, then `clang`), checks MUST run in this order:
 
 1. The workflow MUST clean and build the default target.
-2. The workflow MUST run static checks:
+2. The workflow MUST run full-source standards compatibility checks:
+   - `cmake --build build --target standards_check`
+3. The workflow MUST run static checks:
    - `cmake --build build --target check`
    - The workflow MUST review:
-      - `src/cppcheck-report.txt`
-      - `src/clang-tidy-report.txt`
-      - `tests/cppcheck-report.txt`
-      - `tests/clang-tidy-report.txt`
-3. The workflow MUST run dynamic checks:
+       - `src/cppcheck-report.txt`
+       - `src/clang-tidy-report.txt`
+       - `tests/cppcheck-report.txt`
+       - `tests/clang-tidy-report.txt`
+4. The workflow MUST run dynamic checks:
    - `cmake --build build --target valgrind`
 
 Additional requirements MUST be enforced:

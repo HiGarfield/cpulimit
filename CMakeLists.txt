@@ -101,7 +101,31 @@ add_custom_target(check
     VERBATIM
 )
 
-# --- 10. Format Target ---
+# --- 10. Language Standards Compatibility Target ---
+#
+# Compiles all project .c sources as C (C89+) and as C++ (C++98+)
+# using each supported -std flag of the active compiler.
+#
+# Usage:
+#   cmake --build <build-dir> --target standards_check
+#
+# Note:
+#   This checks full-source compatibility (not header-only) via
+#   compile-only syntax checks.
+add_custom_target(standards_check
+    COMMAND
+        ${CMAKE_COMMAND}
+        "-DCPULIMIT_C_COMPILER=${CMAKE_C_COMPILER}"
+        "-DSRC_DIR=${PROJECT_SOURCE_DIR}/src"
+        "-DTESTS_DIR=${PROJECT_SOURCE_DIR}/tests"
+        "-DBUILD_DIR=${CMAKE_BINARY_DIR}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RunStandardsCheck.cmake"
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "Checking C/C++ standards compatibility on all .c sources..."
+    VERBATIM
+)
+
+# --- 11. Format Target ---
 #
 # Runs clang-format -i on all C source and header files in src/ and
 # tests/.
@@ -121,7 +145,7 @@ add_custom_target(format
     VERBATIM
 )
 
-# --- 11. Valgrind Target (Dynamic Analysis) ---
+# --- 12. Valgrind Target (Dynamic Analysis) ---
 #
 # Runs the test binary under valgrind to detect memory errors and
 # leaks.  Created when tests are enabled; fails at build time if
@@ -143,7 +167,7 @@ if(CPULIMIT_BUILD_TESTS)
     add_dependencies(valgrind cpulimit_test)
 endif()
 
-# --- 12. Uninstall Target ---
+# --- 13. Uninstall Target ---
 #
 # Removes all files recorded in the CMake install manifest.
 #
