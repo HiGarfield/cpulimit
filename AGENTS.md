@@ -38,7 +38,7 @@ descendants.
 - CPU usage MUST be sampled periodically.
 - Limiting MUST be enforced by suspending and resuming with `SIGSTOP` /
   `SIGCONT`.
-- The program MUST handle graceful termination signals (`SIGINT`, `SIGQUIT`,
+- The program MUST handle graceful shutdown signals (`SIGINT`, `SIGQUIT`,
   `SIGTERM`, `SIGHUP`, `SIGPIPE`).
 - On exit (including error paths), the target process set MUST be restored to a
   runnable state when possible.
@@ -129,8 +129,7 @@ descendants.
 - Public API declarations and definitions MUST stay semantically synchronized.
 - Comments MUST use consistent C-style block formatting (`/* ... */`).
 - Formatting MUST follow `/.clang-format`.
-- Standalone `{ ... }` blocks used only for scoping MUST be prohibited with no
-  exceptions.
+- Standalone `{ ... }` blocks used only for scoping MUST NOT be used.
 - To limit scope in C89, variables MUST be declared at the start of the
   nearest existing control-flow block; if none exists, they MUST be declared at
   function scope.
