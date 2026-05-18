@@ -7,7 +7,7 @@ If `-i` / `--include-children` is enabled, the limit applies to all
 descendants.
 
 - Language: C
-- C standard: C89 (ISO C90)
+- C standard: C89
 - Supported platforms: Linux, macOS, FreeBSD
 
 ---
@@ -77,7 +77,8 @@ descendants.
 - Implementations MUST use C89 and POSIX.1-2001 APIs where possible.
 - GNU extensions MAY be used only when required functionality cannot be
   achieved with C89 + POSIX.1-2001.
-- Code MUST compile as C89 and as C++98 (or later) without warnings/errors.
+- Code MUST compile as C89 and as C++98 and later C++ standards without
+  warnings/errors.
 - Undefined behavior MUST be avoided.
 - Implementation-defined behavior SHOULD be minimized and documented when relied
   upon.
@@ -103,8 +104,8 @@ descendants.
 - Signed/unsigned interactions MUST be handled carefully.
 - Integer overflow and unsafe pointer arithmetic MUST be prevented.
 - All allocations MUST be checked for failure.
-- Return values MUST be checked whenever they affect correctness, safety,
-  diagnostics, or guarantees.
+- Return values MUST be checked whenever they affect correctness, behavior, or
+  guarantees.
 - Errors MUST be reported to `stderr` with relevant context.
 - `errno` SHOULD be preserved when required for accurate diagnostics.
 - Fatal errors MUST produce non-zero exit status.
@@ -127,7 +128,10 @@ descendants.
 - Public API declarations and definitions MUST stay semantically synchronized.
 - Comments MUST use consistent C-style block formatting (`/* ... */`).
 - Formatting MUST follow `/.clang-format`.
-- Standalone `{ ... }` blocks used only for scoping are prohibited.
+- Standalone `{ ... }` blocks used only for scoping are prohibited with no
+  exceptions.
+- To limit scope in C89, declare variables at the start of the nearest
+  existing control-flow block; if none exists, declare them at function scope.
 - Variable scope MUST be minimized without introducing standalone scope blocks.
 - Unnecessary headers MUST NOT be included.
 - Source lines SHOULD stay within 80 columns when practical.
@@ -183,7 +187,8 @@ Additional requirements:
 ## Review and Refactoring Expectations
 
 - Prioritize correctness and safety over cosmetic improvements.
-- Address all clearly related issues discovered in touched code when practical.
+- Clearly related issues discovered in touched code SHOULD be addressed in the
+  same change; if deferred, the reason SHOULD be documented.
 - Keep behavior changes, refactors, formatting, and test additions separated
   into logically independent commits where feasible.
 - Each commit SHOULD remain buildable and testable.
