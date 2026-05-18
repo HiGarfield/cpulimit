@@ -129,7 +129,7 @@ descendants.
 - Public API declarations and definitions MUST stay semantically synchronized.
 - Comments MUST use consistent C-style block formatting (`/* ... */`).
 - Formatting MUST follow `/.clang-format`.
-- Standalone `{ ... }` blocks used only for scoping MUST NOT be used.
+- Developers MUST NOT use standalone `{ ... }` blocks only for scoping.
 - To limit scope in C89, variables MUST be declared at the start of the
   nearest existing control-flow block; if none exists, they MUST be declared at
   function scope.
