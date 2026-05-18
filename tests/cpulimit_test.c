@@ -4657,10 +4657,8 @@ static void test_process_group_cpu_usage(void) {
         volatile int keep_running = 1;
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
-            dummy_var = 0;
-            while (dummy_var < 1000) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
-                dummy_var = dummy_var + 1;
             }
         }
         _exit(EXIT_SUCCESS);
@@ -4711,10 +4709,8 @@ static void test_process_group_rapid_updates(void) {
         volatile int keep_running = 1;
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
-            dummy_var = 0;
-            while (dummy_var < 1000) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
-                dummy_var = dummy_var + 1;
             }
         }
         _exit(EXIT_SUCCESS);
@@ -4795,10 +4791,8 @@ static void test_process_group_single(int include_children) {
         volatile int keep_running = 1;
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
-            dummy_var = 0;
-            while (dummy_var < 1000) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
-                dummy_var = dummy_var + 1;
             }
         }
         _exit(EXIT_SUCCESS);
@@ -5300,10 +5294,8 @@ static void test_limit_process_basic(void) {
         /* Keep processes running until terminated */
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
-            dummy_var = 0;
-            while (dummy_var < 1000) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
-                dummy_var = dummy_var + 1;
             }
         }
         _exit(EXIT_SUCCESS);
@@ -5450,10 +5442,9 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
             /* Busy loop: stays alive until stopped then resumed */
             for (;;) {
                 volatile int dummy_var;
-                dummy_var = 0;
-                while (dummy_var < 1000) {
+                for (dummy_var = 0; dummy_var < 1000;
+                     dummy_var = dummy_var + 1) {
                     ;
-                    dummy_var = dummy_var + 1;
                 }
             }
         }
@@ -5536,10 +5527,8 @@ static void test_limit_process_race_quit_during_sleep(void) {
         close(ready_pipe[1]);
         for (;;) {
             volatile int dummy_var;
-            dummy_var = 0;
-            while (dummy_var < 1000) {
+            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
                 ;
-                dummy_var = dummy_var + 1;
             }
         }
     }

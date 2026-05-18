@@ -71,10 +71,8 @@ int main(int argc, char *argv[]) {
     /* All processes (parent and children) enter infinite loop */
     while (!is_quit_flag_set()) {
         volatile int dummy_var;
-        dummy_var = 0;
-        while (dummy_var < 1000) {
+        for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
             ;
-            dummy_var = dummy_var + 1;
         }
     }
 
