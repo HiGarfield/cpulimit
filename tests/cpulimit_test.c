@@ -6527,10 +6527,30 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
     assert(w_exit_code == 128 + SIGTERM);
 }
 
-#if (defined(__GNUC__) && __GNUC__ >= 2) || defined(__clang__)
-#define NOINLINE __attribute__((noinline))
+#if defined(__clang__)
+/* Clang: fully supported */
+#define NOINLINE_USED __attribute__((noinline, used))
+#elif defined(__GNUC__)
+/* GCC major version check only (safe for GCC 2.x) */
+#if __GNUC__ < 3
+/* GCC 2.x: attribute support unreliable */
+#define NOINLINE_USED
+#elif __GNUC__ == 3
+/* GCC 3.x */
+#if defined(__GNUC_MINOR__) && (__GNUC_MINOR__ >= 4)
+#define NOINLINE_USED __attribute__((noinline, used))
+#elif defined(__GNUC_MINOR__) && (__GNUC_MINOR__ >= 1)
+#define NOINLINE_USED __attribute__((noinline))
 #else
-#define NOINLINE
+#define NOINLINE_USED
+#endif
+#else
+/* GCC >= 4 */
+#define NOINLINE_USED __attribute__((noinline, used))
+#endif
+#else
+/* Other compilers */
+#define NOINLINE_USED
 #endif
 
 /**
@@ -6538,7 +6558,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
  * Ensures that the test function is called and cannot be inlined.
  * @param test_fn Pointer to the void(void) test function to invoke
  */
-static NOINLINE void test_invoke_indirect(void (*test_fn)(void)) {
+static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
     void (*volatile fn_slot_array[2])(void) = {NULL, NULL};
     void (*volatile *volatile fn_slot_ptr)(void);
     size_t i, rand_iter_count;
