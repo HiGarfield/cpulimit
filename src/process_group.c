@@ -97,7 +97,11 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
         exit(EXIT_FAILURE);
     }
     /* Perform initial scan to populate process list */
-    update_process_group(proc_group);
+    if (update_process_group(proc_group) != 0) {
+        fprintf(stderr, "Failed to perform initial process group scan\n");
+        close_process_group(proc_group);
+        exit(EXIT_FAILURE);
+    }
     return 0;
 }
 
@@ -288,12 +292,14 @@ static void update_existing_process_entry(struct process *proc,
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
- * @note Safe to call with NULL proc_group (returns immediately)
+ * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
- * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
- *       retrieval)
+ * @note Returns -1 on critical errors (iterator init, time retrieval, memory
+ *       allocation). The caller must not call exit() on this path without
+ *       first resuming any stopped processes; use the return value to break
+ *       out of the limiting loop so that SIGCONT is sent by the cleanup code.
  */
-void update_process_group(struct process_group *proc_group) {
+int update_process_group(struct process_group *proc_group) {
     struct process_iterator iter;
     struct process *scan_proc;
     struct process_filter filter;
@@ -302,19 +308,19 @@ void update_process_group(struct process_group *proc_group) {
     int ncpu;
     if (proc_group == NULL || proc_group->proc_list == NULL ||
         proc_group->proc_table == NULL) {
-        return;
+        return 0;
     }
     ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
         perror("get_current_time");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     scan_proc = (struct process *)malloc(sizeof(struct process));
     if (scan_proc == NULL) {
         fprintf(stderr, "Memory allocation failed for scan_proc\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     /* Calculate elapsed time since last update (milliseconds) */
     elapsed_ms = timediff_in_ms(&now, &proc_group->last_update);
@@ -326,7 +332,7 @@ void update_process_group(struct process_group *proc_group) {
     if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(scan_proc);
-        exit(EXIT_FAILURE);
+        return -1;
     }
 
     /* Clear process list (will be rebuilt from scratch) */
@@ -352,7 +358,7 @@ void update_process_group(struct process_group *proc_group) {
     free(scan_proc);
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
 
     /* Remove hash table entries for processes that are no longer running */
@@ -366,6 +372,7 @@ void update_process_group(struct process_group *proc_group) {
     if (elapsed_ms < 0 || elapsed_ms >= CPU_MIN_DELTA_MS) {
         proc_group->last_update = now;
     }
+    return 0;
 }
 
 /**

@@ -144,12 +144,14 @@ int close_process_group(struct process_group *proc_group);
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
- * @note Safe to call with NULL proc_group (returns immediately)
+ * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
- * @note Calls exit(EXIT_FAILURE) on critical errors (iterator init, time
- *       retrieval)
+ * @note Returns -1 on critical errors (iterator init, time retrieval, memory
+ *       allocation). The caller must not call exit() on this path without
+ *       first resuming any stopped processes; use the return value to break
+ *       out of the limiting loop so that SIGCONT is sent by the cleanup code.
  */
-void update_process_group(struct process_group *proc_group);
+int update_process_group(struct process_group *proc_group);
 
 /**
  * @brief Calculate aggregate CPU usage across all processes in the group

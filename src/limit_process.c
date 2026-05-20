@@ -279,7 +279,9 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
         struct timespec work_time, sleep_time;
 
         /* Refresh process list and update CPU usage measurements */
-        update_process_group(&proc_group);
+        if (update_process_group(&proc_group) != 0) {
+            break;
+        }
 
         /* Exit if all target processes have terminated */
         if (is_empty_list(proc_group.proc_list)) {

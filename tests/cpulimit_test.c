@@ -4972,21 +4972,26 @@ static void test_process_group_close_zeros_fields(void) {
 
 /**
  * @brief Test update_process_group with NULL pointer
- * @note Must return without crashing
+ * @note Must return 0 without crashing when proc_group is NULL
  */
 static void test_process_group_update_null(void) {
-    /* NULL proc_group must not crash */
-    update_process_group(NULL);
+    int ret;
+    /* NULL proc_group must not crash and must return 0 */
+    ret = update_process_group(NULL);
+    assert(ret == 0);
 }
 
 /**
  * @brief Test update_process_group with uninitialized process_group members
- * @note Must return without dereferencing NULL proc_list/proc_table
+ * @note Must return 0 without dereferencing NULL proc_list/proc_table
  */
 static void test_process_group_update_uninitialized_struct(void) {
     struct process_group proc_group;
+    int ret;
     memset(&proc_group, 0, sizeof(proc_group));
-    update_process_group(&proc_group);
+    /* NULL proc_list/proc_table must not crash and must return 0 */
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
 }
 
 /**
@@ -5015,6 +5020,57 @@ static void test_process_group_double_update(void) {
     update_process_group(&proc_group);
     /* Immediate second update: dt < MIN_DT, so CPU usage stays -1 */
     update_process_group(&proc_group);
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+}
+
+/**
+ * @brief Test that update_process_group returns 0 on successful updates
+ * @note Regression test for the fix that changed update_process_group from
+ *       void to int: verifies the return value on success paths
+ */
+static void test_process_group_update_return_value(void) {
+    struct process_group proc_group;
+    pid_t child_pid;
+    pid_t waited;
+    int ret;
+    size_t list_count;
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        /* Child pauses until killed */
+        sigset_t full_mask, empty_mask;
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+            _exit(1);
+        }
+        if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(1);
+        }
+        sigsuspend(&empty_mask);
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* update_process_group must return 0 when the target exists */
+    ret = init_process_group(&proc_group, child_pid, 0);
+    assert(ret == 0);
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
+    list_count = get_list_count(proc_group.proc_list);
+    assert(list_count == 1);
+
+    /* Kill the child and wait so it is fully gone */
+    kill_and_wait(child_pid, SIGKILL);
+    do {
+        waited = waitpid(child_pid, NULL, WNOHANG);
+    } while (waited == -1 && errno == EINTR);
+
+    /* update_process_group must also return 0 when the target has gone */
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
+    list_count = get_list_count(proc_group.proc_list);
+    assert(list_count == 0);
+
     ret = close_process_group(&proc_group);
     assert(ret == 0);
 }
@@ -6760,6 +6816,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_update_uninitialized_struct);
     RUN_TEST(test_process_group_cpu_usage_uninitialized_struct);
     RUN_TEST(test_process_group_double_update);
+    RUN_TEST(test_process_group_update_return_value);
     RUN_TEST(test_process_group_cpu_usage_with_usage);
     RUN_TEST(test_process_group_race_target_exits_between_init_and_update);
     RUN_TEST(test_process_group_race_rapid_child_spawn_exit);
