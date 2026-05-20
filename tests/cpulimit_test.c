@@ -2295,6 +2295,7 @@ static void test_is_child_of_kernel_thread_not_child_of_init(void) {
     struct process *proc;
     struct process_filter filter;
     pid_t kthread_child = (pid_t)0;
+    int ret;
 
     proc = (struct process *)malloc(sizeof(struct process));
     assert(proc != NULL);
@@ -2310,7 +2311,8 @@ static void test_is_child_of_kernel_thread_not_child_of_init(void) {
                 break;
             }
         }
-        close_process_iterator(&iter);
+        ret = close_process_iterator(&iter);
+        assert(ret == 0);
     }
     free(proc);
 
@@ -5082,7 +5084,6 @@ static void test_process_group_double_update(void) {
 static void test_process_group_update_return_value(void) {
     struct process_group proc_group;
     pid_t child_pid;
-    pid_t waited;
     int ret;
     size_t list_count;
 
@@ -5111,9 +5112,6 @@ static void test_process_group_update_return_value(void) {
 
     /* Kill the child and wait so it is fully gone */
     kill_and_wait(child_pid, SIGKILL);
-    do {
-        waited = waitpid(child_pid, NULL, WNOHANG);
-    } while (waited == -1 && errno == EINTR);
 
     /* update_process_group must also return 0 when the target has gone */
     ret = update_process_group(&proc_group);

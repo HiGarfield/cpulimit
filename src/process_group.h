@@ -146,10 +146,12 @@ int close_process_group(struct process_group *proc_group);
  *
  * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
- * @note Returns -1 on critical errors (iterator init, time retrieval, memory
- *       allocation). The caller must not call exit() on this path without
- *       first resuming any stopped processes; use the return value to break
- *       out of the limiting loop so that SIGCONT is sent by the cleanup code.
+ * @note Returns 0 on success.
+ * @note Returns -1 on critical errors (iterator init/close, time retrieval,
+ *       memory allocation). The caller must not call exit() on this path
+ *       without first resuming any stopped processes; use the return value to
+ *       break out of the limiting loop so that SIGCONT is sent by the cleanup
+ *       code.
  */
 int update_process_group(struct process_group *proc_group);
 
