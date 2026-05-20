@@ -2278,6 +2278,56 @@ static void test_process_iterator_is_child_of_deep(void) {
 }
 
 /**
+ * @brief Regression test: kernel threads (ppid=2) must not be reported as
+ *        descendants of PID 1
+ * @note The former fast-path in is_child_of() returned true for any process
+ *       whose getppid_of() result was not -1.  Linux kernel threads (children
+ *       of kthreadd, PID 2) have ppid=2, which is a valid non-(-1) value, so
+ *       the fast-path incorrectly claimed they were children of PID 1.
+ *       This test locates such a thread via the process iterator and verifies
+ *       that is_child_of() returns 0 after the fix.
+ *       Only runs on Linux where PID 2 is kthreadd; a no-op elsewhere or when
+ *       no kthreadd child is visible (e.g. minimal container).
+ */
+static void test_is_child_of_kernel_thread_not_child_of_init(void) {
+#ifdef __linux__
+    struct process_iterator iter;
+    struct process *proc;
+    struct process_filter filter;
+    pid_t kthread_child = (pid_t)0;
+
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
+
+    /* Iterate all processes looking for one whose ppid is 2 (kthreadd) */
+    filter.pid = 0;
+    filter.include_children = 0;
+    filter.read_cmd = 0;
+    if (init_process_iterator(&iter, &filter) == 0) {
+        while (get_next_process(&iter, proc) != -1) {
+            if (proc->ppid == (pid_t)2) {
+                kthread_child = proc->pid;
+                break;
+            }
+        }
+        close_process_iterator(&iter);
+    }
+    free(proc);
+
+    if (kthread_child == (pid_t)0) {
+        /* No kthreadd child found (minimal container); skip */
+        return;
+    }
+    /*
+     * A kernel thread parented by kthreadd (PID 2) is NOT a descendant of
+     * PID 1 (init/systemd); walking the chain reaches kthreadd whose own
+     * ppid is 0, so the loop must stop and return 0.
+     */
+    assert(is_child_of(kthread_child, (pid_t)1) == 0);
+#endif /* __linux__ */
+}
+
+/**
  * @brief Test process iterator filter edge cases
  * @note Tests various filter configurations
  */
@@ -6732,6 +6782,7 @@ int main(int argc, char *argv[]) {
     printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
     RUN_TEST(test_process_iterator_is_child_of);
     RUN_TEST(test_process_iterator_is_child_of_deep);
+    RUN_TEST(test_is_child_of_kernel_thread_not_child_of_init);
     RUN_TEST(test_process_iterator_filter_edge_cases);
     RUN_TEST(test_process_iterator_single);
     RUN_TEST(test_process_iterator_multiple);

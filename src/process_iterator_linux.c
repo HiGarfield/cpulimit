@@ -335,8 +335,6 @@ pid_t getppid_of(pid_t pid) {
  *
  * Special cases:
  * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 1 for parent_pid == 1 only when getppid_of(child_pid) succeeds
- *   (that is, child_pid is non-init, non-zombie, and has a valid PPID)
  * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
  *   against infinite loops caused by PID reuse cycles)
  */
@@ -344,13 +342,6 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int depth = 0;
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
-    }
-    /*
-     * Fast-path: any existing non-init process is ultimately a child of init
-     * (PID 1).
-     */
-    if (parent_pid == 1) {
-        return getppid_of(child_pid) != (pid_t)(-1);
     }
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
