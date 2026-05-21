@@ -53,8 +53,9 @@ void configure_signal_handler(void);
  * @return 1 if a termination signal was caught, 0 otherwise
  *
  * Returns the state of the quit flag, which is set by the signal handler
- * when SIGINT, SIGQUIT, SIGTERM, or SIGHUP is received. The main program
- * loop should periodically check this flag to initiate graceful shutdown.
+ * when SIGINT, SIGQUIT, SIGTERM, SIGHUP, or SIGPIPE is received.
+ * The main program loop should periodically check this flag to initiate
+ * graceful shutdown.
  */
 int is_quit_flag_set(void);
 
@@ -63,8 +64,9 @@ int is_quit_flag_set(void);
  * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
  *
  * Distinguishes between terminal-originated termination (Ctrl+C or Ctrl+\)
- * and other termination signals (SIGTERM, SIGHUP). This can be used to
- * customize shutdown behavior or messages based on how termination occurred.
+ * and other termination signals (SIGTERM, SIGHUP, SIGPIPE).
+ * This can be used to customize shutdown behavior or messages based on how
+ * termination occurred.
  */
 int is_terminated_by_tty(void);
 

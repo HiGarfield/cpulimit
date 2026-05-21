@@ -98,6 +98,7 @@
  */
 static int is_script_missing_interpreter(const char *path) {
     int fd;
+    int saved_errno;
     char buf[256];
     ssize_t n;
     char *p;
@@ -107,8 +108,18 @@ static int is_script_missing_interpreter(const char *path) {
     if (fd < 0) {
         return 0;
     }
-    n = read(fd, buf, sizeof(buf) - 1);
+    /*
+     * Retry only on EINTR (which transfers no data, so the buffer
+     * position need not advance). Partial reads are acceptable: only
+     * the shebang prefix and the interpreter path are needed, and both
+     * fit comfortably within a single read of a regular file.
+     */
+    do {
+        n = read(fd, buf, sizeof(buf) - 1);
+    } while (n < 0 && errno == EINTR);
+    saved_errno = errno;
     close(fd);
+    errno = saved_errno;
 
     /* Not a script if too short or no shebang prefix */
     if (n < 2 || buf[0] != '#' || buf[1] != '!') {
