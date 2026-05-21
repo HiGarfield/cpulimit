@@ -2295,7 +2295,6 @@ static void test_is_child_of_kernel_thread_not_child_of_init(void) {
     struct process *proc;
     struct process_filter filter;
     pid_t kthread_child = (pid_t)0;
-    int ret;
 
     proc = (struct process *)malloc(sizeof(struct process));
     assert(proc != NULL);
@@ -2305,6 +2304,7 @@ static void test_is_child_of_kernel_thread_not_child_of_init(void) {
     filter.include_children = 0;
     filter.read_cmd = 0;
     if (init_process_iterator(&iter, &filter) == 0) {
+        int ret;
         while (get_next_process(&iter, proc) != -1) {
             if (proc->ppid == (pid_t)2) {
                 kthread_child = proc->pid;
