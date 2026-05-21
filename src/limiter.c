@@ -107,7 +107,9 @@ static int is_script_missing_interpreter(const char *path) {
     if (fd < 0) {
         return 0;
     }
-    n = read(fd, buf, sizeof(buf) - 1);
+    do {
+        n = read(fd, buf, sizeof(buf) - 1);
+    } while (n < 0 && errno == EINTR);
     close(fd);
 
     /* Not a script if too short or no shebang prefix */
