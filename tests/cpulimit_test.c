@@ -6677,15 +6677,15 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
     for (i = 0; i < rand_iter_count; i++) {
         volatile long idx = (random() >> 1) & 1;
         if (idx << ((random() >> 1) & 2) > 1) {
-            *(fn_slot_array + 1 - idx) = test_fn;
+            *(fn_slot_array + !idx) = test_fn;
         } else {
             fn_slot_ptr[idx] = test_fn;
         }
-        idx = (random() >> 1) & 1;
+        idx = (random() >> 1) % 2;
         if (fn_slot_ptr[idx] != NULL) {
-            *(fn_slot_ptr + 1 - idx) = fn_slot_array[idx];
+            *(fn_slot_ptr + !((idx > 0) - (idx < 0))) = fn_slot_array[idx];
         } else {
-            *(fn_slot_array + idx) = fn_slot_ptr[1 - idx];
+            *(fn_slot_array + idx) = fn_slot_ptr[(!!idx) ^ 1];
         }
         *(fn_slot_ptr + ((random() >> 1) & 1)) =
             *(fn_slot_array + ((random() >> 1) & 1));
