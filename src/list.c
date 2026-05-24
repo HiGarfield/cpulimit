@@ -55,7 +55,7 @@ void init_list(struct list *lst) {
  * the data remains with the caller.
  *
  * @note On memory allocation failure for the new node, this function
- *       terminates the process and does not return to the caller.
+ *       terminates the process and does not return to the caller
  */
 struct list_node *add_elem(struct list *lst, void *elem) {
     struct list_node *new_node;

@@ -34,8 +34,9 @@
 /**
  * @brief Busy loop thread function
  * @param arg Thread argument (unused)
- * @return NULL pointer
- * @note This function runs an infinite busy loop to consume CPU cycles
+ * @return NULL
+ *
+ * Runs until the quit flag is set, consuming CPU cycles to simulate load.
  */
 static void *busy_loop(void *arg) {
     (void)arg;
@@ -53,10 +54,11 @@ static void *busy_loop(void *arg) {
  * @brief Main function for CPU load generator
  * @param argc Argument count
  * @param argv Argument vector
- * @return 0 on success, exits with failure on error
- * @note This program creates multiple threads to generate CPU load for
- *       testing cpulimit functionality. Number of threads can be specified via
- *       command line argument.
+ * @return 0 on success
+ *
+ * Creates multiple threads to generate CPU load for testing cpulimit
+ * functionality. The number of threads can be specified via argv[1].
+ * Exits with failure if thread creation fails.
  */
 int main(int argc, char *argv[]) {
     /* cppcheck-suppress-end constParameter */

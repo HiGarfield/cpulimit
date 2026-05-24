@@ -38,12 +38,11 @@
  * @brief CPU load generator using fork
  * @param argc Command line argument count
  * @param argv Command line arguments (optional: number of processes)
- * @return 0 on normal shutdown
- * @note This program creates a specified number of processes (default: CPU
- *       core count) that each run an infinite busy loop, consuming CPU cycles
- *       for testing purposes. If a command line argument is provided, it
- *       specifies the number of processes to create. Otherwise, the number
- *       of CPU cores is used.
+ * @return 0 on success
+ *
+ * Creates a specified number of processes (default: CPU core count) that
+ * each run a busy loop consuming CPU cycles for testing purposes. The
+ * number of processes can be specified via argv[1].
  */
 int main(int argc, char *argv[]) {
     /* cppcheck-suppress-end constParameter */

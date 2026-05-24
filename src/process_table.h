@@ -35,9 +35,9 @@ extern "C" {
  * @brief Hash buckets for efficient process storage and lookup by PID
  *
  * This structure implements a hash table using separate chaining to store
- * process structures. Each bucket in the buckets contains a linked list that
- * holds processes whose PIDs hash to the same index. This provides O(1)
- * average-case lookup, insertion, and deletion operations.
+ * process structures. Each bucket contains a linked list that holds processes
+ * whose PIDs hash to the same index. This provides O(1) average-case lookup,
+ * insertion, and deletion operations.
  */
 struct process_table {
     /**

@@ -36,7 +36,7 @@ extern "C" {
  * 1. Forks a child process to execute the specified command
  * 2. Creates a new process group for the child
  * 3. Applies CPU limiting to the command and optionally its descendants
- * 4. Waits for command completion and returns its exit status
+ * 4. Waits for command completion and exits with the child's exit status
  *
  * The parent process monitors the child and handles:
  * - Normal exit (returns child's exit code)
