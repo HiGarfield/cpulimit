@@ -5906,9 +5906,13 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     char interp_path[sizeof(interp_dir) + sizeof("/interp")];
     char shebang[sizeof(interp_path) + sizeof("#!\n")];
     char err_buf[512];
+    char *mkdtemp_result;
+    char *accessible_msg;
+    char *not_found_msg;
     char *args[2];
 
-    assert(mkdtemp(interp_dir) != NULL);
+    mkdtemp_result = mkdtemp(interp_dir);
+    assert(mkdtemp_result != NULL);
     ret = snprintf(interp_path, sizeof(interp_path), "%s/interp", interp_dir);
     assert(ret > 0 && ret < (int)sizeof(interp_path));
     interp_fd = open(interp_path, O_CREAT | O_WRONLY | O_TRUNC, 0755);
@@ -5987,8 +5991,10 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     assert(exited);
     exit_code = WEXITSTATUS(status);
     assert(exit_code == 126);
-    assert(strstr(err_buf, "shebang interpreter is inaccessible") != NULL);
-    assert(strstr(err_buf, "shebang interpreter not found") == NULL);
+    accessible_msg = strstr(err_buf, "shebang interpreter is inaccessible");
+    assert(accessible_msg != NULL);
+    not_found_msg = strstr(err_buf, "shebang interpreter not found");
+    assert(not_found_msg == NULL);
 
     ret = chmod(interp_dir, 0700);
     assert(ret == 0);

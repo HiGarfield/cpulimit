@@ -86,7 +86,7 @@
 #define CHILD_POLL_INTERVAL_NS 50000000L /* 50 ms */
 
 /**
- * @brief Check whether a script shebang references an unusable interpreter
+ * @brief Check whether a script shebang references an inaccessible interpreter
  * @param path Path to the file to inspect
  * @return 1 if the file begins with "#!" and the interpreter path in the
  *         shebang cannot be accessed; 0 otherwise.
@@ -96,7 +96,7 @@
  * fail, but under debugging tools such as valgrind the execve() interception
  * is unrecoverable on this path, so the check must be made before exec.
  */
-static int is_script_missing_interpreter(const char *path) {
+static int is_script_inaccessible_interpreter(const char *path) {
     int fd;
     int access_result;
     int saved_errno;
@@ -226,14 +226,14 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * automatically, signalling exec completion to the parent.
      *
      * Pre-check: if the target is an explicit path, detect a script
-     * whose shebang interpreter is missing before calling execvp().
-     * Under normal execution execvp() would return ENOENT in this case,
+     * whose shebang interpreter is inaccessible before calling execvp().
+     * Under normal execution execvp() would fail in this case,
      * but under valgrind the exec interception is unrecoverable, so the
      * check must happen before exec.  _exit() closes all fds (including
      * sync_write_fd), which also signals exec completion to the parent.
      */
     if (strchr(cfg->command_args[0], '/') != NULL &&
-        is_script_missing_interpreter(cfg->command_args[0])) {
+        is_script_inaccessible_interpreter(cfg->command_args[0])) {
         fprintf(stderr,
                 "%s: cannot execute: shebang interpreter is inaccessible\n",
                 cfg->command_args[0]);
