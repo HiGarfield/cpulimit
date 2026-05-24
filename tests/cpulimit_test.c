@@ -39,6 +39,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
 #include <stddef.h>
@@ -5888,6 +5889,124 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
 }
 
 /**
+ * @brief Test run_command_mode with an inaccessible shebang interpreter path
+ * @note The interpreter path exists but is not searchable (EACCES), so this
+ *       should still map to shell status 126 with an "inaccessible"
+ *       diagnostic.
+ */
+static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
+    pid_t pid, waited;
+    int status, fd, interp_fd, exited, exit_code, ret;
+    int stderr_pipe[2];
+    ssize_t nwritten, expected_len, nread;
+    size_t err_len;
+    struct cpulimit_cfg cfg;
+    char tmp_path[] = "/tmp/cpulimit_test_shebang_eacces_XXXXXX";
+    char interp_dir[] = "/tmp/cpulimit_test_interp_dir_XXXXXX";
+    char interp_path[sizeof(interp_dir) + sizeof("/interp")];
+    char shebang[sizeof(interp_path) + sizeof("#!\n")];
+    char err_buf[512];
+    char *mkdtemp_result;
+    char *accessible_msg;
+    char *not_found_msg;
+    char *args[2];
+
+    mkdtemp_result = mkdtemp(interp_dir);
+    assert(mkdtemp_result != NULL);
+    ret = snprintf(interp_path, sizeof(interp_path), "%s/interp", interp_dir);
+    assert(ret > 0 && ret < (int)sizeof(interp_path));
+    interp_fd = open(interp_path, O_CREAT | O_WRONLY | O_TRUNC, 0755);
+    assert(interp_fd >= 0);
+    ret = close(interp_fd);
+    assert(ret == 0);
+
+    fd = mkstemp(tmp_path);
+    assert(fd >= 0);
+    ret = snprintf(shebang, sizeof(shebang), "#!%s\n", interp_path);
+    assert(ret > 0 && ret < (int)sizeof(shebang));
+    nwritten = write(fd, shebang, (size_t)ret);
+    expected_len = (ssize_t)ret;
+    assert(nwritten == expected_len);
+    ret = fchmod(fd, 0755);
+    assert(ret == 0);
+    ret = close(fd);
+    assert(ret == 0);
+
+    ret = chmod(interp_dir, 0200);
+    assert(ret == 0);
+
+    args[0] = tmp_path;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    ret = pipe(stderr_pipe);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(stderr_pipe[0]);
+        ret = dup2(stderr_pipe[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(stderr_pipe[1]);
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    close(stderr_pipe[1]);
+    err_len = 0;
+    while (1) {
+        nread = read(stderr_pipe[0], err_buf + err_len,
+                     sizeof(err_buf) - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len == sizeof(err_buf) - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(stderr_pipe[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 126);
+    accessible_msg = strstr(err_buf, "shebang interpreter is inaccessible");
+    assert(accessible_msg != NULL);
+    not_found_msg = strstr(err_buf, "shebang interpreter not found");
+    assert(not_found_msg == NULL);
+
+    ret = chmod(interp_dir, 0700);
+    assert(ret == 0);
+    ret = unlink(interp_path);
+    assert(ret == 0);
+    ret = rmdir(interp_dir);
+    assert(ret == 0);
+    ret = unlink(tmp_path);
+    assert(ret == 0);
+}
+
+/**
  * @brief Test run_command_mode with verbose=1 and a command that succeeds
  * @note Exercises the verbose printf branches in run_command_mode
  */
@@ -6885,6 +7004,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
+    RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_eacces);
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_command_mode_false);
