@@ -142,7 +142,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * The leading space in the format string skips whitespace before state.
      */
     if (sscanf(p + 1,
-               " %c %ld %*d %*d %*d %*d %*d %*d %*d %*d %*d %lf %lf",
+               " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
                &state, &ppid, &user_time, &sys_time) != 4 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
         ppid <= 0 || user_time < 0 || sys_time < 0) {
