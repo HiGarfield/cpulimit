@@ -157,6 +157,11 @@ descendants.
 - Fatal errors MUST produce non-zero exit status.
 - Recoverable errors SHOULD be handled gracefully.
 - Permission-denied and similar OS errors MUST be handled explicitly.
+- Stack frame size MUST NOT exceed 512 bytes per function call; any function
+  whose local variables, saved registers, and other frame overhead would
+  exceed this limit MUST move the excess data to heap-allocated memory.
+- A single object allocated on the stack MUST NOT exceed 256 bytes; objects
+  larger than this limit MUST be allocated on the heap instead.
 
 ## Signals and Concurrency
 
