@@ -25,6 +25,50 @@ descendants.
 
 ---
 
+# Agent Behavioral Guidelines
+
+## Think Before Acting
+
+- Assumptions MUST be stated explicitly before implementation begins.
+- If multiple valid interpretations exist, they MUST be presented rather than
+  silently chosen among them.
+- If a simpler approach exists, it SHOULD be raised before implementing the
+  more complex one.
+- If any requirement is unclear, clarification MUST be sought before
+  proceeding.
+
+## Simplicity First
+
+- Implementations MUST use the minimum code that solves the stated problem.
+- Features beyond what was explicitly requested MUST NOT be added.
+- Abstractions for single-use code SHOULD be avoided.
+- Flexibility or configurability that was not requested MUST NOT be
+  introduced.
+- Error handling for impossible scenarios MUST NOT be added.
+
+## Surgical Changes
+
+- Only code necessary to fulfill the request MUST be changed.
+- Adjacent code, comments, or formatting MUST NOT be improved unless directly
+  required by the change.
+- Existing style MUST be matched, even when a different style would be
+  preferred.
+- Unrelated dead code SHOULD be mentioned but MUST NOT be deleted unless
+  asked.
+- Includes, variables, and functions made unused by the current change MUST be
+  removed.
+
+## Goal-Driven Execution
+
+- Tasks MUST be transformed into verifiable success criteria before
+  implementation begins.
+- For multi-step tasks, a brief ordered plan MUST be stated before
+  implementation.
+- Implementation MUST loop until the stated success criteria are verifiably
+  met.
+
+---
+
 # Product Requirements
 
 ## Functional Requirements
