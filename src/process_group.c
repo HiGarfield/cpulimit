@@ -292,14 +292,13 @@ static void update_existing_process_entry(struct process *proc,
  * - Handles backward time jumps (system clock adjustment)
  * - New processes have cpu_usage=-1 until first valid measurement
  *
+ * @return 0 on success. -1 on critical errors (iterator init/close, time
+ *         retrieval, memory allocation). The caller must not call exit() on
+ *         this path without first resuming any stopped processes; use the
+ *         return value to break out of the limiting loop so that SIGCONT is
+ *         sent by the cleanup code
  * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
- * @note Returns 0 on success.
- * @note Returns -1 on critical errors (iterator init/close, time retrieval,
- *       memory allocation). The caller must not call exit() on this path
- *       without first resuming any stopped processes; use the return value to
- *       break out of the limiting loop so that SIGCONT is sent by the cleanup
- *       code.
  */
 int update_process_group(struct process_group *proc_group) {
     struct process_iterator iter;

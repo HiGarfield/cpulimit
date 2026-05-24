@@ -367,7 +367,7 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
  * @param child_pid PID of the child process to wait for
  * @param cfg Pointer to configuration structure (used for verbose output)
  * @return The child's exit status if successfully reaped, EXIT_FAILURE
- *         otherwise.
+ *         otherwise
  *
  * Polls for the child's termination, applying a 5-second SIGKILL timeout
  * if the child does not exit in time. Translates signal termination to
@@ -589,7 +589,7 @@ static int collect_child_exit_status(pid_t child_pid,
  * 1. Forks a child process to execute the specified command
  * 2. Creates a new process group for the child
  * 3. Applies CPU limiting to the command and optionally its descendants
- * 4. Waits for command completion and returns its exit status
+ * 4. Waits for command completion and exits with the child's exit status
  *
  * The parent process monitors the child and handles:
  * - Normal exit (returns child's exit code)

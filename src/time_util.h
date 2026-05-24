@@ -40,7 +40,7 @@ extern "C" {
 #include <time.h>
 
 /**
- * @brief Checks for potential Y2038 risk based on platform and time_t size.
+ * @brief Check for potential Y2038 risk based on platform and time_t size
  *
  * Performs a lightweight runtime assessment of potential Year 2038 (Y2038)
  * risk. The check is based on a combination of platform assumptions and the
@@ -52,11 +52,11 @@ extern "C" {
  * - Otherwise, if time_t is smaller than 64 bits, a warning is printed
  *   indicating possible Y2038-related limitations.
  *
- * Note: This is a heuristic check and does not guarantee full compliance
- * with 2038-safe time handling across all environments.
- *
  * It is recommended to call this function early during program startup
  * to surface potential portability or time representation issues.
+ *
+ * @note This is a heuristic check and does not guarantee full compliance
+ *       with 2038-safe time handling across all environments
  */
 void check_y2038(void);
 
@@ -71,10 +71,12 @@ void check_y2038(void);
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
  *
- * Y2038 note: this function is currently used only for short sleep
- * durations (sub-second intervals, up to 0.5 s), so the tv_sec value
- * is far below any 32-bit overflow threshold and is not affected by
- * the Y2038 problem.
+ * Y2038 note: on macOS this function is called from get_current_time() with
+ * potentially large absolute-time values (seconds since boot), but since macOS
+ * guarantees a 64-bit time_t there is no overflow risk there. When called from
+ * sleep helpers the values are short sleep durations (sub-second intervals, up
+ * to 0.5 s), so tv_sec is far below any 32-bit overflow threshold in that
+ * context as well.
  */
 void nsec2timespec(double nsec, struct timespec *result_ts);
 

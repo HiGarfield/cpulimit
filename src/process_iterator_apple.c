@@ -18,7 +18,7 @@
  * along with this program; if not, see
  * <https://www.gnu.org/licenses/>.
  *
- * Author: Simon Sigurdhsson
+ * Author of this macOS process iterator: Simon Sigurdhsson
  */
 
 #ifdef __APPLE__

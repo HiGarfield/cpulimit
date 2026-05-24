@@ -40,7 +40,7 @@
 #endif
 
 /**
- * @brief Checks for potential Y2038 risk based on platform and time_t size.
+ * @brief Check for potential Y2038 risk based on platform and time_t size
  *
  * Performs a lightweight runtime assessment of potential Year 2038 (Y2038)
  * risk. The check is based on a combination of platform assumptions and the
@@ -52,11 +52,11 @@
  * - Otherwise, if time_t is smaller than 64 bits, a warning is printed
  *   indicating possible Y2038-related limitations.
  *
- * Note: This is a heuristic check and does not guarantee full compliance
- * with 2038-safe time handling across all environments.
- *
  * It is recommended to call this function early during program startup
  * to surface potential portability or time representation issues.
+ *
+ * @note This is a heuristic check and does not guarantee full compliance
+ *       with 2038-safe time handling across all environments
  */
 void check_y2038(void) {
 #if !defined(__APPLE__) &&                                                     \
