@@ -96,7 +96,7 @@ int init_process_iterator(struct process_iterator *iter,
  * command path.
  *
  * The function rejects:
- * - Zombie processes (state Z, X, or x)
+ * - Zombie or dead processes (state Z, X, or x)
  * - Processes with invalid PPID (<= 0)
  * - Processes with negative CPU times
  *

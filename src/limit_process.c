@@ -58,7 +58,8 @@
  * @brief Base control time slot in microseconds
  *
  * Each limiting cycle divides this slot into work time and sleep time.
- * The dynamic algorithm may adjust this value based on system load.
+ * Used as both the initial value and the minimum bound for the dynamic
+ * time slot maintained in get_dynamic_time_slot().
  */
 #define BASE_TIME_SLOT_US 100000
 
@@ -155,7 +156,7 @@ static double get_dynamic_time_slot(void) {
      * with system timer ticks. This improves accuracy by avoiding systematic
      * bias.
      */
-    return time_slot * (0.95 + (double)(random() % 1000) / 10000.0);
+    return time_slot * (0.95 + (double)(random() % 1001) / 10000.0);
 }
 
 /**

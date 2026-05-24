@@ -78,10 +78,12 @@ void check_y2038(void) {
  * together to keep tv_nsec in [0, 999999999], guarding against
  * floating-point rounding errors.
  *
- * Y2038 note: this function is currently used only for short sleep
- * durations (sub-second intervals, up to 0.5 s), so the tv_sec value
- * is far below any 32-bit overflow threshold and is not affected by
- * the Y2038 problem.
+ * Y2038 note: on macOS this function is called from get_current_time() with
+ * potentially large absolute-time values (seconds since boot), but since macOS
+ * guarantees a 64-bit time_t there is no overflow risk there. When called from
+ * sleep helpers the values are short sleep durations (sub-second intervals, up
+ * to 0.5 s), so tv_sec is far below any 32-bit overflow threshold in that
+ * context as well.
  */
 void nsec2timespec(double nsec, struct timespec *result_ts) {
     result_ts->tv_sec = (time_t)(nsec / 1e9);
