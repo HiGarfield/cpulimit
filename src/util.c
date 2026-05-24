@@ -193,7 +193,7 @@ static int parse_cpu_range(const char *str) {
                 parse_pos++;
             }
             if (*parse_pos == '\0') {
-                return -1; /* Trailing comma is invalid */
+                return -1; /* Trailing comma in CPU range is invalid */
             }
         } else if (*parse_pos != '\0') {
             return -1; /* Unexpected character */
