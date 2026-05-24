@@ -5905,11 +5905,18 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     char interp_dir[] = "/tmp/cpulimit_test_interp_dir_XXXXXX";
     char interp_path[sizeof(interp_dir) + sizeof("/interp")];
     char shebang[sizeof(interp_path) + sizeof("#!\n")];
-    char err_buf[512];
+    char *err_buf;
     char *mkdtemp_result;
     char *accessible_msg;
     char *not_found_msg;
     char *args[2];
+
+    /*
+     * Allocate err_buf on the heap: 512 bytes exceeds the 256-byte
+     * per-object stack limit and pushes the total frame over 512 bytes.
+     */
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
 
     mkdtemp_result = mkdtemp(interp_dir);
     assert(mkdtemp_result != NULL);
@@ -5965,11 +5972,10 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     close(stderr_pipe[1]);
     err_len = 0;
     while (1) {
-        nread = read(stderr_pipe[0], err_buf + err_len,
-                     sizeof(err_buf) - 1 - err_len);
+        nread = read(stderr_pipe[0], err_buf + err_len, 512 - 1 - err_len);
         if (nread > 0) {
             err_len += (size_t)nread;
-            if (err_len == sizeof(err_buf) - 1) {
+            if (err_len == 512 - 1) {
                 break;
             }
             continue;
@@ -5995,6 +6001,8 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     assert(accessible_msg != NULL);
     not_found_msg = strstr(err_buf, "shebang interpreter not found");
     assert(not_found_msg == NULL);
+
+    free(err_buf);
 
     ret = chmod(interp_dir, 0700);
     assert(ret == 0);
