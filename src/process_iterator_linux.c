@@ -104,13 +104,12 @@ int init_process_iterator(struct process_iterator *iter,
  * sysconf(_SC_CLK_TCK).
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
-    char statfile[64], cmdline_path[64], state;
+    char statfile[64], cmdline_path[64];
     char *buffer;
     const char *p;
-    char *endptr;
-    double user_time, sys_time;
+    char state;
     long ppid;
-    int skip_idx;
+    double user_time, sys_time;
     static long sc_clk_tck = -1;
     int cmdline_fd;
     ssize_t bytes_read;
@@ -137,60 +136,14 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         return -1;
     }
     /*
-     * Parse stat fields manually for performance (replaces sscanf).
-     * After ')': state ppid pgrp session tty_nr tpgid flags
-     *            minflt cminflt majflt cmajflt utime stime ...
+     * Parse stat fields via sscanf. After ')':
+     *   state ppid pgrp session tty_nr tpgid flags
+     *   minflt cminflt majflt cmajflt utime stime ...
+     * The leading space in the format string skips whitespace before state.
      */
-    p++; /* Skip ')' */
-    /* Skip whitespace before state (matches sscanf " " before %c) */
-    while (isspace((unsigned char)*p)) {
-        p++;
-    }
-    /* Read state character (equivalent to sscanf %c) */
-    if (*p == '\0') {
-        free(buffer);
-        return -1;
-    }
-    state = *p;
-    p++;
-    /* Parse ppid - strtol skips leading whitespace (equivalent to %ld) */
-    errno = 0;
-    ppid = strtol(p, &endptr, 10);
-    if (endptr == p || errno != 0) {
-        free(buffer);
-        return -1;
-    }
-    p = endptr;
-    /* Skip 9 fields between ppid and utime (pgrp through cmajflt) */
-    for (skip_idx = 0; skip_idx < 9; skip_idx++) {
-        while (isspace((unsigned char)*p)) {
-            p++;
-        }
-        if (*p == '\0') {
-            free(buffer);
-            return -1;
-        }
-        while (*p != '\0' && !isspace((unsigned char)*p)) {
-            p++;
-        }
-    }
-    /* Parse user_time - strtod skips leading whitespace (equiv. %lf) */
-    errno = 0;
-    user_time = strtod(p, &endptr);
-    if (endptr == p || errno != 0) {
-        free(buffer);
-        return -1;
-    }
-    p = endptr;
-    /* Parse sys_time - strtod skips leading whitespace (equiv. %lf) */
-    errno = 0;
-    sys_time = strtod(p, &endptr);
-    if (endptr == p || errno != 0) {
-        free(buffer);
-        return -1;
-    }
-    /* Validate parsed fields */
-    if (!isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
+    if (sscanf(p + 1, " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
+               &state, &ppid, &user_time, &sys_time) != 4 ||
+        !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
         ppid <= 0 || user_time < 0 || sys_time < 0) {
         free(buffer);
         return -1;
@@ -268,10 +221,10 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
  * call fails.
  */
 pid_t getppid_of(pid_t pid) {
-    char statfile[64], state;
+    char statfile[64];
     char *buffer;
     const char *p;
-    char *endptr;
+    char state;
     long ppid;
 
     /* Parse /proc/[pid]/stat for parent process ID */
@@ -290,30 +243,11 @@ pid_t getppid_of(pid_t pid) {
         return (pid_t)-1;
     }
     /*
-     * Parse state and ppid manually for performance (replaces sscanf).
-     * Format after ')': " state ppid ...".
+     * Parse state and ppid via sscanf. Format after ')': " state ppid ...".
+     * The leading space skips whitespace before state.
      */
-    p++; /* Skip ')' */
-    /* Skip whitespace before state (matches sscanf " " before %c) */
-    while (isspace((unsigned char)*p)) {
-        p++;
-    }
-    /* Read state character (equivalent to sscanf %c) */
-    if (*p == '\0') {
-        free(buffer);
-        return (pid_t)-1;
-    }
-    state = *p;
-    p++;
-    /* Parse ppid - strtol skips leading whitespace (equivalent to %ld) */
-    errno = 0;
-    ppid = strtol(p, &endptr, 10);
-    if (endptr == p || errno != 0) {
-        free(buffer);
-        return (pid_t)-1;
-    }
-    /* Validate state and ppid, reject zombies and invalid PPIDs */
-    if (!isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
+    if (sscanf(p + 1, " %c %ld", &state, &ppid) != 2 ||
+        !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
         ppid <= 0) {
         free(buffer);
         return (pid_t)-1;
