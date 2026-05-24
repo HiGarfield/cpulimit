@@ -188,18 +188,12 @@ static int parse_cpu_range(const char *str) {
 
         /* Expect comma or end of string */
         if (*parse_pos == ',') {
-            const char *next_segment;
             parse_pos++; /* Move past comma to parse next segment */
-            /*
-             * Reject trailing comma (including comma followed only by
-             * whitespace), e.g. "0," or "0,   ".
-             */
-            next_segment = parse_pos;
-            while (isspace((unsigned char)*next_segment)) {
-                next_segment++;
+            while (isspace((unsigned char)*parse_pos)) {
+                parse_pos++;
             }
-            if (*next_segment == '\0') {
-                return -1;
+            if (*parse_pos == '\0') {
+                return -1; /* Trailing comma in CPU range is invalid */
             }
         } else if (*parse_pos != '\0') {
             return -1; /* Unexpected character */
