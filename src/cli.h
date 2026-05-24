@@ -61,26 +61,26 @@ struct cpulimit_cfg {
     double limit;
 
     /**
-     * If 1, limit applies to target and all descendant processes.
-     * If 0, target only.
+     * Non-zero to apply the limit to the target and all descendants.
+     * Zero to limit only the target process.
      */
     int include_children;
 
     /**
-     * If 1, exit when target process terminates or cannot be found.
-     * If 0, keep searching.
+     * Non-zero to exit when the target terminates or is not found.
+     * Zero to keep searching.
      */
     int lazy_mode;
 
     /**
-     * If 1, print CPU usage statistics and control information.
-     * If 0, silent operation.
+     * Non-zero to print CPU usage and control statistics.
+     * Zero for silent operation.
      */
     int verbose;
 
     /**
-     * If 1, fork and execute command in command_args.
-     * If 0, search for existing process.
+     * Non-zero to fork and execute command_args.
+     * Zero to search for an existing process.
      */
     int command_mode;
 

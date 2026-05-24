@@ -98,7 +98,7 @@ void init_list(struct list *lst);
  * @brief Append an element to the end of the list
  * @param lst Pointer to the list
  * @param elem Pointer to the data element to add
- * @return Pointer to the newly created node, or NULL if @p lst is NULL
+ * @return Pointer to the newly created node, or NULL if lst is NULL
  *
  * Creates a new node containing the data pointer and appends it to the end
  * of the list in O(1) time. The list stores only the pointer; ownership of
