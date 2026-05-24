@@ -5903,8 +5903,8 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     struct cpulimit_cfg cfg;
     char tmp_path[] = "/tmp/cpulimit_test_shebang_eacces_XXXXXX";
     char interp_dir[] = "/tmp/cpulimit_test_interp_dir_XXXXXX";
-    char interp_path[sizeof(interp_dir) + 16];
-    char shebang[sizeof(interp_path) + 8];
+    char interp_path[sizeof(interp_dir) + sizeof("/interp")];
+    char shebang[sizeof(interp_path) + sizeof("#!\n")];
     char err_buf[512];
     char *args[2];
 

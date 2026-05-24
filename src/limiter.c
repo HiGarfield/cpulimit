@@ -148,7 +148,6 @@ static int is_script_missing_interpreter(const char *path) {
 
     /* Interpreter path is inaccessible -> report 126 */
     do {
-        errno = 0;
         access_result = access(p, F_OK);
     } while (access_result != 0 && errno == EINTR);
     return access_result != 0;
