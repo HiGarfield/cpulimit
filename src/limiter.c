@@ -86,15 +86,18 @@
 #define CHILD_POLL_INTERVAL_NS 50000000L /* 50 ms */
 
 /**
- * @brief Check whether a file is a script with a missing shebang interpreter
+ * @brief Check whether a script's shebang interpreter path does not exist
  * @param path Path to the file to inspect
- * @return 1 if the file begins with "#!" and the interpreter named on the
- *         shebang line cannot be accessed (access(F_OK) fails); 0 otherwise.
+ * @return 1 if the file begins with "#!" and the interpreter path in the
+ *         shebang does not exist; 0 otherwise.
  *
  * This pre-exec check avoids calling execvp() on a script whose interpreter
- * is absent.  Under normal execution the kernel returns ENOENT in that case,
- * but under debugging tools such as valgrind the execve() interception is
- * unrecoverable, so the check must be made before exec.
+ * path does not exist. Under normal execution the kernel returns ENOENT in
+ * that case, but under debugging tools such as valgrind the execve()
+ * interception is unrecoverable, so the check must be made before exec.
+ *
+ * The check intentionally does not treat EACCES as "missing interpreter":
+ * that error means the path exists but is not searchable/readable.
  */
 static int is_script_missing_interpreter(const char *path) {
     int fd;
@@ -146,7 +149,13 @@ static int is_script_missing_interpreter(const char *path) {
     }
 
     /* Interpreter path does not exist -> report 126 */
-    return access(p, F_OK) != 0;
+    while (access(p, F_OK) != 0) {
+        if (errno == EINTR) {
+            continue;
+        }
+        return errno == ENOENT || errno == ENOTDIR;
+    }
+    return 0;
 }
 
 /**
