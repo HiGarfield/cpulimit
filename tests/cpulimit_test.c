@@ -5894,14 +5894,14 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
  *       fails with an inaccessible-path error and should still map to shell
  *       status 126 with an "inaccessible" diagnostic.
  */
-static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
+static void test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     pid_t pid, waited;
     int status, fd, prefix_fd, exited, exit_code, ret;
     int stderr_pipe[2];
     ssize_t nwritten, expected_len, nread;
     size_t err_len;
     struct cpulimit_cfg cfg;
-    char tmp_path[] = "/tmp/cpulimit_test_shebang_eacces_XXXXXX";
+    char tmp_path[] = "/tmp/cpulimit_test_shebang_inaccessible_XXXXXX";
     char interp_prefix[] = "/tmp/cpulimit_test_interp_prefix_XXXXXX";
     char interp_path[sizeof(interp_prefix) + sizeof("/interp")];
     char shebang[sizeof(interp_path) + sizeof("#!\n")];
@@ -7003,7 +7003,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
-    RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_eacces);
+    RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_inaccessible);
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_command_mode_false);
