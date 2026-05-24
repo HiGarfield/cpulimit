@@ -5973,10 +5973,10 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     err_len = 0;
     while (1) {
         nread = read(stderr_pipe[0], err_buf + err_len,
-                     sizeof(err_buf) - 1 - err_len);
+                     512 - 1 - err_len);
         if (nread > 0) {
             err_len += (size_t)nread;
-            if (err_len == sizeof(err_buf) - 1) {
+            if (err_len == 512 - 1) {
                 break;
             }
             continue;
