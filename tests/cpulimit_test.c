@@ -5896,7 +5896,7 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
  */
 static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     pid_t pid, waited;
-    int status, fd, exited, exit_code, ret;
+    int status, fd, prefix_fd, exited, exit_code, ret;
     int stderr_pipe[2];
     ssize_t nwritten, expected_len, nread;
     size_t err_len;
@@ -5917,9 +5917,9 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     err_buf = (char *)malloc(512);
     assert(err_buf != NULL);
 
-    fd = mkstemp(interp_prefix);
-    assert(fd >= 0);
-    ret = close(fd);
+    prefix_fd = mkstemp(interp_prefix);
+    assert(prefix_fd >= 0);
+    ret = close(prefix_fd);
     assert(ret == 0);
 
     ret = snprintf(interp_path, sizeof(interp_path), "%s/interp", interp_prefix);
