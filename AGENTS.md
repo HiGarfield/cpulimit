@@ -157,6 +157,15 @@ descendants.
 - Fatal errors MUST produce non-zero exit status.
 - Recoverable errors SHOULD be handled gracefully.
 - Permission-denied and similar OS errors MUST be handled explicitly.
+- Local stack allocations SHOULD be kept small, and the total stack frame as
+  reported by the compiler MUST NOT exceed 512 bytes per function call.
+  Functions whose local stack allocations would cause this limit to be
+  exceeded MUST move or restructure that local data (for example, by using
+  heap allocation). If the total frame would still exceed this limit due to
+  saved registers or other compiler/ABI frame overhead, the function MUST be
+  refactored or split to reduce frame usage.
+- A single object allocated on the stack MUST NOT exceed 256 bytes; objects
+  larger than this limit MUST be allocated on the heap instead.
 
 ## Signals and Concurrency
 
