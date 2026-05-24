@@ -5928,7 +5928,7 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     ret = close(fd);
     assert(ret == 0);
 
-    ret = chmod(interp_dir, 0);
+    ret = chmod(interp_dir, 0200);
     assert(ret == 0);
 
     args[0] = tmp_path;
@@ -5960,12 +5960,23 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
 
     close(stderr_pipe[1]);
     err_len = 0;
-    while ((nread = read(stderr_pipe[0], err_buf + err_len,
-                         sizeof(err_buf) - 1 - err_len)) > 0) {
-        err_len += (size_t)nread;
-        if (err_len == sizeof(err_buf) - 1) {
+    while (1) {
+        nread = read(stderr_pipe[0], err_buf + err_len,
+                     sizeof(err_buf) - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len == sizeof(err_buf) - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
             break;
         }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
     }
     err_buf[err_len] = '\0';
     close(stderr_pipe[0]);

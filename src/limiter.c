@@ -98,6 +98,7 @@
  */
 static int is_script_missing_interpreter(const char *path) {
     int fd;
+    int access_result;
     int saved_errno;
     char buf[256];
     ssize_t n;
@@ -145,14 +146,12 @@ static int is_script_missing_interpreter(const char *path) {
         return 0; /* Empty shebang line */
     }
 
-    /* Interpreter path does not exist -> report 126 */
-    while (access(p, F_OK) != 0) {
-        if (errno == EINTR) {
-            continue;
-        }
-        return 1;
-    }
-    return 0;
+    /* Interpreter path is inaccessible -> report 126 */
+    do {
+        errno = 0;
+        access_result = access(p, F_OK);
+    } while (access_result != 0 && errno == EINTR);
+    return access_result != 0;
 }
 
 /**
