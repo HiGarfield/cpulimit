@@ -31,7 +31,7 @@ descendants.
 
 - Assumptions MUST be stated explicitly before implementation begins.
 - If multiple valid interpretations exist, they MUST be presented rather than
-  silently chosen between.
+  silently chosen among them.
 - If a simpler approach exists, it SHOULD be raised before implementing the
   more complex one.
 - If any requirement is unclear, clarification MUST be sought before
