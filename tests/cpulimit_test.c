@@ -5891,7 +5891,8 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
 /**
  * @brief Test run_command_mode with an inaccessible shebang interpreter path
  * @note The interpreter path exists but is not searchable (EACCES), so this
- *       must not be classified as "interpreter not found".
+ *       should still map to shell status 126 with an "inaccessible"
+ *       diagnostic.
  */
 static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     pid_t pid, waited;
@@ -5975,7 +5976,7 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     assert(exited);
     exit_code = WEXITSTATUS(status);
     assert(exit_code == 126);
-    assert(strstr(err_buf, "execvp") != NULL);
+    assert(strstr(err_buf, "shebang interpreter is inaccessible") != NULL);
     assert(strstr(err_buf, "shebang interpreter not found") == NULL);
 
     ret = chmod(interp_dir, 0700);

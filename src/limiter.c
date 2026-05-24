@@ -86,18 +86,15 @@
 #define CHILD_POLL_INTERVAL_NS 50000000L /* 50 ms */
 
 /**
- * @brief Check whether a script's shebang interpreter path does not exist
+ * @brief Check whether a script shebang references an unusable interpreter
  * @param path Path to the file to inspect
  * @return 1 if the file begins with "#!" and the interpreter path in the
- *         shebang does not exist; 0 otherwise.
+ *         shebang cannot be accessed; 0 otherwise.
  *
- * This pre-exec check avoids calling execvp() on a script whose interpreter
- * path does not exist. Under normal execution the kernel returns ENOENT in
- * that case, but under debugging tools such as valgrind the execve()
- * interception is unrecoverable, so the check must be made before exec.
- *
- * The check intentionally does not treat EACCES as "missing interpreter":
- * that error means the path exists but is not searchable/readable.
+ * This pre-exec check avoids calling execvp() on a script whose shebang
+ * interpreter path cannot be accessed. Under normal execution execvp() would
+ * fail, but under debugging tools such as valgrind the execve() interception
+ * is unrecoverable on this path, so the check must be made before exec.
  */
 static int is_script_missing_interpreter(const char *path) {
     int fd;
@@ -153,7 +150,7 @@ static int is_script_missing_interpreter(const char *path) {
         if (errno == EINTR) {
             continue;
         }
-        return errno == ENOENT || errno == ENOTDIR;
+        return 1;
     }
     return 0;
 }
@@ -239,7 +236,8 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      */
     if (strchr(cfg->command_args[0], '/') != NULL &&
         is_script_missing_interpreter(cfg->command_args[0])) {
-        fprintf(stderr, "%s: cannot execute: shebang interpreter not found\n",
+        fprintf(stderr,
+                "%s: cannot execute: shebang interpreter is inaccessible\n",
                 cfg->command_args[0]);
         _exit(EXIT_CMD_NOT_EXECUTABLE);
     }
