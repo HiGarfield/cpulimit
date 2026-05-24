@@ -5890,23 +5890,22 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
 
 /**
  * @brief Test run_command_mode with an inaccessible shebang interpreter path
- * @note The interpreter path exists but is not searchable (EACCES), so this
- *       should still map to shell status 126 with an "inaccessible"
- *       diagnostic.
+ * @note The interpreter path uses a non-directory path component, so lookup
+ *       fails with an inaccessible-path error and should still map to shell
+ *       status 126 with an "inaccessible" diagnostic.
  */
 static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     pid_t pid, waited;
-    int status, fd, interp_fd, exited, exit_code, ret;
+    int status, fd, exited, exit_code, ret;
     int stderr_pipe[2];
     ssize_t nwritten, expected_len, nread;
     size_t err_len;
     struct cpulimit_cfg cfg;
     char tmp_path[] = "/tmp/cpulimit_test_shebang_eacces_XXXXXX";
-    char interp_dir[] = "/tmp/cpulimit_test_interp_dir_XXXXXX";
-    char interp_path[sizeof(interp_dir) + sizeof("/interp")];
+    char interp_prefix[] = "/tmp/cpulimit_test_interp_prefix_XXXXXX";
+    char interp_path[sizeof(interp_prefix) + sizeof("/interp")];
     char shebang[sizeof(interp_path) + sizeof("#!\n")];
     char *err_buf;
-    char *mkdtemp_result;
     char *accessible_msg;
     char *not_found_msg;
     char *args[2];
@@ -5918,14 +5917,13 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     err_buf = (char *)malloc(512);
     assert(err_buf != NULL);
 
-    mkdtemp_result = mkdtemp(interp_dir);
-    assert(mkdtemp_result != NULL);
-    ret = snprintf(interp_path, sizeof(interp_path), "%s/interp", interp_dir);
-    assert(ret > 0 && ret < (int)sizeof(interp_path));
-    interp_fd = open(interp_path, O_CREAT | O_WRONLY | O_TRUNC, 0755);
-    assert(interp_fd >= 0);
-    ret = close(interp_fd);
+    fd = mkstemp(interp_prefix);
+    assert(fd >= 0);
+    ret = close(fd);
     assert(ret == 0);
+
+    ret = snprintf(interp_path, sizeof(interp_path), "%s/interp", interp_prefix);
+    assert(ret > 0 && ret < (int)sizeof(interp_path));
 
     fd = mkstemp(tmp_path);
     assert(fd >= 0);
@@ -5937,9 +5935,6 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
     ret = fchmod(fd, 0755);
     assert(ret == 0);
     ret = close(fd);
-    assert(ret == 0);
-
-    ret = chmod(interp_dir, 0200);
     assert(ret == 0);
 
     args[0] = tmp_path;
@@ -6004,11 +5999,7 @@ static void test_limiter_run_command_mode_shebang_interpreter_eacces(void) {
 
     free(err_buf);
 
-    ret = chmod(interp_dir, 0700);
-    assert(ret == 0);
-    ret = unlink(interp_path);
-    assert(ret == 0);
-    ret = rmdir(interp_dir);
+    ret = unlink(interp_prefix);
     assert(ret == 0);
     ret = unlink(tmp_path);
     assert(ret == 0);
