@@ -1,0 +1,1 @@
+/usr/bin/clang -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/busy.dir/link.d CMakeFiles/busy.dir/busy.c.o CMakeFiles/busy.dir/__/src/signal_handler.c.o CMakeFiles/busy.dir/__/src/util.c.o -o busy  -lrt
