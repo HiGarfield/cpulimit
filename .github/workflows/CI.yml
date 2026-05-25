@@ -41,9 +41,13 @@ jobs:
           set -euo pipefail
           MUSL_ROOT="${GITHUB_WORKSPACE}/.musl-toolchain"
           MUSL_ARCHIVE="${RUNNER_TEMP}/i486-linux-musl-cross.tgz"
+          MUSL_ARCHIVE_URL="https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/i486-linux-musl-cross.tgz"
+          MUSL_ARCHIVE_SHA256="1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5"
           curl -fL \
-              https://musl.cc/i486-linux-musl-cross.tgz \
+              "${MUSL_ARCHIVE_URL}" \
               -o "${MUSL_ARCHIVE}"
+          printf '%s  %s\n' "${MUSL_ARCHIVE_SHA256}" "${MUSL_ARCHIVE}" \
+              | sha256sum -c -
           rm -rf "${MUSL_ROOT}"
           mkdir -p "${MUSL_ROOT}"
           tar -xzf "${MUSL_ARCHIVE}" -C "${MUSL_ROOT}"
