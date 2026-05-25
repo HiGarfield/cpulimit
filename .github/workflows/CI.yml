@@ -44,22 +44,41 @@ jobs:
           path: ${{ github.workspace }}/.musl-toolchain/i486-linux-musl-cross
           key: musl-i486-bin-v0.0.1-1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5
 
+      - name: Validate musl i486 extracted cache (Ubuntu)
+        id: musl-cache-bin-validate
+        if: startsWith(matrix.os, 'ubuntu-')
+        run: |
+          set -euo pipefail
+          musl_root="${GITHUB_WORKSPACE}/.musl-toolchain/i486-linux-musl-cross"
+          musl_gcc="${musl_root}/bin/i486-linux-musl-gcc"
+          if [ "${{ steps.musl-cache-bin.outputs.cache-hit }}" = 'true' ] \
+              && [ -x "${musl_gcc}" ]; then
+            echo "cache-valid=true" >> "${GITHUB_OUTPUT}"
+          else
+            if [ "${{ steps.musl-cache-bin.outputs.cache-hit }}" = 'true' ]; then
+              rm -rf "${musl_root}"
+              echo "Cached musl toolchain is missing ${musl_gcc}." >&2
+            fi
+            echo "cache-valid=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Restore musl i486 archive cache (Ubuntu)
         id: musl-cache-archive
-        if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin.outputs.cache-hit != 'true'
+        if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin-validate.outputs.cache-valid != 'true'
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/i486-linux-musl-cross.tgz
           key: musl-i486-archive-v0.0.1-1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5
 
       - name: Prepare musl.cc i486 toolchain (Ubuntu)
-        if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin.outputs.cache-hit != 'true'
+        if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin-validate.outputs.cache-valid != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           MUSL_ROOT="${GITHUB_WORKSPACE}/.musl-toolchain"
           MUSL_ARCHIVE="${RUNNER_TEMP}/i486-linux-musl-cross.tgz"
+          MUSL_ARTIFACT_NAME="musl-i486-toolchain-${{ matrix.os }}"
           MUSL_ARCHIVE_URL="https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/i486-linux-musl-cross.tgz"
           MUSL_ARCHIVE_SHA256="1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5"
 
@@ -71,7 +90,7 @@ jobs:
           fi
 
           if [ ! -s "${MUSL_ARCHIVE}" ]; then
-            artifact_api_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=musl-i486-toolchain&per_page=100"
+            artifact_api_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100"
             artifact_json="${RUNNER_TEMP}/musl-i486-artifacts.json"
             artifact_zip="${RUNNER_TEMP}/musl-i486-artifact.zip"
             artifact_archive="${RUNNER_TEMP}/i486-linux-musl-cross.from-artifact.tgz"
@@ -81,21 +100,7 @@ jobs:
                 -H "Accept: application/vnd.github+json" \
                 "${artifact_api_url}" \
                 -o "${artifact_json}"; then
-              artifact_download_url="$(python3 - "${artifact_json}" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    payload = json.load(f)
-
-artifacts = payload.get("artifacts", [])
-artifacts = [a for a in artifacts if not a.get("expired")]
-artifacts.sort(key=lambda a: a.get("created_at", ""), reverse=True)
-
-if artifacts:
-    print(artifacts[0].get("archive_download_url", ""))
-PY
-              )"
+              artifact_download_url="$(python3 -c 'import json, sys; payload = json.load(open(sys.argv[1], "r", encoding="utf-8")); artifact_name = sys.argv[2]; artifacts = [a for a in payload.get("artifacts", []) if a.get("name") == artifact_name and not a.get("expired")]; artifacts.sort(key=lambda a: a.get("created_at", ""), reverse=True); print(artifacts[0].get("archive_download_url", "") if artifacts else "")' "${artifact_json}" "${MUSL_ARTIFACT_NAME}")"
             fi
             if [ -n "${artifact_download_url}" ]; then
               curl -fL \
@@ -115,7 +120,7 @@ PY
                 echo "Artifact is missing i486-linux-musl-cross.tgz entry." >&2
               fi
             else
-              echo "No non-expired musl-i486-toolchain artifact available." >&2
+              echo "No non-expired ${MUSL_ARTIFACT_NAME} artifact available." >&2
             fi
           fi
 
@@ -128,10 +133,10 @@ PY
           test -x "${MUSL_ROOT}/i486-linux-musl-cross/bin/i486-linux-musl-gcc"
 
       - name: Upload musl i486 toolchain artifact backup (Ubuntu)
-        if: startsWith(matrix.os, 'ubuntu-') && github.event_name != 'pull_request' && steps.musl-cache-bin.outputs.cache-hit != 'true'
+        if: startsWith(matrix.os, 'ubuntu-') && github.event_name != 'pull_request' && steps.musl-cache-bin-validate.outputs.cache-valid != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: musl-i486-toolchain
+          name: musl-i486-toolchain-${{ matrix.os }}
           path: ${{ runner.temp }}/i486-linux-musl-cross.tgz
           retention-days: 90
 
