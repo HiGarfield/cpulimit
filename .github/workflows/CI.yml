@@ -17,6 +17,7 @@ jobs:
   build-Linux-macOS:
     name: Build on ${{ matrix.os }}
     permissions:
+      actions: read
       contents: read
     strategy:
       matrix:
@@ -33,7 +34,123 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu-')
         run: |
           sudo apt -qq update
-          sudo apt -qq install gcc-multilib libc6-dev-i386 musl-tools
+          sudo apt -qq install gcc-multilib libc6-dev-i386
+
+      - name: Restore musl i486 extracted cache (Ubuntu)
+        id: musl-cache-bin
+        if: startsWith(matrix.os, 'ubuntu-')
+        uses: actions/cache@main
+        with:
+          path: ${{ github.workspace }}/.musl-toolchain/i486-linux-musl-cross
+          key: musl-i486-bin-v0.0.1-1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5
+
+      - name: Validate musl i486 extracted cache (Ubuntu)
+        id: musl-cache-bin-validate
+        if: startsWith(matrix.os, 'ubuntu-')
+        run: |
+          set -euo pipefail
+          musl_root="${GITHUB_WORKSPACE}/.musl-toolchain/i486-linux-musl-cross"
+          musl_gcc="${musl_root}/bin/i486-linux-musl-gcc"
+          if [ "${{ steps.musl-cache-bin.outputs.cache-hit }}" = 'true' ] \
+              && [ -x "${musl_gcc}" ]; then
+            echo "cache-valid=true" >> "${GITHUB_OUTPUT}"
+          else
+            if [ "${{ steps.musl-cache-bin.outputs.cache-hit }}" = 'true' ]; then
+              rm -rf "${musl_root}"
+              echo "Cached musl toolchain is missing ${musl_gcc}." >&2
+            fi
+            echo "cache-valid=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Restore musl i486 archive cache (Ubuntu)
+        id: musl-cache-archive
+        if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin-validate.outputs.cache-valid != 'true'
+        uses: actions/cache@main
+        with:
+          path: ${{ runner.temp }}/i486-linux-musl-cross.tgz
+          key: musl-i486-archive-v0.0.1-1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5
+
+      - name: Prepare musl.cc i486 toolchain (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin-validate.outputs.cache-valid != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MUSL_ROOT="${GITHUB_WORKSPACE}/.musl-toolchain"
+          MUSL_ARCHIVE="${RUNNER_TEMP}/i486-linux-musl-cross.tgz"
+          MUSL_ARTIFACT_NAME="musl-i486-toolchain-${{ matrix.os }}"
+          MUSL_ARCHIVE_URL="https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/i486-linux-musl-cross.tgz"
+          MUSL_ARCHIVE_SHA256="1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5"
+
+          if [ ! -s "${MUSL_ARCHIVE}" ]; then
+            if ! curl -fL \
+                "${MUSL_ARCHIVE_URL}" \
+                -o "${MUSL_ARCHIVE}"; then
+              echo "Download from ${MUSL_ARCHIVE_URL} failed; trying artifact fallback." >&2
+            fi
+          fi
+
+          if [ ! -s "${MUSL_ARCHIVE}" ]; then
+            artifact_api_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100"
+            artifact_json="${RUNNER_TEMP}/musl-i486-artifacts.json"
+            artifact_zip="${RUNNER_TEMP}/musl-i486-artifact.zip"
+            artifact_archive="${RUNNER_TEMP}/i486-linux-musl-cross.from-artifact.tgz"
+            artifact_entries="${RUNNER_TEMP}/musl-i486-artifact.entries"
+            artifact_download_url=""
+            if curl -fsSL \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "${artifact_api_url}" \
+                -o "${artifact_json}"; then
+              artifact_download_url="$(python3 -c 'import json, sys; payload = json.load(open(sys.argv[1], "r", encoding="utf-8")); artifact_name = sys.argv[2]; artifacts = [a for a in payload.get("artifacts", []) if a.get("name") == artifact_name and not a.get("expired")]; artifacts.sort(key=lambda a: a.get("created_at", ""), reverse=True); print(artifacts[0].get("archive_download_url", "") if artifacts else "")' "${artifact_json}" "${MUSL_ARTIFACT_NAME}")"
+            else
+              echo "Failed to query workflow artifacts; skipping artifact fallback lookup." >&2
+            fi
+            if [ -n "${artifact_download_url}" ]; then
+              curl -fL \
+                  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "${artifact_download_url}" \
+                  -o "${artifact_zip}"
+              rm -f "${artifact_archive}"
+              if unzip -Z -1 "${artifact_zip}" > "${artifact_entries}" 2>/dev/null; then
+                if grep -qx "i486-linux-musl-cross.tgz" "${artifact_entries}"; then
+                  if unzip -p "${artifact_zip}" i486-linux-musl-cross.tgz > "${artifact_archive}"; then
+                    mv -f "${artifact_archive}" "${MUSL_ARCHIVE}"
+                  else
+                    rm -f "${artifact_archive}"
+                    echo "Failed to extract i486-linux-musl-cross.tgz from artifact; the workflow will fail if no other archive source succeeds." >&2
+                  fi
+                else
+                  echo "Artifact is missing i486-linux-musl-cross.tgz; the workflow will fail if no other archive source succeeds." >&2
+                fi
+              else
+                echo "Failed to list artifact zip contents; the workflow will fail if no other archive source succeeds." >&2
+              fi
+              rm -f "${artifact_entries}"
+            else
+              echo "No non-expired ${MUSL_ARTIFACT_NAME} artifact is available; the workflow will fail if no other archive source succeeds." >&2
+            fi
+          fi
+
+          if [ ! -s "${MUSL_ARCHIVE}" ]; then
+            echo "Failed to obtain musl toolchain archive from any source." >&2
+          fi
+          test -s "${MUSL_ARCHIVE}"
+          printf '%s  %s\n' "${MUSL_ARCHIVE_SHA256}" "${MUSL_ARCHIVE}" \
+              | sha256sum -c -
+          rm -rf "${MUSL_ROOT}"
+          mkdir -p "${MUSL_ROOT}"
+          tar -xzf "${MUSL_ARCHIVE}" -C "${MUSL_ROOT}"
+          test -x "${MUSL_ROOT}/i486-linux-musl-cross/bin/i486-linux-musl-gcc"
+
+      - name: Upload musl i486 toolchain artifact backup (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu-') && github.event_name != 'pull_request' && steps.musl-cache-bin-validate.outputs.cache-valid != 'true'
+        uses: actions/upload-artifact@main
+        with:
+          name: musl-i486-toolchain-${{ matrix.os }}
+          path: ${{ runner.temp }}/i486-linux-musl-cross.tgz
+          retention-days: 90
 
       - name: Build and test
         run: |
@@ -48,21 +165,20 @@ jobs:
 
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
             # Ubuntu
-            cmake -DCMAKE_C_COMPILER=musl-gcc \
+            # Use i486 baseline ISA + static musl for broad compatibility with
+            # very old x86 hardware and older Linux environments.
+            # --gc-sections removes unused sections; -s strips symbols to keep
+            # release binaries smaller.
+            cmake \
+                -DCMAKE_C_COMPILER="${GITHUB_WORKSPACE}/.musl-toolchain/i486-linux-musl-cross/bin/i486-linux-musl-gcc" \
                 -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_EXE_LINKER_FLAGS="-static" \
-                -B build
-            cmake --build build
-            rm -rf build
-
-            cmake -DCMAKE_C_COMPILER=gcc \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_FLAGS="-m32" \
-                -DCMAKE_EXE_LINKER_FLAGS="-static" \
+                -DCMAKE_C_FLAGS_INIT="-march=i486 -mtune=generic -O2 -ffunction-sections -fdata-sections" \
+                -DCMAKE_EXE_LINKER_FLAGS_INIT="-static -static-libgcc -Wl,-z,norelro -Wl,--hash-style=sysv -Wl,--gc-sections -s" \
                 -B build
           else
             # macOS
-            cmake -DCMAKE_C_COMPILER=clang \
+            cmake \
+                -DCMAKE_C_COMPILER=clang \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
                 -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
