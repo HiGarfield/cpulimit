@@ -70,6 +70,10 @@ jobs:
             cmake --build build
             rm -rf build
 
+            # Use i486 baseline ISA + static musl for broad compatibility with
+            # very old x86 hardware and older Linux environments.
+            # --gc-sections removes unused sections; -s strips symbols to keep
+            # release binaries smaller.
             cmake \
                 -DCMAKE_C_COMPILER="${GITHUB_WORKSPACE}/.musl-toolchain/i486-linux-musl-cross/bin/i486-linux-musl-gcc" \
                 -DCMAKE_BUILD_TYPE=Release \
