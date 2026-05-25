@@ -54,6 +54,8 @@ jobs:
 
       - name: Prepare musl.cc i486 toolchain (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin.outputs.cache-hit != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           MUSL_ROOT="${GITHUB_WORKSPACE}/.musl-toolchain"
@@ -72,6 +74,7 @@ jobs:
             artifact_api_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=musl-i486-toolchain&per_page=100"
             artifact_json="${RUNNER_TEMP}/musl-i486-artifacts.json"
             artifact_zip="${RUNNER_TEMP}/musl-i486-artifact.zip"
+            artifact_archive="${RUNNER_TEMP}/i486-linux-musl-cross.from-artifact.tgz"
             artifact_download_url=""
             if curl -fsSL \
                 -H "Authorization: Bearer ${GITHUB_TOKEN}" \
@@ -100,7 +103,17 @@ PY
                   -H "Accept: application/vnd.github+json" \
                   "${artifact_download_url}" \
                   -o "${artifact_zip}"
-              unzip -p "${artifact_zip}" i486-linux-musl-cross.tgz > "${MUSL_ARCHIVE}"
+              rm -f "${artifact_archive}"
+              if unzip -Z -1 "${artifact_zip}" | grep -qx "i486-linux-musl-cross.tgz"; then
+                if unzip -p "${artifact_zip}" i486-linux-musl-cross.tgz > "${artifact_archive}"; then
+                  mv -f "${artifact_archive}" "${MUSL_ARCHIVE}"
+                else
+                  rm -f "${artifact_archive}"
+                  echo "Failed to extract i486-linux-musl-cross.tgz from artifact." >&2
+                fi
+              else
+                echo "Artifact is missing i486-linux-musl-cross.tgz entry." >&2
+              fi
             else
               echo "No non-expired musl-i486-toolchain artifact available." >&2
             fi
@@ -116,7 +129,7 @@ PY
 
       - name: Upload musl i486 toolchain artifact backup (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu-') && github.event_name != 'pull_request' && steps.musl-cache-bin.outputs.cache-hit != 'true'
-        uses: actions/upload-artifact@main
+        uses: actions/upload-artifact@v4
         with:
           name: musl-i486-toolchain
           path: ${{ runner.temp }}/i486-linux-musl-cross.tgz
