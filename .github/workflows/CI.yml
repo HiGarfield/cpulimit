@@ -17,6 +17,7 @@ jobs:
   build-Linux-macOS:
     name: Build on ${{ matrix.os }}
     permissions:
+      actions: read
       contents: read
     strategy:
       matrix:
@@ -35,23 +36,91 @@ jobs:
           sudo apt -qq update
           sudo apt -qq install gcc-multilib libc6-dev-i386
 
-      - name: Download musl.cc i486 toolchain (Ubuntu)
+      - name: Restore musl i486 extracted cache (Ubuntu)
+        id: musl-cache-bin
         if: startsWith(matrix.os, 'ubuntu-')
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.musl-toolchain/i486-linux-musl-cross
+          key: musl-i486-bin-v0.0.1-1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5
+
+      - name: Restore musl i486 archive cache (Ubuntu)
+        id: musl-cache-archive
+        if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/i486-linux-musl-cross.tgz
+          key: musl-i486-archive-v0.0.1-1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5
+
+      - name: Prepare musl.cc i486 toolchain (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu-') && steps.musl-cache-bin.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           MUSL_ROOT="${GITHUB_WORKSPACE}/.musl-toolchain"
           MUSL_ARCHIVE="${RUNNER_TEMP}/i486-linux-musl-cross.tgz"
           MUSL_ARCHIVE_URL="https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/i486-linux-musl-cross.tgz"
           MUSL_ARCHIVE_SHA256="1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5"
-          curl -fL \
-              "${MUSL_ARCHIVE_URL}" \
-              -o "${MUSL_ARCHIVE}"
+
+          if [ ! -s "${MUSL_ARCHIVE}" ]; then
+            curl -fL \
+                "${MUSL_ARCHIVE_URL}" \
+                -o "${MUSL_ARCHIVE}" \
+                || true
+          fi
+
+          if [ ! -s "${MUSL_ARCHIVE}" ]; then
+            artifact_api_url="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=musl-i486-toolchain&per_page=100"
+            artifact_json="${RUNNER_TEMP}/musl-i486-artifacts.json"
+            artifact_zip="${RUNNER_TEMP}/musl-i486-artifact.zip"
+            artifact_download_url=""
+            if curl -fsSL \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "${artifact_api_url}" \
+                -o "${artifact_json}"; then
+              artifact_download_url="$(python3 - "${artifact_json}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    payload = json.load(f)
+
+artifacts = payload.get("artifacts", [])
+artifacts = [a for a in artifacts if not a.get("expired")]
+artifacts.sort(key=lambda a: a.get("created_at", ""), reverse=True)
+
+if artifacts:
+    print(artifacts[0].get("archive_download_url", ""))
+PY
+              )"
+            fi
+            if [ -n "${artifact_download_url}" ]; then
+              curl -fL \
+                  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "${artifact_download_url}" \
+                  -o "${artifact_zip}"
+              unzip -p "${artifact_zip}" i486-linux-musl-cross.tgz > "${MUSL_ARCHIVE}"
+            else
+              echo "No non-expired musl-i486-toolchain artifact available." >&2
+            fi
+          fi
+
+          test -s "${MUSL_ARCHIVE}"
           printf '%s  %s\n' "${MUSL_ARCHIVE_SHA256}" "${MUSL_ARCHIVE}" \
               | sha256sum -c -
           rm -rf "${MUSL_ROOT}"
           mkdir -p "${MUSL_ROOT}"
           tar -xzf "${MUSL_ARCHIVE}" -C "${MUSL_ROOT}"
           test -x "${MUSL_ROOT}/i486-linux-musl-cross/bin/i486-linux-musl-gcc"
+
+      - name: Upload musl i486 toolchain artifact backup (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu-') && github.event_name != 'pull_request' && steps.musl-cache-bin.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@main
+        with:
+          name: musl-i486-toolchain
+          path: ${{ runner.temp }}/i486-linux-musl-cross.tgz
+          retention-days: 90
 
       - name: Build and test
         run: |
