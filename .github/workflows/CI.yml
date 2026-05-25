@@ -33,7 +33,25 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu-')
         run: |
           sudo apt -qq update
-          sudo apt -qq install gcc-multilib libc6-dev-i386 musl-tools
+          sudo apt -qq install gcc-multilib libc6-dev-i386
+
+      - name: Download musl.cc i486 toolchain (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu-')
+        run: |
+          set -euo pipefail
+          MUSL_ROOT="${GITHUB_WORKSPACE}/.musl-toolchain"
+          MUSL_ARCHIVE="${RUNNER_TEMP}/i486-linux-musl-cross.tgz"
+          MUSL_ARCHIVE_URL="https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/i486-linux-musl-cross.tgz"
+          MUSL_ARCHIVE_SHA256="1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5"
+          curl -fL \
+              "${MUSL_ARCHIVE_URL}" \
+              -o "${MUSL_ARCHIVE}"
+          printf '%s  %s\n' "${MUSL_ARCHIVE_SHA256}" "${MUSL_ARCHIVE}" \
+              | sha256sum -c -
+          rm -rf "${MUSL_ROOT}"
+          mkdir -p "${MUSL_ROOT}"
+          tar -xzf "${MUSL_ARCHIVE}" -C "${MUSL_ROOT}"
+          test -x "${MUSL_ROOT}/i486-linux-musl-cross/bin/i486-linux-musl-gcc"
 
       - name: Build and test
         run: |
@@ -48,17 +66,23 @@ jobs:
 
           if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
             # Ubuntu
-            cmake -DCMAKE_C_COMPILER=musl-gcc \
+            cmake -DCMAKE_C_COMPILER=gcc \
                 -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_FLAGS="-m32" \
                 -DCMAKE_EXE_LINKER_FLAGS="-static" \
                 -B build
             cmake --build build
             rm -rf build
 
-            cmake -DCMAKE_C_COMPILER=gcc \
+            # Use i486 baseline ISA + static musl for broad compatibility with
+            # very old x86 hardware and older Linux environments.
+            # --gc-sections removes unused sections; -s strips symbols to keep
+            # release binaries smaller.
+            cmake \
+                -DCMAKE_C_COMPILER="${GITHUB_WORKSPACE}/.musl-toolchain/i486-linux-musl-cross/bin/i486-linux-musl-gcc" \
                 -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_C_FLAGS="-m32" \
-                -DCMAKE_EXE_LINKER_FLAGS="-static" \
+                -DCMAKE_C_FLAGS="-march=i486 -mtune=generic -O2 -ffunction-sections -fdata-sections" \
+                -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -Wl,--gc-sections -s" \
                 -B build
           else
             # macOS
