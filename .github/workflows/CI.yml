@@ -95,6 +95,7 @@ jobs:
             artifact_json="${RUNNER_TEMP}/musl-i486-artifacts.json"
             artifact_zip="${RUNNER_TEMP}/musl-i486-artifact.zip"
             artifact_archive="${RUNNER_TEMP}/i486-linux-musl-cross.from-artifact.tgz"
+            artifact_entries="${RUNNER_TEMP}/musl-i486-artifact.entries"
             artifact_download_url=""
             if curl -fsSL \
                 -H "Authorization: Bearer ${GITHUB_TOKEN}" \
@@ -112,21 +113,29 @@ jobs:
                   "${artifact_download_url}" \
                   -o "${artifact_zip}"
               rm -f "${artifact_archive}"
-              if unzip -Z -1 "${artifact_zip}" | grep -qx "i486-linux-musl-cross.tgz"; then
-                if unzip -p "${artifact_zip}" i486-linux-musl-cross.tgz > "${artifact_archive}"; then
-                  mv -f "${artifact_archive}" "${MUSL_ARCHIVE}"
+              if unzip -Z -1 "${artifact_zip}" > "${artifact_entries}" 2>/dev/null; then
+                if grep -qx "i486-linux-musl-cross.tgz" "${artifact_entries}"; then
+                  if unzip -p "${artifact_zip}" i486-linux-musl-cross.tgz > "${artifact_archive}"; then
+                    mv -f "${artifact_archive}" "${MUSL_ARCHIVE}"
+                  else
+                    rm -f "${artifact_archive}"
+                    echo "Failed to extract i486-linux-musl-cross.tgz from artifact; the workflow will fail if no other archive source succeeds." >&2
+                  fi
                 else
-                  rm -f "${artifact_archive}"
-                  echo "Failed to extract i486-linux-musl-cross.tgz from artifact; the workflow will fail if no other archive source succeeds." >&2
+                  echo "Artifact is missing i486-linux-musl-cross.tgz; the workflow will fail if no other archive source succeeds." >&2
                 fi
               else
-                echo "Artifact is missing i486-linux-musl-cross.tgz; the workflow will fail if no other archive source succeeds." >&2
+                echo "Failed to list artifact zip contents; the workflow will fail if no other archive source succeeds." >&2
               fi
+              rm -f "${artifact_entries}"
             else
               echo "No non-expired ${MUSL_ARTIFACT_NAME} artifact is available; the workflow will fail if no other archive source succeeds." >&2
             fi
           fi
 
+          if [ ! -s "${MUSL_ARCHIVE}" ]; then
+            echo "Failed to obtain musl toolchain archive from any source." >&2
+          fi
           test -s "${MUSL_ARCHIVE}"
           printf '%s  %s\n' "${MUSL_ARCHIVE_SHA256}" "${MUSL_ARCHIVE}" \
               | sha256sum -c -
