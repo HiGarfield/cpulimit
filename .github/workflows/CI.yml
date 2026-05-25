@@ -83,10 +83,11 @@ jobs:
           MUSL_ARCHIVE_SHA256="1b7eceb2022f4a664028dd314c5c44332b601bd271e40f0934b4bc8fd3b0fcf5"
 
           if [ ! -s "${MUSL_ARCHIVE}" ]; then
-            curl -fL \
+            if ! curl -fL \
                 "${MUSL_ARCHIVE_URL}" \
-                -o "${MUSL_ARCHIVE}" \
-                || true
+                -o "${MUSL_ARCHIVE}"; then
+              echo "Download from ${MUSL_ARCHIVE_URL} failed; trying artifact fallback." >&2
+            fi
           fi
 
           if [ ! -s "${MUSL_ARCHIVE}" ]; then
@@ -101,6 +102,8 @@ jobs:
                 "${artifact_api_url}" \
                 -o "${artifact_json}"; then
               artifact_download_url="$(python3 -c 'import json, sys; payload = json.load(open(sys.argv[1], "r", encoding="utf-8")); artifact_name = sys.argv[2]; artifacts = [a for a in payload.get("artifacts", []) if a.get("name") == artifact_name and not a.get("expired")]; artifacts.sort(key=lambda a: a.get("created_at", ""), reverse=True); print(artifacts[0].get("archive_download_url", "") if artifacts else "")' "${artifact_json}" "${MUSL_ARTIFACT_NAME}")"
+            else
+              echo "Failed to query workflow artifacts; skipping artifact fallback lookup." >&2
             fi
             if [ -n "${artifact_download_url}" ]; then
               curl -fL \
