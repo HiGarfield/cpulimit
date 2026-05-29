@@ -244,19 +244,22 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     /*
      * Execution reaches here only if execvp() failed.
      * Use shell-compatible exit codes:
-     * - EXIT_CMD_NOT_FOUND (127): command not found (ENOENT with no
-     *   existing file)
+     * - EXIT_CMD_NOT_FOUND (127): command not found
      * - EXIT_CMD_NOT_EXECUTABLE (126): found but not executable
-     *   (permission denied, or ENOENT when file exists but its
-     *   interpreter is absent)
      *
-     * Note: ENOENT can occur for two distinct reasons:
-     * 1. The command (or a PATH-resolved name) does not exist -> 127.
-     * 2. The file exists but exec fails (e.g., missing dynamic linker
-     *    on an explicit-path binary) -> 126.
-     * Case 2 is detectable only when the argument contains a '/'
-     * (an explicit path), because only then can access(F_OK) confirm
-     * that the file itself is present.
+     * For explicit paths (containing '/') the correct classification is
+     * determined by access(F_OK): if the file does not exist, the
+     * command was not found (127); if it does exist, it was found but
+     * could not be executed (126, e.g. missing dynamic linker, bad
+     * permissions, or a shebang interpreter that exec cannot locate).
+     * Using access(F_OK) rather than relying on errno is necessary
+     * because some kernel/libc combinations (e.g. 32-bit musl on Linux
+     * with seccomp-restricted execve) return EACCES instead of ENOENT
+     * for non-existent paths, which would otherwise be misclassified as
+     * "not executable" (126) rather than "not found" (127).
+     *
+     * For PATH-resolved names (no '/' in argument) the errno from
+     * execvp is the only signal available.
      *
      * Close sync_write_fd explicitly to signal exec failure to the
      * parent (the FD_CLOEXEC path only applies on success).
@@ -264,9 +267,10 @@ static void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     saved_errno = errno;
     perror("execvp");
     close(sync_write_fd);
-    if (saved_errno == ENOENT && strchr(cfg->command_args[0], '/') != NULL &&
-        access(cfg->command_args[0], F_OK) == 0) {
-        _exit(EXIT_CMD_NOT_EXECUTABLE);
+    if (strchr(cfg->command_args[0], '/') != NULL) {
+        _exit(access(cfg->command_args[0], F_OK) == 0
+                  ? EXIT_CMD_NOT_EXECUTABLE
+                  : EXIT_CMD_NOT_FOUND);
     }
     _exit(saved_errno == ENOENT ? EXIT_CMD_NOT_FOUND : EXIT_CMD_NOT_EXECUTABLE);
 
