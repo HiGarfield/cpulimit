@@ -5894,7 +5894,8 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
  *       fails with an inaccessible-path error and should still map to shell
  *       status 126 with an "inaccessible" diagnostic.
  */
-static void test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
+static void
+test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     pid_t pid, waited;
     int status, fd, prefix_fd, exited, exit_code, ret;
     int stderr_pipe[2];
@@ -5922,7 +5923,8 @@ static void test_limiter_run_command_mode_shebang_interpreter_inaccessible(void)
     ret = close(prefix_fd);
     assert(ret == 0);
 
-    ret = snprintf(interp_path, sizeof(interp_path), "%s/interp", interp_prefix);
+    ret =
+        snprintf(interp_path, sizeof(interp_path), "%s/interp", interp_prefix);
     assert(ret > 0 && ret < (int)sizeof(interp_path));
 
     fd = mkstemp(tmp_path);
