@@ -246,8 +246,7 @@ void clear_list(struct list *lst) {
         free(current_node);
     }
     /* Reset list to empty state */
-    lst->first = lst->last = NULL;
-    lst->count = 0;
+    init_list(lst);
 }
 
 /**
@@ -273,6 +272,5 @@ void destroy_list(struct list *lst) {
         free(current_node);
     }
     /* Reset list to empty state */
-    lst->first = lst->last = NULL;
-    lst->count = 0;
+    init_list(lst);
 }
