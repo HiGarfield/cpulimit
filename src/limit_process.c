@@ -187,9 +187,7 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
             continue;
         }
         pid = ((const struct process *)node->data)->pid;
-        do {
-            kill_result = kill(pid, sig);
-        } while (kill_result != 0 && errno == EINTR);
+        kill_result = kill(pid, sig);
 
         if (kill_result != 0) {
             /*
@@ -197,8 +195,9 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
              * - ESRCH: Process no longer exists
              * - EPERM: Permission denied (rare in this context)
              *
-             * EINTR is transient and retried above, so all failures here
-             * indicate a process that can no longer be reliably controlled.
+             * kill() is non-blocking and cannot fail with EINTR, so any
+             * failure here indicates a process that can no longer be
+             * reliably controlled.
              * Save errno before any other calls that may clobber it.
              */
             int saved_errno = errno;
