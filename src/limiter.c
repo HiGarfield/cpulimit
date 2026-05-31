@@ -98,7 +98,6 @@
  */
 static int is_script_inaccessible_interpreter(const char *path) {
     int fd;
-    int access_result;
     int saved_errno;
     char buf[256];
     ssize_t n;
@@ -147,10 +146,7 @@ static int is_script_inaccessible_interpreter(const char *path) {
     }
 
     /* Interpreter path is inaccessible -> report 126 */
-    do {
-        access_result = access(p, F_OK);
-    } while (access_result != 0 && errno == EINTR);
-    return access_result != 0;
+    return access(p, F_OK) != 0;
 }
 
 /**
