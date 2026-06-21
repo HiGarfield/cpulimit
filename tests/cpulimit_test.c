@@ -5899,7 +5899,7 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     pid_t pid, waited;
     int status, fd, prefix_fd, exited, exit_code, ret;
     int stderr_pipe[2];
-    ssize_t nwritten, expected_len, nread;
+    ssize_t nwritten, expected_len;
     size_t err_len;
     struct cpulimit_cfg cfg;
     char tmp_path[] = "/tmp/cpulimit_test_shebang_inaccessible_XXXXXX";
@@ -5907,8 +5907,8 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     char interp_path[sizeof(interp_prefix) + sizeof("/interp")];
     char shebang[sizeof(interp_path) + sizeof("#!\n")];
     char *err_buf;
-    char *accessible_msg;
-    char *not_found_msg;
+    const char *accessible_msg;
+    const char *not_found_msg;
     char *args[2];
 
     /*
@@ -5969,7 +5969,8 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     close(stderr_pipe[1]);
     err_len = 0;
     while (1) {
-        nread = read(stderr_pipe[0], err_buf + err_len, 512 - 1 - err_len);
+        ssize_t nread =
+            read(stderr_pipe[0], err_buf + err_len, 512 - 1 - err_len);
         if (nread > 0) {
             err_len += (size_t)nread;
             if (err_len == 512 - 1) {
