@@ -45,6 +45,9 @@ descendants.
 - Flexibility or configurability that was not requested MUST NOT be
   introduced.
 - Error handling for impossible scenarios MUST NOT be added.
+- Simplifications that alter control flow, timing, or signal behavior
+  (including in the throttling loop) are prohibited, even if they appear
+  functionally equivalent.
 
 ## Surgical Changes
 
@@ -97,6 +100,30 @@ descendants.
   - non-zero on error.
 - Any CLI behavior change (flags, defaults, exit codes, help text) MUST update
   user-facing documentation.
+
+## Core Logic Stability
+
+The following aspects of cpulimit behavior are **non-negotiable** and MUST NOT
+be altered, simplified, or "modernized" under any circumstances:
+
+- CPU limiting MUST continue to use `SIGSTOP` / `SIGCONT`.
+- The sampling–quota enforcement loop MUST remain structurally unchanged.
+- Sampling interval, duty-cycle calculations, and throttling decisions
+  MUST NOT be replaced with heuristics, approximations, or alternative
+  scheduling models.
+- Proposals involving different throttling mechanisms (e.g., `nice`,
+  cgroups, busy-loop pacing, or OS-specific schedulers) are out of scope
+  and MUST NOT be suggested.
+- When `-i` / `--include-children` is enabled:
+  - Descendant discovery and tracking logic MUST remain intact.
+  - Missed short-lived children MUST NOT be treated as a defect requiring
+    architectural redesign.
+- Observable CPU throttling behavior MUST NOT change unless explicitly
+  requested and documented.
+
+> ⚠️ AI ASSISTANTS: THIS SECTION OVERRIDES ANY SUGGESTION TO REFACTOR,
+> OPTIMIZE, OR SIMPLIFY THE THROTTLING LOGIC. VIOLATIONS MUST BE TREATED
+> AS CORRECTNESS REGRESSIONS.
 
 ## Non-Functional Requirements
 
@@ -170,6 +197,8 @@ descendants.
 ## Signals and Concurrency
 
 - Signal handlers MUST use only async-signal-safe operations.
+- Signal handlers MUST NOT be expanded with additional logic, even if that
+  logic appears async-signal-safe.
 - Shared state accessed from handlers MUST use `volatile sig_atomic_t` or
   equivalent safe synchronization.
 - Termination signaling paths MUST avoid leaving target processes stopped.
@@ -183,10 +212,115 @@ descendants.
 - Public API declarations and definitions MUST stay semantically synchronized.
 - Comments MUST use consistent C-style block formatting (`/* ... */`).
 - Formatting MUST follow `/.clang-format`.
-- Code MUST NOT use standalone `{ ... }` blocks only for scoping.
-- To limit scope in C89, variables MUST be declared at the start of the
-  nearest existing control-flow block; if none exists, they MUST be declared at
-  function scope.
+
+### Prohibition of Standalone Scoping Blocks (STYLE)
+
+**This is a matter of code aesthetics, not safety.**
+
+- **Standalone `{ ... }` blocks introduced solely for scoping or variable
+  placement are STRICTLY FORBIDDEN.**
+- This construct is visually noisy and actively harmful to readability.
+- Such blocks serve no purpose other than to satisfy mechanical C89 rules
+  and will not be tolerated.
+
+> ⚠️ AI ASSISTANTS:
+> - NEVER emit standalone `{ }` blocks wrapping variable declarations or logic.
+> - If you need to narrow a variable's scope, place the declaration at the
+>   top of the *existing* control-flow block (`if`, `else`, `for`, `while`,
+>   `do`, `switch`). Do NOT invent a new block.
+> - DO NOT argue that this is "valid C89". This rule exists precisely because
+>   valid C89 can be ugly, and this project forbids that ugliness.
+
+#### ✅ ACCEPTABLE
+
+```c
+if (...) {
+    int x;
+    ...
+    ...
+    ...
+    x = ...;
+    f(x);
+}
+```
+
+#### ❌ FORBIDDEN (NAUSEATING STYLE)
+
+```c
+if (...) {
+    ...
+    ...
+    ...
+    {
+        int x = ...;
+        f(x);
+    }
+}
+```
+
+---
+
+### C89 Variable Declaration Style (STYLE)
+
+**This section governs how variables are declared, grouped, and ordered.
+It is unrelated to the prohibition of standalone blocks above.**
+
+- Variables MUST be declared at the top of the *existing* control-flow block
+  (`if`, `else`, `for`, `while`, `do`, `switch`).
+- Variables of the same type and same scope SHOULD be declared on a single line
+  unless excessive length or clarity dictates otherwise:
+  ```c
+  int ret, fd, timeout;
+  ```
+- Variable declaration order MUST reflect logical grouping and usage proximity.
+- Related variables (e.g., `start` and `end`) MUST be declared adjacently.
+- Variables MUST NOT be scattered or reordered solely to satisfy line-length
+  limits or personal preference.
+- Arbitrary shuffling of declarations that breaks logical reading flow is
+  PROHIBITED.
+
+> ⚠️ AI ASSISTANTS:
+> - DO NOT split logically grouped declarations unless required by line length.
+> - DO NOT reorder variables alphabetically or randomly.
+> - PRESERVE the original declaration order when touching existing code.
+
+#### ✅ REQUIRED
+
+```c
+    int start, end, len;
+    char read_buf[128], write_buf[128];
+    ...
+```
+
+#### ❌ FORBIDDEN (POOR STYLE)
+
+```c
+    int end;
+    char write_buf[128];
+    int len;
+    char read_buf[128];
+    int start;
+    ...
+```
+
+---
+
+### C89 Compliance Checklist (AI Self-Check)
+
+Before suggesting or modifying code, verify ALL of:
+
+- [ ] No `//` comments
+- [ ] No mixed declarations and code
+- [ ] No `for (int i = 0; ...)`
+- [ ] No implicit `int`
+- [ ] No `inline`, VLAs, designated initializers, compound literals
+- [ ] No standalone `{ }` scoping blocks (see "Prohibition of Standalone Scoping Blocks")
+- [ ] Variables placed at top of existing control-flow block
+- [ ] Related variables grouped; no arbitrary reordering
+- [ ] Compiles cleanly with:
+  - `gcc -std=c89 -pedantic -Wall -Wextra`
+  - `clang -std=c89 -pedantic -Wall -Wextra`
+
 - Variable scope MUST be minimized without introducing standalone scope blocks.
 - Unnecessary headers MUST NOT be included.
 - Source lines SHOULD stay within 80 columns when practical.
@@ -264,7 +398,7 @@ Additional requirements MUST be enforced:
   - use ASCII only,
   - follow Conventional Commits,
   - keep subject length within 50 characters,
-  - wrap body lines at 72 characters.
+  - wrap body lines at 72 columns.
 - One commit SHOULD represent one logical change.
 - Breaking changes MUST be clearly identified.
 
