@@ -26,11 +26,11 @@
 #include "util.h"
 
 #include <errno.h>
+#include <stddef.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <unistd.h>
 #if defined(__APPLE__) || defined(__FreeBSD__)
-#include <stddef.h>
 #include <sys/sysctl.h>
 #endif
 #if defined(__linux__)
@@ -38,6 +38,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <sys/types.h>
 #endif
 
 #ifdef CPULIMIT_IMPL_GETLOADAVG
@@ -221,7 +222,7 @@ static int get_online_cpu_count(void) {
     char *line;
     int cpu_count;
 
-    line = read_line_from_file("/sys/devices/system/cpu/online");
+    line = read_first_line("/sys/devices/system/cpu/online");
     if (line == NULL) {
         return -1; /* Failed to read file */
     }
@@ -352,118 +353,92 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
 
 #if defined(__linux__)
 /**
- * @brief Read the first line from a text file
- * @param file_name Path to the file to read
- * @return Newly allocated string containing the first line with trailing
- *         newlines stripped, or NULL if file_name is NULL, the file cannot be
- *         opened, or reading fails (including when the file is empty and
- *         contains no bytes at all)
+ * @brief Read the first line from a text file.
  *
- * Opens the specified file using low-level I/O (open/read/close), reads
- * into a malloc-allocated buffer (grown with realloc as needed), finds the
- * first line, strips trailing carriage returns and newlines, and returns a
- * heap-allocated copy. The caller must free() the returned string. Used for
- * reading single-line text files such as procfs stat files and sysfs entries.
+ * Opens the specified text file, reads its first line, removes any trailing
+ * carriage return ('\r') and newline ('\n'), and returns the result.
  *
- * @note A file containing only a newline character returns an empty string
- *       (non-NULL), not NULL.
+ * The returned string is heap-allocated and must be freed by the caller.
+ *
+ * @param file_name Path to the file.
+ * @return Heap-allocated string, empty string for a line with only "\n",
+ *         or NULL on error or empty file.
  */
-char *read_line_from_file(const char *file_name) {
-    int fd;
-    char *buf;
-    size_t buf_size = 2048, total = 0;
-    ssize_t nread;
+char *read_first_line(const char *file_name) {
+    int fd = -1;
+    char *buf = NULL, *newline_pos;
+    size_t bufsize = 2048; /* Initial buffer capacity */
+    size_t buflen = 0;     /* Current data length */
+    ssize_t n_read;
 
     if (file_name == NULL) {
         return NULL;
     }
 
-    buf = (char *)malloc(buf_size);
-    if (buf == NULL) {
+    fd = open(file_name, O_RDONLY);
+    if (fd < 0) {
         return NULL;
     }
 
-    fd = open(file_name, O_RDONLY);
-    if (fd < 0) {
-        free(buf);
-        return NULL;
+    buf = (char *)malloc(bufsize);
+    if (buf == NULL) {
+        goto error;
     }
 
     while (1) {
-        char *nl_pos;
-        if (total == buf_size) {
-            size_t new_size;
-            char *new_buf;
-
-            if (buf_size > (size_t)-1 / 2) {
-                close(fd);
-                free(buf);
-                return NULL;
+        /* Ensure sufficient buffer space for next read */
+        if (buflen >= bufsize - 1) {
+            char *temp;
+            if (bufsize > (size_t)-1 / 2) {
+                goto error; /* Prevent overflow */
             }
-
-            new_size = buf_size * 2;
-            new_buf = (char *)realloc(buf, new_size);
-            if (new_buf == NULL) {
-                close(fd);
-                free(buf);
-                return NULL;
+            bufsize *= 2;
+            temp = (char *)realloc(buf, bufsize);
+            if (temp == NULL) {
+                goto error;
             }
-
-            buf = new_buf;
-            buf_size = new_size;
+            buf = temp;
         }
 
+        /* Read data directly into buffer */
         do {
-            nread = read(fd, buf + total, buf_size - total);
-        } while (nread < 0 && errno == EINTR);
+            n_read = read(fd, buf + buflen, bufsize - buflen - 1);
+        } while (n_read < 0 && errno == EINTR);
 
-        if (nread < 0) {
-            close(fd);
-            free(buf);
-            return NULL;
+        if (n_read <= 0) {
+            break; /* EOF or error */
         }
 
-        if (nread == 0) {
-            break; /* EOF */
+        /* Search for newline in newly read data */
+        newline_pos = (char *)memchr(buf + buflen, '\n', (size_t)n_read);
+        if (newline_pos != NULL) {
+            buflen = (size_t)(newline_pos - buf); /* Exclude '\n' */
+            break;
         }
+        buflen += (size_t)n_read;
+    }
 
-        nl_pos = (char *)memchr(buf + total, '\n', (size_t)nread);
-        if (nl_pos != NULL) {
-            char *trim_pos;
-            /*
-             * Keep only the first line and strip trailing CR/LF so callers
-             * receive a clean logical line regardless of line ending style.
-             */
-            trim_pos = nl_pos;
-            while (trim_pos > buf &&
-                   (trim_pos[-1] == '\r' || trim_pos[-1] == '\n')) {
-                trim_pos--;
-            }
-            *trim_pos = '\0';
-            close(fd);
-            return buf;
-        }
-
-        total += (size_t)nread;
+    /* Handle error or empty file cases */
+    if (n_read < 0 || (n_read == 0 && buflen == 0)) {
+        goto error;
     }
 
     close(fd);
 
-    if (total == 0) {
-        free(buf);
-        return NULL;
+    /* Remove trailing carriage return if present */
+    if (buflen > 0 && buf[buflen - 1] == '\r') {
+        --buflen;
     }
 
-    /*
-     * Trim trailing line endings for EOF-terminated files (no '\n' found).
-     * If the file contains only CR/LF bytes, the resulting logical line is
-     * the empty string.
-     */
-    while (total > 0 && (buf[total - 1] == '\r' || buf[total - 1] == '\n')) {
-        total--;
-    }
-    buf[total] = '\0';
+    buf[buflen] = '\0';
     return buf;
+
+error:
+    if (fd >= 0) {
+        close(fd);
+    }
+    free(buf);
+    return NULL;
 }
 #endif /* __linux__ */
 

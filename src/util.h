@@ -136,23 +136,18 @@ int cpulimit_getloadavg(double *loadavg, int nelem);
 
 #if defined(__linux__)
 /**
- * @brief Read the first line from a text file
- * @param file_name Path to the file to read
- * @return Newly allocated string containing the first line with trailing
- *         newlines stripped, or NULL if file_name is NULL, the file cannot be
- *         opened, or reading fails (including when the file is empty and
- *         contains no bytes at all)
+ * @brief Read the first line from a text file.
  *
- * Opens the specified file using low-level I/O (open/read/close), reads
- * into a malloc-allocated buffer (grown with realloc as needed), finds the
- * first line, strips trailing carriage returns and newlines, and returns a
- * heap-allocated copy. The caller must free() the returned string. Used for
- * reading single-line text files such as procfs stat files and sysfs entries.
+ * Opens the specified text file, reads its first line, removes any trailing
+ * carriage return ('\r') and newline ('\n'), and returns the result.
  *
- * @note A file containing only a newline character returns an empty string
- *       (non-NULL), not NULL.
+ * The returned string is heap-allocated and must be freed by the caller.
+ *
+ * @param file_name Path to the file.
+ * @return Heap-allocated string, empty string for a line with only "\n",
+ *         or NULL on error or empty file.
  */
-char *read_line_from_file(const char *file_name);
+char *read_first_line(const char *file_name);
 #endif
 
 /**
