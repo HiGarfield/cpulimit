@@ -122,7 +122,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         (int)sizeof(statfile)) {
         return -1;
     }
-    buffer = read_line_from_file(statfile);
+    buffer = read_first_line(statfile);
     if (buffer == NULL) {
         return -1;
     }
@@ -232,7 +232,7 @@ pid_t getppid_of(pid_t pid) {
         (int)sizeof(statfile)) {
         return (pid_t)-1;
     }
-    buffer = read_line_from_file(statfile);
+    buffer = read_first_line(statfile);
     if (buffer == NULL) {
         return (pid_t)-1;
     }
