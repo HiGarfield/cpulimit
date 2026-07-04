@@ -572,11 +572,11 @@ static void test_util_long2pid_t(void) {
 
 #if defined(__linux__)
 /**
- * @brief Test read_line_from_file with NULL, missing, and valid files
- * @note Covers all three return paths of read_line_from_file (Linux only);
+ * @brief Test read_first_line with NULL, missing, and valid files
+ * @note Covers all three return paths of read_first_line (Linux only);
  *       also exercises the realloc growth path with a line > 256 bytes
  */
-static void test_util_read_line_from_file(void) {
+static void test_util_read_first_line(void) {
     char *line;
     char tmp_file[] = "/tmp/cpulimit_empty_XXXXXX";
     int tmp_fd;
@@ -601,15 +601,15 @@ static void test_util_read_line_from_file(void) {
     size_t line_len;
 
     /* NULL filename must return NULL */
-    line = read_line_from_file(NULL);
+    line = read_first_line(NULL);
     assert(line == NULL);
 
     /* Non-existent file must return NULL */
-    line = read_line_from_file("/nonexistent/cpulimit_test_no_such_file");
+    line = read_first_line("/nonexistent/cpulimit_test_no_such_file");
     assert(line == NULL);
 
     /* /proc/self/stat always exists and is non-empty */
-    line = read_line_from_file("/proc/self/stat");
+    line = read_first_line("/proc/self/stat");
     assert(line != NULL);
     free(line);
 
@@ -620,7 +620,7 @@ static void test_util_read_line_from_file(void) {
     tmp_fd = mkstemp(tmp_file);
     assert(tmp_fd >= 0);
     close(tmp_fd);
-    line = read_line_from_file(tmp_file);
+    line = read_first_line(tmp_file);
     assert(line == NULL);
     remove(tmp_file);
 
@@ -630,7 +630,7 @@ static void test_util_read_line_from_file(void) {
     nwritten = write(newline_fd, "\n", 1);
     assert(nwritten == 1);
     close(newline_fd);
-    line = read_line_from_file(newline_tmp_file);
+    line = read_first_line(newline_tmp_file);
     assert(line != NULL);
     assert(line[0] == '\0');
     free(line);
@@ -645,7 +645,7 @@ static void test_util_read_line_from_file(void) {
     nwritten = write(crlf_fd, "abc\r\n", 5);
     assert(nwritten == 5);
     close(crlf_fd);
-    line = read_line_from_file(crlf_tmp_file);
+    line = read_first_line(crlf_tmp_file);
     assert(line != NULL);
     cmp_ret = strcmp(line, "abc");
     assert(cmp_ret == 0);
@@ -658,7 +658,7 @@ static void test_util_read_line_from_file(void) {
     nwritten = write(cr_only_fd, "abc\r", 4);
     assert(nwritten == 4);
     close(cr_only_fd);
-    line = read_line_from_file(cr_only_tmp_file);
+    line = read_first_line(cr_only_tmp_file);
     assert(line != NULL);
     cmp_ret = strcmp(line, "abc");
     assert(cmp_ret == 0);
@@ -674,7 +674,7 @@ static void test_util_read_line_from_file(void) {
     nwritten = write(cr_middle_fd, "a\rb\n", 4);
     assert(nwritten == 4);
     close(cr_middle_fd);
-    line = read_line_from_file(cr_middle_tmp_file);
+    line = read_first_line(cr_middle_tmp_file);
     assert(line != NULL);
     cmp_ret = strcmp(line, "a\rb");
     assert(cmp_ret == 0);
@@ -699,7 +699,7 @@ static void test_util_read_line_from_file(void) {
     nwritten = write(long_fd, "\n", 1);
     assert(nwritten == 1);
     close(long_fd);
-    line = read_line_from_file(long_tmp_file);
+    line = read_first_line(long_tmp_file);
     assert(line != NULL);
     line_len = strlen(line);
     assert(line_len == 300);
@@ -718,7 +718,7 @@ static void test_util_read_line_from_file(void) {
     nwritten = write(long_nonl_fd, long_line, 300);
     assert(nwritten == 300);
     close(long_nonl_fd);
-    line = read_line_from_file(long_tmp_nonl);
+    line = read_first_line(long_tmp_nonl);
     assert(line != NULL);
     line_len = strlen(line);
     assert(line_len == 300);
@@ -6867,7 +6867,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_increase_priority);
     RUN_TEST(test_util_long2pid_t);
 #if defined(__linux__)
-    RUN_TEST(test_util_read_line_from_file);
+    RUN_TEST(test_util_read_first_line);
 #endif
     RUN_TEST(test_util_macros);
 
