@@ -139,7 +139,7 @@ int get_current_time(struct timespec *result_ts) {
         }
         factor = (long double)timebase_info.numer / timebase_info.denom;
     }
-    nsec = mach_absolute_time() * factor;
+    nsec = (long double)mach_absolute_time() * factor;
     nsec2timespec((double)nsec, result_ts);
     return 0;
 #elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
