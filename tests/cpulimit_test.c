@@ -4617,7 +4617,8 @@ static void test_process_finder_find_by_name_symlink(void) {
      * impossible by design, so skip rather than assert.
      */
     if (found_pid == 0 &&
-        waitpid(child_pid, &child_status, WNOHANG) == child_pid) {
+        waitpid(child_pid, &child_status, WNOHANG) == child_pid &&
+        (WIFEXITED(child_status) || WIFSIGNALED(child_status))) {
         unlink(sym_path);
         free(sym_path);
         return;
@@ -4700,7 +4701,8 @@ static void test_process_finder_find_by_name_alias(void) {
      * impossible by design, so skip rather than assert.
      */
     if (found_pid == 0 &&
-        waitpid(child_pid, &child_status, WNOHANG) == child_pid) {
+        waitpid(child_pid, &child_status, WNOHANG) == child_pid &&
+        (WIFEXITED(child_status) || WIFSIGNALED(child_status))) {
         return;
     }
 
