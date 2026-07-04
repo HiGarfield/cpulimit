@@ -4547,6 +4547,7 @@ static void test_process_finder_find_by_name_symlink(void) {
     pid_t child_pid;
     pid_t found_pid;
     unsigned int i;
+    int child_status;
     const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
 
     /* Skip if /bin/sleep is not executable on this platform */
@@ -4608,6 +4609,20 @@ static void test_process_finder_find_by_name_symlink(void) {
         found_pid = find_process_by_name(sym_name);
     }
 
+    /*
+     * If the child was not found, check whether it already exited.
+     * This happens when the target binary is a multicall binary (e.g.,
+     * coreutils on Ubuntu 26.04+) that rejects an unrecognised argv[0]
+     * and exits immediately.  In that case the symlink-name lookup is
+     * impossible by design, so skip rather than assert.
+     */
+    if (found_pid == 0 &&
+        waitpid(child_pid, &child_status, WNOHANG) == child_pid) {
+        unlink(sym_path);
+        free(sym_path);
+        return;
+    }
+
     /* Cleanup: kill child and remove symlink */
     kill_and_wait(child_pid, SIGKILL);
     unlink(sym_path);
@@ -4635,6 +4650,7 @@ static void test_process_finder_find_by_name_alias(void) {
     pid_t child_pid;
     pid_t found_pid;
     unsigned int i;
+    int child_status;
     const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
 
     /* Skip if /bin/sleep is not executable on this platform */
@@ -4674,6 +4690,18 @@ static void test_process_finder_find_by_name_alias(void) {
     for (i = 0; i < 50 && found_pid == 0; i++) {
         sleep_timespec(&poll_wait);
         found_pid = find_process_by_name(alias_name);
+    }
+
+    /*
+     * If the child was not found, check whether it already exited.
+     * This happens when the target binary is a multicall binary (e.g.,
+     * coreutils on Ubuntu 26.04+) that rejects an unrecognised argv[0]
+     * and exits immediately.  In that case the alias lookup is
+     * impossible by design, so skip rather than assert.
+     */
+    if (found_pid == 0 &&
+        waitpid(child_pid, &child_status, WNOHANG) == child_pid) {
+        return;
     }
 
     /* Cleanup: kill child */
