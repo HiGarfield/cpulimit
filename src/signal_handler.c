@@ -143,12 +143,18 @@ static void sig_handler(int sig) {
  * @note Exits with error if signal mask or handler registration fails
  */
 void configure_signal_handler(void) {
-    struct sigaction sig_action;
+    struct sigaction *sig_action;
     sigset_t block_mask, old_mask;
     /* Array of signals that should trigger graceful termination */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
     size_t sig_idx;
+
+    sig_action = (struct sigaction *)calloc(1, sizeof(*sig_action));
+    if (sig_action == NULL) {
+        fprintf(stderr, "Memory allocation failed for sigaction\n");
+        exit(EXIT_FAILURE);
+    }
 
     /*
      * Block all signals at function entry so that no termination signal can
@@ -169,12 +175,11 @@ void configure_signal_handler(void) {
     }
 
     /* Configure sigaction structure with unified handler */
-    memset(&sig_action, 0, sizeof(sig_action));
-    sig_action.sa_handler =
+    sig_action->sa_handler =
         sig_handler; /* Unified handler for all termination signals */
-    sig_action.sa_flags =
+    sig_action->sa_flags =
         SA_RESTART; /* Automatically restart interrupted syscalls */
-    if (sigemptyset(&sig_action.sa_mask) != 0) {
+    if (sigemptyset(&sig_action->sa_mask) != 0) {
         perror("sigemptyset");
         exit(EXIT_FAILURE);
     }
@@ -184,7 +189,7 @@ void configure_signal_handler(void) {
 
     /* Register the same handler for all termination signals */
     for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-        if (sigaction(term_sigs[sig_idx], &sig_action, NULL) != 0) {
+        if (sigaction(term_sigs[sig_idx], sig_action, NULL) != 0) {
             perror("Failed to set signal handler");
             exit(EXIT_FAILURE);
         }
@@ -198,6 +203,8 @@ void configure_signal_handler(void) {
         perror("sigprocmask");
         exit(EXIT_FAILURE);
     }
+
+    free(sig_action);
 }
 
 /**
@@ -249,23 +256,31 @@ int get_quit_signal(void) {
  * Resets SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.
  */
 int reset_signal_handlers_to_default(void) {
-    struct sigaction def_action;
+    struct sigaction *def_action;
     /* Signals installed by configure_signal_handler() */
     static const int reset_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(reset_sigs) / sizeof(*reset_sigs);
     size_t sig_idx;
 
-    memset(&def_action, 0, sizeof(def_action));
-    def_action.sa_handler = SIG_DFL;
-    if (sigemptyset(&def_action.sa_mask) != 0) {
+    def_action = (struct sigaction *)calloc(1, sizeof(*def_action));
+    if (def_action == NULL) {
+        fprintf(stderr, "Memory allocation failed for sigaction\n");
+        return -1;
+    }
+
+    def_action->sa_handler = SIG_DFL;
+    if (sigemptyset(&def_action->sa_mask) != 0) {
         perror("sigemptyset");
+        free(def_action);
         return -1;
     }
     for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-        if (sigaction(reset_sigs[sig_idx], &def_action, NULL) != 0) {
+        if (sigaction(reset_sigs[sig_idx], def_action, NULL) != 0) {
             perror("sigaction reset");
+            free(def_action);
             return -1;
         }
     }
+    free(def_action);
     return 0;
 }
