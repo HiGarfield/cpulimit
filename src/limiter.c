@@ -332,20 +332,33 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
         exit(EXIT_FAILURE);
     }
     /*
-     * Wait for exec to complete (or the child to exit on exec failure).
-     * The write end of sync_pipe has FD_CLOEXEC set, so a successful exec
-     * closes it automatically; on exec failure the child closes it
-     * explicitly before _exit().  Either way, this read returns EOF
-     * (n_read == 0), confirming that the child's process image is ready
-     * to receive signals.  n_read > 0 is not expected but also signals
-     * completion.  This eliminates the race where a signal (e.g. SIGTERM)
-     * is sent while the child is still in the middle of exec setup, which
-     * is critical under tools such as valgrind that intercept execve and
-     * may not handle signals safely during their exec interception phase.
+     * Drain the sync pipe until EOF to confirm the child has closed its
+     * write end.  On a successful exec, FD_CLOEXEC closes the write end
+     * automatically; on exec failure the child closes it explicitly
+     * before _exit().  Only EOF (n_read == 0) guarantees the write end
+     * is closed and the child will not write again.
+     *
+     * Reading just one byte and then closing the read end is unsafe:
+     * if the caller has closed fds 1 and 2 before this function is
+     * called, pipe() assigns those fds to the sync pipe, causing the
+     * child's FILE *stderr (fd 2) to alias the sync pipe write end.
+     * perror() in the exec-failure path then makes multiple write()
+     * calls to fd 2.  Closing the read end after only one byte leaves
+     * the write end still open; the child's next write() receives
+     * SIGPIPE (default action: terminate), so the child dies from a
+     * signal instead of calling _exit(127), producing exit code 141
+     * (128+SIGPIPE) rather than 127.
+     *
+     * Draining until EOF keeps the read end open for all of the child's
+     * writes, eliminating the SIGPIPE race.  It also eliminates the race
+     * where a signal (e.g. SIGTERM) is sent while the child is still in
+     * the middle of exec setup, which is critical under tools such as
+     * valgrind that intercept execve and may not handle signals safely
+     * during their exec interception phase.
      */
     do {
         n_read = read(sync_read_fd, &sync_byte, 1);
-    } while (n_read < 0 && errno == EINTR);
+    } while (n_read > 0 || (n_read < 0 && errno == EINTR));
     close(sync_read_fd);
     if (n_read < 0) {
         pid_t wait_result;
