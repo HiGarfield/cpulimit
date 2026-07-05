@@ -5823,10 +5823,17 @@ static void test_limiter_run_pid_or_exe_mode(void) {
  */
 static void test_limiter_run_command_mode_nonexistent(void) {
     pid_t pid, waited;
-    int status, exited, exit_code;
+    int status, exited, exit_code, fd, close_ret, unlink_ret;
     struct cpulimit_cfg cfg;
-    char cmd[] = "/nonexistent_cpulimit_test_binary_xyz";
+    char cmd[] = "/tmp/cpulimit_test_nonexistent_XXXXXX";
     char *args[2];
+
+    fd = mkstemp(cmd);
+    assert(fd >= 0);
+    close_ret = close(fd);
+    assert(close_ret == 0);
+    unlink_ret = unlink(cmd);
+    assert(unlink_ret == 0);
 
     args[0] = cmd;
     args[1] = NULL;
