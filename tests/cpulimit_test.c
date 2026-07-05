@@ -5823,7 +5823,8 @@ static void test_limiter_run_pid_or_exe_mode(void) {
  */
 static void test_limiter_run_command_mode_nonexistent(void) {
     pid_t pid, waited;
-    int status, exited, exit_code, fd, close_ret, unlink_ret;
+    int status, exited, exit_code;
+    int fd, close_ret, unlink_ret;
     struct cpulimit_cfg cfg;
     char cmd[] = "/tmp/cpulimit_test_nonexistent_XXXXXX";
     char *args[2];
