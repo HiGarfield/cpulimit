@@ -123,6 +123,49 @@ static void sig_handler(int sig) {
 }
 
 /**
+ * @brief Internal common routine to install a specific signal action
+ * @param handler Handler to install (sig_handler or SIG_DFL)
+ * @return 0 on success, -1 on failure (errno is set by underlying syscalls)
+ *
+ * Uses a fixed internal list of termination signals. All error handling is
+ * delegated to the caller.
+ */
+static int set_signal_action(void (*handler)(int)) {
+    /* Fixed list of termination signals handled by this module */
+    static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
+    static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
+
+    struct sigaction *act = NULL;
+    size_t i;
+
+    act = (struct sigaction *)calloc(1, sizeof(*act));
+    if (act == NULL) {
+        goto error;
+    }
+
+    act->sa_handler = handler;
+    /* Only enable SA_RESTART for our custom handler, not for SIG_DFL */
+    act->sa_flags = (handler == SIG_DFL) ? 0 : SA_RESTART;
+
+    if (sigemptyset(&act->sa_mask) != 0) {
+        goto error;
+    }
+
+    for (i = 0; i < num_sigs; i++) {
+        if (sigaction(term_sigs[i], act, NULL) != 0) {
+            goto error;
+        }
+    }
+
+    free(act);
+    return 0;
+
+error:
+    free(act);
+    return -1;
+}
+
+/**
  * @brief Set up signal handlers for graceful program termination
  *
  * Registers a unified signal handler for SIGINT (Ctrl+C), SIGQUIT (Ctrl+\),
@@ -143,68 +186,56 @@ static void sig_handler(int sig) {
  * @note Exits with error if signal mask or handler registration fails
  */
 void configure_signal_handler(void) {
-    struct sigaction *sig_action;
-    sigset_t block_mask, old_mask;
-    /* Array of signals that should trigger graceful termination */
-    static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
-    static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
-    size_t sig_idx;
+    /* Initialize to NULL to make free(NULL) safe in error paths */
+    sigset_t *block_mask = NULL, *old_mask = NULL;
 
-    sig_action = (struct sigaction *)calloc(1, sizeof(*sig_action));
-    if (sig_action == NULL) {
-        fprintf(stderr, "Memory allocation failed for sigaction\n");
-        exit(EXIT_FAILURE);
+    block_mask = (sigset_t *)calloc(1, sizeof(*block_mask));
+    if (block_mask == NULL) {
+        fprintf(stderr, "Memory allocation failed for block_mask\n");
+        goto error;
     }
 
-    /*
-     * Block all signals at function entry so that no termination signal can
-     * be delivered between here and the completion of handler installation.
-     * This eliminates the race where a signal fires before sigprocmask takes
-     * effect, sets quit_flag, and then has that state wiped by the subsequent
-     * reset_signal_state() call. SIGKILL and SIGSTOP cannot be blocked and
-     * are silently ignored by sigprocmask, which is harmless. The original
-     * mask is restored after all handlers are in place.
-     */
-    if (sigfillset(&block_mask) != 0) {
+    old_mask = (sigset_t *)calloc(1, sizeof(*old_mask));
+    if (old_mask == NULL) {
+        fprintf(stderr, "Memory allocation failed for old_mask\n");
+        goto error;
+    }
+
+    /* Block all signals at function entry to eliminate race conditions */
+    if (sigfillset(block_mask) != 0) {
         perror("sigfillset");
-        exit(EXIT_FAILURE);
+        goto error;
     }
-    if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) != 0) {
+
+    if (sigprocmask(SIG_BLOCK, block_mask, old_mask) != 0) {
         perror("sigprocmask");
-        exit(EXIT_FAILURE);
+        goto error;
     }
 
-    /* Configure sigaction structure with unified handler */
-    sig_action->sa_handler =
-        sig_handler; /* Unified handler for all termination signals */
-    sig_action->sa_flags =
-        SA_RESTART; /* Automatically restart interrupted syscalls */
-    if (sigemptyset(&sig_action->sa_mask) != 0) {
-        perror("sigemptyset");
-        exit(EXIT_FAILURE);
-    }
-
-    /* Start from a deterministic state for each new configuration */
     reset_signal_state();
 
-    /* Register the same handler for all termination signals */
-    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-        if (sigaction(term_sigs[sig_idx], sig_action, NULL) != 0) {
-            perror("Failed to set signal handler");
-            exit(EXIT_FAILURE);
-        }
+    /* Install handlers; jump to cleanup on failure */
+    if (set_signal_action(sig_handler) != 0) {
+        perror("Failed to set signal handler");
+        goto error;
     }
 
-    /*
-     * Restore the original signal mask; any signals pending during the
-     * blocked window are now delivered through the newly installed handlers.
-     */
-    if (sigprocmask(SIG_SETMASK, &old_mask, NULL) != 0) {
-        perror("sigprocmask");
-        exit(EXIT_FAILURE);
+    /* Restore the original signal mask */
+    if (sigprocmask(SIG_SETMASK, old_mask, NULL) != 0) {
+        perror("sigprocmask restore");
+        goto error;
     }
 
-    free(sig_action);
+    /* Normal execution path: clean up resources and return */
+    free(block_mask);
+    free(old_mask);
+    return;
+
+error:
+    /* Centralized error handling */
+    free(block_mask);
+    free(old_mask);
+    exit(EXIT_FAILURE);
 }
 
 /**
@@ -256,31 +287,9 @@ int get_quit_signal(void) {
  * Resets SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.
  */
 int reset_signal_handlers_to_default(void) {
-    struct sigaction *def_action;
-    /* Signals installed by configure_signal_handler() */
-    static const int reset_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
-    static const size_t num_sigs = sizeof(reset_sigs) / sizeof(*reset_sigs);
-    size_t sig_idx;
-
-    def_action = (struct sigaction *)calloc(1, sizeof(*def_action));
-    if (def_action == NULL) {
-        fprintf(stderr, "Memory allocation failed for sigaction\n");
+    if (set_signal_action(SIG_DFL) != 0) {
+        perror("Failed to reset signal handlers");
         return -1;
     }
-
-    def_action->sa_handler = SIG_DFL;
-    if (sigemptyset(&def_action->sa_mask) != 0) {
-        perror("sigemptyset");
-        free(def_action);
-        return -1;
-    }
-    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-        if (sigaction(reset_sigs[sig_idx], def_action, NULL) != 0) {
-            perror("sigaction reset");
-            free(def_action);
-            return -1;
-        }
-    }
-    free(def_action);
     return 0;
 }
