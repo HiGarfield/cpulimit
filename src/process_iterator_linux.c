@@ -113,6 +113,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     static long sc_clk_tck = -1;
     int cmdline_fd;
     ssize_t bytes_read;
+    size_t total_read;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -182,9 +183,28 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (cmdline_fd < 0) {
         return -1;
     }
-    do {
-        bytes_read = read(cmdline_fd, proc->command, sizeof(proc->command) - 1);
-    } while (bytes_read < 0 && errno == EINTR);
+    /*
+     * Accumulate reads into proc->command with an advancing offset. The
+     * kernel may return a short count (e.g. when the cmdline exceeds the
+     * buffer, or via proc_pid_cmdline_read partial returns), so we must loop
+     * until EOF/error and advance the write offset rather than re-reading
+     * from the start, which would overwrite and corrupt the command string.
+     */
+    total_read = 0;
+    while (total_read < sizeof(proc->command) - 1) {
+        bytes_read = read(cmdline_fd, proc->command + total_read,
+                          sizeof(proc->command) - 1 - total_read);
+        if (bytes_read < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+        if (bytes_read == 0) {
+            break;
+        }
+        total_read += (size_t)bytes_read;
+    }
     if (close(cmdline_fd) != 0) {
         perror("close");
         /*
@@ -192,10 +212,10 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
          * proc->command remains valid.
          */
     }
-    if (bytes_read <= 0) {
+    if ((ssize_t)total_read <= 0) {
         return -1;
     }
-    proc->command[(size_t)bytes_read] = '\0';
+    proc->command[total_read] = '\0';
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="").
