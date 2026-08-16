@@ -151,6 +151,8 @@ int close_process_group(struct process_group *proc_group);
  *         sent by the cleanup code
  * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
+ * @note Stale hash table entries are purged even when the iterator fails to
+ *       close, so proc_table never retains exited processes across cycles
  */
 int update_process_group(struct process_group *proc_group);
 
