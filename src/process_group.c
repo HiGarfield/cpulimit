@@ -299,6 +299,8 @@ static void update_existing_process_entry(struct process *proc,
  *         sent by the cleanup code
  * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
+ * @note Stale hash table entries are purged even when the iterator fails to
+ *       close, so proc_table never retains exited processes across cycles
  */
 int update_process_group(struct process_group *proc_group) {
     struct process_iterator iter;
@@ -306,7 +308,7 @@ int update_process_group(struct process_group *proc_group) {
     struct process_filter filter;
     struct timespec now;
     double elapsed_ms;
-    int ncpu;
+    int ncpu, close_ret;
     if (proc_group == NULL || proc_group->proc_list == NULL ||
         proc_group->proc_table == NULL) {
         return 0;
@@ -357,14 +359,24 @@ int update_process_group(struct process_group *proc_group) {
         }
     }
     free(scan_proc);
-    if (close_process_iterator(&iter) != 0) {
+    close_ret = close_process_iterator(&iter);
+    if (close_ret != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
-        return -1;
     }
 
-    /* Remove hash table entries for processes that are no longer running */
+    /*
+     * Purge stale hash table entries unconditionally, even when the
+     * iterator failed to close.  proc_list was rebuilt above and is
+     * authoritative for this cycle, so returning early here would leave
+     * entries for exited processes in proc_table forever, growing it
+     * without bound during long runs (notably with --include-children).
+     */
     remove_stale_from_process_table(proc_group->proc_table,
                                     proc_group->proc_list);
+
+    if (close_ret != 0) {
+        return -1;
+    }
 
     /*
      * Update timestamp only if sufficient time passed for CPU calculation

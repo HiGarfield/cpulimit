@@ -5284,6 +5284,113 @@ static void test_process_group_race_rapid_child_spawn_exit(void) {
     assert(waited == spawner_pid);
 }
 
+/**
+ * @brief Regression test: proc_table must not retain exited descendants
+ * @note update_process_group() previously returned early when
+ *       close_process_iterator() failed, skipping
+ *       remove_stale_from_process_table() and leaking hash table entries
+ *       for processes that had already exited.  This test tracks a parent
+ *       whose children all exit, then verifies that after further update
+ *       cycles the table holds no entry for any exited child PID and that
+ *       the live entry count matches the rebuilt active list exactly.
+ */
+static void test_process_group_purges_exited_descendants(void) {
+    struct process_group proc_group;
+    const struct list_node *node;
+    pid_t spawner_pid, child_pids[4], waited;
+    int child_idx, update_idx, ret, spawner_status;
+    int sync_pipe[2];
+
+    ret = pipe(sync_pipe);
+    assert(ret == 0);
+
+    spawner_pid = fork();
+    assert(spawner_pid >= 0);
+    if (spawner_pid == 0) {
+        /*
+         * Child acts as the tracked parent: it spawns a few grandchildren,
+         * reports their PIDs, reaps them so they truly exit, then idles
+         * until killed.
+         */
+        int idx;
+        pid_t spawned[4];
+        close(sync_pipe[0]);
+        setpgid(0, 0);
+        for (idx = 0; idx < 4; idx++) {
+            pid_t grandchild = fork();
+            assert(grandchild >= 0);
+            if (grandchild == 0) {
+                _exit(EXIT_SUCCESS);
+            }
+            spawned[idx] = grandchild;
+        }
+        /* Reap all grandchildren so none remain as zombies */
+        for (idx = 0; idx < 4; idx++) {
+            pid_t w;
+            do {
+                w = waitpid(spawned[idx], NULL, 0);
+            } while (w == -1 && errno == EINTR);
+        }
+        /* Publish the exited PIDs to the parent */
+        if (write(sync_pipe[1], spawned, sizeof(spawned)) !=
+            (ssize_t)sizeof(spawned)) {
+            _exit(EXIT_FAILURE);
+        }
+        close(sync_pipe[1]);
+        for (;;) {
+            const struct timespec idle = {0, 20000000L}; /* 20 ms */
+            sleep_timespec(&idle);
+        }
+    }
+
+    close(sync_pipe[1]);
+    /* Receive the PIDs of the now-exited grandchildren */
+    assert(read(sync_pipe[0], child_pids, sizeof(child_pids)) ==
+           (ssize_t)sizeof(child_pids));
+    close(sync_pipe[0]);
+
+    ret = init_process_group(&proc_group, spawner_pid, 1);
+    assert(ret == 0);
+
+    /*
+     * Run enough update cycles that any stale entry would have to be
+     * purged by remove_stale_from_process_table().
+     */
+    for (update_idx = 0; update_idx < 5; update_idx++) {
+        const struct timespec gap = {0, 25000000L}; /* 25 ms */
+        ret = update_process_group(&proc_group);
+        assert(ret == 0);
+        sleep_timespec(&gap);
+    }
+
+    /* No exited grandchild may remain in the hash table */
+    for (child_idx = 0; child_idx < 4; child_idx++) {
+        const struct process *stale =
+            find_in_process_table(proc_group.proc_table,
+                                  child_pids[child_idx]);
+        assert(stale == NULL);
+    }
+
+    /*
+     * Every entry reachable from the active list must still resolve in the
+     * table, proving the purge removed only stale entries.
+     */
+    for (node = first_node(proc_group.proc_list); node != NULL;
+         node = node->next) {
+        const struct process *live = (const struct process *)node->data;
+        assert(live != NULL);
+        assert(find_in_process_table(proc_group.proc_table, live->pid) == live);
+    }
+
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+
+    kill_and_wait(spawner_pid, SIGKILL);
+    do {
+        waited = waitpid(spawner_pid, &spawner_status, WNOHANG);
+    } while (waited == -1 && errno == EINTR);
+}
+
 /***************************************************************************
  * LIMIT_PROCESS MODULE TESTS
  ***************************************************************************/
@@ -7020,6 +7127,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_cpu_usage_with_usage);
     RUN_TEST(test_process_group_race_target_exits_between_init_and_update);
     RUN_TEST(test_process_group_race_rapid_child_spawn_exit);
+    RUN_TEST(test_process_group_purges_exited_descendants);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
