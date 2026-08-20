@@ -222,7 +222,13 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
  */
 static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
                              struct process *proc, int read_cmd) {
-    int count;
+    /*
+     * count must be initialized: kvm_getprocs() does not store into
+     * *cnt on error paths (it returns NULL early), so reading an
+     * uninitialized count after a failed call would be undefined
+     * behavior.
+     */
+    int count = 0;
     struct kinfo_proc *kproc =
         kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
     if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
@@ -243,7 +249,9 @@ static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
  * of repeatedly opening and closing kvm when checking multiple processes.
  */
 static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
-    int count;
+    /* See read_process_info(): count must be initialized because
+     * kvm_getprocs() leaves *cnt untouched on failure. */
+    int count = 0;
     const struct kinfo_proc *kproc;
     if (pid <= 0) {
         return (pid_t)(-1);
