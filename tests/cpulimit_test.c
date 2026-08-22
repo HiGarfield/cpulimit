@@ -162,6 +162,32 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
     }
 }
 
+/**
+ * @brief Suspend the calling test child process until it is killed
+ * @note Children that suspend indefinitely become permanent orphans if the
+ *       test process aborts (e.g., a failed assertion).  An orphan keeps the
+ *       test process's argv[0] and can confuse later tests such as
+ *       find_process_by_name(), which scans all processes by name and may
+ *       select the stale orphan.  Poll the parent every 100 ms and exit on
+ *       its own as soon as the parent is gone.  Never returns.
+ */
+static void test_suspend_until_killed(void) {
+    const struct timespec poll_interval = {0, 100000000L}; /* 100 ms */
+    struct timespec remaining;
+    pid_t parent_pid;
+
+    parent_pid = getppid();
+    for (;;) {
+        if (kill(parent_pid, 0) != 0 && errno == ESRCH) {
+            _exit(EXIT_FAILURE);
+        }
+        remaining = poll_interval;
+        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+            /* Retry on EINTR */
+        }
+    }
+}
+
 /***************************************************************************
  * UTIL MODULE TESTS
  ***************************************************************************/
@@ -2090,23 +2116,20 @@ static void test_process_iterator_is_child_of(void) {
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
-        sigset_t full_mask, empty_mask;
+        sigset_t full_mask;
         /*
-         * Block all blockable signals before sigsuspend to close the
-         * race window: if a signal arrived and was handled by the
-         * inherited handler before pause() was reached, pause() would
-         * block forever.  sigprocmask+sigsuspend is the POSIX-correct
-         * race-free replacement: sigsuspend atomically restores the
-         * empty mask and suspends, so no signal can be missed.
+         * Block all blockable signals so no signal can wake the child
+         * prematurely.  test_suspend_until_killed() suspends until the
+         * parent kills it, and also exits on its own if the parent
+         * aborts (failed assertion) so no orphan is left behind.
          */
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+        if (sigfillset(&full_mask) != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
-        sigsuspend(&empty_mask);
-        _exit(EXIT_SUCCESS);
+        test_suspend_until_killed();
     }
 
     /* Parent process - test is_child_of */
@@ -2184,7 +2207,7 @@ static void test_process_iterator_is_child_of_deep(void) {
          * kill(-child_pid, SIGKILL).
          */
         pid_t gc_pid;
-        sigset_t full_mask, empty_mask;
+        sigset_t full_mask;
 
         close(pipe_fds[0]);
         if (setpgid(0, 0) != 0) { /* new process group */
@@ -2208,30 +2231,27 @@ static void test_process_iterator_is_child_of_deep(void) {
             }
             close(pipe_fds[1]);
             /* Wait until killed */
-            if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0 ||
+            if (sigfillset(&full_mask) != 0 ||
                 sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
                 kill(gc_pid, SIGKILL);
                 _exit(1);
             }
-            sigsuspend(&empty_mask);
             /*
-             * sigsuspend returns only for non-SIGKILL signals.  The
-             * grandparent kills this whole process group with SIGKILL, so
-             * this path is only reached if an unexpected signal arrives first.
-             * Kill the grandchild defensively before exiting.
+             * Suspend until killed.  test_suspend_until_killed() also
+             * exits on its own if the grandparent aborts (failed
+             * assertion); the grandchild, which waits on this process's
+             * death, then exits too, so no orphan is left behind.
              */
-            kill(gc_pid, SIGKILL);
-            _exit(EXIT_SUCCESS);
+            test_suspend_until_killed();
         }
 
         /* Grandchild: close pipe and wait until killed */
         close(pipe_fds[1]);
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0 ||
+        if (sigfillset(&full_mask) != 0 ||
             sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
-        sigsuspend(&empty_mask);
-        _exit(EXIT_SUCCESS);
+        test_suspend_until_killed();
     } else {
         char *buf;
         size_t remaining;
@@ -2367,7 +2387,7 @@ static void test_process_iterator_newline_comm(void) {
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
-        sigset_t full_mask, empty_mask;
+        sigset_t full_mask;
         /* Child: set comm with embedded newline, signal parent, then wait */
         close(pipe_fds[0]);
         if (prctl(PR_SET_NAME, "ab\ncd") != 0) {
@@ -2379,12 +2399,11 @@ static void test_process_iterator_newline_comm(void) {
             _exit(1);
         }
         close(pipe_fds[1]);
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0 ||
+        if (sigfillset(&full_mask) != 0 ||
             sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
-        sigsuspend(&empty_mask);
-        _exit(EXIT_SUCCESS);
+        test_suspend_until_killed();
     }
 
     /* Parent: wait until the child has set its newline-containing comm */
@@ -2552,23 +2571,20 @@ static void test_process_iterator_multiple(void) {
     assert(child_pid >= 0);
 
     if (child_pid == 0) {
-        sigset_t full_mask, empty_mask;
+        sigset_t full_mask;
         /*
-         * Block all blockable signals before sigsuspend to close the
-         * race window: if a signal arrived and was handled by the
-         * inherited handler before pause() was reached, pause() would
-         * block forever.  sigprocmask+sigsuspend is the POSIX-correct
-         * race-free replacement: sigsuspend atomically restores the
-         * empty mask and suspends, so no signal can be missed.
+         * Block all blockable signals so no signal can wake the child
+         * prematurely.  test_suspend_until_killed() suspends until the
+         * parent kills it, and also exits on its own if the parent
+         * aborts (failed assertion) so no orphan is left behind.
          */
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+        if (sigfillset(&full_mask) != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
-        sigsuspend(&empty_mask);
-        _exit(EXIT_SUCCESS);
+        test_suspend_until_killed();
     }
 
     /* Allocate memory for process structure */
@@ -2927,23 +2943,20 @@ static void test_process_iterator_with_children(void) {
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
-        sigset_t full_mask, empty_mask;
+        sigset_t full_mask;
         /*
-         * Block all blockable signals before sigsuspend to close the
-         * race window: if a signal arrived and was handled by the
-         * inherited handler before pause() was reached, pause() would
-         * block forever.  sigprocmask+sigsuspend is the POSIX-correct
-         * race-free replacement: sigsuspend atomically restores the
-         * empty mask and suspends, so no signal can be missed.
+         * Block all blockable signals so no signal can wake the child
+         * prematurely.  test_suspend_until_killed() suspends until the
+         * parent kills it, and also exits on its own if the parent
+         * aborts (failed assertion) so no orphan is left behind.
          */
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+        if (sigfillset(&full_mask) != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
-        sigsuspend(&empty_mask);
-        _exit(EXIT_SUCCESS);
+        test_suspend_until_killed();
     }
 
     proc = (struct process *)malloc(sizeof(struct process));
@@ -5228,15 +5241,14 @@ static void test_process_group_update_return_value(void) {
     assert(child_pid >= 0);
     if (child_pid == 0) {
         /* Child pauses until killed */
-        sigset_t full_mask, empty_mask;
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+        sigset_t full_mask;
+        if (sigfillset(&full_mask) != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
-        sigsuspend(&empty_mask);
-        _exit(EXIT_SUCCESS);
+        test_suspend_until_killed();
     }
 
     /* update_process_group must return 0 when the target exists */
