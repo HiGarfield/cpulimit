@@ -85,6 +85,83 @@ int init_process_iterator(struct process_iterator *iter,
 }
 
 /**
+ * @brief Read the entire contents of a file into a heap buffer
+ * @param file_name Path to the file to read
+ * @return Heap-allocated NUL-terminated string, or NULL on error or empty file
+ *
+ * Unlike read_first_line(), this reads past the first newline.  This is
+ * required for /proc/[pid]/stat, whose comm field is the only string
+ * field: prctl(PR_SET_NAME) allows a process to embed a newline in its
+ * comm, which the kernel stores verbatim.  A first-line read would
+ * truncate the stat content inside comm, hiding the ')' that terminates
+ * the field and causing the process to be dropped from iteration.
+ */
+static char *read_stat_file(const char *file_name) {
+    int fd = -1;
+    char *buf = NULL;
+    size_t bufsize = 2048; /* Initial buffer capacity */
+    size_t buflen = 0;     /* Current data length */
+    ssize_t n_read;
+
+    if (file_name == NULL) {
+        return NULL;
+    }
+
+    fd = open(file_name, O_RDONLY);
+    if (fd < 0) {
+        return NULL;
+    }
+
+    buf = (char *)malloc(bufsize);
+    if (buf == NULL) {
+        goto error;
+    }
+
+    while (1) {
+        /* Ensure sufficient buffer space for next read */
+        if (buflen >= bufsize - 1) {
+            char *temp;
+            if (bufsize > (size_t)-1 / 2) {
+                goto error; /* Prevent overflow */
+            }
+            bufsize *= 2;
+            temp = (char *)realloc(buf, bufsize);
+            if (temp == NULL) {
+                goto error;
+            }
+            buf = temp;
+        }
+
+        /* Read data directly into buffer until EOF */
+        do {
+            n_read = read(fd, buf + buflen, bufsize - buflen - 1);
+        } while (n_read < 0 && errno == EINTR);
+
+        if (n_read <= 0) {
+            break; /* EOF or error */
+        }
+
+        buflen += (size_t)n_read;
+    }
+
+    /* Handle error or empty file cases */
+    if (n_read < 0 || (n_read == 0 && buflen == 0)) {
+        goto error;
+    }
+
+    close(fd);
+    buf[buflen] = '\0';
+    return buf;
+
+error:
+    if (fd >= 0) {
+        close(fd);
+    }
+    free(buf);
+    return NULL;
+}
+
+/**
  * @brief Extract process information from Linux /proc filesystem
  * @param pid Process ID to query
  * @param proc Pointer to process structure to populate
@@ -123,13 +200,14 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         (int)sizeof(statfile)) {
         return -1;
     }
-    buffer = read_first_line(statfile);
+    buffer = read_stat_file(statfile);
     if (buffer == NULL) {
         return -1;
     }
     /*
      * Find the last ')' to handle process names containing parentheses.
-     * Format: pid (comm) state ppid ... utime stime ...
+     * The whole file is read so a newline embedded in comm cannot hide
+     * the closing ')'.  Format: pid (comm) state ppid ... utime stime ...
      */
     p = strrchr(buffer, ')');
     if (p == NULL) {
@@ -252,7 +330,7 @@ pid_t getppid_of(pid_t pid) {
         (int)sizeof(statfile)) {
         return (pid_t)-1;
     }
-    buffer = read_first_line(statfile);
+    buffer = read_stat_file(statfile);
     if (buffer == NULL) {
         return (pid_t)-1;
     }

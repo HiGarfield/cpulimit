@@ -49,6 +49,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 
@@ -2327,6 +2330,109 @@ static void test_is_child_of_kernel_thread_not_child_of_init(void) {
      * ppid is 0, so the loop must stop and return 0.
      */
     assert(is_child_of(kthread_child, (pid_t)1) == 0);
+#endif /* __linux__ */
+}
+
+/**
+ * @brief Regression test: a process whose comm contains a newline must remain
+ *        visible to the iterator, getppid_of(), and is_child_of()
+ * @note prctl(PR_SET_NAME) allows embedding a newline in comm, which the
+ *       kernel stores verbatim in /proc/[pid]/stat.  Reading only the first
+ *       line of that file truncated the content inside comm, so the ')'
+ *       terminating the comm field was never found and the process was
+ *       silently dropped from iteration and parent-chain traversal.  Only
+ *       runs on Linux where prctl(PR_SET_NAME) is available.
+ */
+static void test_process_iterator_newline_comm(void) {
+#ifdef __linux__
+    pid_t parent_pid, child_pid;
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
+    int pipe_fds[2];
+    char sync_byte = 0;
+    int count, found, ret;
+
+    parent_pid = getpid();
+
+    proc = (struct process *)malloc(sizeof(struct process));
+    if (proc == NULL) {
+        fprintf(stderr, "malloc failed %s(%d)\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
+
+    assert(pipe(pipe_fds) == 0);
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+
+    if (child_pid == 0) {
+        sigset_t full_mask, empty_mask;
+        /* Child: set comm with embedded newline, signal parent, then wait */
+        close(pipe_fds[0]);
+        if (prctl(PR_SET_NAME, "ab\ncd") != 0) {
+            close(pipe_fds[1]);
+            _exit(1);
+        }
+        if (write(pipe_fds[1], "R", 1) != 1) {
+            close(pipe_fds[1]);
+            _exit(1);
+        }
+        close(pipe_fds[1]);
+        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0 ||
+            sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            _exit(1);
+        }
+        sigsuspend(&empty_mask);
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Parent: wait until the child has set its newline-containing comm */
+    close(pipe_fds[1]);
+    assert(read(pipe_fds[0], &sync_byte, 1) == 1);
+    close(pipe_fds[0]);
+    assert(sync_byte == 'R');
+
+    /* Fast path: single-process filter must still find the child */
+    filter.pid = child_pid;
+    filter.include_children = 0;
+    filter.read_cmd = 0;
+    ret = init_process_iterator(&iter, &filter);
+    assert(ret == 0);
+    count = 0;
+    while (get_next_process(&iter, proc) == 0) {
+        assert(proc->pid == child_pid);
+        assert(proc->ppid == parent_pid);
+        count++;
+    }
+    assert(count == 1);
+    ret = close_process_iterator(&iter);
+    assert(ret == 0);
+
+    /* getppid_of() and is_child_of() must also work on this process */
+    assert(getppid_of(child_pid) == parent_pid);
+    assert(is_child_of(child_pid, parent_pid) == 1);
+
+    /* Scan path: include-children filter must discover the child too */
+    filter.pid = parent_pid;
+    filter.include_children = 1;
+    filter.read_cmd = 0;
+    ret = init_process_iterator(&iter, &filter);
+    assert(ret == 0);
+    found = 0;
+    while (get_next_process(&iter, proc) == 0) {
+        if (proc->pid == child_pid) {
+            assert(proc->ppid == parent_pid);
+            found = 1;
+        }
+    }
+    assert(found == 1);
+    ret = close_process_iterator(&iter);
+    assert(ret == 0);
+
+    /* Clean up child and free proc */
+    free(proc);
+    kill_and_wait(child_pid, SIGKILL);
 #endif /* __linux__ */
 }
 
@@ -7039,6 +7145,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_is_child_of);
     RUN_TEST(test_process_iterator_is_child_of_deep);
     RUN_TEST(test_is_child_of_kernel_thread_not_child_of_init);
+    RUN_TEST(test_process_iterator_newline_comm);
     RUN_TEST(test_process_iterator_filter_edge_cases);
     RUN_TEST(test_process_iterator_single);
     RUN_TEST(test_process_iterator_multiple);
