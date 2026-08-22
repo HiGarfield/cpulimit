@@ -125,7 +125,7 @@ void increase_priority(void) {
  * would overflow int. Note: a whitespace-only string (e.g., " ") is also
  * rejected due to invalid syntax (strtol finds no number).
  */
-static int parse_cpu_range(const char *str) {
+int parse_cpu_range(const char *str) {
     const char *parse_pos = str;
     char *endptr;
     int cpu_count = 0;

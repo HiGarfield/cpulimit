@@ -148,6 +148,16 @@ int cpulimit_getloadavg(double *loadavg, int nelem);
  *         or NULL on error or empty file.
  */
 char *read_first_line(const char *file_name);
+
+/**
+ * @brief Parse a Linux sysfs CPU range string into a CPU count
+ * @param str CPU range specification (e.g. "0-3", "0,2,4", "0-1,4-7")
+ * @return Number of CPUs described by the range, or -1 on parse error
+ *
+ * Public only so the unit tests can verify its boundary behaviour.
+ * Behaviour and contract are documented at the definition in util.c.
+ */
+int parse_cpu_range(const char *str);
 #endif
 
 /**

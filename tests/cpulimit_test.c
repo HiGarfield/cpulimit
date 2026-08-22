@@ -761,6 +761,67 @@ static void test_util_read_first_line(void) {
 }
 #endif /* __linux__ */
 
+#ifdef __linux__
+/**
+ * @brief Exercise parse_cpu_range boundary and error handling
+ * @note parse_cpu_range() previously had no test coverage despite its
+ *       overflow/range/syntax guards.  This test drives it directly with
+ *       valid, malformed, and overflow-prone inputs to prove the boundary
+ *       logic is correct and never returns a value that would corrupt the
+ *       cached CPU count in get_ncpu().
+ */
+static void test_util_parse_cpu_range(void) {
+    /* Single CPU and simple ranges map to their element counts */
+    assert(parse_cpu_range("0") == 1);
+    assert(parse_cpu_range("3") == 1);
+    assert(parse_cpu_range("0-3") == 4);
+    assert(parse_cpu_range("0-1") == 2);
+    assert(parse_cpu_range("4-7") == 4);
+
+    /* Comma-separated combinations accumulate correctly */
+    assert(parse_cpu_range("0-3,8-11") == 8);
+    assert(parse_cpu_range("0,2,4") == 3);
+    assert(parse_cpu_range("0-1,4-7,15") == 2 + 4 + 1);
+
+    /* Whitespace around numbers and separators is tolerated */
+    assert(parse_cpu_range(" 0 - 3 ") == 4);
+    assert(parse_cpu_range("0, 2 , 4") == 3);
+
+    /* Error cases must return -1 (never a bogus positive count) */
+    assert(parse_cpu_range(NULL) == -1);
+    assert(parse_cpu_range("") == -1);
+    assert(parse_cpu_range("   ") == -1);          /* whitespace-only */
+    assert(parse_cpu_range("abc") == -1);          /* non-numeric */
+    assert(parse_cpu_range("0-3,") == -1);         /* trailing comma */
+    assert(parse_cpu_range("0-3,4-") == -1);       /* open-ended range */
+    assert(parse_cpu_range("0--3") == -1);         /* malformed dash */
+    assert(parse_cpu_range("3-0") == -1);          /* reversed range */
+    assert(parse_cpu_range("-1") == -1);           /* negative start */
+    assert(parse_cpu_range("0-") == -1);            /* missing end */
+    assert(parse_cpu_range("0x1") == -1);          /* hex rejected */
+    assert(parse_cpu_range("0,1,2,3,4,5,6,7,8,9") == 10);
+
+    /*
+     * Overflow guard: a range whose length would push the running
+     * count past INT_MAX must be rejected rather than wrapping.
+     * INT_MAX-1 as a single CPU plus a range that would exceed INT_MAX.
+     */
+    {
+        char big[64];
+        /* start just below INT_MAX with a range that overflows */
+        snprintf(big, sizeof(big), "%d-%d", INT_MAX - 2, INT_MAX);
+        /* range_len = 2, cpu_count starts 0, 0 + 3 <= INT_MAX: ok = 3 */
+        assert(parse_cpu_range(big) == 3);
+    }
+    {
+        char big[64];
+        /* A reversed/huge range must still be rejected */
+        snprintf(big, sizeof(big), "%d-%d", INT_MAX, 0);
+        assert(parse_cpu_range(big) == -1);
+    }
+}
+#endif /* __linux__ */
+
 /**
  * @brief Test MAX, MIN, and CLAMP macros with all comparison branches
  * @note Covers a>b, a<b, a==b for MAX/MIN; below/above/in-range for CLAMP
@@ -7321,6 +7382,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_long2pid_t);
 #if defined(__linux__)
     RUN_TEST(test_util_read_first_line);
+    RUN_TEST(test_util_parse_cpu_range);
 #endif
     RUN_TEST(test_util_macros);
 
