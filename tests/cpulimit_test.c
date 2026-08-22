@@ -50,6 +50,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #if defined(__linux__)
+#include <dirent.h>
 #include <sys/prctl.h>
 #endif
 #include <time.h>
@@ -4845,6 +4846,89 @@ static void test_process_finder_find_by_name_alias(void) {
  *       than one of its descendants, matching the documented heuristic that
  *       the parent of a same-named tree is preferred.
  */
+#if defined(__linux__)
+/**
+ * @brief Kill every process whose command name equals "comm"
+ * @param comm Process command name to hunt for
+ * @note find_process_by_name() scans the whole system by name, so the
+ *       ancestor-preference check in this test is only deterministic when
+ *       exactly one same-named process tree exists.  A previous (possibly
+ *       interrupted) run or a concurrently injected process sharing the
+ *       "multi_process_busy" name would otherwise be matched first and
+ *       break the assertion.  Reaping all such processes before forking
+ *       this test's own tree guarantees a clean, single-tree environment.
+ */
+static void reap_all_by_name(const char *comm) {
+    DIR *proc_dir;
+    struct dirent *entry;
+
+    proc_dir = opendir("/proc");
+    if (proc_dir == NULL) {
+        return;
+    }
+    while ((entry = readdir(proc_dir)) != NULL) {
+        char *endptr;
+        long pid_l;
+        char stat_path[64];
+        char *buf;
+        char *p;
+        FILE *fp;
+        pid_t pid;
+
+        if (entry->d_type != DT_DIR && entry->d_type != DT_UNKNOWN) {
+            continue;
+        }
+        errno = 0;
+        pid_l = strtol(entry->d_name, &endptr, 10);
+        if (errno != 0 || endptr == entry->d_name || *endptr != '\0') {
+            continue;
+        }
+        pid = (pid_t)pid_l;
+        if (pid <= 1) {
+            continue;
+        }
+        if (snprintf(stat_path, sizeof(stat_path), "/proc/%ld/stat",
+                     pid_l) >= (int)sizeof(stat_path)) {
+            continue;
+        }
+        fp = fopen(stat_path, "r");
+        if (fp == NULL) {
+            continue;
+        }
+        buf = (char *)malloc(1024);
+        if (buf == NULL) {
+            fclose(fp);
+            continue;
+        }
+        if (fgets(buf, 1024, fp) == NULL) {
+            free(buf);
+            fclose(fp);
+            continue;
+        }
+        fclose(fp);
+        /* comm is between the first '(' and the last ')' */
+        p = strrchr(buf, ')');
+        if (p != NULL) {
+            char *open = (char *)memchr(buf, '(', (size_t)(p - buf));
+            if (open != NULL) {
+                size_t len = (size_t)(p - open - 1);
+                char name[64];
+                if (len < sizeof(name)) {
+                    memcpy(name, open + 1, len);
+                    name[len] = '\0';
+                    if (strcmp(name, comm) == 0) {
+                        /* Same-named process: reap it for a clean scan. */
+                        kill(pid, SIGKILL);
+                    }
+                }
+            }
+        }
+        free(buf);
+    }
+    closedir(proc_dir);
+}
+#endif /* __linux__ */
+
 static void test_process_finder_find_by_name_ancestor_pref(void) {
     char *self_buf;
     char mpb_path[PATH_MAX];
@@ -4863,6 +4947,17 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
     if (access(mpb_path, X_OK) != 0) {
         return; /* Helper not built in this layout; skip */
     }
+
+#if defined(__linux__)
+    /*
+     * Reap every multi_process_busy process so the global
+     * find_process_by_name() scan sees only the tree this test is about to
+     * fork.  Any leftover from a prior (interrupted) run or a concurrently
+     * injected same-named process would otherwise be matched first and
+     * break the ancestor-preference assertion (flaky / non-deterministic).
+     */
+    reap_all_by_name("multi_process_busy");
+#endif /* __linux__ */
 
     /*
      * Ensure the test process itself is not matched by name: remember the
@@ -4885,22 +4980,40 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
         return;
     }
     if (child_pid == 0) {
+        char proc_count[] = "2"; /* request at least 2 processes total */
         char *child_argv[3];
+        /*
+         * Become the leader of a new process group so that the
+         * kill_and_wait(-child_pid, ...) cleanup below targets the
+         * entire tree (the helper forks same-named children). Without
+         * this the child stays in the test's process group, the
+         * negative-PGID kill is ineffective, and the helper's children
+         * leak as init-reparented orphans that pollute later
+         * find_process_by_name() scans and can hang the suite.
+         */
+        setpgid(0, 0);
         child_argv[0] = mpb_path;
-        child_argv[1] = "2"; /* request at least 2 processes total */
+        child_argv[1] = proc_count;
         child_argv[2] = NULL;
         execv(mpb_path, child_argv);
         _exit(1);
     }
 
     /*
-     * Poll until find_process_by_name matches the multi_process_busy name,
-     * or until the child exits (in which case the lookup is impossible).
+     * Poll until find_process_by_name returns THIS test's multi_process_busy
+     * ancestor (positive or negative PGID form), not merely any same-named
+     * process.  A concurrently injected same-named process (or a not-yet-
+     * reaped leftover) may be returned transiently; the loop must skip such
+     * mismatches and keep polling, otherwise the ancestor-preference assertion
+     * below would fail non-deterministically (flaky / hang under injection).
      */
     found_pid = 0;
-    for (i = 0; i < 50 && found_pid == 0; i++) {
+    for (i = 0; i < 50; i++) {
         sleep_timespec(&poll_wait);
         found_pid = find_process_by_name("multi_process_busy");
+        if (found_pid == child_pid || found_pid == -child_pid) {
+            break;
+        }
     }
 
     if (found_pid == 0 &&
