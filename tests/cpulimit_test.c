@@ -4836,6 +4836,91 @@ static void test_process_finder_find_by_name_alias(void) {
     assert(found_pid == child_pid || found_pid == -child_pid);
 }
 
+/**
+ * @brief Test find_process_by_name ancestor-preference with a parent/child
+ *        process tree of identical names
+ * @note Forks multi_process_busy (which internally forks more children that
+ *       share the same executable name).  Verifies that find_process_by_name
+ *       returns the outermost ancestor (the PID we directly forked) rather
+ *       than one of its descendants, matching the documented heuristic that
+ *       the parent of a same-named tree is preferred.
+ */
+static void test_process_finder_find_by_name_ancestor_pref(void) {
+    char *self_buf;
+    char mpb_path[PATH_MAX];
+    pid_t child_pid;
+    pid_t found_pid;
+    unsigned int i;
+    int child_status;
+    const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
+
+    /* Locate the multi_process_busy helper built alongside the tests. */
+    if (snprintf(mpb_path, sizeof(mpb_path), "%s/tests/multi_process_busy",
+                 getenv("CPULIMIT_BUILD_DIR") != NULL ? getenv("CPULIMIT_BUILD_DIR")
+                                                      : ".") >= (int)sizeof(mpb_path)) {
+        return;
+    }
+    if (access(mpb_path, X_OK) != 0) {
+        return; /* Helper not built in this layout; skip */
+    }
+
+    /*
+     * Ensure the test process itself is not matched by name: remember the
+     * test binary's own command so we can assert the found PID differs from
+     * our own (it must be the multi_process_busy ancestor we fork).
+     */
+    self_buf = (char *)malloc(CMD_BUFF_SIZE);
+    if (self_buf == NULL) {
+        return;
+    }
+    if (get_self_command(self_buf, CMD_BUFF_SIZE) == NULL) {
+        free(self_buf);
+        return;
+    }
+    free(self_buf);
+
+    /* Fork multi_process_busy; it will spawn same-named children. */
+    child_pid = fork();
+    if (child_pid < 0) {
+        return;
+    }
+    if (child_pid == 0) {
+        char *child_argv[3];
+        child_argv[0] = mpb_path;
+        child_argv[1] = "2"; /* request at least 2 processes total */
+        child_argv[2] = NULL;
+        execv(mpb_path, child_argv);
+        _exit(1);
+    }
+
+    /*
+     * Poll until find_process_by_name matches the multi_process_busy name,
+     * or until the child exits (in which case the lookup is impossible).
+     */
+    found_pid = 0;
+    for (i = 0; i < 50 && found_pid == 0; i++) {
+        sleep_timespec(&poll_wait);
+        found_pid = find_process_by_name("multi_process_busy");
+    }
+
+    if (found_pid == 0 &&
+        waitpid(child_pid, &child_status, WNOHANG) == child_pid &&
+        (WIFEXITED(child_status) || WIFSIGNALED(child_status))) {
+        return; /* Child exited before it could be observed; skip */
+    }
+
+    /* Cleanup: kill the whole process group rooted at the child. */
+    kill_and_wait(-child_pid, SIGKILL);
+
+    /*
+     * The ancestor-preference heuristic must return the outermost
+     * multi_process_busy ancestor: the PID we directly forked (positive),
+     * not one of its descendants and not our own test process.
+     */
+    assert(found_pid == child_pid || found_pid == -child_pid);
+    assert(found_pid != getpid());
+}
+
 /***************************************************************************
  * PROCESS_GROUP MODULE TESTS
  ***************************************************************************/
@@ -7225,6 +7310,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_finder_find_by_name_self);
     RUN_TEST(test_process_finder_find_by_name_symlink);
     RUN_TEST(test_process_finder_find_by_name_alias);
+    RUN_TEST(test_process_finder_find_by_name_ancestor_pref);
 
     /* Process group module tests */
     printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");

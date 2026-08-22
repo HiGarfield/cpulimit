@@ -1,2 +1,3 @@
 build
+build_clang_san
 _codeql_build_dir
