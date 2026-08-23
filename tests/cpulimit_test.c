@@ -4998,20 +4998,27 @@ static void reap_all_by_name(const char *comm) {
 
 static void test_process_finder_find_by_name_ancestor_pref(void) {
     char *self_buf;
-    char mpb_path[PATH_MAX];
+    char *mpb_path;
     pid_t child_pid;
     pid_t found_pid;
     unsigned int i;
     int child_status;
     const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
 
-    /* Locate the multi_process_busy helper built alongside the tests. */
-    if (snprintf(mpb_path, sizeof(mpb_path), "%s/tests/multi_process_busy",
+    /* Locate the multi_process_busy helper built alongside the tests.
+       PATH_MAX-sized stack buffers exceed the frame-size budget; use heap. */
+    mpb_path = (char *)malloc(PATH_MAX);
+    if (mpb_path == NULL) {
+        return;
+    }
+    if (snprintf(mpb_path, PATH_MAX, "%s/tests/multi_process_busy",
                  getenv("CPULIMIT_BUILD_DIR") != NULL ? getenv("CPULIMIT_BUILD_DIR")
-                                                      : ".") >= (int)sizeof(mpb_path)) {
+                                                      : ".") >= (int)PATH_MAX) {
+        free(mpb_path);
         return;
     }
     if (access(mpb_path, X_OK) != 0) {
+        free(mpb_path);
         return; /* Helper not built in this layout; skip */
     }
 
@@ -5044,6 +5051,7 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
     /* Fork multi_process_busy; it will spawn same-named children. */
     child_pid = fork();
     if (child_pid < 0) {
+        free(mpb_path);
         return;
     }
     if (child_pid == 0) {
@@ -5086,6 +5094,7 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
     if (found_pid == 0 &&
         waitpid(child_pid, &child_status, WNOHANG) == child_pid &&
         (WIFEXITED(child_status) || WIFSIGNALED(child_status))) {
+        free(mpb_path);
         return; /* Child exited before it could be observed; skip */
     }
 
@@ -5099,6 +5108,7 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
      */
     assert(found_pid == child_pid || found_pid == -child_pid);
     assert(found_pid != getpid());
+    free(mpb_path);
 }
 
 /***************************************************************************
