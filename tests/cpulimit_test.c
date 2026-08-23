@@ -52,6 +52,12 @@
 #if defined(__linux__)
 #include <dirent.h>
 #include <sys/prctl.h>
+
+/* Older glibc headers (e.g. CentOS 4.5) do not define PR_SET_NAME even
+   though the 2.6.9+ kernel supports it.  Provide the fallback value. */
+#ifndef PR_SET_NAME
+#define PR_SET_NAME 15
+#endif
 #endif
 #include <time.h>
 #include <unistd.h>
@@ -4970,12 +4976,12 @@ static void reap_all_by_name(const char *comm) {
         /* comm is between the first '(' and the last ')' */
         p = strrchr(buf, ')');
         if (p != NULL) {
-            char *open = (char *)memchr(buf, '(', (size_t)(p - buf));
-            if (open != NULL) {
-                size_t len = (size_t)(p - open - 1);
+            char *open_paren = (char *)memchr(buf, '(', (size_t)(p - buf));
+            if (open_paren != NULL) {
+                size_t len = (size_t)(p - open_paren - 1);
                 char name[64];
                 if (len < sizeof(name)) {
-                    memcpy(name, open + 1, len);
+                    memcpy(name, open_paren + 1, len);
                     name[len] = '\0';
                     if (strcmp(name, comm) == 0) {
                         /* Same-named process: reap it for a clean scan. */
