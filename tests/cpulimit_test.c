@@ -4929,7 +4929,7 @@ static void test_process_finder_find_by_name_alias(void) {
  */
 static void reap_all_by_name(const char *comm) {
     DIR *proc_dir;
-    struct dirent *entry;
+    const struct dirent *entry;
 
     proc_dir = opendir("/proc");
     if (proc_dir == NULL) {
@@ -4940,7 +4940,7 @@ static void reap_all_by_name(const char *comm) {
         long pid_l;
         char stat_path[64];
         char *buf;
-        char *p;
+        const char *p;
         FILE *fp;
         pid_t pid;
 
@@ -4978,7 +4978,8 @@ static void reap_all_by_name(const char *comm) {
         /* comm is between the first '(' and the last ')' */
         p = strrchr(buf, ')');
         if (p != NULL) {
-            char *open_paren = (char *)memchr(buf, '(', (size_t)(p - buf));
+            const char *open_paren =
+                (const char *)memchr(buf, '(', (size_t)(p - buf));
             if (open_paren != NULL) {
                 size_t len = (size_t)(p - open_paren - 1);
                 char name[64];

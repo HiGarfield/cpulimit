@@ -112,7 +112,6 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     double user_time, sys_time;
     static long sc_clk_tck = -1;
     int cmdline_fd;
-    ssize_t bytes_read;
     size_t total_read;
 
     memset(proc, 0, sizeof(struct process));
@@ -193,6 +192,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      */
     total_read = 0;
     while (total_read < sizeof(proc->command) - 1) {
+        ssize_t bytes_read;
         bytes_read = read(cmdline_fd, proc->command + total_read,
                           sizeof(proc->command) - 1 - total_read);
         if (bytes_read < 0) {
