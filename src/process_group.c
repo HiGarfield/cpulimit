@@ -167,7 +167,9 @@ static struct process *process_dup(const struct process *proc) {
         fprintf(stderr, "Memory allocation failed for duplicated process\n");
         exit(EXIT_FAILURE);
     }
-    *new_proc = *proc;
+    /* Copy via memcpy: avoids generating a large stack temporary for a
+       by-value struct assignment (struct process is ~4 KiB). */
+    memcpy(new_proc, proc, sizeof(*new_proc));
     return new_proc;
 }
 
@@ -220,7 +222,7 @@ static void update_existing_process_entry(struct process *proc,
          * CPU time decreased: PID has been reused for a new process.
          * Reset all historical data.
          */
-        *proc = *scan_proc;
+        memcpy(proc, scan_proc, sizeof(*proc));
         /* Mark CPU usage as unknown for new process */
         proc->cpu_usage = -1;
         return;
