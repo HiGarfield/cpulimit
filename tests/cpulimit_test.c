@@ -5042,10 +5042,12 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
      */
     self_buf = (char *)malloc(CMD_BUFF_SIZE);
     if (self_buf == NULL) {
+        free(mpb_path);
         return;
     }
     if (get_self_command(self_buf, CMD_BUFF_SIZE) == NULL) {
         free(self_buf);
+        free(mpb_path);
         return;
     }
     free(self_buf);
