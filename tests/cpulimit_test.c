@@ -608,12 +608,14 @@ static void test_util_long2pid_t(void) {
 
 #if defined(__linux__)
 /**
- * @brief Test read_first_line with NULL, missing, and valid files
- * @note Covers all three return paths of read_first_line (Linux only);
- *       also exercises the realloc growth path with a line > 256 bytes
+ * @brief Test read_file_contents with NULL, missing, and valid files
+ * @note Covers all return paths of read_file_contents (Linux only);
+ *       also exercises the realloc growth path with content > 256 bytes.
+ *       Unlike a line reader, the full content is returned verbatim,
+ *       including trailing newlines and carriage returns.
  */
-static void test_util_read_first_line(void) {
-    char *line;
+static void test_util_read_file_contents(void) {
+    char *content;
     char tmp_file[] = "/tmp/cpulimit_empty_XXXXXX";
     int tmp_fd;
     char newline_tmp_file[] = "/tmp/cpulimit_newline_XXXXXX";
@@ -625,145 +627,145 @@ static void test_util_read_first_line(void) {
     char cr_middle_tmp_file[] = "/tmp/cpulimit_crmiddle_XXXXXX";
     int cr_middle_fd;
     ssize_t nwritten;
-    /* Buffer for the > 256-byte line tests */
+    /* Buffer for the > 256-byte content tests */
     char long_tmp_file[] = "/tmp/cpulimit_long_XXXXXX";
     int long_fd;
     char long_tmp_nonl[] = "/tmp/cpulimit_longnl_XXXXXX";
     int long_nonl_fd;
     /* 300 'a' characters, filling well past the initial 256-byte buffer */
-    char *long_line;
+    char *long_content;
     int li;
     int cmp_ret;
-    size_t line_len;
+    size_t content_len;
 
     /* NULL filename must return NULL */
-    line = read_first_line(NULL);
-    assert(line == NULL);
+    content = read_file_contents(NULL);
+    assert(content == NULL);
 
     /* Non-existent file must return NULL */
-    line = read_first_line("/nonexistent/cpulimit_test_no_such_file");
-    assert(line == NULL);
+    content = read_file_contents("/nonexistent/cpulimit_test_no_such_file");
+    assert(content == NULL);
 
     /* /proc/self/stat always exists and is non-empty */
-    line = read_first_line("/proc/self/stat");
-    assert(line != NULL);
-    free(line);
+    content = read_file_contents("/proc/self/stat");
+    assert(content != NULL);
+    free(content);
 
     /*
-     * Empty file must return NULL (getline returns -1 on immediate EOF).
+     * Empty file must return NULL (immediate EOF with no data).
      * Use mkstemp() to avoid name collisions in parallel test runs.
      */
     tmp_fd = mkstemp(tmp_file);
     assert(tmp_fd >= 0);
     close(tmp_fd);
-    line = read_first_line(tmp_file);
-    assert(line == NULL);
+    content = read_file_contents(tmp_file);
+    assert(content == NULL);
     remove(tmp_file);
 
-    /* A file containing only a newline returns a non-NULL empty string */
+    /* A file containing only a newline returns its full content "\n" */
     newline_fd = mkstemp(newline_tmp_file);
     assert(newline_fd >= 0);
     nwritten = write(newline_fd, "\n", 1);
     assert(nwritten == 1);
     close(newline_fd);
-    line = read_first_line(newline_tmp_file);
-    assert(line != NULL);
-    assert(line[0] == '\0');
-    free(line);
+    content = read_file_contents(newline_tmp_file);
+    assert(content != NULL);
+    cmp_ret = strcmp(content, "\n");
+    assert(cmp_ret == 0);
+    free(content);
     remove(newline_tmp_file);
 
     /*
-     * A CRLF-terminated line must have both '\r' and '\n' stripped.
-     * Expected result is the clean logical line content.
+     * A CRLF-terminated file must return the content verbatim, including
+     * both the '\r' and '\n'.
      */
     crlf_fd = mkstemp(crlf_tmp_file);
     assert(crlf_fd >= 0);
     nwritten = write(crlf_fd, "abc\r\n", 5);
     assert(nwritten == 5);
     close(crlf_fd);
-    line = read_first_line(crlf_tmp_file);
-    assert(line != NULL);
-    cmp_ret = strcmp(line, "abc");
+    content = read_file_contents(crlf_tmp_file);
+    assert(content != NULL);
+    cmp_ret = strcmp(content, "abc\r\n");
     assert(cmp_ret == 0);
-    free(line);
+    free(content);
     remove(crlf_tmp_file);
 
-    /* EOF-terminated line with trailing CR must also be normalized */
+    /* EOF-terminated content with trailing CR must be preserved verbatim */
     cr_only_fd = mkstemp(cr_only_tmp_file);
     assert(cr_only_fd >= 0);
     nwritten = write(cr_only_fd, "abc\r", 4);
     assert(nwritten == 4);
     close(cr_only_fd);
-    line = read_first_line(cr_only_tmp_file);
-    assert(line != NULL);
-    cmp_ret = strcmp(line, "abc");
+    content = read_file_contents(cr_only_tmp_file);
+    assert(content != NULL);
+    cmp_ret = strcmp(content, "abc\r");
     assert(cmp_ret == 0);
-    free(line);
+    free(content);
     remove(cr_only_tmp_file);
 
-    /*
-     * Embedded CR must be preserved; only trailing CR/LF at line ending
-     * are stripped.
-     */
+    /* Embedded CR and trailing LF must all be preserved verbatim */
     cr_middle_fd = mkstemp(cr_middle_tmp_file);
     assert(cr_middle_fd >= 0);
     nwritten = write(cr_middle_fd, "a\rb\n", 4);
     assert(nwritten == 4);
     close(cr_middle_fd);
-    line = read_first_line(cr_middle_tmp_file);
-    assert(line != NULL);
-    cmp_ret = strcmp(line, "a\rb");
+    content = read_file_contents(cr_middle_tmp_file);
+    assert(content != NULL);
+    cmp_ret = strcmp(content, "a\rb\n");
     assert(cmp_ret == 0);
-    free(line);
+    free(content);
     remove(cr_middle_tmp_file);
 
-    /* Build a 300-character line to exercise the realloc growth path */
-    long_line = (char *)malloc(300);
-    assert(long_line != NULL);
+    /* Build a 300-character content to exercise the realloc growth path */
+    long_content = (char *)malloc(300);
+    assert(long_content != NULL);
     for (li = 0; li < 300; li++) {
-        long_line[li] = 'a';
+        long_content[li] = 'a';
     }
 
     /*
-     * Line > 256 bytes followed by a newline: realloc path must be taken
-     * and the returned string must be exactly 300 'a' characters long.
+     * Content > 256 bytes followed by a newline: realloc path must be taken
+     * and the returned string must contain the full 300 'a' characters
+     * plus the trailing '\n'.
      */
     long_fd = mkstemp(long_tmp_file);
     assert(long_fd >= 0);
-    nwritten = write(long_fd, long_line, 300);
+    nwritten = write(long_fd, long_content, 300);
     assert(nwritten == 300);
     nwritten = write(long_fd, "\n", 1);
     assert(nwritten == 1);
     close(long_fd);
-    line = read_first_line(long_tmp_file);
-    assert(line != NULL);
-    line_len = strlen(line);
-    assert(line_len == 300);
+    content = read_file_contents(long_tmp_file);
+    assert(content != NULL);
+    content_len = strlen(content);
+    assert(content_len == 301);
     for (li = 0; li < 300; li++) {
-        assert(line[li] == 'a');
+        assert(content[li] == 'a');
     }
-    free(line);
+    assert(content[300] == '\n');
+    free(content);
     remove(long_tmp_file);
 
     /*
-     * Line > 256 bytes with no trailing newline (EOF-terminated): realloc
-     * path must be taken and the entire content must be returned.
+     * Content > 256 bytes with no trailing newline (EOF-terminated):
+     * realloc path must be taken and the entire content must be returned.
      */
     long_nonl_fd = mkstemp(long_tmp_nonl);
     assert(long_nonl_fd >= 0);
-    nwritten = write(long_nonl_fd, long_line, 300);
+    nwritten = write(long_nonl_fd, long_content, 300);
     assert(nwritten == 300);
     close(long_nonl_fd);
-    line = read_first_line(long_tmp_nonl);
-    assert(line != NULL);
-    line_len = strlen(line);
-    assert(line_len == 300);
+    content = read_file_contents(long_tmp_nonl);
+    assert(content != NULL);
+    content_len = strlen(content);
+    assert(content_len == 300);
     for (li = 0; li < 300; li++) {
-        assert(line[li] == 'a');
+        assert(content[li] == 'a');
     }
-    free(line);
+    free(content);
     remove(long_tmp_nonl);
-    free(long_line);
+    free(long_content);
 }
 #endif /* __linux__ */
 
@@ -7397,7 +7399,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_increase_priority);
     RUN_TEST(test_util_long2pid_t);
 #if defined(__linux__)
-    RUN_TEST(test_util_read_first_line);
+    RUN_TEST(test_util_read_file_contents);
     RUN_TEST(test_util_parse_cpu_range);
 #endif
     RUN_TEST(test_util_macros);

@@ -222,7 +222,7 @@ static int get_online_cpu_count(void) {
     char *line;
     int cpu_count;
 
-    line = read_first_line("/sys/devices/system/cpu/online");
+    line = read_file_contents("/sys/devices/system/cpu/online");
     if (line == NULL) {
         return -1; /* Failed to read file */
     }
@@ -353,21 +353,22 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
 
 #if defined(__linux__)
 /**
- * @brief Read the first line from a text file.
+ * @brief Read the entire contents of a text file.
  *
- * Opens the specified text file, reads its first line, removes any trailing
- * carriage return ('\r') and newline ('\n'), and returns the result.
+ * Opens the specified text file and reads all of its bytes into a
+ * heap-allocated, NUL-terminated buffer. Unlike a line reader, this reads
+ * past any newline, which is required for files such as /proc/[pid]/stat
+ * whose only string field (comm) may legitimately embed a newline.
  *
- * The returned string is heap-allocated and must be freed by the caller.
+ * The returned buffer is heap-allocated and must be freed by the caller.
  *
  * @param file_name Path to the file.
- * @return Heap-allocated string, empty string for a line with only "\n",
- *         or NULL on error or empty file.
+ * @return Heap-allocated NUL-terminated string, or NULL on error or empty
+ *         file.
  */
-char *read_first_line(const char *file_name) {
+char *read_file_contents(const char *file_name) {
     int fd = -1;
     char *buf = NULL;
-    const char *newline_pos;
     size_t bufsize = 2048; /* Initial buffer capacity */
     size_t buflen = 0;     /* Current data length */
     ssize_t n_read;
@@ -401,7 +402,7 @@ char *read_first_line(const char *file_name) {
             buf = temp;
         }
 
-        /* Read data directly into buffer */
+        /* Read data directly into buffer until EOF */
         do {
             n_read = read(fd, buf + buflen, bufsize - buflen - 1);
         } while (n_read < 0 && errno == EINTR);
@@ -410,12 +411,6 @@ char *read_first_line(const char *file_name) {
             break; /* EOF or error */
         }
 
-        /* Search for newline in newly read data */
-        newline_pos = (const char *)memchr(buf + buflen, '\n', (size_t)n_read);
-        if (newline_pos != NULL) {
-            buflen = (size_t)(newline_pos - buf); /* Exclude '\n' */
-            break;
-        }
         buflen += (size_t)n_read;
     }
 
@@ -425,12 +420,6 @@ char *read_first_line(const char *file_name) {
     }
 
     close(fd);
-
-    /* Remove trailing carriage return if present */
-    if (buflen > 0 && buf[buflen - 1] == '\r') {
-        --buflen;
-    }
-
     buf[buflen] = '\0';
     return buf;
 

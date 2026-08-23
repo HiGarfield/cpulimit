@@ -136,18 +136,20 @@ int cpulimit_getloadavg(double *loadavg, int nelem);
 
 #if defined(__linux__)
 /**
- * @brief Read the first line from a text file.
+ * @brief Read the entire contents of a text file.
  *
- * Opens the specified text file, reads its first line, removes any trailing
- * carriage return ('\r') and newline ('\n'), and returns the result.
+ * Opens the specified text file and reads all of its bytes into a
+ * heap-allocated, NUL-terminated buffer. Unlike a line reader, this reads
+ * past any newline, which is required for files such as /proc/[pid]/stat
+ * whose only string field (comm) may legitimately embed a newline.
  *
- * The returned string is heap-allocated and must be freed by the caller.
+ * The returned buffer is heap-allocated and must be freed by the caller.
  *
  * @param file_name Path to the file.
- * @return Heap-allocated string, empty string for a line with only "\n",
- *         or NULL on error or empty file.
+ * @return Heap-allocated NUL-terminated string, or NULL on error or empty
+ *         file.
  */
-char *read_first_line(const char *file_name);
+char *read_file_contents(const char *file_name);
 
 /**
  * @brief Parse a Linux sysfs CPU range string into a CPU count
