@@ -6120,6 +6120,23 @@ static void sigcont_exit_handler(int sig) {
 }
 
 /**
+ * @brief Shared counter incremented by resume_counter_handler.
+ * @note Used by test_limiter_run_pid_or_exe_mode_resumes_target to prove the
+ *       target was resumed (received SIGCONT) at least once instead of being
+ *       left permanently stopped.
+ */
+static volatile sig_atomic_t resume_counter = 0;
+
+/**
+ * @brief SIGCONT handler that records a resume event in resume_counter.
+ * @param sig Signal number (unused)
+ */
+static void resume_counter_handler(int sig) {
+    (void)sig;
+    resume_counter++;
+}
+
+/**
  * @brief Test that limit_process handles ESRCH when target exits on SIGCONT
  * @note Exercises the race between SIGCONT and the subsequent SIGSTOP:
  *       the target installs a SIGCONT handler that calls _exit(), so when
@@ -7212,6 +7229,105 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
 }
 
 /**
+ * @brief Test run_pid_or_exe_mode always resumes the target before returning
+ * @note Regression test for the missing-resume bug: run_pid_or_exe_mode must
+ *       send SIGCONT to the target after limit_process() returns, mirroring
+ *       the symmetric guard in run_command_mode().  Without it, a target that
+ *       is still SIGSTOP-ped when limit_process() exits (e.g. because a stopped
+ *       process is momentarily invisible to the process iterator, or because
+ *       update_process_group() failed and cleared the process list) would be
+ *       left permanently stopped.
+ *
+ *       The target installs a SIGCONT handler that increments a shared counter
+ *       and a SIGSTOP handler, then is pre-stopped by the test.  The wrapper
+ *       drives run_pid_or_exe_mode(); limit_process() must eventually SIGCONT
+ *       the target so it resumes and runs to completion.  We assert the
+ *       wrapper exits EXIT_SUCCESS and that the target received at least one
+ *       SIGCONT (proof it was not left permanently stopped).
+ */
+static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code;
+
+    fflush(stdout);
+    fflush(stderr);
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        pid_t target_pid;
+        int target_status;
+        struct cpulimit_cfg cfg;
+        struct sigaction sa_stop, sa_cont;
+
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+
+        target_pid = fork();
+        assert(target_pid >= 0);
+        if (target_pid == 0) {
+            /*
+             * Install a SIGCONT handler that records each resume.  The
+             * resume count is reported back via the exit code (0 = resumed
+             * at least once, 2 = never resumed / left permanently stopped).
+             */
+            sa_cont.sa_handler = resume_counter_handler;
+            if (sigemptyset(&sa_cont.sa_mask) != 0 ||
+                sigaction(SIGCONT, &sa_cont, NULL) != 0) {
+                _exit(2);
+            }
+            sa_stop.sa_handler = SIG_DFL;
+            if (sigaction(SIGSTOP, &sa_stop, NULL) != 0) {
+                _exit(2);
+            }
+            /*
+             * Spin until resumed at least once.  While the process is
+             * SIGSTOP-ped it cannot execute, so reaching the _exit() below
+             * proves it was resumed (received SIGCONT).  Bail out if the
+             * parent disappears so we never spin forever.
+             */
+            while (resume_counter < 1 && getppid() != 1) {
+                struct timespec tiny = {0, 1000000L};
+                nanosleep(&tiny, NULL);
+            }
+            _exit(resume_counter >= 1 ? EXIT_SUCCESS : 2);
+        }
+
+        /* Pre-stop the target before the limiter takes over */
+        kill(target_pid, SIGSTOP);
+
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.target_pid = target_pid;
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 1;
+        cfg.verbose = 0;
+        run_pid_or_exe_mode(&cfg);
+        /*
+         * run_pid_or_exe_mode only returns after the target terminates.
+         * Reap it to learn whether the target was ever resumed.
+         */
+        if (waitpid(target_pid, &target_status, 0) == target_pid &&
+            WIFEXITED(target_status)) {
+            _exit(WEXITSTATUS(target_status));
+        }
+        _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
+                                calls exit */
+    }
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    assert(w_exited);
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    /*
+     * EXIT_SUCCESS (0) means the target was resumed and ran to completion.
+     * Any other code means the target was never resumed (left stopped) or an
+     * error occurred -- which would indicate a regression of the resume bug.
+     */
+    assert(w_exit_code == EXIT_SUCCESS);
+}
+
+/**
  * @brief Test run_command_mode when the quit flag is already set before
  *        limit_process is entered
  * @note Exercises the race where a termination signal (SIGTERM) arrives
@@ -7642,6 +7758,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
     RUN_TEST(test_limiter_race_quit_flag_preset_before_limit);
     RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;

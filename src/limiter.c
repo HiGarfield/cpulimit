@@ -810,6 +810,28 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
              */
             limit_process(found_pid, cfg->limit, cfg->include_children,
                           cfg->verbose);
+
+            /*
+             * Always resume the target after limit_process() returns.
+             * limit_process() sends SIGCONT via its process list before
+             * returning, but on some platforms (e.g. macOS 10.7) a stopped
+             * process may not be visible to the process iterator, leaving it
+             * stopped even though limit_process() has exited; and if
+             * update_process_group() fails, proc_list is cleared so the
+             * cleanup SIGCONT inside limit_process() traverses an empty list
+             * and cannot resume a still-stopped target. Sending SIGCONT here
+             * unconditionally ensures the target is running when we leave.
+             * kill() to an already-exited process returns ESRCH, which is
+             * harmless here.
+             *
+             * This mirrors the symmetric guard already present in
+             * run_command_mode() after its limit_process() call.
+             */
+            if (kill(found_pid, SIGCONT) != 0 && errno != ESRCH) {
+                int err = errno;
+                fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n",
+                        (long)found_pid, strerror(err));
+            }
         }
 
         /*
