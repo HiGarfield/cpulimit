@@ -209,18 +209,22 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     }
 
     /*
-     * Allocate exactly KERN_ARGMAX bytes.  The kernel stores at most
-     * ARG_MAX bytes of process argument data, and KERN_ARGMAX returns
-     * that same ARG_MAX value, so this single allocation is always
-     * large enough: KERN_PROCARGS2 will never fail with ENOMEM when
-     * the buffer is KERN_ARGMAX bytes.  No retry is needed.
+     * KERN_PROCARGS2 layout is [int argc][argument data...].  The kernel
+     * writes sizeof(int) bytes for argc plus up to argmax bytes of argument
+     * data, so the buffer must be argmax + sizeof(int) to hold the full
+     * payload.  Allocating only argmax bytes would truncate the payload and
+     * make sysctl() return ENOMEM, which would make get_proc_argv0() fail
+     * for processes whose command line is longer than argmax - sizeof(int).
+     * That in turn makes the process invisible to find_process_by_name()
+     * (the -e/executable matching path) and to the read_cmd path used for
+     * child command matching.
      */
-    procargs = (char *)malloc((size_t)argmax);
+    procargs = (char *)malloc((size_t)argmax + sizeof(int));
     if (procargs == NULL) {
         return -1;
     }
 
-    size = (size_t)argmax;
+    size = (size_t)argmax + sizeof(int);
     if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
         free(procargs);
         return -1;

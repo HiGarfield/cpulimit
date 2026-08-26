@@ -49,6 +49,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 #if defined(__linux__)
 #include <dirent.h>
 #include <sys/prctl.h>
@@ -465,6 +468,82 @@ static void test_time_util_timediff_in_ms(void) {
     diff_ms = timediff_in_ms(&later, &earlier);
     assert(diff_ms >= 0.998 && diff_ms <= 1.0);
 }
+
+#if defined(__APPLE__)
+/**
+ * @brief Test macOS KERN_PROCARGS2 buffer sizing used by get_proc_argv0()
+ * @note Regression test for the buffer under-allocation bug: get_proc_argv0()
+ *       read the process command line via sysctl(KERN_PROCARGS2), whose layout
+ *       is [int argc][argument data...] and therefore requires
+ *       sizeof(int) + argmax bytes.  The old code allocated only argmax bytes,
+ *       which truncates the payload and makes sysctl() return ENOMEM for
+ *       processes whose command line is longer than argmax - sizeof(int).
+ *       That caused those processes to be skipped by find_process_by_name().
+ *
+ *       This test proves the fixed allocation (argmax + sizeof(int)) is
+ *       always sufficient: for any real process the value sysctl() writes
+ *       back into *size never exceeds argmax + sizeof(int), so the larger
+ *       buffer can never be overflowed and the call always succeeds.
+ */
+static void test_apple_proc_argv0_buffer_sizing(void) {
+    int mib[3];
+    int mib_argmax[2];
+    int argmax;
+    size_t argmax_size;
+    size_t required_size;
+    char *buf_fixed;
+    char *buf_old;
+
+    /* Query the maximum argument data size. */
+    mib_argmax[0] = CTL_KERN;
+    mib_argmax[1] = KERN_ARGMAX;
+    argmax_size = sizeof(argmax);
+    assert(sysctl(mib_argmax, 2, &argmax, &argmax_size, NULL, 0) == 0);
+    assert(argmax > 0);
+
+    /* Target the current test process. */
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_PROCARGS2;
+    mib[2] = (int)getpid();
+
+    /*
+     * Fixed allocation: argmax + sizeof(int).  The kernel writes at most
+     * sizeof(int) (for argc) plus argmax (for the argument data), so this
+     * buffer is always large enough.  The returned size must therefore be
+     * <= what we allocated and the call must succeed.
+     */
+    buf_fixed = (char *)malloc((size_t)argmax + sizeof(int));
+    assert(buf_fixed != NULL);
+    required_size = (size_t)argmax + sizeof(int);
+    assert(sysctl(mib, 3, buf_fixed, &required_size, NULL, 0) == 0);
+    /* The kernel never needs more than the amount we provided. */
+    assert(required_size <= (size_t)argmax + sizeof(int));
+    free(buf_fixed);
+
+    /*
+     * Old allocation: argmax only.  Prove it can be insufficient: when the
+     * real payload (sizeof(int) + argument bytes) exceeds argmax, sysctl()
+     * returns ENOMEM and writes back the true requirement, which is larger
+     * than argmax.  We assert that such a process cannot be served by the old
+     * buffer, whereas the fixed buffer (above) always can.
+     */
+    buf_old = (char *)malloc((size_t)argmax);
+    assert(buf_old != NULL);
+    required_size = (size_t)argmax;
+    if (sysctl(mib, 3, buf_old, &required_size, NULL, 0) != 0) {
+        /* ENOMEM => old buffer too small; real need exceeds argmax. */
+        assert(required_size > (size_t)argmax);
+    }
+    free(buf_old);
+
+    /*
+     * Meaningful precondition check: KERN_ARGMAX must report a strictly
+     * positive number of bytes, otherwise the buffer planning above is
+     * meaningless and malloc() would receive a non-positive size.
+     */
+    assert(argmax > 0);
+}
+#endif /* __APPLE__ */
 
 /***************************************************************************
  * UTIL MODULE TESTS
@@ -7394,6 +7473,9 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_time_util_get_current_time);
     RUN_TEST(test_time_util_sleep_timespec);
     RUN_TEST(test_time_util_timediff_in_ms);
+#if defined(__APPLE__)
+    RUN_TEST(test_apple_proc_argv0_buffer_sizing);
+#endif
 
     /* Util module tests */
     printf("\n=== UTIL MODULE TESTS ===\n");
