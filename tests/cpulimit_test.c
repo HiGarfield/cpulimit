@@ -877,15 +877,15 @@ static void test_util_parse_cpu_range(void) {
     /* Error cases must return -1 (never a bogus positive count) */
     assert(parse_cpu_range(NULL) == -1);
     assert(parse_cpu_range("") == -1);
-    assert(parse_cpu_range("   ") == -1);          /* whitespace-only */
-    assert(parse_cpu_range("abc") == -1);          /* non-numeric */
-    assert(parse_cpu_range("0-3,") == -1);         /* trailing comma */
-    assert(parse_cpu_range("0-3,4-") == -1);       /* open-ended range */
-    assert(parse_cpu_range("0--3") == -1);         /* malformed dash */
-    assert(parse_cpu_range("3-0") == -1);          /* reversed range */
-    assert(parse_cpu_range("-1") == -1);           /* negative start */
-    assert(parse_cpu_range("0-") == -1);            /* missing end */
-    assert(parse_cpu_range("0x1") == -1);          /* hex rejected */
+    assert(parse_cpu_range("   ") == -1);    /* whitespace-only */
+    assert(parse_cpu_range("abc") == -1);    /* non-numeric */
+    assert(parse_cpu_range("0-3,") == -1);   /* trailing comma */
+    assert(parse_cpu_range("0-3,4-") == -1); /* open-ended range */
+    assert(parse_cpu_range("0--3") == -1);   /* malformed dash */
+    assert(parse_cpu_range("3-0") == -1);    /* reversed range */
+    assert(parse_cpu_range("-1") == -1);     /* negative start */
+    assert(parse_cpu_range("0-") == -1);     /* missing end */
+    assert(parse_cpu_range("0x1") == -1);    /* hex rejected */
     assert(parse_cpu_range("0,1,2,3,4,5,6,7,8,9") == 10);
 
     /*
@@ -5035,8 +5035,8 @@ static void reap_all_by_name(const char *comm) {
         if (pid <= 1) {
             continue;
         }
-        if (snprintf(stat_path, sizeof(stat_path), "/proc/%ld/stat",
-                     pid_l) >= (int)sizeof(stat_path)) {
+        if (snprintf(stat_path, sizeof(stat_path), "/proc/%ld/stat", pid_l) >=
+            (int)sizeof(stat_path)) {
             continue;
         }
         fp = fopen(stat_path, "r");
@@ -5094,8 +5094,9 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
         return;
     }
     if (snprintf(mpb_path, PATH_MAX, "%s/tests/multi_process_busy",
-                 getenv("CPULIMIT_BUILD_DIR") != NULL ? getenv("CPULIMIT_BUILD_DIR")
-                                                      : ".") >= (int)PATH_MAX) {
+                 getenv("CPULIMIT_BUILD_DIR") != NULL
+                     ? getenv("CPULIMIT_BUILD_DIR")
+                     : ".") >= (int)PATH_MAX) {
         free(mpb_path);
         return;
     }
@@ -5843,8 +5844,7 @@ static void test_process_group_purges_exited_descendants(void) {
     /* No exited grandchild may remain in the hash table */
     for (child_idx = 0; child_idx < 4; child_idx++) {
         const struct process *stale =
-            find_in_process_table(proc_group.proc_table,
-                                  child_pids[child_idx]);
+            find_in_process_table(proc_group.proc_table, child_pids[child_idx]);
         assert(stale == NULL);
     }
 
