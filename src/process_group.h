@@ -64,6 +64,18 @@ struct process_group {
     struct list *proc_list;
 
     /**
+     * PIDs that this group has suspended with SIGSTOP and has not resumed
+     * yet. Each element is a heap-allocated pid_t owned by the list.
+     *
+     * The list outlives a single update cycle on purpose: proc_list is
+     * rebuilt from scratch by update_process_group(), and a process that
+     * stops matching the group while suspended (for example a descendant
+     * that is re-parented away when its monitored ancestor exits) would
+     * otherwise never receive the SIGCONT that undoes the SIGSTOP.
+     */
+    struct list *stopped_pids;
+
+    /**
      * PID of the primary target process.
      * This is the root of the process tree being monitored.
      */
@@ -95,8 +107,9 @@ struct process_group {
  * 1. Allocates and initializes the process hashtable (PROCESS_TABLE_HASHSIZE
  *    buckets)
  * 2. Allocates and initializes the process list
- * 3. Records the current time as baseline for CPU calculations
- * 4. Performs initial update to populate the process list
+ * 3. Allocates and initializes the suspended-PID list
+ * 4. Records the current time as baseline for CPU calculations
+ * 5. Performs initial update to populate the process list
  *
  * @note Returns -1 immediately if proc_group is NULL
  * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
@@ -112,8 +125,9 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
  *
  * This function:
  * 1. Clears and frees the process list
- * 2. Destroys and frees the process hashtable
- * 3. Sets pointers to NULL and zeros numeric fields for safety
+ * 2. Destroys and frees the suspended-PID list
+ * 3. Destroys and frees the process hashtable
+ * 4. Sets pointers to NULL and zeros numeric fields for safety
  *
  * @note Safe to call with NULL proc_group (returns 0 immediately)
  * @note Safe to call even if proc_group is partially initialized (NULLs are
@@ -123,6 +137,38 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
  *       re-initialization
  */
 int close_process_group(struct process_group *proc_group);
+
+/**
+ * @brief Record that a member of the group has just been suspended
+ * @param proc_group Pointer to the process group structure
+ * @param pid PID that was successfully sent SIGSTOP
+ *
+ * proc_list is rebuilt from scratch by update_process_group(), so a process
+ * can cease to be a member of the group while it is still suspended: a
+ * descendant, for instance, is re-parented away when its monitored ancestor
+ * exits, and is_child_of() then no longer matches it.  Recording the PID
+ * keeps the suspension undoable after the process has left proc_list.
+ *
+ * @note Safe to call with NULL proc_group or a group whose suspended-PID
+ *       list has not been allocated; the call is then a no-op
+ * @note Silently skips the record if memory allocation fails; the process
+ *       stays reachable through proc_list for the regular resume round
+ */
+void record_stopped_pid(struct process_group *proc_group, pid_t pid);
+
+/**
+ * @brief Resume every PID recorded by record_stopped_pid() and empty the list
+ * @param proc_group Pointer to the process group structure
+ *
+ * Sends SIGCONT to every recorded PID and frees the list.  Used both for
+ * the regular resume round and for the final cleanup, so that processes
+ * which left the group while suspended are resumed as well instead of
+ * staying suspended forever.
+ *
+ * @note Safe to call with NULL proc_group or a group whose suspended-PID
+ *       list has not been allocated; the call is then a no-op
+ */
+void resume_stopped_pids(struct process_group *proc_group);
 
 /**
  * @brief Refresh process group state and recalculate CPU usage

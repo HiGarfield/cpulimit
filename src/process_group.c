@@ -31,6 +31,7 @@
 #include "time_util.h"
 #include "util.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,6 +91,16 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
     }
     init_list(proc_group->proc_list);
 
+    /* Allocate and initialize the list of PIDs suspended by this group */
+    proc_group->stopped_pids = (struct list *)malloc(sizeof(struct list));
+    if (proc_group->stopped_pids == NULL) {
+        fprintf(stderr,
+                "Memory allocation failed for the suspended process list\n");
+        close_process_group(proc_group);
+        exit(EXIT_FAILURE);
+    }
+    init_list(proc_group->stopped_pids);
+
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&proc_group->last_update) != 0) {
         perror("get_current_time");
@@ -138,6 +149,17 @@ int close_process_group(struct process_group *proc_group) {
         proc_group->proc_list = NULL;
     }
 
+    if (proc_group->stopped_pids != NULL) {
+        /*
+         * Each element is a heap-allocated pid_t owned by this list, so
+         * destroy_list() (not clear_list()) is required to release the
+         * elements together with their nodes.
+         */
+        destroy_list(proc_group->stopped_pids);
+        free(proc_group->stopped_pids);
+        proc_group->stopped_pids = NULL;
+    }
+
     if (proc_group->proc_table != NULL) {
         destroy_process_table(proc_group->proc_table);
         free(proc_group->proc_table);
@@ -171,6 +193,53 @@ static struct process *process_dup(const struct process *proc) {
        by-value struct assignment (struct process is ~4 KiB). */
     memcpy(new_proc, proc, sizeof(*new_proc));
     return new_proc;
+}
+
+/**
+ * @brief Record that a member of the group has just been suspended
+ * @param proc_group Pointer to the process group structure
+ * @param pid PID that was successfully sent SIGSTOP
+ *
+ * proc_list is rebuilt from scratch by update_process_group(), so a process
+ * can cease to be a member of the group while it is still suspended: a
+ * descendant, for instance, is re-parented away when its monitored ancestor
+ * exits, and is_child_of() then no longer matches it.  Recording the PID
+ * here keeps the suspension undoable after the process has left proc_list.
+ */
+void record_stopped_pid(struct process_group *proc_group, pid_t pid) {
+    pid_t *stopped_pid;
+    if (proc_group == NULL || proc_group->stopped_pids == NULL) {
+        return;
+    }
+    stopped_pid = (pid_t *)malloc(sizeof(*stopped_pid));
+    if (stopped_pid == NULL) {
+        return;
+    }
+    *stopped_pid = pid;
+    add_elem(proc_group->stopped_pids, stopped_pid);
+}
+
+/**
+ * @brief Resume every PID recorded by record_stopped_pid() and empty the list
+ * @param proc_group Pointer to the process group structure
+ *
+ * Sends SIGCONT to every recorded PID and frees the list.  Used both for the
+ * regular resume round and for the final cleanup, so that processes which
+ * left the group while suspended are resumed as well instead of staying
+ * suspended forever.
+ */
+void resume_stopped_pids(struct process_group *proc_group) {
+    struct list_node *node;
+    if (proc_group == NULL || proc_group->stopped_pids == NULL) {
+        return;
+    }
+    for (node = first_node(proc_group->stopped_pids); node != NULL;
+         node = node->next) {
+        if (node->data != NULL) {
+            kill(*(const pid_t *)node->data, SIGCONT);
+        }
+    }
+    destroy_list(proc_group->stopped_pids);
 }
 
 /**

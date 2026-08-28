@@ -5525,8 +5525,7 @@ static void test_process_group_close_null(void) {
     assert(ret == 0);
 
     /* Partially initialised struct (NULL members) must also work */
-    proc_group.proc_table = NULL;
-    proc_group.proc_list = NULL;
+    memset(&proc_group, 0, sizeof(proc_group));
     ret = close_process_group(&proc_group);
     assert(ret == 0);
 }
@@ -6125,6 +6124,184 @@ static void test_limit_process_include_children(void) {
     } while (waited_pid == -1 && errno == EINTR);
     assert(waited_pid == child_pid);
     limit_process(child_pid, 0.5, 1, 0); /* include_children=1 */
+}
+
+/**
+ * @brief Drain every heartbeat byte currently readable from a pipe
+ * @param fd Non-blocking read end of a heartbeat pipe
+ * @return Number of bytes drained
+ *
+ * A running process writes heartbeats into the pipe; a suspended process
+ * writes nothing.  A zero count over a time window therefore proves the
+ * writer did not execute during that window.
+ */
+static int drain_heartbeats(int fd) {
+    char buf[128];
+    int count = 0;
+    for (;;) {
+        ssize_t n_read = read(fd, buf, sizeof(buf));
+        if (n_read > 0) {
+            count += (int)n_read;
+            continue;
+        }
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        break; /* EAGAIN: pipe drained, or a hard error */
+    }
+    return count;
+}
+
+/**
+ * @brief Test that a descendant orphaned by its ancestor is resumed on exit
+ *
+ * A descendant tracked through include_children stops matching the group as
+ * soon as its monitored ancestor exits: the descendant is re-parented away,
+ * so is_child_of() no longer finds the ancestor in its parent chain and the
+ * descendant disappears from the process group while it still holds the
+ * SIGSTOP that limit_process() sent.  limit_process() must therefore
+ * remember every PID it suspended and resume those as well when it leaves;
+ * otherwise the orphan stays suspended forever.
+ *
+ * The descendant announces that it is executing by writing heartbeats into
+ * a pipe.  Once the limiter has exited, heartbeats must reappear.
+ */
+static void test_limit_process_resumes_orphaned_descendant(void) {
+    const double cpu_usage_limit = 0.001;
+    const struct timespec settle_time = {1, 0};
+    const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
+    int heartbeat[2], info[2], ret;
+    pid_t target_pid, descendant_pid, limiter_pid;
+    size_t info_read;
+    int limiter_exited, attempt;
+
+    ret = pipe(heartbeat);
+    assert(ret == 0);
+    ret = pipe(info);
+    assert(ret == 0);
+    ret = fcntl(heartbeat[0], F_SETFL, O_NONBLOCK);
+    assert(ret == 0);
+    ret = fcntl(heartbeat[1], F_SETFL, O_NONBLOCK);
+    assert(ret == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    target_pid = fork();
+    assert(target_pid >= 0);
+    if (target_pid == 0) {
+        pid_t child_pid;
+        ret = close(heartbeat[0]);
+        assert(ret == 0);
+        ret = close(info[0]);
+        assert(ret == 0);
+
+        child_pid = fork();
+        assert(child_pid >= 0);
+        if (child_pid == 0) {
+            ret = close(info[1]);
+            assert(ret == 0);
+            for (;;) {
+                volatile int spin;
+                for (spin = 0; spin < 20000; spin = spin + 1) {
+                    ;
+                }
+                /*
+                 * Best effort: the write end is non-blocking, so a full
+                 * pipe simply drops the heartbeat.
+                 */
+                if (write(heartbeat[1], "x", 1) != 1) {
+                    /* Pipe full: the drain loop will catch up later. */
+                }
+            }
+        }
+        if (write(info[1], &child_pid, sizeof(child_pid)) !=
+            (ssize_t)sizeof(child_pid)) {
+            _exit(EXIT_FAILURE);
+        }
+        ret = close(info[1]);
+        assert(ret == 0);
+        for (;;) {
+            volatile int spin;
+            for (spin = 0; spin < 20000; spin = spin + 1) {
+                ;
+            }
+        }
+    }
+
+    ret = close(heartbeat[1]);
+    assert(ret == 0);
+    ret = close(info[1]);
+    assert(ret == 0);
+
+    /* Learn the descendant PID from the target. */
+    info_read = 0;
+    while (info_read < sizeof(descendant_pid)) {
+        ssize_t n_read = read(info[0], ((char *)&descendant_pid) + info_read,
+                              sizeof(descendant_pid) - info_read);
+        if (n_read > 0) {
+            info_read += (size_t)n_read;
+            continue;
+        }
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    assert(info_read == sizeof(descendant_pid));
+    ret = close(info[0]);
+    assert(ret == 0);
+
+    limiter_pid = fork();
+    assert(limiter_pid >= 0);
+    if (limiter_pid == 0) {
+        ret = close(heartbeat[0]);
+        assert(ret == 0);
+        configure_signal_handler();
+        limit_process(target_pid, cpu_usage_limit, 1, 0);
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Let the limiter suspend the whole group for a few cycles. */
+    sleep_timespec(&settle_time);
+
+    /* Kill the ancestor: the descendant is orphaned while suspended. */
+    kill(target_pid, SIGKILL);
+    while (waitpid(target_pid, NULL, 0) == -1 && errno == EINTR) {
+        /* Retry on EINTR */
+    }
+
+    /* The limiter must notice that its group is gone and return. */
+    limiter_exited = 0;
+    for (attempt = 0; attempt < 500 && !limiter_exited; attempt++) {
+        pid_t wpid = waitpid(limiter_pid, NULL, WNOHANG);
+        if (wpid == limiter_pid) {
+            limiter_exited = 1;
+        } else if (wpid == -1 && errno != EINTR) {
+            break;
+        } else {
+            sleep_timespec(&poll_time);
+        }
+    }
+    if (!limiter_exited) {
+        kill(limiter_pid, SIGKILL);
+        while (waitpid(limiter_pid, NULL, 0) == -1 && errno == EINTR) {
+            /* Retry on EINTR */
+        }
+    }
+    assert(limiter_exited);
+
+    /*
+     * The limiter is gone, so nothing can suspend the descendant any more.
+     * It must be executing again: heartbeats have to reappear.
+     */
+    drain_heartbeats(heartbeat[0]);
+    sleep_timespec(&settle_time);
+    assert(drain_heartbeats(heartbeat[0]) > 0);
+
+    /* The descendant was re-parented away, so it can only be killed. */
+    kill(descendant_pid, SIGKILL);
+    ret = close(heartbeat[0]);
+    assert(ret == 0);
 }
 
 /**
@@ -7759,6 +7936,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limit_process_exits_early);
     RUN_TEST(test_limit_process_verbose);
     RUN_TEST(test_limit_process_include_children);
+    RUN_TEST(test_limit_process_resumes_orphaned_descendant);
     RUN_TEST(test_limit_process_race_process_exits_on_sigcont);
     RUN_TEST(test_limit_process_race_quit_during_sleep);
 

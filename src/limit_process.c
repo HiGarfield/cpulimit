@@ -170,6 +170,10 @@ static double get_dynamic_time_slot(void) {
  * If signal delivery fails (e.g., process terminated), the process is removed
  * from the group to avoid repeated errors.
  *
+ * Successful SIGSTOP delivery is recorded in the group so that the suspension
+ * can always be undone, and SIGCONT delivery additionally resumes processes
+ * that were recorded earlier but have since left the group.
+ *
  * @note Safe iteration: stores next node before potential deletion
  */
 static void send_signal_to_processes(struct process_group *proc_group, int sig,
@@ -208,8 +212,18 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
             /* Remove dead/inaccessible process from tracking */
             delete_node(proc_group->proc_list, node);
             delete_from_process_table(proc_group->proc_table, pid);
+        } else if (sig == SIGSTOP) {
+            /* Track the suspension so it can always be undone */
+            record_stopped_pid(proc_group, pid);
         }
         node = next_node;
+    }
+    if (sig == SIGCONT) {
+        /*
+         * Resume processes that were suspended but are no longer part of
+         * the group; the loop above cannot see them any more.
+         */
+        resume_stopped_pids(proc_group);
     }
 }
 
@@ -393,6 +407,8 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     /*
      * Critical: Always resume any stopped processes before exit.
      * Leaving processes in stopped state would render them unusable.
+     * This also resumes processes that dropped out of the group while
+     * suspended (see record_stopped_pid()).
      */
     send_signal_to_processes(&proc_group, SIGCONT, 0);
 
