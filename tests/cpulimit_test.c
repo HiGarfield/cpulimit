@@ -2251,13 +2251,35 @@ static void test_signal_handler_race_rapid_all_signals(void) {
  ***************************************************************************/
 
 /**
+ * @brief Find a PID that is guaranteed not to exist on the current system
+ * @return A PID for which kill(pid, 0) fails with ESRCH
+ *
+ * The test suite used the hard-coded PID 99999 to represent a non-existent
+ * process.  PID 99999 can collide with a real process on busy systems
+ * (PID reuse), which made the assertions non-deterministic.  This helper
+ * probes downwards from the top of the pid_t range until kill() reports
+ * ESRCH, which is deterministic on all supported platforms.
+ */
+static pid_t find_unused_pid(void) {
+    pid_t candidate;
+    for (candidate = (pid_t)INT_MAX; candidate > 1; candidate--) {
+        if (kill(candidate, 0) == -1 && errno == ESRCH) {
+            return candidate;
+        }
+    }
+    return (pid_t)INT_MAX;
+}
+
+/**
  * @brief Test is_child_of function
  * @note Tests process ancestry checking
  */
 static void test_process_iterator_is_child_of(void) {
     pid_t child_pid, parent_pid;
+    pid_t unused_pid;
     int result;
 
+    unused_pid = find_unused_pid();
     parent_pid = getpid();
 
     /* Create a child process */
@@ -2314,11 +2336,11 @@ static void test_process_iterator_is_child_of(void) {
     assert(result == 0);
 
     /* Test with non-existent PID */
-    result = is_child_of(99999, parent_pid);
+    result = is_child_of(unused_pid, parent_pid);
     assert(result == 0);
 
     /* Non-existent process must not be treated as child of init */
-    result = is_child_of(99999, 1);
+    result = is_child_of(unused_pid, 1);
     assert(result == 0);
 
     /* Clean up child */
