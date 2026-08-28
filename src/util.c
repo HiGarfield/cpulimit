@@ -26,6 +26,7 @@
 #include "util.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stddef.h>
 #include <string.h>
 #include <sys/resource.h>
@@ -36,7 +37,6 @@
 #if defined(__linux__)
 #include <ctype.h>
 #include <fcntl.h>
-#include <limits.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #endif
