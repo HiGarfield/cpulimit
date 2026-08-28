@@ -6719,6 +6719,120 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
 }
 
 /**
+ * @brief Detect whether the test binary is running under valgrind
+ * @return 1 when a valgrind preload library has been injected, 0 otherwise
+ *
+ * valgrind's execve() interception opens the executable to inspect it, and
+ * that open blocks forever when the target is not a regular file. A test
+ * that execs a FIFO would therefore hang the run instead of failing, so
+ * such tests skip themselves when a valgrind preload library is visible in
+ * LD_PRELOAD (Linux) or DYLD_INSERT_LIBRARIES (macOS).
+ */
+static int running_under_valgrind(void) {
+    const char *preload = getenv("LD_PRELOAD");
+#if defined(__APPLE__)
+    if (preload == NULL) {
+        preload = getenv("DYLD_INSERT_LIBRARIES");
+    }
+#endif
+    if (preload == NULL) {
+        return 0;
+    }
+    return strstr(preload, "vgpreload") != NULL;
+}
+
+/**
+ * @brief Test run_command_mode with a FIFO as the command
+ *
+ * argv[0] is not required to be a regular file, and open() on a FIFO that
+ * has no writer blocks until another process opens the write end. The exec
+ * pre-check that inspects the shebang line must therefore open the target
+ * with O_NONBLOCK: a blocking open strands the command child before exec,
+ * and the parent then blocks reading the exec synchronisation pipe, where
+ * it can no longer be terminated by a signal either. execvp() rejects a
+ * FIFO at once, so the correct outcome is shell status 126 with no wait.
+ *
+ * @note Skipped under valgrind, whose execve() interception opens the
+ *       target executable and so blocks on a FIFO itself.
+ * @note The wait is bounded so that a regression fails this test instead of
+ *       hanging the whole run. If cpulimit does not come back, the FIFO is
+ *       given a writer to release the stranded child before cleanup.
+ */
+static void test_limiter_run_command_mode_fifo(void) {
+    const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
+    pid_t pid, waited;
+    int status, fd, exited, exit_code, ret, attempt;
+    struct cpulimit_cfg cfg;
+    char fifo_path[] = "/tmp/cpulimit_test_fifo_XXXXXX";
+    char *args[2];
+
+    if (running_under_valgrind()) {
+        printf("(skipped: valgrind's exec interception blocks on a FIFO)\n");
+        return;
+    }
+
+    /* Reserve a unique name, then turn it into a FIFO. */
+    fd = mkstemp(fifo_path);
+    assert(fd >= 0);
+    ret = close(fd);
+    assert(ret == 0);
+    ret = unlink(fifo_path);
+    assert(ret == 0);
+    ret = mkfifo(fifo_path, 0600);
+    assert(ret == 0);
+
+    args[0] = fifo_path;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    /* cpulimit must reject the FIFO immediately; it must never block. */
+    waited = 0;
+    for (attempt = 0; attempt < 100; attempt++) {
+        waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid || (waited == -1 && errno != EINTR)) {
+            break;
+        }
+        sleep_timespec(&poll_time);
+    }
+    if (waited != pid) {
+        int unblock_fd;
+        /* Release the child blocked in open(), then reap it. */
+        unblock_fd = open(fifo_path, O_WRONLY | O_NONBLOCK);
+        if (unblock_fd >= 0) {
+            if (write(unblock_fd, "xx", 2) != 2) {
+                /* Best effort: only meant to release the reader. */
+            }
+            ret = close(unblock_fd);
+            assert(ret == 0);
+        }
+        kill_blocking(pid);
+    }
+    ret = unlink(fifo_path);
+    assert(ret == 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 126);
+}
+
+/**
  * @brief Test run_command_mode with an inaccessible shebang interpreter path
  * @note The interpreter path uses a non-directory path component, so lookup
  *       fails with an inaccessible-path error and should still map to shell
@@ -7946,6 +8060,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
+    RUN_TEST(test_limiter_run_command_mode_fifo);
     RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_inaccessible);
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);

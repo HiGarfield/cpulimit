@@ -95,6 +95,14 @@
  * interpreter path cannot be accessed. Under normal execution execvp() would
  * fail, but under debugging tools such as valgrind the execve() interception
  * is unrecoverable on this path, so the check must be made before exec.
+ *
+ * The file is opened with O_NONBLOCK. argv[0] is not necessarily a regular
+ * file: opening a FIFO that has no writer, or a character device that waits
+ * for carrier, blocks until another process opens the other end. Blocking
+ * here would strand this child before exec and, through the exec
+ * synchronisation pipe, freeze the parent in a read that it cannot leave
+ * even when asked to terminate. O_NONBLOCK is defined to have no effect on
+ * regular files, so the check itself behaves exactly as before.
  */
 static int is_script_inaccessible_interpreter(const char *path) {
     int fd;
@@ -104,7 +112,7 @@ static int is_script_inaccessible_interpreter(const char *path) {
     char *p;
     char *end;
 
-    fd = open(path, O_RDONLY);
+    fd = open(path, O_RDONLY | O_NONBLOCK);
     if (fd < 0) {
         return 0;
     }
@@ -112,7 +120,9 @@ static int is_script_inaccessible_interpreter(const char *path) {
      * Retry only on EINTR (which transfers no data, so the buffer
      * position need not advance). Partial reads are acceptable: only
      * the shebang prefix and the interpreter path are needed, and both
-     * fit comfortably within a single read of a regular file.
+     * fit comfortably within a single read of a regular file. A
+     * non-regular file (a FIFO with no data, for instance) simply
+     * reports EAGAIN here and is treated as "not a script".
      */
     do {
         n = read(fd, buf, sizeof(buf) - 1);
