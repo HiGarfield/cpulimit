@@ -213,6 +213,12 @@ void record_stopped_pid(struct process_group *proc_group, pid_t pid) {
     }
     stopped_pid = (pid_t *)malloc(sizeof(*stopped_pid));
     if (stopped_pid == NULL) {
+        /*
+         * Give up on recording this PID rather than aborting: the
+         * process is still a group member, so the regular SIGCONT round
+         * reaches it. Only the narrower case of it leaving the group
+         * before that round would then be missed.
+         */
         return;
     }
     *stopped_pid = pid;
@@ -229,14 +235,26 @@ void record_stopped_pid(struct process_group *proc_group, pid_t pid) {
  * suspended forever.
  */
 void resume_stopped_pids(struct process_group *proc_group) {
-    struct list_node *node;
+    const struct list_node *node;
     if (proc_group == NULL || proc_group->stopped_pids == NULL) {
         return;
     }
     for (node = first_node(proc_group->stopped_pids); node != NULL;
          node = node->next) {
-        if (node->data != NULL) {
-            kill(*(const pid_t *)node->data, SIGCONT);
+        pid_t pid;
+        if (node->data == NULL) {
+            continue;
+        }
+        pid = *(const pid_t *)node->data;
+        /*
+         * A process that is still a group member is resumed by the
+         * regular SIGCONT round that walks proc_list, so signalling it
+         * here as well would deliver a second, redundant SIGCONT. Only
+         * the processes that have left the group need one here.
+         */
+        if (locate_elem(proc_group->proc_list, &pid,
+                        offsetof(struct process, pid), sizeof(pid_t)) == NULL) {
+            kill(pid, SIGCONT);
         }
     }
     destroy_list(proc_group->stopped_pids);

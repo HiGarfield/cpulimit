@@ -151,8 +151,8 @@ int close_process_group(struct process_group *proc_group);
  *
  * @note Safe to call with NULL proc_group or a group whose suspended-PID
  *       list has not been allocated; the call is then a no-op
- * @note Silently skips the record if memory allocation fails; the process
- *       stays reachable through proc_list for the regular resume round
+ * @note Skips the record if the pid_t cannot be allocated; the process is
+ *       still a group member, so the regular resume round reaches it
  */
 void record_stopped_pid(struct process_group *proc_group, pid_t pid);
 
@@ -160,7 +160,9 @@ void record_stopped_pid(struct process_group *proc_group, pid_t pid);
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
  * @param proc_group Pointer to the process group structure
  *
- * Sends SIGCONT to every recorded PID and frees the list.  Used both for
+ * Sends SIGCONT to every recorded PID that has left the group and frees the
+ * list.  Group members are resumed by the regular resume round, which walks
+ * proc_list, so they are deliberately not signalled twice.  Used both for
  * the regular resume round and for the final cleanup, so that processes
  * which left the group while suspended are resumed as well instead of
  * staying suspended forever.

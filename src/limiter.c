@@ -386,8 +386,6 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
 
 /**
  * @brief Wait for the child process to exit and collect its exit status
- * @param child_pid PID of the child process to wait for
- * @param cfg Pointer to configuration structure (used for verbose output)
  * @return The child's exit status if successfully reaped, EXIT_FAILURE
  *         otherwise
  *
