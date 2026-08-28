@@ -6657,6 +6657,93 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 }
 
 /**
+ * @brief Test that interrupting run_command_mode forwards the signal once
+ *
+ * A single Ctrl+C must reach the command exactly once, the way a shell
+ * delivers it: a program that traps SIGINT to shut itself down cleanly
+ * would have that handler cut short by a second, duplicate delivery.
+ *
+ * The command is the sigcount helper, which exits with the number of
+ * SIGINTs it received. run_command_mode() propagates that as its own
+ * status, so the wrapper must exit with 1.
+ *
+ * @note Skipped when the sigcount helper is not built in this layout.
+ */
+static void test_limiter_run_command_mode_forwards_signal_once(void) {
+    const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code, attempt, ready;
+    char *helper_path, *ready_path;
+    char *args[3];
+
+    helper_path = (char *)malloc(PATH_MAX);
+    assert(helper_path != NULL);
+    ready_path = (char *)malloc(PATH_MAX);
+    assert(ready_path != NULL);
+
+    if (snprintf(helper_path, PATH_MAX, "%s/tests/sigcount",
+                 getenv("CPULIMIT_BUILD_DIR") != NULL
+                     ? getenv("CPULIMIT_BUILD_DIR")
+                     : ".") >= (int)PATH_MAX ||
+        snprintf(ready_path, PATH_MAX, "%s_ready", helper_path) >=
+            (int)PATH_MAX ||
+        access(helper_path, X_OK) != 0) {
+        free(ready_path);
+        free(helper_path);
+        printf("(skipped: sigcount helper not built in this layout)\n");
+        return;
+    }
+    unlink(ready_path);
+
+    args[0] = helper_path;
+    args[1] = ready_path;
+    args[2] = NULL;
+
+    fflush(stdout);
+    fflush(stderr);
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        struct cpulimit_cfg cfg;
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.command_mode = 1;
+        cfg.command_args = args;
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 1;
+        configure_signal_handler();
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    /* Wait until the command has installed its handler. */
+    ready = 0;
+    for (attempt = 0; attempt < 500 && !ready; attempt++) {
+        if (access(ready_path, F_OK) == 0) {
+            ready = 1;
+        } else {
+            sleep_timespec(&poll_time);
+        }
+    }
+    assert(ready);
+
+    /* One interruption must produce exactly one forwarded SIGINT. */
+    kill(wrapper_pid, SIGINT);
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    unlink(ready_path);
+    free(ready_path);
+    free(helper_path);
+    assert(w_exited);
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    assert(w_exit_code == 1);
+}
+
+/**
  * @brief Test run_command_mode with a script whose shebang interpreter
  *        does not exist
  * @note execvp returns ENOENT but the file itself exists; the parent
@@ -8061,6 +8148,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
     RUN_TEST(test_limiter_run_command_mode_fifo);
+    RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
     RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_inaccessible);
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);

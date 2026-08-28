@@ -404,30 +404,29 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
  * are invisible to the process iterator) is resumed before the forwarded
  * signal is delivered.
  *
- * A two-phase forwarding check (sig_forwarded: 0 -> -1 -> 1) prevents
- * double-delivery when run_command_mode() has already forwarded the signal
- * before this function is called: the first poll that observes quit_flag
- * only marks the observation; the actual forward happens on the next poll.
- * This one-poll grace period allows a signal sent by run_command_mode() to
- * be delivered and acted upon before this function sends a duplicate.
+ * The signal is delivered exactly once.  When run_command_mode() has
+ * already forwarded it (the common case, since the quit flag is normally
+ * set before this function is reached) this function must not send a
+ * second one: two SIGINTs from a single Ctrl+C would cut short the
+ * handler a program installs to shut itself down cleanly, and no shell
+ * behaves that way.
  *
  * start_time is reset to the moment the signal is forwarded from inside
  * this function, giving the child the full CHILD_KILL_TIMEOUT_MS from the
  * point it first receives the forwarded signal (not from function entry).
+ *
+ * @param child_pid PID of the child process to wait for
+ * @param cfg Pointer to configuration structure (used for verbose output)
+ * @param signal_forwarded Non-zero if the caller already forwarded the
+ *                         quit signal to the child process group
  */
 static int collect_child_exit_status(pid_t child_pid,
-                                     const struct cpulimit_cfg *cfg) {
+                                     const struct cpulimit_cfg *cfg,
+                                     int signal_forwarded) {
     /* Default exit status if child is not properly reaped */
     int child_exit_status = EXIT_FAILURE;
     /* 1 if child PID was successfully reaped, 0 otherwise */
     int child_reaped = 0;
-    /*
-     * Three-state forwarding flag:
-     *   0  => no quit observed yet in this function
-     *  -1  => quit observed once; will forward on the next poll
-     *   1  => signal forwarded from this function
-     */
-    int sig_forwarded = 0;
     /* Timeout anchor; reset when forwarding signal */
     struct timespec start_time;
 
@@ -503,58 +502,44 @@ static int collect_child_exit_status(pid_t child_pid,
             }
 
             /*
-             * Two-phase quit-signal forwarding.
+             * Forward the quit signal exactly once.
              *
-             * If the quit signal was already forwarded by run_command_mode()
-             * before this function was called, is_quit_flag_set() will be
-             * true on the very first poll.  Forwarding immediately would
-             * duplicate the signal and shorten the grace period.  Instead,
-             * the first observation only advances the state (0 -> -1);
-             * the actual forward (and start_time reset) happens on the
-             * following poll (-1 -> 1), giving the earlier signal one
-             * poll-interval (CHILD_POLL_INTERVAL_NS) to be delivered.
+             * run_command_mode() normally forwards it before calling this
+             * function, so signal_forwarded is already non-zero and there
+             * is nothing to do: the child is already shutting down and a
+             * second delivery would only interrupt it.
              *
-             * If the quit signal has not been forwarded yet (the late-arrival
-             * race on macOS 10.7 where limit_process() exits before the
-             * signal arrives), the same two polls occur; the child receives
-             * SIGCONT + the forwarded signal one poll-interval after the
-             * quit flag is first observed.
-             *
-             * sig_forwarded states:
-             *   0  => no quit observed yet in this function
-             *  -1  => quit observed; forward on next poll if still needed
-             *   1  => already forwarded from this function
+             * The quit flag can also be set afterwards (the late-arrival
+             * race on macOS 10.7, where limit_process() returns before the
+             * signal arrives).  Then the child has not been told to stop,
+             * so the signal is forwarded here on the first poll that
+             * observes it.
              */
-            if (is_quit_flag_set()) {
-                if (sig_forwarded < 0) {
-                    int fwd_sig = get_quit_signal();
-                    if (fwd_sig == SIGPIPE || fwd_sig == 0) {
-                        fwd_sig = SIGTERM;
-                    }
-                    if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
-                        int err = errno;
-                        fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n",
-                                (long)child_pid, strerror(err));
-                    }
-                    if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
-                        int err = errno;
-                        fprintf(stderr, "kill(-%ld, %d) failed: %s\n",
-                                (long)child_pid, fwd_sig, strerror(err));
-                    }
-                    sig_forwarded = 1;
-                    /*
-                     * Reset the timeout anchor to the moment the signal is
-                     * forwarded so the child gets the full
-                     * CHILD_KILL_TIMEOUT_MS grace period from this point,
-                     * not from function entry.
-                     */
-                    if (get_current_time(&start_time) != 0) {
-                        perror("get_current_time");
-                        exit(EXIT_FAILURE);
-                    }
-                } else if (sig_forwarded == 0) {
-                    /* First observation: note it, forward on the next poll */
-                    sig_forwarded = -1;
+            if (is_quit_flag_set() && !signal_forwarded) {
+                int fwd_sig = get_quit_signal();
+                if (fwd_sig == SIGPIPE || fwd_sig == 0) {
+                    fwd_sig = SIGTERM;
+                }
+                if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
+                    int err = errno;
+                    fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n",
+                            (long)child_pid, strerror(err));
+                }
+                if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
+                    int err = errno;
+                    fprintf(stderr, "kill(-%ld, %d) failed: %s\n",
+                            (long)child_pid, fwd_sig, strerror(err));
+                }
+                signal_forwarded = 1;
+                /*
+                 * Reset the timeout anchor to the moment the signal is
+                 * forwarded so the child gets the full
+                 * CHILD_KILL_TIMEOUT_MS grace period from this point,
+                 * not from function entry.
+                 */
+                if (get_current_time(&start_time) != 0) {
+                    perror("get_current_time");
+                    exit(EXIT_FAILURE);
                 }
             }
 
@@ -627,6 +612,8 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
     int sync_pipe[2];
     /* Current file descriptor flags for sync_pipe[1] */
     int fd_flags;
+    /* 1 once the quit signal has been handed to the child process group */
+    int forwarded_quit_signal;
 
     /*
      * Create pipe for synchronization.
@@ -719,13 +706,20 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
      * SIGPIPE is an internal pipe-break signal; map it to SIGTERM to
      * avoid unexpected behavior in child processes that do not handle it.
      *
+     * The child must receive this signal exactly once, so
+     * collect_child_exit_status() is told that it has been delivered and
+     * must not repeat it.
+     *
      * Note: if the quit signal arrives after this check (a race on
      * platforms where limit_process() exits early because a stopped
      * process is invisible to the iterator), collect_child_exit_status()
      * will detect and forward it from inside its polling loop.
      */
+    forwarded_quit_signal = 0;
     if (is_quit_flag_set()) {
-        int fwd_sig = get_quit_signal();
+        int fwd_sig;
+        forwarded_quit_signal = 1;
+        fwd_sig = get_quit_signal();
         /*
          * Forward the actual received signal. Two special cases:
          * - fwd_sig == 0: theoretically unreachable here because
@@ -748,7 +742,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         }
     }
 
-    exit(collect_child_exit_status(child_pid, cfg));
+    exit(collect_child_exit_status(child_pid, cfg, forwarded_quit_signal));
 }
 
 /**

@@ -18,6 +18,10 @@ add_executable(multi_process_busy
 target_link_libraries(multi_process_busy ${CPULIMIT_PLATFORM_LIBS})
 add_checked_flags(multi_process_busy CPULIMIT_C_FLAGS)
 
+# --- sigcount ---
+add_executable(sigcount sigcount.c)
+add_checked_flags(sigcount CPULIMIT_C_FLAGS)
+
 # --- cpulimit_test ---
 add_executable(cpulimit_test
     cpulimit_test.c
