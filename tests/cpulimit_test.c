@@ -858,6 +858,8 @@ static void test_util_read_file_contents(void) {
  *       cached CPU count in get_ncpu().
  */
 static void test_util_parse_cpu_range(void) {
+    char near_max[64], reversed[64];
+
     /* Single CPU and simple ranges map to their element counts */
     assert(parse_cpu_range("0") == 1);
     assert(parse_cpu_range("3") == 1);
@@ -891,21 +893,15 @@ static void test_util_parse_cpu_range(void) {
     /*
      * Overflow guard: a range whose length would push the running
      * count past INT_MAX must be rejected rather than wrapping.
-     * INT_MAX-1 as a single CPU plus a range that would exceed INT_MAX.
+     * Start just below INT_MAX with a range that overflows.
      */
-    {
-        char big[64];
-        /* start just below INT_MAX with a range that overflows */
-        snprintf(big, sizeof(big), "%d-%d", INT_MAX - 2, INT_MAX);
-        /* range_len = 2, cpu_count starts 0, 0 + 3 <= INT_MAX: ok = 3 */
-        assert(parse_cpu_range(big) == 3);
-    }
-    {
-        char big[64];
-        /* A reversed/huge range must still be rejected */
-        snprintf(big, sizeof(big), "%d-%d", INT_MAX, 0);
-        assert(parse_cpu_range(big) == -1);
-    }
+    snprintf(near_max, sizeof(near_max), "%d-%d", INT_MAX - 2, INT_MAX);
+    /* range_len = 2, cpu_count starts 0, 0 + 3 <= INT_MAX: ok = 3 */
+    assert(parse_cpu_range(near_max) == 3);
+
+    /* A reversed/huge range must still be rejected */
+    snprintf(reversed, sizeof(reversed), "%d-%d", INT_MAX, 0);
+    assert(parse_cpu_range(reversed) == -1);
 }
 #endif /* __linux__ */
 
