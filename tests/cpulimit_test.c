@@ -7281,6 +7281,9 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
         struct cpulimit_cfg cfg;
         struct sigaction sa_stop, sa_cont;
 
+        memset(&sa_stop, 0, sizeof(sa_stop));
+        memset(&sa_cont, 0, sizeof(sa_cont));
+
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
 
