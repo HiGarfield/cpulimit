@@ -95,12 +95,22 @@ void increase_priority(void) {
         if (setpriority(PRIO_PROCESS, 0, priority) == 0) {
             break; /* Successfully set priority */
         }
-        if (errno == EPERM) {
-            /*
-             * Permission denied at this level. Continue to the next
-             * (less aggressive) priority: RLIMIT_NICE may allow a
-             * value less negative than PRIO_MIN even without root.
-             */
+        /*
+         * Permission denied at this level. Continue to the next
+         * (less aggressive) priority: RLIMIT_NICE may allow a
+         * value less negative than PRIO_MIN even without root.
+         *
+         * Both EPERM and EACCES mean "not allowed to raise the
+         * priority this far" and POSIX permits either, so both must
+         * be retried: Linux reports EACCES when CAP_SYS_NICE is
+         * missing (and EPERM when RLIMIT_NICE is exceeded), while
+         * the BSDs report EACCES precisely for the "lower the nice
+         * value" denial.  Retrying only EPERM aborted the ladder on
+         * its very first rung on Linux, leaving cpulimit at default
+         * priority even when a milder level would have been
+         * accepted.
+         */
+        if (errno == EPERM || errno == EACCES) {
             continue;
         }
         /* Any other error is unexpected; stop trying */

@@ -46,6 +46,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -631,6 +632,16 @@ static void test_util_get_ncpu(void) {
 }
 
 /**
+ * @brief Nice value that increase_priority() must reach when the platform
+ *        permits it
+ *
+ * Used by test_util_increase_priority_retries_lower_levels().  RLIMIT_NICE
+ * encodes the permitted priority ceiling as 20 - nice, so asking for
+ * PRIORITY_LADDER_NICE requires a limit of 20 - PRIORITY_LADDER_NICE.
+ */
+#define PRIORITY_LADDER_NICE -10
+
+/**
  * @brief Test increase_priority function
  * @note Tests attempting to increase process priority
  */
@@ -638,6 +649,71 @@ static void test_util_increase_priority(void) {
     /* This function may succeed or fail depending on permissions */
     /* Just ensure it doesn't crash */
     increase_priority();
+}
+
+/**
+ * @brief Test that increase_priority() walks the whole priority ladder
+ *
+ * increase_priority() must retry with successively less aggressive nice
+ * values until one is accepted, because RLIMIT_NICE can allow a value
+ * less negative than PRIO_MIN even for an unprivileged process.  POSIX
+ * permits either EPERM or EACCES for that denial, and Linux reports
+ * EACCES when CAP_SYS_NICE is missing, so retrying only EPERM aborted
+ * the ladder on its very first rung.  cpulimit then stayed at its
+ * original priority even where a milder level would have been granted,
+ * which is exactly when it most needs the extra responsiveness.
+ *
+ * The failure only shows up where a nicer level is attainable, so the
+ * test first raises RLIMIT_NICE to allow PRIORITY_LADDER_NICE.  A
+ * default Linux install ships a hard limit of 0, which forbids any
+ * lowering at all; there the ladder cannot be observed and only the
+ * "never made worse" invariant is checked.
+ */
+static void test_util_increase_priority_retries_lower_levels(void) {
+    int old_nice, new_nice, restore_ret, can_be_nicer = 0;
+#ifdef RLIMIT_NICE
+    struct rlimit saved_limit, raised_limit;
+#endif
+
+    errno = 0;
+    old_nice = getpriority(PRIO_PROCESS, 0);
+    if (old_nice == -1 && errno != 0) {
+        printf("(skipped: getpriority failed)\n");
+        return;
+    }
+
+#ifdef RLIMIT_NICE
+    /* Raising the soft limit is only possible up to the hard limit. */
+    if (getrlimit(RLIMIT_NICE, &saved_limit) == 0) {
+        raised_limit.rlim_cur = (rlim_t)(20 - PRIORITY_LADDER_NICE);
+        raised_limit.rlim_max = saved_limit.rlim_max;
+        if (raised_limit.rlim_cur <= saved_limit.rlim_max &&
+            setrlimit(RLIMIT_NICE, &raised_limit) == 0) {
+            can_be_nicer = 1;
+        }
+    }
+#endif
+
+    increase_priority();
+    new_nice = getpriority(PRIO_PROCESS, 0);
+
+    /* Restore before asserting, so the suite keeps its old priority. */
+    restore_ret = setpriority(PRIO_PROCESS, 0, old_nice);
+    assert(restore_ret == 0);
+#ifdef RLIMIT_NICE
+    if (can_be_nicer) {
+        int limit_ret = setrlimit(RLIMIT_NICE, &saved_limit);
+        assert(limit_ret == 0);
+    }
+#endif
+
+    if (can_be_nicer) {
+        /* The ladder must keep trying until an accepted level is found. */
+        assert(new_nice <= PRIORITY_LADDER_NICE);
+    } else {
+        printf("(skipped: no nicer level permitted here)\n");
+        assert(new_nice <= old_nice);
+    }
 }
 
 /**
@@ -8108,6 +8184,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_file_basename);
     RUN_TEST(test_util_get_ncpu);
     RUN_TEST(test_util_increase_priority);
+    RUN_TEST(test_util_increase_priority_retries_lower_levels);
     RUN_TEST(test_util_long2pid_t);
 #if defined(__linux__)
     RUN_TEST(test_util_read_file_contents);
