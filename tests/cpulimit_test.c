@@ -639,7 +639,7 @@ static void test_util_get_ncpu(void) {
  * encodes the permitted priority ceiling as 20 - nice, so asking for
  * PRIORITY_LADDER_NICE requires a limit of 20 - PRIORITY_LADDER_NICE.
  */
-#define PRIORITY_LADDER_NICE -10
+#define PRIORITY_LADDER_NICE (-10)
 
 /**
  * @brief Test increase_priority function
@@ -670,7 +670,8 @@ static void test_util_increase_priority(void) {
  * "never made worse" invariant is checked.
  */
 static void test_util_increase_priority_retries_lower_levels(void) {
-    int old_nice, new_nice, restore_ret, can_be_nicer = 0;
+    int old_nice, new_nice, restore_ret;
+    int permitted_nice;
 #ifdef RLIMIT_NICE
     struct rlimit saved_limit, raised_limit;
 #endif
@@ -681,6 +682,7 @@ static void test_util_increase_priority_retries_lower_levels(void) {
         printf("(skipped: getpriority failed)\n");
         return;
     }
+    permitted_nice = old_nice;
 
 #ifdef RLIMIT_NICE
     /* Raising the soft limit is only possible up to the hard limit. */
@@ -689,7 +691,7 @@ static void test_util_increase_priority_retries_lower_levels(void) {
         raised_limit.rlim_max = saved_limit.rlim_max;
         if (raised_limit.rlim_cur <= saved_limit.rlim_max &&
             setrlimit(RLIMIT_NICE, &raised_limit) == 0) {
-            can_be_nicer = 1;
+            permitted_nice = PRIORITY_LADDER_NICE;
         }
     }
 #endif
@@ -701,19 +703,20 @@ static void test_util_increase_priority_retries_lower_levels(void) {
     restore_ret = setpriority(PRIO_PROCESS, 0, old_nice);
     assert(restore_ret == 0);
 #ifdef RLIMIT_NICE
-    if (can_be_nicer) {
+    if (permitted_nice == PRIORITY_LADDER_NICE) {
         int limit_ret = setrlimit(RLIMIT_NICE, &saved_limit);
         assert(limit_ret == 0);
     }
 #endif
 
-    if (can_be_nicer) {
-        /* The ladder must keep trying until an accepted level is found. */
-        assert(new_nice <= PRIORITY_LADDER_NICE);
-    } else {
+    /*
+     * Where a nicer level is permitted the ladder must reach it, and
+     * where none is the priority simply must not get worse.
+     */
+    if (permitted_nice != PRIORITY_LADDER_NICE) {
         printf("(skipped: no nicer level permitted here)\n");
-        assert(new_nice <= old_nice);
     }
+    assert(new_nice <= permitted_nice);
 }
 
 /**
@@ -5961,6 +5964,77 @@ static void test_process_group_purges_exited_descendants(void) {
     } while (waited == -1 && errno == EINTR);
 }
 
+/**
+ * @brief Test that a tracked entry is reset when its history stops applying
+ *
+ * update_existing_process_entry() discards the stored CPU history and
+ * marks the usage unknown in two situations: the CPU time moved backwards
+ * (the PID now belongs to a different process) and the clock moved
+ * backwards.  Both leave the entry with a fresh baseline so the next
+ * delta is measured against the new process rather than the old one, and
+ * neither path had any coverage.
+ */
+static void test_process_group_entry_resets_on_reuse_and_backward_clock(void) {
+    struct process_group proc_group;
+    pid_t idle_pid, waited;
+    int ret, idle_status;
+    struct process *tracked;
+    double inflated_cpu_time;
+
+    fflush(stdout);
+    fflush(stderr);
+    idle_pid = fork();
+    assert(idle_pid >= 0);
+    if (idle_pid == 0) {
+        /*
+         * Bounded so that a failed assertion below cannot leave an
+         * orphan behind: a stray process with this test's name would
+         * break find_process_by_name() in every later run.
+         */
+        int idle_ticks;
+        for (idle_ticks = 0; idle_ticks < 1500; idle_ticks++) {
+            const struct timespec idle = {0, 20000000L}; /* 20 ms */
+            sleep_timespec(&idle);
+        }
+        _exit(EXIT_SUCCESS);
+    }
+
+    ret = init_process_group(&proc_group, idle_pid, 0);
+    assert(ret == 0);
+
+    tracked = find_in_process_table(proc_group.proc_table, idle_pid);
+    assert(tracked != NULL);
+
+    /*
+     * PID reuse: pretend the previously tracked process had burned far
+     * more CPU than the process now occupying that PID.
+     */
+    inflated_cpu_time = tracked->cpu_time + 1e9;
+    tracked->cpu_time = inflated_cpu_time;
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
+    assert(tracked->cpu_time < inflated_cpu_time);
+    assert(tracked->cpu_usage < 0);
+
+    /*
+     * Backward clock: push the baseline into the future so the elapsed
+     * time of this cycle comes out negative.
+     */
+    tracked->cpu_usage = 0.5;
+    proc_group.last_update.tv_sec += (time_t)3600;
+    ret = update_process_group(&proc_group);
+    assert(ret == 0);
+    assert(tracked->cpu_usage < 0);
+
+    ret = close_process_group(&proc_group);
+    assert(ret == 0);
+
+    kill_and_wait(idle_pid, SIGKILL);
+    do {
+        waited = waitpid(idle_pid, &idle_status, WNOHANG);
+    } while (waited == -1 && errno == EINTR);
+}
+
 /***************************************************************************
  * LIMIT_PROCESS MODULE TESTS
  ***************************************************************************/
@@ -8314,6 +8388,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_group_race_target_exits_between_init_and_update);
     RUN_TEST(test_process_group_race_rapid_child_spawn_exit);
     RUN_TEST(test_process_group_purges_exited_descendants);
+    RUN_TEST(test_process_group_entry_resets_on_reuse_and_backward_clock);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
