@@ -5240,9 +5240,11 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
 #endif /* __linux__ */
 
     /*
-     * Ensure the test process itself is not matched by name: remember the
-     * test binary's own command so we can assert the found PID differs from
-     * our own (it must be the multi_process_busy ancestor we fork).
+     * Bail out when the process iterator cannot even report this
+     * process's own command: the name scan below would then have
+     * nothing reliable to work with.  The test binary is never named
+     * "multi_process_busy", so the assertion at the end is what
+     * actually keeps our own PID out of the result.
      */
     self_buf = (char *)malloc(CMD_BUFF_SIZE);
     if (self_buf == NULL) {
