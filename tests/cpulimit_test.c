@@ -7634,16 +7634,29 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
  *       update_process_group() failed and cleared the process list) would be
  *       left permanently stopped.
  *
- *       The target installs a SIGCONT handler that increments a shared counter
- *       and a SIGSTOP handler, then is pre-stopped by the test.  The wrapper
- *       drives run_pid_or_exe_mode(); limit_process() must eventually SIGCONT
- *       the target so it resumes and runs to completion.  We assert the
- *       wrapper exits EXIT_SUCCESS and that the target received at least one
- *       SIGCONT (proof it was not left permanently stopped).
+ *       The target installs a SIGCONT handler that increments a shared
+ *       counter, then is pre-stopped by the test.  The wrapper drives
+ *       run_pid_or_exe_mode(); limit_process() must eventually SIGCONT the
+ *       target, because only a resumed target can reach its own _exit() and
+ *       make run_pid_or_exe_mode() return.  We assert the wrapper exits
+ *       EXIT_SUCCESS.
+ *
+ *       The target must announce through ready_pipe that its handlers are
+ *       installed before the wrapper sends SIGSTOP: fork() gives no ordering
+ *       guarantee between parent and child, and on FreeBSD the parent
+ *       normally keeps running (unlike Linux, where the child is scheduled
+ *       first).  A SIGSTOP that overtakes sigaction() freezes the target
+ *       before it ever installed the handler, so the later SIGCONT is
+ *       handled by the default disposition, resume_counter stays 0 and the
+ *       target spins forever instead of terminating -- hanging the test.
  */
 static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
+    int ready_pipe[2];
     pid_t wrapper_pid, waited;
-    int wrapper_status, w_exited, w_exit_code;
+    int wrapper_status, w_exited, w_exit_code, ret;
+
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
 
     fflush(stdout);
     fflush(stderr);
@@ -7653,9 +7666,10 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
         pid_t target_pid;
         int target_status;
         struct cpulimit_cfg cfg;
-        struct sigaction sa_stop, sa_cont;
+        struct sigaction sa_cont;
+        char ready_byte;
+        ssize_t n_read;
 
-        memset(&sa_stop, 0, sizeof(sa_stop));
         memset(&sa_cont, 0, sizeof(sa_cont));
 
         close(STDOUT_FILENO);
@@ -7664,20 +7678,36 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
         target_pid = fork();
         assert(target_pid >= 0);
         if (target_pid == 0) {
+            ret = close(ready_pipe[0]);
+            assert(ret == 0);
             /*
              * Install a SIGCONT handler that records each resume.  The
              * resume count is reported back via the exit code (0 = resumed
              * at least once, 2 = never resumed / left permanently stopped).
+             *
+             * No disposition is installed for SIGSTOP: it can neither be
+             * caught nor redirected, so its default action already applies.
+             * Calling sigaction(SIGSTOP, SIG_DFL) would be a no-op at best
+             * and is rejected with EINVAL by glibc, which made this target
+             * exit immediately and turned the test into a no-op on Linux.
              */
             sa_cont.sa_handler = resume_counter_handler;
             if (sigemptyset(&sa_cont.sa_mask) != 0 ||
                 sigaction(SIGCONT, &sa_cont, NULL) != 0) {
                 _exit(2);
             }
-            sa_stop.sa_handler = SIG_DFL;
-            if (sigaction(SIGSTOP, &sa_stop, NULL) != 0) {
+            /*
+             * Handshake: the SIGSTOP below must not overtake sigaction(),
+             * or the resume would never be recorded (see the function
+             * documentation).  The write end is closed right afterwards so
+             * that the wrapper also observes an EOF if this child dies
+             * before it could report readiness.
+             */
+            if (write(ready_pipe[1], "R", 1) != 1) {
                 _exit(2);
             }
+            ret = close(ready_pipe[1]);
+            assert(ret == 0);
             /*
              * Spin until resumed at least once.  While the process is
              * SIGSTOP-ped it cannot execute, so reaching the _exit() below
@@ -7689,6 +7719,22 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
                 nanosleep(&tiny, NULL);
             }
             _exit(resume_counter >= 1 ? EXIT_SUCCESS : 2);
+        }
+
+        /*
+         * Wait for the handshake byte: the target is only stopped once its
+         * SIGCONT handler is in place, otherwise it cannot notice the
+         * resume and would spin forever.
+         */
+        ret = close(ready_pipe[1]);
+        assert(ret == 0);
+        do {
+            n_read = read(ready_pipe[0], &ready_byte, 1);
+        } while (n_read < 0 && errno == EINTR);
+        ret = close(ready_pipe[0]);
+        assert(ret == 0);
+        if (n_read != 1 || ready_byte != 'R') {
+            _exit(EXIT_FAILURE);
         }
 
         /* Pre-stop the target before the limiter takes over */
@@ -7712,6 +7758,11 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
         _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
                                 calls exit */
     }
+
+    ret = close(ready_pipe[0]);
+    assert(ret == 0);
+    ret = close(ready_pipe[1]);
+    assert(ret == 0);
 
     waited = waitpid(wrapper_pid, &wrapper_status, 0);
     assert(waited == wrapper_pid);
