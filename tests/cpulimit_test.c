@@ -199,6 +199,40 @@ static void test_suspend_until_killed(void) {
     }
 }
 
+/**
+ * @brief PID of the test process, published to children that get orphaned
+ *        on purpose
+ *
+ * test_limit_process_resumes_orphaned_descendant() kills the tracked
+ * ancestor so that its descendant is re-parented away; that descendant
+ * must keep running, so it cannot use its own parent to notice that
+ * the test is over.  The ancestor publishes the test process PID here
+ * and the descendant inherits it across fork().
+ */
+static pid_t test_runner_pid = 0;
+
+/**
+ * @brief Burn CPU in a test child until it is killed
+ * @note The CPU-burning counterpart of test_suspend_until_killed(): a
+ *       leaked burner is worse than a leaked sleeper because it also
+ *       skews the CPU usage that every later test measures.  Never
+ *       returns.
+ */
+static void test_burn_until_killed(void) {
+    pid_t parent_pid;
+
+    parent_pid = getppid();
+    for (;;) {
+        volatile int spin;
+        for (spin = 0; spin < 20000; spin = spin + 1) {
+            ;
+        }
+        if (kill(parent_pid, 0) != 0 && errno == ESRCH) {
+            _exit(EXIT_FAILURE);
+        }
+    }
+}
+
 /***************************************************************************
  * UTIL MODULE TESTS
  ***************************************************************************/
@@ -5911,10 +5945,7 @@ static void test_process_group_purges_exited_descendants(void) {
             _exit(EXIT_FAILURE);
         }
         close(sync_pipe[1]);
-        for (;;) {
-            const struct timespec idle = {0, 20000000L}; /* 20 ms */
-            sleep_timespec(&idle);
-        }
+        test_suspend_until_killed();
     }
 
     close(sync_pipe[1]);
@@ -5986,17 +6017,7 @@ static void test_process_group_entry_resets_on_reuse_and_backward_clock(void) {
     idle_pid = fork();
     assert(idle_pid >= 0);
     if (idle_pid == 0) {
-        /*
-         * Bounded so that a failed assertion below cannot leave an
-         * orphan behind: a stray process with this test's name would
-         * break find_process_by_name() in every later run.
-         */
-        int idle_ticks;
-        for (idle_ticks = 0; idle_ticks < 1500; idle_ticks++) {
-            const struct timespec idle = {0, 20000000L}; /* 20 ms */
-            sleep_timespec(&idle);
-        }
-        _exit(EXIT_SUCCESS);
+        test_suspend_until_killed();
     }
 
     ret = init_process_group(&proc_group, idle_pid, 0);
@@ -6350,6 +6371,9 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
         ret = close(info[0]);
         assert(ret == 0);
 
+        /* Publish the test process so the orphaned descendant can tell
+           when the run is over even after this ancestor is killed. */
+        test_runner_pid = getppid();
         child_pid = fork();
         assert(child_pid >= 0);
         if (child_pid == 0) {
@@ -6367,6 +6391,10 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
                 if (write(heartbeat[1], "x", 1) != 1) {
                     /* Pipe full: the drain loop will catch up later. */
                 }
+                if (test_runner_pid != 0 && kill(test_runner_pid, 0) != 0 &&
+                    errno == ESRCH) {
+                    _exit(EXIT_FAILURE);
+                }
             }
         }
         if (write(info[1], &child_pid, sizeof(child_pid)) !=
@@ -6375,12 +6403,7 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
         }
         ret = close(info[1]);
         assert(ret == 0);
-        for (;;) {
-            volatile int spin;
-            for (spin = 0; spin < 20000; spin = spin + 1) {
-                ;
-            }
-        }
+        test_burn_until_killed();
     }
 
     ret = close(heartbeat[1]);
@@ -6530,13 +6553,7 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
                 _exit(1);
             }
             /* Busy loop: stays alive until stopped then resumed */
-            for (;;) {
-                volatile int dummy_var;
-                for (dummy_var = 0; dummy_var < 1000;
-                     dummy_var = dummy_var + 1) {
-                    ;
-                }
-            }
+            test_burn_until_killed();
         }
 
         /* Fork the limiter */
@@ -6615,12 +6632,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
     if (target_pid == 0) {
         close(ready_pipe[0]);
         close(ready_pipe[1]);
-        for (;;) {
-            volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
-                ;
-            }
-        }
+        test_burn_until_killed();
     }
 
     /* Fork the limiter */
