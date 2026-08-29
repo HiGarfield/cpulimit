@@ -7152,12 +7152,9 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     char *args[2];
 
     /*
-     * Allocate err_buf on the heap: 512 bytes exceeds the 256-byte
-     * per-object stack limit and pushes the total frame over 512 bytes.
+     * Prefix path for a directory that is later removed, so the
+     * shebang interpreter really is inaccessible.
      */
-    err_buf = (char *)malloc(512);
-    assert(err_buf != NULL);
-
     prefix_fd = mkstemp(interp_prefix);
     assert(prefix_fd >= 0);
     ret = close(prefix_fd);
@@ -7207,6 +7204,17 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     }
 
     close(stderr_pipe[1]);
+
+    /*
+     * Allocate err_buf only now: 512 bytes exceeds the 256-byte
+     * per-object stack limit, so it has to live on the heap, but the
+     * forked children inherit the heap and neither of them uses it.
+     * Allocating before the fork leaves the block reachable at their
+     * exit and shows up in leak reports.
+     */
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
+
     err_len = 0;
     while (1) {
         ssize_t nread =
