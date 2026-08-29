@@ -5136,11 +5136,19 @@ static void test_process_finder_find_by_name_alias(void) {
  *       "multi_process_busy" name would otherwise be matched first and
  *       break the assertion.  Reaping all such processes before forking
  *       this test's own tree guarantees a clean, single-tree environment.
+ *
+ *       Matching has to work the way find_process_by_name() does, on the
+ *       basename of argv[0] from /proc/[pid]/cmdline: the comm field of
+ *       /proc/[pid]/stat is truncated to 15 bytes by the kernel, so
+ *       "multi_process_busy" reads back as "multi_process_b" there and a
+ *       comparison against it never matches anything.
  */
 static void reap_all_by_name(const char *comm) {
     DIR *proc_dir;
     const struct dirent *entry;
+    const char *wanted;
 
+    wanted = file_basename(comm);
     proc_dir = opendir("/proc");
     if (proc_dir == NULL) {
         return;
@@ -5148,11 +5156,11 @@ static void reap_all_by_name(const char *comm) {
     while ((entry = readdir(proc_dir)) != NULL) {
         char *endptr;
         long pid_l;
-        char stat_path[64];
-        char *buf;
-        const char *p;
+        char cmdline_path[64];
+        char name[64];
         FILE *fp;
         pid_t pid;
+        size_t n_read, idx;
 
         if (entry->d_type != DT_DIR && entry->d_type != DT_UNKNOWN) {
             continue;
@@ -5166,44 +5174,28 @@ static void reap_all_by_name(const char *comm) {
         if (pid <= 1) {
             continue;
         }
-        if (snprintf(stat_path, sizeof(stat_path), "/proc/%ld/stat", pid_l) >=
-            (int)sizeof(stat_path)) {
+        if (snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%ld/cmdline",
+                     pid_l) >= (int)sizeof(cmdline_path)) {
             continue;
         }
-        fp = fopen(stat_path, "r");
+        fp = fopen(cmdline_path, "rb");
         if (fp == NULL) {
             continue;
         }
-        buf = (char *)malloc(1024);
-        if (buf == NULL) {
-            fclose(fp);
-            continue;
-        }
-        if (fgets(buf, 1024, fp) == NULL) {
-            free(buf);
-            fclose(fp);
-            continue;
-        }
+        n_read = fread(name, 1, sizeof(name) - 1, fp);
         fclose(fp);
-        /* comm is between the first '(' and the last ')' */
-        p = strrchr(buf, ')');
-        if (p != NULL) {
-            const char *open_paren =
-                (const char *)memchr(buf, '(', (size_t)(p - buf));
-            if (open_paren != NULL) {
-                size_t len = (size_t)(p - open_paren - 1);
-                char name[64];
-                if (len < sizeof(name)) {
-                    memcpy(name, open_paren + 1, len);
-                    name[len] = '\0';
-                    if (strcmp(name, comm) == 0) {
-                        /* Same-named process: reap it for a clean scan. */
-                        kill(pid, SIGKILL);
-                    }
-                }
-            }
+        if (n_read == 0) {
+            continue;
         }
-        free(buf);
+        /* argv[0] ends at the first NUL; the remaining arguments follow. */
+        for (idx = 0; idx < n_read && name[idx] != '\0'; idx++) {
+            ;
+        }
+        name[idx] = '\0';
+        if (name[0] != '\0' && strcmp(file_basename(name), wanted) == 0) {
+            /* Same-named process: kill it for a clean scan. */
+            kill(pid, SIGKILL);
+        }
     }
     closedir(proc_dir);
 }
