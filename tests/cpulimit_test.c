@@ -6139,9 +6139,18 @@ static void test_limit_process_basic(void) {
             printf("CPU usage limit: %.3f, CPU usage: %.3f\n", cpu_usage_limit,
                    cpu_usage);
 
-            /* Verify CPU usage */
             ncpu = get_ncpu();
             assert(cpu_usage <= ncpu);
+            /*
+             * The average has to land near the requested limit.  The
+             * bound is deliberately loose so that scheduling noise
+             * cannot turn this into a flaky failure, but it stays far
+             * below what an unthrottled group would report: without
+             * limiting, every monitored process pegs a core and the
+             * group total reaches num_procs.  Checking only against
+             * ncpu above would let that pass.
+             */
+            assert(cpu_usage <= cpu_usage_limit * 3.0);
 
             return;
         }
