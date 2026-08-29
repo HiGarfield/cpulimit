@@ -97,9 +97,6 @@ multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*) \
 	$(wildcard $(SRC)/signal_handler.*)
 	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
-sigcount: sigcount.c
-	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
-
 cpulimit_test: cpulimit_test.c \
 	$(filter-out $(SRC)/main.c,$(wildcard $(SRC)/*.c $(SRC)/*.h))
 	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@

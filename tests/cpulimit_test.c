@@ -6653,47 +6653,103 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 }
 
 /**
+ * @brief Internal argv marker turning this binary into the SIGINT-counting
+ *        command driven by the signal-forwarding test
+ *
+ * Unit tests must live in cpulimit_test.c, so the command used by
+ * test_limiter_run_command_mode_forwards_signal_once() is this very
+ * binary re-executed with this marker instead of a separate helper.
+ */
+#define SIGCOUNT_CHILD_ARG "--cpulimit-test-sigcount-child"
+
+/** @brief How many 10 ms slots the counting command waits for its SIGINT. */
+#define SIGCOUNT_WAIT_SLOTS 1000
+
+/** @brief How many 10 ms slots it lingers, so a duplicate shows up. */
+#define SIGCOUNT_LINGER_SLOTS 150
+
+/** @brief Number of SIGINTs received by the counting command. */
+static volatile sig_atomic_t sigint_delivery_count = 0;
+
+/**
+ * @brief Record one SIGINT delivery in the counting command
+ * @param sig Signal number (unused)
+ */
+static void count_sigint_delivery(int sig) {
+    (void)sig;
+    sigint_delivery_count++;
+}
+
+/**
+ * @brief Count SIGINT deliveries and return that count
+ * @param ready_path File created once the handler is installed, so the
+ *                   driving test can synchronise instead of guessing a delay
+ * @return Number of SIGINTs received, 99 if the handler was not installed
+ */
+static int run_sigcount_child(const char *ready_path) {
+    const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
+    struct sigaction sa;
+    int ready_fd, slot;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = count_sigint_delivery;
+    if (sigemptyset(&sa.sa_mask) != 0 || sigaction(SIGINT, &sa, NULL) != 0) {
+        return 99;
+    }
+
+    ready_fd = creat(ready_path, 0600);
+    if (ready_fd >= 0) {
+        close(ready_fd);
+    }
+
+    /* Wait for the first SIGINT. */
+    for (slot = 0; slot < SIGCOUNT_WAIT_SLOTS && sigint_delivery_count == 0;
+         slot++) {
+        sleep_timespec(&poll_time);
+    }
+
+    /*
+     * Linger afterwards. A duplicate delivered shortly after the first
+     * one is only observable while this process is still running.
+     */
+    for (slot = 0; slot < SIGCOUNT_LINGER_SLOTS; slot++) {
+        sleep_timespec(&poll_time);
+    }
+
+    return (int)sigint_delivery_count;
+}
+
+/**
  * @brief Test that interrupting run_command_mode forwards the signal once
  *
  * A single Ctrl+C must reach the command exactly once, the way a shell
  * delivers it: a program that traps SIGINT to shut itself down cleanly
  * would have that handler cut short by a second, duplicate delivery.
  *
- * The command is the sigcount helper, which exits with the number of
- * SIGINTs it received. run_command_mode() propagates that as its own
- * status, so the wrapper must exit with 1.
- *
- * @note Skipped when the sigcount helper is not built in this layout.
+ * The command is this binary re-executed with SIGCOUNT_CHILD_ARG, which
+ * exits with the number of SIGINTs it received. run_command_mode()
+ * propagates that as its own status, so the wrapper must exit with 1.
  */
 static void test_limiter_run_command_mode_forwards_signal_once(void) {
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
     pid_t wrapper_pid, waited;
-    int wrapper_status, w_exited, w_exit_code, attempt, ready;
-    char *helper_path, *ready_path;
-    char *args[3];
+    int wrapper_status, w_exited, w_exit_code, attempt, ready, ready_fd;
+    int close_ret;
+    char ready_path[] = "/tmp/cpulimit_test_sigcount_XXXXXX";
+    char child_arg[] = SIGCOUNT_CHILD_ARG;
+    char *args[4];
 
-    helper_path = (char *)malloc(PATH_MAX);
-    assert(helper_path != NULL);
-    ready_path = (char *)malloc(PATH_MAX);
-    assert(ready_path != NULL);
-
-    if (snprintf(helper_path, PATH_MAX, "%s/tests/sigcount",
-                 getenv("CPULIMIT_BUILD_DIR") != NULL
-                     ? getenv("CPULIMIT_BUILD_DIR")
-                     : ".") >= (int)PATH_MAX ||
-        snprintf(ready_path, PATH_MAX, "%s_ready", helper_path) >=
-            (int)PATH_MAX ||
-        access(helper_path, X_OK) != 0) {
-        free(ready_path);
-        free(helper_path);
-        printf("(skipped: sigcount helper not built in this layout)\n");
-        return;
-    }
+    ready_fd = mkstemp(ready_path);
+    assert(ready_fd >= 0);
+    close_ret = close(ready_fd);
+    assert(close_ret == 0);
+    /* The command recreates it once its handler is installed. */
     unlink(ready_path);
 
-    args[0] = helper_path;
-    args[1] = ready_path;
-    args[2] = NULL;
+    args[0] = argv0;
+    args[1] = child_arg;
+    args[2] = ready_path;
+    args[3] = NULL;
 
     fflush(stdout);
     fflush(stderr);
@@ -6732,8 +6788,6 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
     assert(waited == wrapper_pid);
     w_exited = WIFEXITED(wrapper_status);
     unlink(ready_path);
-    free(ready_path);
-    free(helper_path);
     assert(w_exited);
     w_exit_code = WEXITSTATUS(wrapper_status);
     assert(w_exit_code == 1);
@@ -8014,12 +8068,18 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  * @note Runs all test functions organized by module and prints their results
  *       Installs signal handlers for SIGINT and SIGTERM to request graceful
  *       shutdown of the test run instead of abrupt termination.
+ *       When argv[1] is SIGCOUNT_CHILD_ARG, runs as the SIGINT-counting
+ *       command of the signal-forwarding test instead of the suite.
  */
 int main(int argc, char *argv[]) {
     struct timespec time_seed;
 
     assert(argc >= 1);
     argv0 = argv[0];
+
+    if (argc == 3 && strcmp(argv[1], SIGCOUNT_CHILD_ARG) == 0) {
+        return run_sigcount_child(argv[2]);
+    }
 
     check_y2038();
 
