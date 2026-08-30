@@ -8857,11 +8857,19 @@ static int seam_fail_errno = 0;
 static void seam_mark_snapshot(void);
 
 /* Hooks that park a call site on a barrier driven by the test. */
+/* NOLINTBEGIN(misc-use-internal-linkage) */
 void cpulimit_test_limit_process(pid_t pid, double limit, int include_children,
                                  int verbose);
 pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options);
+/* NOLINTEND(misc-use-internal-linkage) */
 
-/* Replacements referenced by the sources compiled into this test binary. */
+/*
+ * Replacements referenced by the sources compiled into this test binary.
+ * They have to keep external linkage: the sources that call them are
+ * renamed onto these names at compile time, which a single translation
+ * unit cannot show.
+ */
+/* NOLINTBEGIN(misc-use-internal-linkage) */
 int cpulimit_test_get_current_time(struct timespec *result_ts);
 int cpulimit_test_sleep_timespec(const struct timespec *duration);
 int cpulimit_test_kill(pid_t pid, int sig);
@@ -8872,6 +8880,8 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
 int cpulimit_test_close_process_iterator(struct process_iterator *iter);
 long cpulimit_test_random(void);
 int cpulimit_test_getloadavg(double *loadavg, int nelem);
+
+/* NOLINTEND(misc-use-internal-linkage) */
 
 /**
  * @brief Return the seam to its inactive, empty state
@@ -9011,6 +9021,7 @@ static void seam_assert_no_double_stop(const struct seam_signal *log,
  * @param result_ts Timestamp to fill
  * @return 0 on success, -1 on failure
  */
+/* cppcheck-suppress-begin unusedFunction */
 int cpulimit_test_get_current_time(struct timespec *result_ts) {
     double whole_seconds;
     if (!seam_active) {
@@ -9131,14 +9142,13 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
     }
     seam_mark_snapshot();
     seam_frames_served++;
-    if (seam_frames_served > SEAM_MAX_SERVED_FRAMES) {
-        seam_frame_current = -1;
-    } else if (seam_frame_next < seam_frame_count) {
-        seam_frame_current = seam_frame_next;
-    } else if (seam_repeat_last && seam_frame_count > 0) {
-        seam_frame_current = seam_frame_count - 1;
-    } else {
-        seam_frame_current = -1;
+    seam_frame_current = -1;
+    if (seam_frames_served <= SEAM_MAX_SERVED_FRAMES) {
+        if (seam_frame_next < seam_frame_count) {
+            seam_frame_current = seam_frame_next;
+        } else if (seam_repeat_last && seam_frame_count > 0) {
+            seam_frame_current = seam_frame_count - 1;
+        }
     }
     seam_frame_pos = 0;
     return 0;
@@ -9301,6 +9311,8 @@ pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
     }
     return waitpid(pid, status, options);
 }
+
+/* cppcheck-suppress-end unusedFunction */
 
 /**
  * @brief Drive limit_process() through the scripted smoke scenario
@@ -9637,9 +9649,10 @@ static void test_seam_failed_resume_is_not_retried(void) {
  * n-th kill() of a scripted run.
  */
 static void test_seam_stop_round_partial_failure(void) {
-    int call, count, swept = 0;
+    int call, swept = 0;
 
     for (call = 1; call <= SEAM_SWEEP_CALLS; call++) {
+        int count;
         count = seam_run_group_limit(-1, call);
         if (seam_count_failures(count) == 0) {
             /* Past the last kill() of the run; nothing left to sweep. */
@@ -10038,7 +10051,7 @@ static pid_t seam_fork_exe_limiter(int announce_fd, int go_fd) {
     limiter_pid = fork();
     if (limiter_pid == 0) {
         struct cpulimit_cfg cfg;
-        char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
+        const char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
         alarm(60);
         memset(&cfg, 0, sizeof(cfg));
         cfg.program_name = "test";
@@ -10113,7 +10126,8 @@ static void test_seam_quit_while_pid_mode_retries(void) {
 static void test_seam_limit_process_is_deterministic(void) {
     int first_count, second_count, idx;
 
-    first_count = seam_run_smoke_limit();
+    /* The run leaves its log in the seam; the snapshot copies it out. */
+    seam_run_smoke_limit();
     first_count = seam_snapshot_run();
 
     /* The script must actually drive the loop through stop/resume cycles. */
