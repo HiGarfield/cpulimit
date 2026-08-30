@@ -8809,8 +8809,25 @@ static int seam_waitpid_go_fd = -1;
 /** @brief Number of waitpid() calls made through the seam. */
 static int seam_waitpid_calls = 0;
 
+/**
+ * @brief Where each recorded kill() call is reported; -1 for nowhere
+ *
+ * A test that drives the limiter in a forked process cannot read that
+ * process's log, because fork() copies it. Writing the records out as
+ * they happen lets the driving test assert on them.
+ */
+static int seam_log_fd = -1;
+
 /** @brief 1-based kill() call index that must fail; 0 disables failure. */
 static int seam_fail_call = 0;
+
+/**
+ * @brief How many consecutive kill() calls fail from seam_fail_call on
+ *
+ * Two is what it takes to fail one delivery: the replacement tries the
+ * process group first and the command itself when that fails.
+ */
+static int seam_fail_span = 1;
 
 /** @brief errno the failing kill() call must report. */
 static int seam_fail_errno = 0;
@@ -8853,6 +8870,7 @@ static void seam_reset(void) {
     seam_signal_count = 0;
     seam_kill_calls = 0;
     seam_fail_call = 0;
+    seam_fail_span = 1;
     seam_fail_errno = 0;
     seam_hook_limit_process = 0;
     seam_hook_waitpid = 0;
@@ -8861,6 +8879,7 @@ static void seam_reset(void) {
     seam_waitpid_announce_fd = -1;
     seam_waitpid_go_fd = -1;
     seam_waitpid_calls = 0;
+    seam_log_fd = -1;
     memset(seam_frames, 0, sizeof(seam_frames));
     memset(seam_frame_len, 0, sizeof(seam_frame_len));
     memset(seam_signals, 0, sizeof(seam_signals));
@@ -9015,20 +9034,39 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
  */
 int cpulimit_test_kill(pid_t pid, int sig) {
     int failed;
-    if (!seam_active) {
+    if (!seam_active && seam_fail_call == 0) {
         return kill(pid, sig);
     }
+    /*
+     * Failure injection also works with the seam inactive, because the
+     * tests that pin a checkpoint run real commands that really have to
+     * receive everything that is not scripted to fail.
+     */
     seam_kill_calls++;
-    failed = (seam_fail_call != 0 && seam_kill_calls == seam_fail_call);
+    failed = (seam_fail_call != 0 && seam_kill_calls >= seam_fail_call &&
+              seam_kill_calls < seam_fail_call + seam_fail_span);
     if (seam_signal_count < SEAM_MAX_SIGNALS) {
         seam_signals[seam_signal_count].pid = pid;
         seam_signals[seam_signal_count].sig = sig;
         seam_signals[seam_signal_count].failed = failed ? 1 : 0;
         seam_signal_count++;
     }
+    if (seam_log_fd >= 0) {
+        struct seam_signal record;
+        record.pid = pid;
+        record.sig = sig;
+        record.failed = failed ? 1 : 0;
+        if (write(seam_log_fd, &record, sizeof(record)) !=
+            (ssize_t)sizeof(record)) {
+            /* Nobody is reading; reporting is best effort. */
+        }
+    }
     if (failed) {
         errno = seam_fail_errno;
         return -1;
+    }
+    if (!seam_active) {
+        return kill(pid, sig);
     }
     return 0;
 }
@@ -9696,6 +9734,104 @@ static void test_seam_quit_in_collect_forwards_once(void) {
 }
 
 /**
+ * @brief Test that an undeliverable quit signal is not sent again
+ *
+ * Interleaving point: S (SIGTERM) x P24, with I2 making the delivery
+ * fail with EPERM -- the process group refusing it and then the command
+ * itself refusing it, which is what a process that can no longer be
+ * signalled looks like.
+ *
+ * Once the signal has been forwarded it is never forwarded again, and
+ * that has to hold when the delivery failed as well: retrying would
+ * reach the command twice if a later attempt happened to succeed, which
+ * is the duplicate a single interruption must never produce. The command
+ * is therefore left undisturbed and exits on its own.
+ */
+static void test_seam_undeliverable_forward_is_not_retried(void) {
+    char ready_path[] = "/tmp/cpulimit_test_count_XXXXXX";
+    int announce_pipe[2], go_pipe[2], log_pipe[2];
+    pid_t wrapper_pid, waited;
+    int status, ready_fd, close_ret, attempts;
+    ssize_t n_read;
+    char byte;
+    struct seam_signal record;
+
+    ready_fd = mkstemp(ready_path);
+    assert(ready_fd >= 0);
+    close_ret = close(ready_fd);
+    assert(close_ret == 0);
+    unlink(ready_path);
+
+    assert(pipe(announce_pipe) == 0);
+    assert(pipe(go_pipe) == 0);
+    assert(pipe(log_pipe) == 0);
+
+    seam_reset();
+    seam_hook_limit_process = 1;
+    seam_limit_announce_fd = announce_pipe[1];
+    seam_limit_go_fd = go_pipe[0];
+    seam_log_fd = log_pipe[1];
+    /*
+     * The forward is the second and the third kill(): the command's
+     * process group first, then the command itself as a fallback. Failing
+     * both is what an undeliverable signal looks like.
+     */
+    seam_fail_call = 2;
+    seam_fail_span = 2;
+    seam_fail_errno = EPERM;
+
+    wrapper_pid = seam_fork_count_wrapper(ready_path);
+    close_ret = close(announce_pipe[1]);
+    assert(close_ret == 0);
+    close_ret = close(log_pipe[1]);
+    assert(close_ret == 0);
+
+    seam_wait_for_count_child(ready_path);
+
+    do {
+        n_read = read(announce_pipe[0], &byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && byte == 'L');
+
+    kill(wrapper_pid, SIGTERM);
+    assert(write(go_pipe[1], "G", 1) == 1);
+
+    waited = waitpid(wrapper_pid, &status, 0);
+    assert(waited == wrapper_pid);
+    unlink(ready_path);
+    close(announce_pipe[0]);
+    close(go_pipe[0]);
+    close(go_pipe[1]);
+
+    /* The command never saw the signal, so it reports no deliveries. */
+    assert(WIFEXITED(status));
+    if (WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "(command reported %d deliveries)\n",
+                WEXITSTATUS(status));
+    }
+    assert(WEXITSTATUS(status) == 0);
+
+    /*
+     * One forward attempt means two calls: the process group first, then
+     * the command itself once the group refused. Read the wrapper's log
+     * from the pipe, since fork() gave it its own copy of the record.
+     */
+    attempts = 0;
+    do {
+        n_read = read(log_pipe[0], &record, sizeof(record));
+        if (n_read == (ssize_t)sizeof(record) && record.sig == SIGTERM) {
+            attempts++;
+        }
+    } while (n_read > 0 || (n_read < 0 && errno == EINTR));
+    close(log_pipe[0]);
+
+    if (attempts != 2) {
+        fprintf(stderr, "(forward attempted %d times)\n", attempts);
+    }
+    assert(attempts == 2);
+}
+
+/**
  * @brief Test that the timing seam makes limit_process() reproducible
  *
  * The seam exists so that no race test below depends on scheduling luck.
@@ -9972,6 +10108,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_seam_stop_round_partial_failure);
     RUN_TEST(test_seam_quit_in_limit_process_forwards_once);
     RUN_TEST(test_seam_quit_in_collect_forwards_once);
+    RUN_TEST(test_seam_undeliverable_forward_is_not_retried);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;
