@@ -8818,6 +8818,27 @@ static int seam_waitpid_calls = 0;
  */
 static int seam_log_fd = -1;
 
+/** @brief Non-zero to park one sleep_timespec() call on a barrier. */
+static int seam_hook_sleep = 0;
+
+/** @brief 1-based sleep call to park; the first is the work phase. */
+static int seam_sleep_call = 0;
+
+/** @brief Number of sleep calls made so far. */
+static int seam_sleep_calls = 0;
+
+/** @brief Where the parked sleep announces itself. */
+static int seam_sleep_announce_fd = -1;
+
+/** @brief Where the parked sleep waits to be released. */
+static int seam_sleep_go_fd = -1;
+
+/** @brief Records read back from a forked limiter. */
+static struct seam_signal seam_child_log[SEAM_MAX_SIGNALS];
+
+/** @brief Number of entries in seam_child_log. */
+static int seam_child_log_len = 0;
+
 /** @brief 1-based kill() call index that must fail; 0 disables failure. */
 static int seam_fail_call = 0;
 
@@ -8880,6 +8901,12 @@ static void seam_reset(void) {
     seam_waitpid_go_fd = -1;
     seam_waitpid_calls = 0;
     seam_log_fd = -1;
+    seam_hook_sleep = 0;
+    seam_sleep_call = 0;
+    seam_sleep_calls = 0;
+    seam_sleep_announce_fd = -1;
+    seam_sleep_go_fd = -1;
+    seam_child_log_len = 0;
     memset(seam_frames, 0, sizeof(seam_frames));
     memset(seam_frame_len, 0, sizeof(seam_frame_len));
     memset(seam_signals, 0, sizeof(seam_signals));
@@ -9010,12 +9037,28 @@ int cpulimit_test_get_current_time(struct timespec *result_ts) {
  * of wall clock is decided in microseconds.
  */
 int cpulimit_test_sleep_timespec(const struct timespec *duration) {
-    if (!seam_active) {
+    char go;
+    if (!seam_active && !seam_hook_sleep) {
         return sleep_timespec(duration);
     }
     if (duration == NULL) {
         errno = EINVAL;
         return -1;
+    }
+    seam_sleep_calls++;
+    if (seam_hook_sleep && seam_sleep_calls == seam_sleep_call) {
+        if (seam_sleep_announce_fd >= 0 &&
+            write(seam_sleep_announce_fd, "S", 1) != 1) {
+            /* Nobody is listening; the barrier is advisory. */
+        }
+        if (seam_sleep_go_fd >= 0) {
+            while (read(seam_sleep_go_fd, &go, 1) < 0 && errno == EINTR) {
+                ;
+            }
+        }
+    }
+    if (!seam_active) {
+        return sleep_timespec(duration);
     }
     seam_clock_ms += (double)duration->tv_sec * 1000.0 +
                      (double)duration->tv_nsec / 1000000.0;
@@ -9448,28 +9491,29 @@ static int seam_count_failures(int count) {
  * that failed means the process was unreachable, which is the only
  * excuse for leaving a suspension standing.
  */
-static void seam_assert_nothing_left_stopped(int count, const char *what) {
+static void seam_assert_nothing_left_stopped(const struct seam_signal *log,
+                                             int count, const char *what) {
     int idx;
     int stops_target, conts_target, fails_target;
     int stops_child, conts_child, fails_child;
 
-    stops_target = seam_count_signals(seam_signals, count,
-                                      (pid_t)SEAM_TARGET_PID, SIGSTOP);
-    conts_target = seam_count_signals(seam_signals, count,
-                                      (pid_t)SEAM_TARGET_PID, SIGCONT);
+    stops_target =
+        seam_count_signals(log, count, (pid_t)SEAM_TARGET_PID, SIGSTOP);
+    conts_target =
+        seam_count_signals(log, count, (pid_t)SEAM_TARGET_PID, SIGCONT);
     stops_child =
-        seam_count_signals(seam_signals, count, (pid_t)SEAM_CHILD_PID, SIGSTOP);
+        seam_count_signals(log, count, (pid_t)SEAM_CHILD_PID, SIGSTOP);
     conts_child =
-        seam_count_signals(seam_signals, count, (pid_t)SEAM_CHILD_PID, SIGCONT);
+        seam_count_signals(log, count, (pid_t)SEAM_CHILD_PID, SIGCONT);
     fails_target = 0;
     fails_child = 0;
     for (idx = 0; idx < count; idx++) {
-        if (!seam_signals[idx].failed) {
+        if (!log[idx].failed) {
             continue;
         }
-        if (seam_signals[idx].pid == (pid_t)SEAM_TARGET_PID) {
+        if (log[idx].pid == (pid_t)SEAM_TARGET_PID) {
             fails_target++;
-        } else if (seam_signals[idx].pid == (pid_t)SEAM_CHILD_PID) {
+        } else if (log[idx].pid == (pid_t)SEAM_CHILD_PID) {
             fails_child++;
         }
     }
@@ -9603,7 +9647,7 @@ static void test_seam_stop_round_partial_failure(void) {
         }
         swept++;
         seam_assert_no_signal_after_failure(count, "sweep failure");
-        seam_assert_nothing_left_stopped(count, "sweep failure");
+        seam_assert_nothing_left_stopped(seam_signals, count, "sweep failure");
     }
 
     /* The sweep has to cover the round, or it proves nothing. */
@@ -9829,6 +9873,233 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
         fprintf(stderr, "(forward attempted %d times)\n", attempts);
     }
     assert(attempts == 2);
+}
+
+/**
+ * @brief Read the records a forked limiter reported while it ran
+ * @param fd Read end of the reporting pipe
+ * @return Number of records read; they land in seam_child_log
+ */
+static int seam_read_child_log(int fd) {
+    struct seam_signal record;
+    ssize_t n_read;
+    seam_child_log_len = 0;
+    do {
+        n_read = read(fd, &record, sizeof(record));
+        if (n_read == (ssize_t)sizeof(record) &&
+            seam_child_log_len < SEAM_MAX_SIGNALS) {
+            seam_child_log[seam_child_log_len] = record;
+            seam_child_log_len++;
+        }
+    } while (n_read > 0 || (n_read < 0 && errno == EINTR));
+    return seam_child_log_len;
+}
+
+/**
+ * @brief Fork a limiter that runs a scripted limit_process()
+ * @param sleep_call 1-based sleep call to park on: 1 is the work phase,
+ *                   2 the phase in which the target is suspended
+ * @param announce_fd Where the parked sleep announces itself
+ * @param go_fd Where the parked sleep waits to be released
+ * @param log_fd Where the limiter reports each recorded kill() call
+ * @return Limiter PID in the parent
+ *
+ * The whole seam is active in the child: scripted process table, virtual
+ * clock, recorded signals. Nothing outside the process is touched, so the
+ * target PID does not have to exist.
+ */
+static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
+                                        int go_fd, int log_fd) {
+    struct seam_proc frame[1];
+    int cycle;
+    pid_t limiter_pid;
+
+    seam_reset();
+    for (cycle = 0; cycle < SEAM_SMOKE_CYCLES; cycle++) {
+        frame[0].pid = (pid_t)SEAM_TARGET_PID;
+        frame[0].ppid = (pid_t)1;
+        frame[0].cpu_time = 1000.0 + (double)cycle * SEAM_SMOKE_CPU_STEP;
+        seam_push_frame(frame, 1);
+    }
+    /* Keep reporting the target, so only the interruption stops it. */
+    seam_repeat_last = 1;
+    seam_active = 1;
+    seam_hook_sleep = 1;
+    seam_sleep_call = sleep_call;
+    seam_sleep_announce_fd = announce_fd;
+    seam_sleep_go_fd = go_fd;
+    seam_log_fd = log_fd;
+
+    fflush(stdout);
+    fflush(stderr);
+    limiter_pid = fork();
+    if (limiter_pid == 0) {
+        alarm(60);
+        configure_signal_handler();
+        limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
+        _exit(EXIT_SUCCESS);
+    }
+    return limiter_pid;
+}
+
+/**
+ * @brief Test the exit path when the interruption lands inside a sleep
+ *
+ * Interleaving points: S (SIGTERM) x P7 and x P11, pinned by parking the
+ * sleep itself on a barrier. The two differ in what the limiter has to
+ * undo: in the work phase nothing is suspended yet, in the suspension
+ * phase the target is stopped and stays stopped until the exit path
+ * resumes it.
+ *
+ * In both cases the invariants are what matter, not the number of
+ * signals: nothing may be left suspended, and nothing may be suspended
+ * twice without being resumed in between.
+ */
+static void test_seam_quit_while_parked_in_sleep(void) {
+    static const char *const phases[] = {"work phase", "suspension phase"};
+    int sleep_call;
+
+    for (sleep_call = 1; sleep_call <= 2; sleep_call++) {
+        int announce_pipe[2], go_pipe[2], log_pipe[2];
+        pid_t limiter_pid, waited;
+        int status, close_ret, count;
+        ssize_t n_read;
+        char byte;
+
+        assert(pipe(announce_pipe) == 0);
+        assert(pipe(go_pipe) == 0);
+        assert(pipe(log_pipe) == 0);
+
+        limiter_pid = seam_fork_scripted_limiter(sleep_call, announce_pipe[1],
+                                                 go_pipe[0], log_pipe[1]);
+        close_ret = close(announce_pipe[1]);
+        assert(close_ret == 0);
+        close_ret = close(log_pipe[1]);
+        assert(close_ret == 0);
+
+        do {
+            n_read = read(announce_pipe[0], &byte, 1);
+        } while (n_read < 0 && errno == EINTR);
+        assert(n_read == 1 && byte == 'S');
+
+        /* Interrupt while the limiter is suspended inside that sleep. */
+        kill(limiter_pid, SIGTERM);
+        assert(write(go_pipe[1], "G", 1) == 1);
+
+        waited = waitpid(limiter_pid, &status, 0);
+        assert(waited == limiter_pid);
+        assert(WIFEXITED(status));
+
+        count = seam_read_child_log(log_pipe[0]);
+        close(announce_pipe[0]);
+        close(go_pipe[0]);
+        close(go_pipe[1]);
+        close(log_pipe[0]);
+
+        /*
+         * Only the suspension phase parks with the target stopped, so
+         * only there can the duty cycle be required to have run.
+         */
+        if (sleep_call == 2) {
+            assert(seam_count_signals(seam_child_log, count,
+                                      (pid_t)SEAM_TARGET_PID, SIGSTOP) > 0);
+            assert(seam_last_signal_to(seam_child_log, count,
+                                       (pid_t)SEAM_TARGET_PID) == SIGCONT);
+        }
+        seam_assert_nothing_left_stopped(seam_child_log, count,
+                                         phases[sleep_call - 1]);
+        seam_assert_no_double_stop(seam_child_log, count);
+    }
+
+    seam_reset();
+}
+
+/**
+ * @brief Fork a pid/exe mode limiter that parks in its retry wait
+ * @param announce_fd Where the parked wait announces itself
+ * @param go_fd Where the parked wait waits to be released
+ * @return Limiter PID in the parent
+ *
+ * The target is a name nothing will ever match, so in non-lazy mode the
+ * limiter keeps scanning and then waits before retrying: the checkpoint
+ * where a signal has to be able to end the run.
+ */
+static pid_t seam_fork_exe_limiter(int announce_fd, int go_fd) {
+    pid_t limiter_pid;
+
+    seam_reset();
+    seam_hook_sleep = 1;
+    seam_sleep_call = 1;
+    seam_sleep_announce_fd = announce_fd;
+    seam_sleep_go_fd = go_fd;
+
+    fflush(stdout);
+    fflush(stderr);
+    limiter_pid = fork();
+    if (limiter_pid == 0) {
+        struct cpulimit_cfg cfg;
+        char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
+        alarm(60);
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.program_name = "test";
+        cfg.exe_name = exe_name;
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 0;
+        configure_signal_handler();
+        run_pid_or_exe_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+    return limiter_pid;
+}
+
+/**
+ * @brief Test the pid/exe mode exit path when the retry wait is cut short
+ *
+ * Interleaving point: S (SIGTERM) x P30, pinned by parking the wait
+ * itself. The run has to end there: the target has never been found, so
+ * nothing is suspended, and non-lazy mode reports a missing target as no
+ * error of its own.
+ *
+ * What the test asserts is that the interruption is honoured at all --
+ * the wrapper exits by itself instead of sleeping the wait out and
+ * scanning again, which is what makes it fail when the signal is left
+ * out: the watchdog then has to end the run.
+ */
+static void test_seam_quit_while_pid_mode_retries(void) {
+    int announce_pipe[2], go_pipe[2];
+    pid_t limiter_pid, waited;
+    int status, close_ret;
+    ssize_t n_read;
+    char byte;
+
+    assert(pipe(announce_pipe) == 0);
+    assert(pipe(go_pipe) == 0);
+
+    limiter_pid = seam_fork_exe_limiter(announce_pipe[1], go_pipe[0]);
+    close_ret = close(announce_pipe[1]);
+    assert(close_ret == 0);
+
+    do {
+        n_read = read(announce_pipe[0], &byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && byte == 'S');
+
+    /* Interrupt while the limiter waits before retrying the scan. */
+    kill(limiter_pid, SIGTERM);
+    assert(write(go_pipe[1], "G", 1) == 1);
+
+    waited = waitpid(limiter_pid, &status, 0);
+    assert(waited == limiter_pid);
+    assert(WIFEXITED(status));
+    if (WEXITSTATUS(status) != EXIT_SUCCESS) {
+        fprintf(stderr, "(pid/exe mode reported %d)\n", WEXITSTATUS(status));
+    }
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+
+    close(announce_pipe[0]);
+    close(go_pipe[0]);
+    close(go_pipe[1]);
+    seam_reset();
 }
 
 /**
@@ -10109,6 +10380,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_seam_quit_in_limit_process_forwards_once);
     RUN_TEST(test_seam_quit_in_collect_forwards_once);
     RUN_TEST(test_seam_undeliverable_forward_is_not_retried);
+    RUN_TEST(test_seam_quit_while_parked_in_sleep);
+    RUN_TEST(test_seam_quit_while_pid_mode_retries);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;
