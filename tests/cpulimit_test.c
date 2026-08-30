@@ -6827,14 +6827,26 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  */
 #define SIGCOUNT_CHILD_ARG "--cpulimit-test-sigcount-child"
 
+/** @brief CPU bursts spent waiting for the limiter to suspend this process. */
+#define SIGCOUNT_HANDSHAKE_BURSTS 100000
+
 /** @brief How many 10 ms slots the counting command waits for its SIGINT. */
 #define SIGCOUNT_WAIT_SLOTS 1000
 
 /** @brief How many 10 ms slots it lingers, so a duplicate shows up. */
 #define SIGCOUNT_LINGER_SLOTS 150
 
+/** @brief Reported when the limiter never suspended the counting command. */
+#define SIGCOUNT_NOT_SUSPENDED 98
+
+/** @brief Reported when a signal handler could not be installed. */
+#define SIGCOUNT_NO_HANDLER 99
+
 /** @brief Number of SIGINTs received by the counting command. */
 static volatile sig_atomic_t sigint_delivery_count = 0;
+
+/** @brief Number of SIGCONTs received by the counting command. */
+static volatile sig_atomic_t sigcont_delivery_count = 0;
 
 /**
  * @brief Record one SIGINT delivery in the counting command
@@ -6846,20 +6858,66 @@ static void count_sigint_delivery(int sig) {
 }
 
 /**
- * @brief Count SIGINT deliveries and return that count
- * @param ready_path File created once the handler is installed, so the
- *                   driving test can synchronise instead of guessing a delay
- * @return Number of SIGINTs received, 99 if the handler was not installed
+ * @brief Record one SIGCONT delivery in the counting command
+ * @param sig Signal number (unused)
+ */
+static void count_sigcont_delivery(int sig) {
+    (void)sig;
+    sigcont_delivery_count++;
+}
+
+/**
+ * @brief Count SIGINT deliveries and report that count
+ * @param ready_path File created once the limiter has been observed to
+ *                   suspend and resume this process, so the driving test
+ *                   can interrupt at a point where the limiter is running
+ * @return Number of SIGINTs received, SIGCOUNT_NOT_SUSPENDED if the limiter
+ *         never suspended this process, SIGCOUNT_NO_HANDLER if a handler
+ *         could not be installed
  */
 static int run_sigcount_child(const char *ready_path) {
     const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
-    struct sigaction sa;
+    struct sigaction sa_int, sa_cont;
     int ready_fd, slot;
 
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = count_sigint_delivery;
-    if (sigemptyset(&sa.sa_mask) != 0 || sigaction(SIGINT, &sa, NULL) != 0) {
-        return 99;
+    memset(&sa_int, 0, sizeof(sa_int));
+    sa_int.sa_handler = count_sigint_delivery;
+    memset(&sa_cont, 0, sizeof(sa_cont));
+    sa_cont.sa_handler = count_sigcont_delivery;
+    if (sigemptyset(&sa_int.sa_mask) != 0 ||
+        sigaction(SIGINT, &sa_int, NULL) != 0 ||
+        sigemptyset(&sa_cont.sa_mask) != 0 ||
+        sigaction(SIGCONT, &sa_cont, NULL) != 0) {
+        return SIGCOUNT_NO_HANDLER;
+    }
+
+    /*
+     * Burn CPU until the limiter suspends and resumes this process at
+     * least once.  That is the handshake: the driving test must not
+     * interrupt before run_command_mode() has reached limit_process()
+     * and started watching the command, and a resume is the only
+     * portable evidence that it has.  The first control cycle always
+     * suspends -- it assumes maximum usage -- and every exit path from
+     * limit_process() resumes the group, so the resume arrives on all
+     * supported platforms.
+     *
+     * Creating the ready file as soon as the command has exec'd instead
+     * left the test guessing how far the limiter had got.  On fast
+     * platforms the guess happened to land after limit_process() had
+     * started; where exec and the process iterator are slower the
+     * signal arrived before anything was watching, no forwarding was
+     * requested, and the command exited having seen nothing.
+     */
+    for (slot = 0;
+         slot < SIGCOUNT_HANDSHAKE_BURSTS && sigcont_delivery_count == 0;
+         slot++) {
+        volatile int spin;
+        for (spin = 0; spin < 20000; spin = spin + 1) {
+            ;
+        }
+    }
+    if (sigcont_delivery_count == 0) {
+        return SIGCOUNT_NOT_SUSPENDED;
     }
 
     ready_fd = creat(ready_path, 0600);
@@ -6894,6 +6952,9 @@ static int run_sigcount_child(const char *ready_path) {
  * The command is this binary re-executed with SIGCOUNT_CHILD_ARG, which
  * exits with the number of SIGINTs it received. run_command_mode()
  * propagates that as its own status, so the wrapper must exit with 1.
+ *
+ * The command creates the ready file only after the limiter has suspended
+ * and resumed it, which is what makes the interruption deterministic.
  */
 static void test_limiter_run_command_mode_forwards_signal_once(void) {
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
@@ -6908,7 +6969,7 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
     assert(ready_fd >= 0);
     close_ret = close(ready_fd);
     assert(close_ret == 0);
-    /* The command recreates it once its handler is installed. */
+    /* The command recreates it once the limiter is known to be watching. */
     unlink(ready_path);
 
     args[0] = argv0;
@@ -6922,8 +6983,26 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         struct cpulimit_cfg cfg;
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
+        int devnull;
+        /*
+         * Redirect output instead of closing it.  The command is a full
+         * C program, so it needs open stdio descriptors, and closed
+         * ones make pipe() inside run_command_mode() hand out fds 1 and
+         * 2, which then alias the sync pipe and the command's own
+         * opens.  Redirecting keeps this test on the same fd layout
+         * real invocations use.
+         */
+        devnull = open("/dev/null", O_WRONLY);
+        if (devnull < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (dup2(devnull, STDOUT_FILENO) < 0 ||
+            dup2(devnull, STDERR_FILENO) < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (devnull > STDERR_FILENO) {
+            close(devnull);
+        }
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.command_mode = 1;
