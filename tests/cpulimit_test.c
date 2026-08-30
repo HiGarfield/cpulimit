@@ -6833,14 +6833,41 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 /** @brief How many 10 ms slots the counting command waits for its SIGINT. */
 #define SIGCOUNT_WAIT_SLOTS 1000
 
-/** @brief How many 10 ms slots it lingers, so a duplicate shows up. */
-#define SIGCOUNT_LINGER_SLOTS 150
+/**
+ * @brief How many 10 ms slots it lingers, so a duplicate shows up.
+ *
+ * A duplicate arrives back to back with the first delivery, so a short
+ * window catches it just as well. It is kept short on purpose: the
+ * command has to exit long before run_command_mode() escalates to
+ * SIGKILL, so that a slow machine can never turn this test into a report
+ * of 128 + SIGKILL instead of the delivery count.
+ */
+#define SIGCOUNT_LINGER_SLOTS 30
 
 /** @brief Reported when the limiter never suspended the counting command. */
 #define SIGCOUNT_NOT_SUSPENDED 98
 
 /** @brief Reported when a signal handler could not be installed. */
 #define SIGCOUNT_NO_HANDLER 99
+
+/**
+ * @brief Internal argv marker turning this binary into the command of the
+ *        out-of-group forwarding test
+ *
+ * Unit tests must live in cpulimit_test.c, so the command used by
+ * test_limiter_run_command_mode_forwards_signal_without_group() is this
+ * very binary re-executed with this marker instead of a separate helper.
+ */
+#define FORWARD_CHILD_ARG "--cpulimit-test-forward-child"
+
+/** @brief How many 10 ms slots that command waits for its SIGTERM. */
+#define FORWARD_WAIT_SLOTS 250
+
+/** @brief Reported when the forwarded signal reached that command. */
+#define FORWARD_DELIVERED 42
+
+/** @brief Reported when that command could not leave its process group. */
+#define FORWARD_NO_GROUP 98
 
 /** @brief Number of SIGINTs received by the counting command. */
 static volatile sig_atomic_t sigint_delivery_count = 0;
@@ -6864,6 +6891,61 @@ static void count_sigint_delivery(int sig) {
 static void count_sigcont_delivery(int sig) {
     (void)sig;
     sigcont_delivery_count++;
+}
+
+/** @brief Number of SIGTERMs received by the out-of-group command. */
+static volatile sig_atomic_t forward_delivery_count = 0;
+
+/**
+ * @brief Record one SIGTERM delivery in the out-of-group command
+ * @param sig Signal number (unused)
+ */
+static void count_forward_delivery(int sig) {
+    (void)sig;
+    forward_delivery_count++;
+}
+
+/**
+ * @brief Leave the limiter's process group and report the forwarded signal
+ * @param ready_path File created once this process has left the group, so
+ *                   the driving test can interrupt at that point
+ * @return FORWARD_DELIVERED once the signal arrived, 0 if it never did,
+ *         FORWARD_NO_GROUP if the process group could not be left,
+ *         SIGCOUNT_NO_HANDLER if a handler could not be installed
+ */
+static int run_forward_child(const char *ready_path) {
+    const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
+    struct sigaction sa_term;
+    int ready_fd, slot;
+
+    memset(&sa_term, 0, sizeof(sa_term));
+    sa_term.sa_handler = count_forward_delivery;
+    if (sigemptyset(&sa_term.sa_mask) != 0 ||
+        sigaction(SIGTERM, &sa_term, NULL) != 0) {
+        return SIGCOUNT_NO_HANDLER;
+    }
+
+    /*
+     * Move into the process group of the limiter that started this
+     * command. The group run_command_mode() created for it is then
+     * empty, so kill(-child_pid, ...) can no longer reach this process
+     * and reports ESRCH.
+     */
+    if (setpgid(0, getpgid(getppid())) != 0) {
+        return FORWARD_NO_GROUP;
+    }
+
+    ready_fd = creat(ready_path, 0600);
+    if (ready_fd >= 0) {
+        close(ready_fd);
+    }
+
+    for (slot = 0; slot < FORWARD_WAIT_SLOTS && forward_delivery_count == 0;
+         slot++) {
+        sleep_timespec(&poll_time);
+    }
+
+    return forward_delivery_count == 0 ? 0 : FORWARD_DELIVERED;
 }
 
 /**
@@ -7044,6 +7126,105 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
         fprintf(stderr, "(command reported exit code %d)\n", w_exit_code);
     }
     assert(w_exit_code == 1);
+}
+
+/**
+ * @brief Test that the quit signal reaches a command the process group
+ *        cannot address
+ *
+ * run_command_mode() signals the command through the process group it
+ * created for it, so that descendants are reached as well. That form is
+ * not a reliable way to reach the command itself: it reports ESRCH once
+ * the command has moved into another process group, and EPERM on the
+ * BSDs when no member of the group can be signalled. The command is the
+ * limiter's own child and stays reachable by PID, so the signal has to be
+ * delivered that way instead of being dropped -- a dropped signal leaves
+ * the command running until run_command_mode() escalates to SIGKILL,
+ * which is what reported 128 + SIGKILL for a command that had merely not
+ * been told to stop.
+ *
+ * The command is this binary re-executed with FORWARD_CHILD_ARG, which
+ * leaves the group and then exits with the number of SIGTERMs it got.
+ */
+static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
+    const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
+    pid_t wrapper_pid, waited;
+    int wrapper_status, w_exited, w_exit_code, attempt, ready, ready_fd;
+    int close_ret;
+    char ready_path[] = "/tmp/cpulimit_test_forward_XXXXXX";
+    char child_arg[] = FORWARD_CHILD_ARG;
+    char *args[4];
+
+    ready_fd = mkstemp(ready_path);
+    assert(ready_fd >= 0);
+    close_ret = close(ready_fd);
+    assert(close_ret == 0);
+    /* The command recreates it once it has left the group. */
+    unlink(ready_path);
+
+    args[0] = argv0;
+    args[1] = child_arg;
+    args[2] = ready_path;
+    args[3] = NULL;
+
+    fflush(stdout);
+    fflush(stderr);
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        struct cpulimit_cfg cfg;
+        int devnull;
+        devnull = open("/dev/null", O_WRONLY);
+        if (devnull < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (dup2(devnull, STDOUT_FILENO) < 0 ||
+            dup2(devnull, STDERR_FILENO) < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (devnull > STDERR_FILENO) {
+            close(devnull);
+        }
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.command_mode = 1;
+        cfg.command_args = args;
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 1;
+        configure_signal_handler();
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+
+    /* Wait until the command has left the group. */
+    ready = 0;
+    for (attempt = 0; attempt < 500 && !ready; attempt++) {
+        if (access(ready_path, F_OK) == 0) {
+            ready = 1;
+        } else {
+            sleep_timespec(&poll_time);
+        }
+    }
+    assert(ready);
+
+    kill(wrapper_pid, SIGTERM);
+
+    waited = waitpid(wrapper_pid, &wrapper_status, 0);
+    assert(waited == wrapper_pid);
+    w_exited = WIFEXITED(wrapper_status);
+    unlink(ready_path);
+    assert(w_exited);
+    w_exit_code = WEXITSTATUS(wrapper_status);
+    /*
+     * Report the code the command produced before asserting: 0 means the
+     * forwarded signal never reached it, 98 that it could not leave the
+     * process group, 99 that it could not install a handler, and 128+n
+     * that it was killed.  Which of those it is decides where to look.
+     */
+    if (w_exit_code != FORWARD_DELIVERED) {
+        fprintf(stderr, "(command reported exit code %d)\n", w_exit_code);
+    }
+    assert(w_exit_code == FORWARD_DELIVERED);
 }
 
 /**
@@ -8342,6 +8523,10 @@ int main(int argc, char *argv[]) {
         return run_sigcount_child(argv[2]);
     }
 
+    if (argc == 3 && strcmp(argv[1], FORWARD_CHILD_ARG) == 0) {
+        return run_forward_child(argv[2]);
+    }
+
     check_y2038();
 
     if (get_current_time(&time_seed) != 0) {
@@ -8519,6 +8704,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
     RUN_TEST(test_limiter_run_command_mode_fifo);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
+    RUN_TEST(test_limiter_run_command_mode_forwards_signal_without_group);
     RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_inaccessible);
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);

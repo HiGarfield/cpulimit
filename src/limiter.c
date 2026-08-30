@@ -385,13 +385,44 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
 }
 
 /**
+ * @brief Send a signal to the command, falling back to its own PID
+ * @param child_pid PID of the command; also the ID of the process group
+ *                  created for it
+ * @param sig Signal number to send
+ *
+ * The negative-PID form is tried first so that descendants the limiter
+ * cannot wait for are reached as well.  It is not a reliable way to reach
+ * the command itself, however:
+ * - ESRCH once the command has moved itself into another process group.
+ * - EPERM on macOS when no member of the group can be signalled, which a
+ *   zombie still awaiting reap is enough to cause.
+ *
+ * Neither says anything about the command, which is this process's own
+ * child and stays reachable by PID.  Dropping the signal instead leaves a
+ * suspended command suspended: it never resumes to take the forwarded
+ * quit signal, so the only thing left to the caller is the SIGKILL
+ * escalation, which reports the command as killed (128 + SIGKILL) rather
+ * than as having exited on its own.
+ */
+static void signal_command(pid_t child_pid, int sig) {
+    if (kill(-child_pid, sig) == 0) {
+        return;
+    }
+    if (kill(child_pid, sig) != 0 && errno != ESRCH) {
+        fprintf(stderr, "kill(%ld, %d) failed: %s\n", (long)child_pid, sig,
+                strerror(errno));
+    }
+}
+
+/**
  * @brief Wait for the child process to exit and collect its exit status
  * @return The child's exit status if successfully reaped, EXIT_FAILURE
  *         otherwise
  *
- * Polls for the child's termination, applying a 5-second SIGKILL timeout
- * if the child does not exit in time. Translates signal termination to
- * shell-compatible exit codes (128 + signal number).
+ * Polls for the child's termination. Once the quit signal has been
+ * forwarded, a 5-second SIGKILL timeout is applied if the child does not
+ * exit in time. Translates signal termination to shell-compatible exit
+ * codes (128 + signal number).
  *
  * Handles the race where a quit signal is delivered after
  * run_command_mode()'s is_quit_flag_set() check: if quit_flag becomes set
@@ -412,6 +443,8 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
  * start_time is reset to the moment the signal is forwarded from inside
  * this function, giving the child the full CHILD_KILL_TIMEOUT_MS from the
  * point it first receives the forwarded signal (not from function entry).
+ * No escalation is armed before that: a command that is still running
+ * because limit_process() stopped watching it is waited for, not killed.
  *
  * @param child_pid PID of the child process to wait for
  * @param cfg Pointer to configuration structure (used for verbose output)
@@ -518,16 +551,8 @@ static int collect_child_exit_status(pid_t child_pid,
                 if (fwd_sig == SIGPIPE || fwd_sig == 0) {
                     fwd_sig = SIGTERM;
                 }
-                if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
-                    int err = errno;
-                    fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n",
-                            (long)child_pid, strerror(err));
-                }
-                if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
-                    int err = errno;
-                    fprintf(stderr, "kill(-%ld, %d) failed: %s\n",
-                            (long)child_pid, fwd_sig, strerror(err));
-                }
+                signal_command(child_pid, SIGCONT);
+                signal_command(child_pid, fwd_sig);
                 signal_forwarded = 1;
                 /*
                  * Reset the timeout anchor to the moment the signal is
@@ -544,22 +569,25 @@ static int collect_child_exit_status(pid_t child_pid,
             /*
              * After CHILD_KILL_TIMEOUT_MS, forcefully kill any remaining
              * processes.  This handles cases where processes ignore
-             * SIGTERM.  Send SIGKILL to the entire process group (-pgid)
-             * to also terminate any descendants that are still running,
-             * even though we cannot wait() on them directly.
+             * SIGTERM.  The process group is targeted so that
+             * descendants that are still running are terminated too,
+             * even though they cannot be wait()ed on directly.
+             *
+             * The escalation enforces a termination request, so it is
+             * armed only once one has been forwarded.  limit_process()
+             * also returns when the target is no longer visible to the
+             * process iterator without having exited, and a command that
+             * is still running must not be killed for that: cpulimit
+             * then simply waits for it, the way a shell does.
              */
-            if (timediff_in_ms(&current_time, &start_time) >
-                (double)CHILD_KILL_TIMEOUT_MS) {
+            if (signal_forwarded && timediff_in_ms(&current_time, &start_time) >
+                                        (double)CHILD_KILL_TIMEOUT_MS) {
                 if (cfg->verbose) {
                     printf("Process %ld timed out, sending SIGKILL\n",
                            (long)child_pid);
                 }
                 /* SIGKILL cannot be caught or ignored */
-                if (kill(-child_pid, SIGKILL) != 0 && errno != ESRCH) {
-                    int err = errno;
-                    fprintf(stderr, "kill(-%ld, SIGKILL) failed: %s\n",
-                            (long)child_pid, strerror(err));
-                }
+                signal_command(child_pid, SIGKILL);
             }
             /* Brief sleep to avoid busy-waiting */
             sleep_timespec(&poll_sleep);
@@ -685,14 +713,10 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
      * limit_process() has exited.  Sending SIGCONT unconditionally here
      * ensures the child is running and able to receive any subsequent signal.
      * SIGCONT to an already-running process group is harmless.
-     * The call may fail with ESRCH if the child has already exited; that
-     * case is handled by collect_child_exit_status() below.
+     * A child that has already exited cannot be resumed; that case is
+     * handled by collect_child_exit_status() below.
      */
-    if (kill(-child_pid, SIGCONT) != 0 && errno != ESRCH) {
-        int err = errno;
-        fprintf(stderr, "kill(-%ld, SIGCONT) failed: %s\n", (long)child_pid,
-                strerror(err));
-    }
+    signal_command(child_pid, SIGCONT);
 
     /*
      * Check if user requested termination via signal (Ctrl+C, SIGTERM,
@@ -728,16 +752,13 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
          *   to the child group could cause unintended termination of
          *   children that write to unrelated pipes. Map it to SIGTERM
          *   so the child group is asked to exit gracefully.
-         * Negative PID targets the process group: -PGID.
+         * The process group is targeted first, the command itself as a
+         * fallback; see signal_command().
          */
         if (fwd_sig == SIGPIPE || fwd_sig == 0) {
             fwd_sig = SIGTERM;
         }
-        if (kill(-child_pid, fwd_sig) != 0 && errno != ESRCH) {
-            int err = errno;
-            fprintf(stderr, "kill(-%ld, %d) failed: %s\n", (long)child_pid,
-                    fwd_sig, strerror(err));
-        }
+        signal_command(child_pid, fwd_sig);
     }
 
     exit(collect_child_exit_status(child_pid, cfg, forwarded_quit_signal));
