@@ -7034,6 +7034,15 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
     unlink(ready_path);
     assert(w_exited);
     w_exit_code = WEXITSTATUS(wrapper_status);
+    /*
+     * Report the code the command produced before asserting: 0 means it
+     * was never signalled at all, 98 that the limiter never suspended
+     * it, 99 that it could not install a handler, and 128+n that it was
+     * killed.  Which of those it is decides where to look.
+     */
+    if (w_exit_code != 1) {
+        fprintf(stderr, "(command reported exit code %d)\n", w_exit_code);
+    }
     assert(w_exit_code == 1);
 }
 
