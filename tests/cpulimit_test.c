@@ -8588,6 +8588,8 @@ struct seam_signal {
     pid_t pid;
     /** @brief Signal number. */
     int sig;
+    /** @brief Non-zero when the call was made to fail. */
+    int failed;
 };
 
 /** @brief Non-zero while a deterministic test owns clock, iterator, kill. */
@@ -8645,6 +8647,9 @@ static int seam_fail_call = 0;
 
 /** @brief errno the failing kill() call must report. */
 static int seam_fail_errno = 0;
+
+/* Used by the iterator replacement below, which is defined further up. */
+static void seam_mark_snapshot(void);
 
 /* Replacements referenced by the sources compiled into this test binary. */
 int cpulimit_test_get_current_time(struct timespec *result_ts);
@@ -8711,6 +8716,10 @@ static int seam_count_signals(const struct seam_signal *log, int count,
                               pid_t pid, int sig) {
     int idx, total = 0;
     for (idx = 0; idx < count; idx++) {
+        /* Entries with PID 0 mark a snapshot boundary, not a signal. */
+        if (log[idx].pid == (pid_t)0) {
+            continue;
+        }
         if (log[idx].pid == pid && log[idx].sig == sig) {
             total++;
         }
@@ -8729,6 +8738,10 @@ static int seam_last_signal_to(const struct seam_signal *log, int count,
                                pid_t pid) {
     int idx, last = 0;
     for (idx = 0; idx < count; idx++) {
+        /* Entries with PID 0 mark a snapshot boundary, not a signal. */
+        if (log[idx].pid == (pid_t)0) {
+            continue;
+        }
         if (log[idx].pid == pid) {
             last = log[idx].sig;
         }
@@ -8748,7 +8761,8 @@ static void seam_assert_no_double_stop(const struct seam_signal *log,
                                        int count) {
     int idx, outer;
     for (outer = 0; outer < count; outer++) {
-        if (log[outer].sig != SIGSTOP) {
+        /* Entries with PID 0 mark a snapshot boundary, not a signal. */
+        if (log[outer].pid == (pid_t)0 || log[outer].sig != SIGSTOP) {
             continue;
         }
         for (idx = outer + 1; idx < count; idx++) {
@@ -8821,18 +8835,21 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
  * call, in which case no signal is recorded as delivered.
  */
 int cpulimit_test_kill(pid_t pid, int sig) {
+    int failed;
     if (!seam_active) {
         return kill(pid, sig);
     }
     seam_kill_calls++;
-    if (seam_fail_call != 0 && seam_kill_calls == seam_fail_call) {
-        errno = seam_fail_errno;
-        return -1;
-    }
+    failed = (seam_fail_call != 0 && seam_kill_calls == seam_fail_call);
     if (seam_signal_count < SEAM_MAX_SIGNALS) {
         seam_signals[seam_signal_count].pid = pid;
         seam_signals[seam_signal_count].sig = sig;
+        seam_signals[seam_signal_count].failed = failed ? 1 : 0;
         seam_signal_count++;
+    }
+    if (failed) {
+        errno = seam_fail_errno;
+        return -1;
     }
     return 0;
 }
@@ -8852,6 +8869,7 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
     if (iter == NULL) {
         return -1;
     }
+    seam_mark_snapshot();
     seam_frames_served++;
     if (seam_frames_served > SEAM_MAX_SERVED_FRAMES) {
         seam_frame_current = -1;
@@ -8908,6 +8926,23 @@ int cpulimit_test_close_process_iterator(struct process_iterator *iter) {
     }
     seam_frame_current = -1;
     return 0;
+}
+
+/**
+ * @brief Record a snapshot boundary in the signal log
+ *
+ * Signalling a PID again in a LATER snapshot is legitimate: the iterator
+ * reported it again, so the limiter is entitled to control it again, even
+ * if a signal to that PID failed earlier. Only a retry inside the same
+ * snapshot is the defect, so the log has to show where one ends.
+ */
+static void seam_mark_snapshot(void) {
+    if (seam_signal_count < SEAM_MAX_SIGNALS) {
+        seam_signals[seam_signal_count].pid = (pid_t)0;
+        seam_signals[seam_signal_count].sig = 0;
+        seam_signals[seam_signal_count].failed = 0;
+        seam_signal_count++;
+    }
 }
 
 /**
@@ -8982,6 +9017,214 @@ static int seam_snapshot_run(void) {
         seam_run_snapshot[idx] = seam_signals[idx];
     }
     return seam_run_snapshot_len;
+}
+
+/** @brief Descendant PID the seam scripts report next to the target. */
+#define SEAM_CHILD_PID 42425
+
+/** @brief Number of cycles the group script keeps both processes visible. */
+#define SEAM_GROUP_CYCLES 4
+
+/**
+ * @brief Drive limit_process() over a scripted target plus descendant
+ * @param reuse_cycle Cycle at which the target's CPU time jumps backwards,
+ *                    making the iterator report the PID as reused by a new
+ *                    process; negative for no reuse
+ * @param fail_call 1-based kill() call index that must fail with ESRCH,
+ *                  standing for a process that exited between the snapshot
+ *                  and the signal; 0 for no injected failure
+ * @return Number of kill() calls recorded; the log stays in seam_signals
+ */
+static int seam_run_group_limit(int reuse_cycle, int fail_call) {
+    struct seam_proc both[2];
+    struct seam_proc target_only[1];
+    int cycle;
+
+    seam_reset();
+    seam_fail_call = fail_call;
+    seam_fail_errno = ESRCH;
+    both[0].pid = (pid_t)SEAM_TARGET_PID;
+    both[0].ppid = (pid_t)1;
+    both[1].pid = (pid_t)SEAM_CHILD_PID;
+    both[1].ppid = (pid_t)SEAM_TARGET_PID;
+    target_only[0].pid = (pid_t)SEAM_TARGET_PID;
+    target_only[0].ppid = (pid_t)1;
+
+    for (cycle = 0; cycle < SEAM_GROUP_CYCLES; cycle++) {
+        both[0].cpu_time = (cycle == reuse_cycle)
+                               ? 10.0
+                               : 1000.0 + (double)cycle * SEAM_SMOKE_CPU_STEP;
+        both[1].cpu_time = 500.0 + (double)cycle * SEAM_SMOKE_CPU_STEP;
+        seam_push_frame(both, 2);
+    }
+    /* The descendant exits first, then the target. */
+    target_only[0].cpu_time =
+        1000.0 + (double)SEAM_GROUP_CYCLES * SEAM_SMOKE_CPU_STEP;
+    seam_push_frame(target_only, 1);
+    seam_push_frame(NULL, 0);
+
+    seam_active = 1;
+    limit_process((pid_t)SEAM_TARGET_PID, 0.5, 1, 0);
+    seam_active = 0;
+
+    return seam_signal_count;
+}
+
+/**
+ * @brief Assert the suspension bookkeeping invariants over a seam run
+ * @param count Number of recorded kill() calls to check
+ * @param what Label reported when an invariant is broken
+ *
+ * The invariants, not the numbers, are what matter:
+ * - only PIDs the iterator actually reported may be signalled;
+ * - every suspension is undone, and undone exactly once;
+ * - no PID is suspended twice without an intervening resume;
+ * - the run ends on a resume, so nothing is left stopped.
+ */
+static void seam_assert_bookkeeping(int count, const char *what) {
+    int idx;
+    int stops_target, conts_target, stops_child, conts_child;
+
+    stops_target = seam_count_signals(seam_signals, count,
+                                      (pid_t)SEAM_TARGET_PID, SIGSTOP);
+    conts_target = seam_count_signals(seam_signals, count,
+                                      (pid_t)SEAM_TARGET_PID, SIGCONT);
+    stops_child =
+        seam_count_signals(seam_signals, count, (pid_t)SEAM_CHILD_PID, SIGSTOP);
+    conts_child =
+        seam_count_signals(seam_signals, count, (pid_t)SEAM_CHILD_PID, SIGCONT);
+
+    /* Only PIDs the iterator reported may be signalled. */
+    for (idx = 0; idx < count; idx++) {
+        /* Entries with PID 0 mark a snapshot boundary, not a signal. */
+        if (seam_signals[idx].pid == (pid_t)0) {
+            continue;
+        }
+        if (seam_signals[idx].pid != (pid_t)SEAM_TARGET_PID &&
+            seam_signals[idx].pid != (pid_t)SEAM_CHILD_PID) {
+            fprintf(stderr, "(%s: PID %ld signalled but never reported)\n",
+                    what, (long)seam_signals[idx].pid);
+            assert(seam_signals[idx].pid == (pid_t)SEAM_TARGET_PID ||
+                   seam_signals[idx].pid == (pid_t)SEAM_CHILD_PID);
+        }
+    }
+
+    /* Every suspension is undone exactly once. */
+    if (stops_target != conts_target) {
+        fprintf(stderr, "(%s: target stopped %d times, resumed %d)\n", what,
+                stops_target, conts_target);
+        assert(stops_target == conts_target);
+    }
+    if (stops_child != conts_child) {
+        fprintf(stderr, "(%s: descendant stopped %d times, resumed %d)\n", what,
+                stops_child, conts_child);
+        assert(stops_child == conts_child);
+    }
+
+    /* The run must have exercised the duty cycle at all. */
+    assert(stops_target > 0);
+    assert(stops_child > 0);
+
+    /* Nothing is left stopped, and never stopped twice in a row. */
+    seam_assert_no_double_stop(seam_signals, count);
+    assert(seam_last_signal_to(seam_signals, count, (pid_t)SEAM_TARGET_PID) ==
+           SIGCONT);
+    assert(seam_last_signal_to(seam_signals, count, (pid_t)SEAM_CHILD_PID) ==
+           SIGCONT);
+}
+
+/**
+ * @brief Assert that a PID is never signalled again once a signal failed
+ * @param count Number of recorded kill() calls to check
+ * @param what Label reported when the invariant is broken
+ *
+ * A failed kill() means the process can no longer be controlled, so
+ * there is nothing left to undo. Signalling the PID again before the
+ * next snapshot is worse than pointless: if the process really exited,
+ * its PID may already have been recycled, and the second signal lands on
+ * an unrelated process. Once the iterator reports the PID again the
+ * limiter may control it again, so the check stops at the boundary.
+ */
+static void seam_assert_no_signal_after_failure(int count, const char *what) {
+    int outer, idx, failures = 0;
+
+    for (outer = 0; outer < count; outer++) {
+        if (seam_signals[outer].failed) {
+            failures++;
+        }
+    }
+    /* The injection must have taken effect, or the check proves nothing. */
+    if (failures == 0) {
+        fprintf(stderr, "(%s: no kill() call was made to fail)\n", what);
+        assert(failures > 0);
+    }
+
+    for (outer = 0; outer < count; outer++) {
+        if (!seam_signals[outer].failed) {
+            continue;
+        }
+        for (idx = outer + 1; idx < count; idx++) {
+            /* A later snapshot legitimises controlling the PID again. */
+            if (seam_signals[idx].pid == (pid_t)0) {
+                break;
+            }
+            if (seam_signals[idx].pid != seam_signals[outer].pid) {
+                continue;
+            }
+            fprintf(stderr,
+                    "(%s: PID %ld signalled again after failure, same "
+                    "snapshot)\n",
+                    what, (long)seam_signals[outer].pid);
+            assert(seam_signals[idx].pid != seam_signals[outer].pid);
+        }
+    }
+}
+
+/**
+ * @brief Test the suspended-PID bookkeeping across process table changes
+ *
+ * record_stopped_pid() is what keeps a suspension undoable after the
+ * process has left the snapshot, which is exactly what makes it stale
+ * state: the PID it remembers may be gone, or may have been recycled for
+ * an unrelated process by the time the resume is sent.
+ *
+ * The seam scripts both cases -- the descendant exiting first and the
+ * target's PID being reused -- and this test asserts the bookkeeping
+ * invariants rather than a signal count.
+ */
+static void test_seam_stopped_pid_bookkeeping(void) {
+    int count;
+
+    count = seam_run_group_limit(-1, 0);
+    seam_assert_bookkeeping(count, "descendant exits first");
+
+    /* The target's PID is recycled by a new process mid-run. */
+    count = seam_run_group_limit(1, 0);
+    seam_assert_bookkeeping(count, "target PID reused");
+}
+
+/**
+ * @brief Test that a failed resume is not retried through the stale record
+ *
+ * A process that exits between the snapshot and the resume makes the
+ * resume fail with ESRCH. send_signal_to_processes() then drops it from
+ * the group, which is what resume_stopped_pids() reads as "suspended but
+ * no longer a member" -- so it signalled the PID a second time, at a
+ * moment when the PID may already belong to an unrelated process.
+ *
+ * The seam pins the failing call and asserts the invariant that matters:
+ * once a signal to a PID has failed, that PID is never signalled again.
+ */
+static void test_seam_failed_resume_is_not_retried(void) {
+    int count;
+
+    /* The first two calls are the suspensions; the third is the resume. */
+    count = seam_run_group_limit(-1, 3);
+    seam_assert_no_signal_after_failure(count, "first resume fails");
+
+    /* Same failure one call later, on the other process. */
+    count = seam_run_group_limit(-1, 4);
+    seam_assert_no_signal_after_failure(count, "second resume fails");
 }
 
 /**
@@ -9252,6 +9495,8 @@ int main(int argc, char *argv[]) {
     /* Deterministic timing seam tests */
     printf("\n=== TIMING SEAM TESTS ===\n");
     RUN_TEST(test_seam_limit_process_is_deterministic);
+    RUN_TEST(test_seam_stopped_pid_bookkeeping);
+    RUN_TEST(test_seam_failed_resume_is_not_retried);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;

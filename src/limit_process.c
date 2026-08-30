@@ -209,6 +209,15 @@ static void send_signal_to_processes(struct process_group *proc_group, int sig,
                 fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
                         sig, (long)pid, strerror(saved_errno));
             }
+            /*
+             * Drop the suspension record with it. resume_stopped_pids()
+             * treats a PID that is suspended but no longer a group member
+             * as something it still has to resume, and this process is
+             * about to stop being a member even though its signal just
+             * failed: there is nothing left to undo, and the PID may
+             * already have been recycled for an unrelated process.
+             */
+            forget_stopped_pid(proc_group, pid);
             /* Remove dead/inaccessible process from tracking */
             delete_node(proc_group->proc_list, node);
             delete_from_process_table(proc_group->proc_table, pid);

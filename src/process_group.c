@@ -262,6 +262,27 @@ void resume_stopped_pids(struct process_group *proc_group) {
     destroy_list(proc_group->stopped_pids);
 }
 
+void forget_stopped_pid(struct process_group *proc_group, pid_t pid) {
+    struct list_node *node, *next_node;
+    if (proc_group == NULL || proc_group->stopped_pids == NULL) {
+        return;
+    }
+    for (node = first_node(proc_group->stopped_pids); node != NULL;
+         node = next_node) {
+        next_node = node->next;
+        if (node->data == NULL || *(const pid_t *)node->data != pid) {
+            continue;
+        }
+        /*
+         * Each element is a heap-allocated pid_t owned by this list, so
+         * it has to be released before its node is unlinked:
+         * delete_node() only frees the node.
+         */
+        free(node->data);
+        delete_node(proc_group->stopped_pids, node);
+    }
+}
+
 /**
  * @def CPU_EMA_ALPHA
  * @brief Smoothing factor for exponential moving average of CPU usage

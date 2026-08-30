@@ -173,6 +173,24 @@ void record_stopped_pid(struct process_group *proc_group, pid_t pid);
 void resume_stopped_pids(struct process_group *proc_group);
 
 /**
+ * @brief Drop a PID from the suspension record without resuming it
+ * @param proc_group Pointer to the process group structure
+ * @param pid PID to forget
+ *
+ * Called when a signal to a tracked process failed, which means the
+ * process can no longer be controlled and there is no suspension left to
+ * undo. Resuming it later would be worse than pointless: the PID may
+ * already have been recycled, and resume_stopped_pids() would then send
+ * the resume to an unrelated process.
+ *
+ * @note Safe to call with NULL proc_group or a group whose suspended-PID
+ *       list has not been allocated; the call is then a no-op
+ * @note Removes every record for the PID, so the list cannot keep a
+ *       duplicate entry behind
+ */
+void forget_stopped_pid(struct process_group *proc_group, pid_t pid);
+
+/**
  * @brief Refresh process group state and recalculate CPU usage
  * @param proc_group Pointer to the process_group structure to update
  *
