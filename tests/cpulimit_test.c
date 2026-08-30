@@ -9026,6 +9026,14 @@ static int seam_snapshot_run(void) {
 #define SEAM_GROUP_CYCLES 4
 
 /**
+ * @brief Upper bound on the kill() positions the failure sweep walks
+ *
+ * Generous enough to cover every call a scripted run makes; the sweep
+ * stops on its own once it walks past the last one.
+ */
+#define SEAM_SWEEP_CALLS 24
+
+/**
  * @brief Drive limit_process() over a scripted target plus descendant
  * @param reuse_cycle Cycle at which the target's CPU time jumps backwards,
  *                    making the iterator report the PID as reused by a new
@@ -9134,6 +9142,68 @@ static void seam_assert_bookkeeping(int count, const char *what) {
 }
 
 /**
+ * @brief Count the kill() calls that were made to fail
+ * @param count Number of recorded kill() calls to check
+ * @return Number of failed calls
+ */
+static int seam_count_failures(int count) {
+    int idx, total = 0;
+    for (idx = 0; idx < count; idx++) {
+        if (seam_signals[idx].failed) {
+            total++;
+        }
+    }
+    return total;
+}
+
+/**
+ * @brief Assert that no PID is left suspended
+ * @param count Number of recorded kill() calls to check
+ * @param what Label reported when the invariant is broken
+ *
+ * Every suspension has to be undone, or at least attempted: a resume
+ * that failed means the process was unreachable, which is the only
+ * excuse for leaving a suspension standing.
+ */
+static void seam_assert_nothing_left_stopped(int count, const char *what) {
+    int idx;
+    int stops_target, conts_target, fails_target;
+    int stops_child, conts_child, fails_child;
+
+    stops_target = seam_count_signals(seam_signals, count,
+                                      (pid_t)SEAM_TARGET_PID, SIGSTOP);
+    conts_target = seam_count_signals(seam_signals, count,
+                                      (pid_t)SEAM_TARGET_PID, SIGCONT);
+    stops_child =
+        seam_count_signals(seam_signals, count, (pid_t)SEAM_CHILD_PID, SIGSTOP);
+    conts_child =
+        seam_count_signals(seam_signals, count, (pid_t)SEAM_CHILD_PID, SIGCONT);
+    fails_target = 0;
+    fails_child = 0;
+    for (idx = 0; idx < count; idx++) {
+        if (!seam_signals[idx].failed) {
+            continue;
+        }
+        if (seam_signals[idx].pid == (pid_t)SEAM_TARGET_PID) {
+            fails_target++;
+        } else if (seam_signals[idx].pid == (pid_t)SEAM_CHILD_PID) {
+            fails_child++;
+        }
+    }
+
+    if (conts_target + fails_target < stops_target) {
+        fprintf(stderr, "(%s: target stopped %d times, undone %d+%d)\n", what,
+                stops_target, conts_target, fails_target);
+        assert(conts_target + fails_target >= stops_target);
+    }
+    if (conts_child + fails_child < stops_child) {
+        fprintf(stderr, "(%s: descendant stopped %d times, undone %d+%d)\n",
+                what, stops_child, conts_child, fails_child);
+        assert(conts_child + fails_child >= stops_child);
+    }
+}
+
+/**
  * @brief Assert that a PID is never signalled again once a signal failed
  * @param count Number of recorded kill() calls to check
  * @param what Label reported when the invariant is broken
@@ -9225,6 +9295,39 @@ static void test_seam_failed_resume_is_not_retried(void) {
     /* Same failure one call later, on the other process. */
     count = seam_run_group_limit(-1, 4);
     seam_assert_no_signal_after_failure(count, "second resume fails");
+}
+
+/**
+ * @brief Test the bookkeeping when any one signal in the round fails
+ *
+ * A signal can fail at any position in the round: on either process, in
+ * the suspension or in the resume, before or after the others. Each
+ * position leaves the group, the process table and the suspension record
+ * in a different state, so each is scripted in turn instead of picking
+ * one and hoping it is representative.
+ *
+ * Interleaving points: E1 x P5/P6/P9/P10/P14, pinned by failing the
+ * n-th kill() of a scripted run.
+ */
+static void test_seam_stop_round_partial_failure(void) {
+    int call, count, swept = 0;
+
+    for (call = 1; call <= SEAM_SWEEP_CALLS; call++) {
+        count = seam_run_group_limit(-1, call);
+        if (seam_count_failures(count) == 0) {
+            /* Past the last kill() of the run; nothing left to sweep. */
+            break;
+        }
+        swept++;
+        seam_assert_no_signal_after_failure(count, "sweep failure");
+        seam_assert_nothing_left_stopped(count, "sweep failure");
+    }
+
+    /* The sweep has to cover the round, or it proves nothing. */
+    if (swept < 8) {
+        fprintf(stderr, "(sweep covered only %d kill() positions)\n", swept);
+        assert(swept >= 8);
+    }
 }
 
 /**
@@ -9497,6 +9600,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_seam_limit_process_is_deterministic);
     RUN_TEST(test_seam_stopped_pid_bookkeeping);
     RUN_TEST(test_seam_failed_resume_is_not_retried);
+    RUN_TEST(test_seam_stop_round_partial_failure);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;
