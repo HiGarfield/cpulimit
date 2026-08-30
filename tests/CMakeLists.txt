@@ -32,11 +32,15 @@ add_checked_flags(multi_process_busy CPULIMIT_C_FLAGS)
 # inactive. Linker interposition (-Wl,--wrap=...) is not used because
 # Apple's ld64 rejects it ("ld: unknown options: --wrap=kill").
 #
-# A file that DEFINES a renamed function must be excluded from that rename,
-# otherwise its definition would be renamed too and collide with the
-# replacement: time_util.c defines get_current_time()/sleep_timespec(),
-# and the platform iterators define init_process_iterator(),
-# get_next_process() and close_process_iterator().
+# A file that DEFINES a renamed function must be excluded from that one
+# rename only, otherwise its definition would be renamed too and collide
+# with the replacement. Excluding it from the whole set would silently
+# leave that file on the real clock, iterator and sleeps:
+#   - time_util.c defines get_current_time() and sleep_timespec()
+#   - the platform iterators define init_process_iterator(),
+#     get_next_process() and close_process_iterator()
+#   - limit_process.c defines limit_process()
+# so each of the three groups below gets every rename except its own.
 #
 # getloadavg() is only renamed here because util.h redirects it to
 # cpulimit_getloadavg() solely for uClibc < 1.0.42, which is not a
@@ -48,29 +52,41 @@ set(CPULIMIT_TEST_SEAM_ALL
     getloadavg=cpulimit_test_getloadavg
     waitpid=cpulimit_test_waitpid)
 
-set(CPULIMIT_TEST_SEAM_NO_DEF
+set(CPULIMIT_TEST_SEAM_TIME_ITER
     get_current_time=cpulimit_test_get_current_time
     sleep_timespec=cpulimit_test_sleep_timespec
     init_process_iterator=cpulimit_test_init_process_iterator
     get_next_process=cpulimit_test_get_next_process
-    close_process_iterator=cpulimit_test_close_process_iterator
+    close_process_iterator=cpulimit_test_close_process_iterator)
+
+set(CPULIMIT_TEST_SEAM_LIMIT
     limit_process=cpulimit_test_limit_process)
 
-set(CPULIMIT_TEST_SEAM_DEFINING_SOURCES
+set(CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS
     ${PROJECT_SOURCE_DIR}/src/time_util.c
-    ${PROJECT_SOURCE_DIR}/src/limit_process.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_linux.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_freebsd.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_apple.c)
 
-set(CPULIMIT_TEST_SEAM_OTHER_SOURCES ${CPULIMIT_SRC_COMMON})
-list(REMOVE_ITEM CPULIMIT_TEST_SEAM_OTHER_SOURCES
-     ${CPULIMIT_TEST_SEAM_DEFINING_SOURCES})
+set(CPULIMIT_TEST_SEAM_LIMIT_DEFINERS
+    ${PROJECT_SOURCE_DIR}/src/limit_process.c)
 
-set_source_files_properties(${CPULIMIT_TEST_SEAM_DEFINING_SOURCES} PROPERTIES
-    COMPILE_DEFINITIONS "${CPULIMIT_TEST_SEAM_ALL}")
-set_source_files_properties(${CPULIMIT_TEST_SEAM_OTHER_SOURCES} PROPERTIES
-    COMPILE_DEFINITIONS "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_NO_DEF}")
+# The three groups have to be disjoint: a source file property is replaced,
+# not merged, so a file listed twice would end up with the last set only.
+set(CPULIMIT_TEST_SEAM_PLAIN_SOURCES ${CPULIMIT_SRC_COMMON})
+list(REMOVE_ITEM CPULIMIT_TEST_SEAM_PLAIN_SOURCES
+     ${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS}
+     ${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS})
+
+set_source_files_properties(${CPULIMIT_TEST_SEAM_PLAIN_SOURCES} PROPERTIES
+    COMPILE_DEFINITIONS
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT}")
+set_source_files_properties(${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS} PROPERTIES
+    COMPILE_DEFINITIONS
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LIMIT}")
+set_source_files_properties(${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS} PROPERTIES
+    COMPILE_DEFINITIONS
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER}")
 
 # --- cpulimit_test ---
 add_executable(cpulimit_test
