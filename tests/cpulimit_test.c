@@ -8502,6 +8502,531 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
         printf("%s() passed.\n", #test_func);                                  \
     } while (0)
 
+/***************************************************************************
+ * DETERMINISTIC TIMING SEAM
+ *
+ * cpulimit is single threaded, so its races come from when an
+ * asynchronous signal is delivered and from what the process table does
+ * between two snapshots, never from thread interleaving. The race tests
+ * below must pin both down instead of racing them, so they take over the
+ * only sources of non-determinism the program has:
+ *
+ *   - the monotonic clock and the sleeps driven by it,
+ *   - what the process iterator reports,
+ *   - whether kill() succeeds,
+ *   - random() (duty-cycle jitter) and getloadavg() (time slot scaling).
+ *
+ * tests/CMakeLists.txt renames those entry points at compile time, but
+ * only for the sources compiled into this test binary: cpulimit_test.c
+ * itself keeps calling the real implementations, which is what lets every
+ * replacement below forward to the real thing while the seam is inactive.
+ * Linker interposition (-Wl,--wrap=...) is not an option because Apple's
+ * ld64 rejects it ("ld: unknown options: --wrap=kill"), and defining a
+ * function with the same name as a libc one would collide with the
+ * platform iterator objects linked into this binary.
+ *
+ * While the seam is inactive every replacement is a pass through, so all
+ * other tests in this file observe the production behaviour unchanged.
+ ***************************************************************************/
+
+/** @brief PID the seam scripts report; it never belongs to a real process. */
+#define SEAM_TARGET_PID 42424
+
+/** @brief Number of scripted snapshots the seam can hold. */
+#define SEAM_MAX_FRAMES 32
+
+/** @brief Number of processes a single scripted snapshot can hold. */
+#define SEAM_MAX_FRAME_PROCS 8
+
+/** @brief Number of kill() calls the seam records. */
+#define SEAM_MAX_SIGNALS 512
+
+/**
+ * @brief Hard cap on snapshots served in one seam session
+ *
+ * A script that never runs out (repeat mode) would otherwise spin
+ * limit_process() forever and blow the CI timeout rather than fail.
+ */
+#define SEAM_MAX_SERVED_FRAMES 256
+
+/** @brief How many cycles the smoke script keeps the target visible. */
+#define SEAM_SMOKE_CYCLES 6
+
+/** @brief CPU time in milliseconds the smoke script adds per cycle. */
+#define SEAM_SMOKE_CPU_STEP 45.0
+
+/**
+ * @brief Load the fake getloadavg() reports
+ *
+ * Kept low enough that get_dynamic_time_slot() clamps the time slot to
+ * BASE_TIME_SLOT_US for any CPU count, so the duty cycle does not depend
+ * on how many cores the machine running the test happens to have.
+ */
+#define SEAM_LOADAVG 0.1
+
+/**
+ * @brief Value the fake random() returns
+ *
+ * limit_process() turns it into a jitter factor of 0.95 + value / 10000,
+ * so 500 means exactly 1.0: the time slot is left untouched.
+ */
+#define SEAM_RANDOM 500L
+
+/** @brief One process as reported by the scripted process iterator. */
+struct seam_proc {
+    /** @brief Process ID. */
+    pid_t pid;
+    /** @brief Parent process ID. */
+    pid_t ppid;
+    /** @brief Cumulative CPU time in milliseconds. */
+    double cpu_time;
+};
+
+/** @brief One kill() call recorded by the seam. */
+struct seam_signal {
+    /** @brief Target the call was made for; negative for a process group. */
+    pid_t pid;
+    /** @brief Signal number. */
+    int sig;
+};
+
+/** @brief Non-zero while a deterministic test owns clock, iterator, kill. */
+static int seam_active = 0;
+
+/** @brief Virtual monotonic clock in milliseconds. */
+static double seam_clock_ms = 0.0;
+
+/** @brief Scripted snapshots served by the fake process iterator. */
+static struct seam_proc seam_frames[SEAM_MAX_FRAMES][SEAM_MAX_FRAME_PROCS];
+
+/** @brief Number of processes in each scripted snapshot. */
+static int seam_frame_len[SEAM_MAX_FRAMES];
+
+/** @brief Number of scripted snapshots. */
+static int seam_frame_count = 0;
+
+/** @brief Index of the next snapshot to serve. */
+static int seam_frame_next = 0;
+
+/** @brief Index of the snapshot being served now; -1 when none is left. */
+static int seam_frame_current = -1;
+
+/** @brief Position within the snapshot being served. */
+static int seam_frame_pos = 0;
+
+/** @brief Non-zero to keep serving the last snapshot once the script ends. */
+static int seam_repeat_last = 0;
+
+/** @brief Number of snapshots served in this session. */
+static int seam_frames_served = 0;
+
+/** @brief kill() calls recorded during this session, in order. */
+static struct seam_signal seam_signals[SEAM_MAX_SIGNALS];
+
+/** @brief Number of kill() calls recorded. */
+static int seam_signal_count = 0;
+
+/**
+ * @brief Copy of one recorded run, used to compare two runs
+ *
+ * Kept at file scope because a signal log of SEAM_MAX_SIGNALS entries is
+ * far past the per-frame stack budget.
+ */
+static struct seam_signal seam_run_snapshot[SEAM_MAX_SIGNALS];
+
+/** @brief Number of entries in seam_run_snapshot. */
+static int seam_run_snapshot_len = 0;
+
+/** @brief Number of kill() calls made so far. */
+static int seam_kill_calls = 0;
+
+/** @brief 1-based kill() call index that must fail; 0 disables failure. */
+static int seam_fail_call = 0;
+
+/** @brief errno the failing kill() call must report. */
+static int seam_fail_errno = 0;
+
+/* Replacements referenced by the sources compiled into this test binary. */
+int cpulimit_test_get_current_time(struct timespec *result_ts);
+int cpulimit_test_sleep_timespec(const struct timespec *duration);
+int cpulimit_test_kill(pid_t pid, int sig);
+int cpulimit_test_init_process_iterator(struct process_iterator *iter,
+                                        const struct process_filter *filter);
+int cpulimit_test_get_next_process(struct process_iterator *iter,
+                                   struct process *proc);
+int cpulimit_test_close_process_iterator(struct process_iterator *iter);
+long cpulimit_test_random(void);
+int cpulimit_test_getloadavg(double *loadavg, int nelem);
+
+/**
+ * @brief Return the seam to its inactive, empty state
+ *
+ * Leaves seam_active at 0: the caller turns the seam on once its script
+ * has been pushed, so that pushing the script cannot be intercepted.
+ */
+static void seam_reset(void) {
+    seam_active = 0;
+    seam_clock_ms = 0.0;
+    seam_frame_count = 0;
+    seam_frame_next = 0;
+    seam_frame_current = -1;
+    seam_frame_pos = 0;
+    seam_repeat_last = 0;
+    seam_frames_served = 0;
+    seam_signal_count = 0;
+    seam_kill_calls = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    memset(seam_frames, 0, sizeof(seam_frames));
+    memset(seam_frame_len, 0, sizeof(seam_frame_len));
+    memset(seam_signals, 0, sizeof(seam_signals));
+}
+
+/**
+ * @brief Append one snapshot to the seam script
+ * @param procs Processes the snapshot reports; may be NULL when empty
+ * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
+ */
+static void seam_push_frame(const struct seam_proc *procs, int count) {
+    int idx;
+    if (seam_frame_count >= SEAM_MAX_FRAMES || count > SEAM_MAX_FRAME_PROCS) {
+        return;
+    }
+    for (idx = 0; idx < count; idx++) {
+        seam_frames[seam_frame_count][idx] = procs[idx];
+    }
+    seam_frame_len[seam_frame_count] = count;
+    seam_frame_count++;
+}
+
+/**
+ * @brief Count the recorded signals of one kind sent to one target
+ * @param log Recorded calls to search
+ * @param count Number of entries in log
+ * @param pid Target process ID, or minus a process group ID
+ * @param sig Signal number
+ * @return Number of matching calls
+ */
+static int seam_count_signals(const struct seam_signal *log, int count,
+                              pid_t pid, int sig) {
+    int idx, total = 0;
+    for (idx = 0; idx < count; idx++) {
+        if (log[idx].pid == pid && log[idx].sig == sig) {
+            total++;
+        }
+    }
+    return total;
+}
+
+/**
+ * @brief Look up the last signal recorded for one target
+ * @param log Recorded calls to search
+ * @param count Number of entries in log
+ * @param pid Target process ID, or minus a process group ID
+ * @return Signal number, or 0 if the target was never signalled
+ */
+static int seam_last_signal_to(const struct seam_signal *log, int count,
+                               pid_t pid) {
+    int idx, last = 0;
+    for (idx = 0; idx < count; idx++) {
+        if (log[idx].pid == pid) {
+            last = log[idx].sig;
+        }
+    }
+    return last;
+}
+
+/**
+ * @brief Check that no target is suspended twice without being resumed
+ * @param log Recorded calls to check
+ * @param count Number of entries in log
+ *
+ * A bare assertion helper rather than a value: what matters is the
+ * invariant, not which process the duty cycle happened to pick.
+ */
+static void seam_assert_no_double_stop(const struct seam_signal *log,
+                                       int count) {
+    int idx, outer;
+    for (outer = 0; outer < count; outer++) {
+        if (log[outer].sig != SIGSTOP) {
+            continue;
+        }
+        for (idx = outer + 1; idx < count; idx++) {
+            if (log[idx].pid != log[outer].pid) {
+                continue;
+            }
+            if (log[idx].sig == SIGCONT) {
+                break;
+            }
+            if (log[idx].sig == SIGSTOP) {
+                fprintf(stderr, "(PID %ld stopped twice without a resume)\n",
+                        (long)log[outer].pid);
+                assert(log[idx].sig != SIGSTOP);
+            }
+        }
+    }
+}
+
+/**
+ * @brief Replacement for get_current_time()
+ * @param result_ts Timestamp to fill
+ * @return 0 on success, -1 on failure
+ */
+int cpulimit_test_get_current_time(struct timespec *result_ts) {
+    double whole_seconds;
+    if (!seam_active) {
+        return get_current_time(result_ts);
+    }
+    if (result_ts == NULL) {
+        return -1;
+    }
+    whole_seconds = seam_clock_ms / 1000.0;
+    result_ts->tv_sec = (time_t)whole_seconds;
+    result_ts->tv_nsec =
+        (long)((seam_clock_ms - (double)result_ts->tv_sec * 1000.0) *
+               1000000.0);
+    return 0;
+}
+
+/**
+ * @brief Replacement for sleep_timespec()
+ * @param duration Time to sleep
+ * @return 0 on success, -1 on failure
+ *
+ * While the seam is active the clock is advanced by the requested amount
+ * and no time is actually spent, so a duty cycle that would take seconds
+ * of wall clock is decided in microseconds.
+ */
+int cpulimit_test_sleep_timespec(const struct timespec *duration) {
+    if (!seam_active) {
+        return sleep_timespec(duration);
+    }
+    if (duration == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    seam_clock_ms += (double)duration->tv_sec * 1000.0 +
+                     (double)duration->tv_nsec / 1000000.0;
+    return 0;
+}
+
+/**
+ * @brief Replacement for kill()
+ * @param pid Target process ID, or minus a process group ID
+ * @param sig Signal number
+ * @return 0 on success, -1 with errno set on failure
+ *
+ * Records every call so a test can assert on the decisions the limiter
+ * made, and reports success unless the test scripted a failure for this
+ * call, in which case no signal is recorded as delivered.
+ */
+int cpulimit_test_kill(pid_t pid, int sig) {
+    if (!seam_active) {
+        return kill(pid, sig);
+    }
+    seam_kill_calls++;
+    if (seam_fail_call != 0 && seam_kill_calls == seam_fail_call) {
+        errno = seam_fail_errno;
+        return -1;
+    }
+    if (seam_signal_count < SEAM_MAX_SIGNALS) {
+        seam_signals[seam_signal_count].pid = pid;
+        seam_signals[seam_signal_count].sig = sig;
+        seam_signal_count++;
+    }
+    return 0;
+}
+
+/**
+ * @brief Replacement for init_process_iterator()
+ * @param iter Iterator to initialize
+ * @param filter Filter criteria (ignored; membership is scripted instead)
+ * @return 0 on success, -1 on failure
+ */
+int cpulimit_test_init_process_iterator(struct process_iterator *iter,
+                                        const struct process_filter *filter) {
+    (void)filter;
+    if (!seam_active) {
+        return init_process_iterator(iter, filter);
+    }
+    if (iter == NULL) {
+        return -1;
+    }
+    seam_frames_served++;
+    if (seam_frames_served > SEAM_MAX_SERVED_FRAMES) {
+        seam_frame_current = -1;
+    } else if (seam_frame_next < seam_frame_count) {
+        seam_frame_current = seam_frame_next;
+    } else if (seam_repeat_last && seam_frame_count > 0) {
+        seam_frame_current = seam_frame_count - 1;
+    } else {
+        seam_frame_current = -1;
+    }
+    seam_frame_pos = 0;
+    return 0;
+}
+
+/**
+ * @brief Replacement for get_next_process()
+ * @param iter Iterator to read from
+ * @param proc Process structure to fill
+ * @return 0 when a process was filled, -1 when the snapshot is exhausted
+ */
+int cpulimit_test_get_next_process(struct process_iterator *iter,
+                                   struct process *proc) {
+    const struct seam_proc *entry;
+    if (!seam_active) {
+        return get_next_process(iter, proc);
+    }
+    (void)iter;
+    if (proc == NULL || seam_frame_current < 0 ||
+        seam_frame_pos >= seam_frame_len[seam_frame_current]) {
+        return -1;
+    }
+    entry = &seam_frames[seam_frame_current][seam_frame_pos];
+    memset(proc, 0, sizeof(*proc));
+    proc->pid = entry->pid;
+    proc->ppid = entry->ppid;
+    proc->cpu_time = entry->cpu_time;
+    proc->cpu_usage = -1;
+    seam_frame_pos++;
+    return 0;
+}
+
+/**
+ * @brief Replacement for close_process_iterator()
+ * @param iter Iterator to close
+ * @return 0 on success, -1 on failure
+ */
+int cpulimit_test_close_process_iterator(struct process_iterator *iter) {
+    if (!seam_active) {
+        return close_process_iterator(iter);
+    }
+    (void)iter;
+    if (seam_frame_current >= 0 && seam_frame_current < seam_frame_count) {
+        seam_frame_next = seam_frame_current + 1;
+    }
+    seam_frame_current = -1;
+    return 0;
+}
+
+/**
+ * @brief Replacement for random()
+ * @return A constant while the seam is active, so the jitter is fixed
+ */
+long cpulimit_test_random(void) {
+    if (!seam_active) {
+        return random();
+    }
+    return SEAM_RANDOM;
+}
+
+/**
+ * @brief Replacement for getloadavg()
+ * @param loadavg Array to fill
+ * @param nelem Number of elements requested
+ * @return Number of elements filled, or -1 on failure
+ */
+int cpulimit_test_getloadavg(double *loadavg, int nelem) {
+    int idx;
+    if (!seam_active) {
+        return getloadavg(loadavg, nelem);
+    }
+    if (loadavg == NULL || nelem <= 0) {
+        return -1;
+    }
+    for (idx = 0; idx < nelem; idx++) {
+        loadavg[idx] = SEAM_LOADAVG;
+    }
+    return nelem;
+}
+
+/**
+ * @brief Drive limit_process() through the scripted smoke scenario
+ * @return Number of kill() calls recorded; the log stays in seam_signals
+ *
+ * The log is left in the seam's own static buffer because a signal log
+ * of SEAM_MAX_SIGNALS entries is far past the per-frame stack budget.
+ */
+static int seam_run_smoke_limit(void) {
+    struct seam_proc visible[1];
+    int cycle;
+
+    seam_reset();
+    for (cycle = 0; cycle < SEAM_SMOKE_CYCLES; cycle++) {
+        visible[0].pid = (pid_t)SEAM_TARGET_PID;
+        visible[0].ppid = (pid_t)1;
+        visible[0].cpu_time = 1000.0 + (double)cycle * SEAM_SMOKE_CPU_STEP;
+        seam_push_frame(visible, 1);
+    }
+    /* An empty snapshot ends the loop: the target has left the table. */
+    seam_push_frame(NULL, 0);
+
+    seam_active = 1;
+    limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
+    seam_active = 0;
+
+    return seam_signal_count;
+}
+
+/**
+ * @brief Copy the current run's log into the snapshot buffer
+ * @return Number of entries copied
+ */
+static int seam_snapshot_run(void) {
+    int idx;
+    seam_run_snapshot_len = seam_signal_count < SEAM_MAX_SIGNALS
+                                ? seam_signal_count
+                                : SEAM_MAX_SIGNALS;
+    for (idx = 0; idx < seam_run_snapshot_len; idx++) {
+        seam_run_snapshot[idx] = seam_signals[idx];
+    }
+    return seam_run_snapshot_len;
+}
+
+/**
+ * @brief Test that the timing seam makes limit_process() reproducible
+ *
+ * The seam exists so that no race test below depends on scheduling luck.
+ * This test is the seam's own self-check: the same scripted run must
+ * produce the same signal log twice, and the run must end with the
+ * target resumed.
+ */
+static void test_seam_limit_process_is_deterministic(void) {
+    int first_count, second_count, idx;
+
+    first_count = seam_run_smoke_limit();
+    first_count = seam_snapshot_run();
+
+    /* The script must actually drive the loop through stop/resume cycles. */
+    assert(first_count > 0);
+    assert(first_count < SEAM_MAX_SIGNALS);
+
+    /* Invariant: the target was suspended at least once. */
+    assert(seam_count_signals(seam_run_snapshot, first_count,
+                              (pid_t)SEAM_TARGET_PID, SIGSTOP) > 0);
+
+    /*
+     * Invariant: it was resumed at least once, and the run ends on a
+     * resume -- the limiter never leaves a target suspended.
+     */
+    assert(seam_count_signals(seam_run_snapshot, first_count,
+                              (pid_t)SEAM_TARGET_PID, SIGCONT) > 0);
+    assert(seam_last_signal_to(seam_run_snapshot, first_count,
+                               (pid_t)SEAM_TARGET_PID) == SIGCONT);
+
+    /* Invariant: no double suspension without an intervening resume. */
+    seam_assert_no_double_stop(seam_run_snapshot, first_count);
+
+    /* Byte for byte the same decisions on a second, identical run. */
+    second_count = seam_run_smoke_limit();
+    assert(second_count == first_count);
+    for (idx = 0; idx < first_count; idx++) {
+        assert(seam_signals[idx].pid == seam_run_snapshot[idx].pid);
+        assert(seam_signals[idx].sig == seam_run_snapshot[idx].sig);
+    }
+}
+
 /**
  * @brief Main test function
  * @param argc Argument count
@@ -8512,6 +9037,8 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  *       shutdown of the test run instead of abrupt termination.
  *       When argv[1] is SIGCOUNT_CHILD_ARG, runs as the SIGINT-counting
  *       command of the signal-forwarding test instead of the suite.
+ *       When argv[1] is FORWARD_CHILD_ARG, runs as the out-of-group command
+ *       of the forwarding fallback test instead of the suite.
  */
 int main(int argc, char *argv[]) {
     struct timespec time_seed;
@@ -8721,6 +9248,10 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_race_quit_flag_preset_before_limit);
     RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
+
+    /* Deterministic timing seam tests */
+    printf("\n=== TIMING SEAM TESTS ===\n");
+    RUN_TEST(test_seam_limit_process_is_deterministic);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;
