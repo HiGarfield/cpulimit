@@ -6869,6 +6869,22 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 /** @brief Reported when that command could not leave its process group. */
 #define FORWARD_NO_GROUP 98
 
+/**
+ * @brief Internal argv marker turning this binary into a command that
+ *        counts every termination signal it receives
+ *
+ * Used by the forwarding tests that pin the moment the quit signal is
+ * delivered, so the command has to stay alive across the window under
+ * test and report how many times the limiter interrupted it.
+ */
+#define COUNT_CHILD_ARG "--cpulimit-test-count-child"
+
+/** @brief How many 10 ms slots that command waits for a delivery. */
+#define COUNT_WAIT_SLOTS 250
+
+/** @brief How many 10 ms slots it lingers, so a duplicate shows up. */
+#define COUNT_LINGER_SLOTS 30
+
 /** @brief Number of SIGINTs received by the counting command. */
 static volatile sig_atomic_t sigint_delivery_count = 0;
 
@@ -6946,6 +6962,129 @@ static int run_forward_child(const char *ready_path) {
     }
 
     return forward_delivery_count == 0 ? 0 : FORWARD_DELIVERED;
+}
+
+/**
+ * @brief Count every termination signal delivered and report the total
+ * @param ready_path File created once the handlers are installed
+ * @return Number of deliveries, SIGCOUNT_NO_HANDLER if a handler could
+ *         not be installed
+ *
+ * Every handled signal counts into the same total: what the forwarding
+ * tests assert on is how many deliveries there were, not which signal
+ * arrived, so a signal that gets remapped on the way still counts.
+ */
+static int run_count_child(const char *ready_path) {
+    const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
+    static const int counted[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
+    struct sigaction sa;
+    int ready_fd, slot;
+    size_t idx;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = count_forward_delivery;
+    if (sigemptyset(&sa.sa_mask) != 0) {
+        return SIGCOUNT_NO_HANDLER;
+    }
+    for (idx = 0; idx < sizeof(counted) / sizeof(counted[0]); idx++) {
+        if (sigaction(counted[idx], &sa, NULL) != 0) {
+            return SIGCOUNT_NO_HANDLER;
+        }
+    }
+
+    ready_fd = creat(ready_path, 0600);
+    if (ready_fd >= 0) {
+        close(ready_fd);
+    }
+
+    /* Wait for the first delivery. */
+    for (slot = 0; slot < COUNT_WAIT_SLOTS && forward_delivery_count == 0;
+         slot++) {
+        sleep_timespec(&poll_time);
+    }
+
+    /* Linger, so a duplicate delivered just after the first is visible. */
+    for (slot = 0; slot < COUNT_LINGER_SLOTS; slot++) {
+        sleep_timespec(&poll_time);
+    }
+
+    return (int)forward_delivery_count;
+}
+
+/**
+ * @brief Fork a wrapper that runs the counting command under the seam
+ * @param ready_path Ready file the command creates once it is listening
+ * @return Wrapper PID in the parent
+ *
+ * The child never returns. It arms a watchdog first, because the seam
+ * barriers block on the driving test: a test that aborts must not leave
+ * the wrapper running for good.
+ */
+static pid_t seam_fork_count_wrapper(char *ready_path) {
+    pid_t wrapper_pid;
+
+    fflush(stdout);
+    fflush(stderr);
+    wrapper_pid = fork();
+    if (wrapper_pid == 0) {
+        struct cpulimit_cfg cfg;
+        char child_arg[] = COUNT_CHILD_ARG;
+        char *args[4];
+        alarm(60);
+        args[0] = argv0;
+        args[1] = child_arg;
+        args[2] = ready_path;
+        args[3] = NULL;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.program_name = "test";
+        cfg.command_mode = 1;
+        cfg.command_args = args;
+        cfg.limit = 0.5;
+        cfg.lazy_mode = 1;
+        configure_signal_handler();
+        run_command_mode(&cfg);
+        _exit(EXIT_FAILURE);
+    }
+    return wrapper_pid;
+}
+
+/**
+ * @brief Wait for the counting command to be listening
+ * @param ready_path Ready file the command creates
+ */
+static void seam_wait_for_count_child(const char *ready_path) {
+    const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
+    int attempt, ready = 0;
+    for (attempt = 0; attempt < 500 && !ready; attempt++) {
+        if (access(ready_path, F_OK) == 0) {
+            ready = 1;
+        } else {
+            sleep_timespec(&poll_time);
+        }
+    }
+    assert(ready);
+}
+
+/**
+ * @brief Assert that the wrapper forwarded the quit signal exactly once
+ * @param wrapper_status Status reaped from the wrapper
+ * @param what Label reported when the invariant is broken
+ */
+static void seam_assert_single_forward(int wrapper_status, const char *what) {
+    int exited, code;
+    exited = WIFEXITED(wrapper_status);
+    assert(exited);
+    code = WEXITSTATUS(wrapper_status);
+    /*
+     * The command exits with its delivery count: 0 means it was never
+     * interrupted, 2 or more that a single interruption reached it more
+     * than once, 99 that it could not install its handlers and 128+n
+     * that it was killed instead of asked.
+     */
+    if (code != 1) {
+        fprintf(stderr, "(%s: command reported %d deliveries)\n", what, code);
+    }
+    assert(code == 1);
 }
 
 /**
@@ -8642,6 +8781,34 @@ static int seam_run_snapshot_len = 0;
 /** @brief Number of kill() calls made so far. */
 static int seam_kill_calls = 0;
 
+/**
+ * @brief Non-zero to replace limit_process() with a barrier
+ *
+ * A hook rather than a replacement: it is driven by its own switch and
+ * leaves the clock, the iterator and kill() alone, because the command
+ * it runs is a real process that really has to receive the forwarded
+ * signal.
+ */
+static int seam_hook_limit_process = 0;
+
+/** @brief Non-zero to park the first waitpid() call on a barrier. */
+static int seam_hook_waitpid = 0;
+
+/** @brief Where the parked limit_process() announces that it is there. */
+static int seam_limit_announce_fd = -1;
+
+/** @brief Where the parked limit_process() waits to be released. */
+static int seam_limit_go_fd = -1;
+
+/** @brief Where the parked waitpid() announces its first call. */
+static int seam_waitpid_announce_fd = -1;
+
+/** @brief Where the parked waitpid() waits to be released. */
+static int seam_waitpid_go_fd = -1;
+
+/** @brief Number of waitpid() calls made through the seam. */
+static int seam_waitpid_calls = 0;
+
 /** @brief 1-based kill() call index that must fail; 0 disables failure. */
 static int seam_fail_call = 0;
 
@@ -8650,6 +8817,11 @@ static int seam_fail_errno = 0;
 
 /* Used by the iterator replacement below, which is defined further up. */
 static void seam_mark_snapshot(void);
+
+/* Hooks that park a call site on a barrier driven by the test. */
+void cpulimit_test_limit_process(pid_t pid, double limit, int include_children,
+                                 int verbose);
+pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options);
 
 /* Replacements referenced by the sources compiled into this test binary. */
 int cpulimit_test_get_current_time(struct timespec *result_ts);
@@ -8682,6 +8854,13 @@ static void seam_reset(void) {
     seam_kill_calls = 0;
     seam_fail_call = 0;
     seam_fail_errno = 0;
+    seam_hook_limit_process = 0;
+    seam_hook_waitpid = 0;
+    seam_limit_announce_fd = -1;
+    seam_limit_go_fd = -1;
+    seam_waitpid_announce_fd = -1;
+    seam_waitpid_go_fd = -1;
+    seam_waitpid_calls = 0;
     memset(seam_frames, 0, sizeof(seam_frames));
     memset(seam_frame_len, 0, sizeof(seam_frame_len));
     memset(seam_signals, 0, sizeof(seam_signals));
@@ -8974,6 +9153,72 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem) {
         loadavg[idx] = SEAM_LOADAVG;
     }
     return nelem;
+}
+
+/**
+ * @brief Replacement for limit_process() that parks on a barrier
+ * @param pid Target PID (ignored while parked)
+ * @param limit CPU limit (ignored while parked)
+ * @param include_children Descendant flag (ignored while parked)
+ * @param verbose Verbosity (ignored while parked)
+ *
+ * Announces itself, then blocks until the driving test releases it, so
+ * the test can deliver a termination signal while the limiter is still
+ * inside limit_process() -- the checkpoint the limiter passes through
+ * just before it decides whether to forward anything.
+ */
+void cpulimit_test_limit_process(pid_t pid, double limit, int include_children,
+                                 int verbose) {
+    char go;
+    if (!seam_hook_limit_process) {
+        limit_process(pid, limit, include_children, verbose);
+        return;
+    }
+    (void)pid;
+    (void)limit;
+    (void)include_children;
+    (void)verbose;
+    if (seam_limit_announce_fd >= 0 &&
+        write(seam_limit_announce_fd, "L", 1) != 1) {
+        /* Nobody is listening; the barrier is advisory. */
+    }
+    if (seam_limit_go_fd >= 0) {
+        while (read(seam_limit_go_fd, &go, 1) < 0 && errno == EINTR) {
+            ;
+        }
+    }
+}
+
+/**
+ * @brief Replacement for waitpid() that parks its first call on a barrier
+ * @param pid Child to wait for
+ * @param status Status out parameter
+ * @param options waitpid() options
+ * @return Whatever the real waitpid() returns
+ *
+ * The first call is the one collect_child_exit_status() makes before it
+ * looks at the quit flag, so parking there delivers a signal that arrives
+ * after run_command_mode() has already decided not to forward anything:
+ * the late-arrival checkpoint.
+ */
+pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
+    char go;
+    if (!seam_hook_waitpid) {
+        return waitpid(pid, status, options);
+    }
+    seam_waitpid_calls++;
+    if (seam_waitpid_calls == 1) {
+        if (seam_waitpid_announce_fd >= 0 &&
+            write(seam_waitpid_announce_fd, "W", 1) != 1) {
+            /* Nobody is listening; the barrier is advisory. */
+        }
+        if (seam_waitpid_go_fd >= 0) {
+            while (read(seam_waitpid_go_fd, &go, 1) < 0 && errno == EINTR) {
+                ;
+            }
+        }
+    }
+    return waitpid(pid, status, options);
 }
 
 /**
@@ -9331,6 +9576,126 @@ static void test_seam_stop_round_partial_failure(void) {
 }
 
 /**
+ * @brief Test forwarding when the quit signal arrives inside limit_process
+ *
+ * Interleaving point: S (SIGTERM) x P22, the checkpoint just before
+ * run_command_mode() decides whether to forward anything. The seam parks
+ * limit_process() on a barrier, so the signal is delivered while the
+ * limiter is there rather than somewhere near it.
+ */
+static void test_seam_quit_in_limit_process_forwards_once(void) {
+    char ready_path[] = "/tmp/cpulimit_test_count_XXXXXX";
+    int announce_pipe[2], go_pipe[2];
+    pid_t wrapper_pid, waited;
+    int status, ready_fd, close_ret;
+    ssize_t n_read;
+    char byte;
+
+    ready_fd = mkstemp(ready_path);
+    assert(ready_fd >= 0);
+    close_ret = close(ready_fd);
+    assert(close_ret == 0);
+    unlink(ready_path);
+
+    assert(pipe(announce_pipe) == 0);
+    assert(pipe(go_pipe) == 0);
+
+    seam_reset();
+    seam_hook_limit_process = 1;
+    seam_limit_announce_fd = announce_pipe[1];
+    seam_limit_go_fd = go_pipe[0];
+
+    wrapper_pid = seam_fork_count_wrapper(ready_path);
+    close_ret = close(announce_pipe[1]);
+    assert(close_ret == 0);
+
+    seam_wait_for_count_child(ready_path);
+
+    do {
+        n_read = read(announce_pipe[0], &byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && byte == 'L');
+
+    /* Deliver the quit signal while the limiter is parked there. */
+    kill(wrapper_pid, SIGTERM);
+    assert(write(go_pipe[1], "G", 1) == 1);
+
+    waited = waitpid(wrapper_pid, &status, 0);
+    assert(waited == wrapper_pid);
+    unlink(ready_path);
+    close(announce_pipe[0]);
+    close(go_pipe[0]);
+    close(go_pipe[1]);
+    seam_assert_single_forward(status, "quit inside limit_process");
+}
+
+/**
+ * @brief Test forwarding when the quit signal arrives after that decision
+ *
+ * Interleaving point: (E1 x P14) then (S x P25). limit_process() is
+ * scripted to return while the command is still running -- the target
+ * has left the process table without having exited, which is the only
+ * way the limiter reaches collect_child_exit_status() with the quit flag
+ * still clear -- and the signal is then delivered at the first waitpid()
+ * of that loop.
+ *
+ * run_command_mode() has already decided not to forward anything by
+ * then, so the late arrival has to be picked up by the polling loop, and
+ * only there: if the two checkpoints both forwarded, one interruption
+ * would reach the command twice.
+ */
+static void test_seam_quit_in_collect_forwards_once(void) {
+    char ready_path[] = "/tmp/cpulimit_test_count_XXXXXX";
+    int announce_pipe[2], go_pipe[2];
+    pid_t wrapper_pid, waited;
+    int status, ready_fd, close_ret;
+    ssize_t n_read;
+    char byte;
+
+    ready_fd = mkstemp(ready_path);
+    assert(ready_fd >= 0);
+    close_ret = close(ready_fd);
+    assert(close_ret == 0);
+    unlink(ready_path);
+
+    assert(pipe(announce_pipe) == 0);
+    assert(pipe(go_pipe) == 0);
+
+    seam_reset();
+    /*
+     * limit_process() returns at once, standing for a target that left
+     * the process table while the command itself is still running.
+     */
+    seam_hook_limit_process = 1;
+    seam_hook_waitpid = 1;
+    seam_waitpid_announce_fd = announce_pipe[1];
+    seam_waitpid_go_fd = go_pipe[0];
+
+    wrapper_pid = seam_fork_count_wrapper(ready_path);
+    close_ret = close(announce_pipe[1]);
+    assert(close_ret == 0);
+
+    seam_wait_for_count_child(ready_path);
+
+    do {
+        n_read = read(announce_pipe[0], &byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && byte == 'W');
+
+    /* The wrapper has already decided not to forward; deliver it now. */
+    kill(wrapper_pid, SIGTERM);
+    assert(write(go_pipe[1], "G", 1) == 1);
+
+    waited = waitpid(wrapper_pid, &status, 0);
+    assert(waited == wrapper_pid);
+    unlink(ready_path);
+    close(announce_pipe[0]);
+    close(go_pipe[0]);
+    close(go_pipe[1]);
+    seam_assert_single_forward(status, "quit during collect");
+}
+
+/**
  * @brief Test that the timing seam makes limit_process() reproducible
  *
  * The seam exists so that no race test below depends on scheduling luck.
@@ -9398,6 +9763,10 @@ int main(int argc, char *argv[]) {
 
     if (argc == 3 && strcmp(argv[1], FORWARD_CHILD_ARG) == 0) {
         return run_forward_child(argv[2]);
+    }
+
+    if (argc == 3 && strcmp(argv[1], COUNT_CHILD_ARG) == 0) {
+        return run_count_child(argv[2]);
     }
 
     check_y2038();
@@ -9601,6 +9970,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_seam_stopped_pid_bookkeeping);
     RUN_TEST(test_seam_failed_resume_is_not_retried);
     RUN_TEST(test_seam_stop_round_partial_failure);
+    RUN_TEST(test_seam_quit_in_limit_process_forwards_once);
+    RUN_TEST(test_seam_quit_in_collect_forwards_once);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;

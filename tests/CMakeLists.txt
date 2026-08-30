@@ -45,17 +45,20 @@ add_checked_flags(multi_process_busy CPULIMIT_C_FLAGS)
 set(CPULIMIT_TEST_SEAM_ALL
     kill=cpulimit_test_kill
     random=cpulimit_test_random
-    getloadavg=cpulimit_test_getloadavg)
+    getloadavg=cpulimit_test_getloadavg
+    waitpid=cpulimit_test_waitpid)
 
 set(CPULIMIT_TEST_SEAM_NO_DEF
     get_current_time=cpulimit_test_get_current_time
     sleep_timespec=cpulimit_test_sleep_timespec
     init_process_iterator=cpulimit_test_init_process_iterator
     get_next_process=cpulimit_test_get_next_process
-    close_process_iterator=cpulimit_test_close_process_iterator)
+    close_process_iterator=cpulimit_test_close_process_iterator
+    limit_process=cpulimit_test_limit_process)
 
 set(CPULIMIT_TEST_SEAM_DEFINING_SOURCES
     ${PROJECT_SOURCE_DIR}/src/time_util.c
+    ${PROJECT_SOURCE_DIR}/src/limit_process.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_linux.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_freebsd.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_apple.c)
