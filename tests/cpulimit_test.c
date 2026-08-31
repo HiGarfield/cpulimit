@@ -6345,7 +6345,7 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
     int heartbeat[2], info[2], ret;
     pid_t target_pid, descendant_pid, limiter_pid;
     size_t info_read;
-    int limiter_exited;
+    volatile int limiter_exited;
     unsigned int attempt;
 
     ret = pipe(heartbeat);

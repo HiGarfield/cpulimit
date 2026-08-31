@@ -453,7 +453,7 @@ static void signal_command(pid_t child_pid, int sig) {
  */
 static int collect_child_exit_status(pid_t child_pid,
                                      const struct cpulimit_cfg *cfg,
-                                     int signal_forwarded) {
+                                     volatile int signal_forwarded) {
     /* Default exit status if child is not properly reaped */
     int child_exit_status = EXIT_FAILURE;
     /* 1 if child PID was successfully reaped, 0 otherwise */
