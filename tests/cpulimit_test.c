@@ -41,15 +41,15 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/resource.h>
-#include <sys/select.h>
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #if defined(__APPLE__)
@@ -6345,7 +6345,8 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
     int heartbeat[2], info[2], ret;
     pid_t target_pid, descendant_pid, limiter_pid;
     size_t info_read;
-    int limiter_exited, attempt;
+    int limiter_exited;
+    unsigned int attempt;
 
     ret = pipe(heartbeat);
     assert(ret == 0);
@@ -6973,19 +6974,17 @@ static int run_forward_child(const char *ready_path) {
  * release: the caller checks its delivery count either way.
  */
 static int seam_poll_release(int release_fd, const struct timespec *duration) {
-    struct timeval tv;
-    fd_set read_set;
+    struct pollfd poll_fd;
     int ready;
 
     if (release_fd < 0) {
         sleep_timespec(duration);
         return 0;
     }
-    tv.tv_sec = 0;
-    tv.tv_usec = (int)(duration->tv_nsec / 1000L);
-    FD_ZERO(&read_set);
-    FD_SET(release_fd, &read_set);
-    ready = select(release_fd + 1, &read_set, NULL, NULL, &tv);
+    poll_fd.fd = release_fd;
+    poll_fd.events = POLLIN;
+    poll_fd.revents = 0;
+    ready = poll(&poll_fd, 1, (int)(duration->tv_nsec / 1000000L));
     if (ready > 0) {
         return 1;
     }
@@ -7141,7 +7140,8 @@ static int seam_wait_for_wrapper(pid_t wrapper_pid, int *status) {
  */
 static void seam_wait_for_count_child(const char *ready_path) {
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
-    int attempt, ready = 0;
+    unsigned int attempt;
+    int ready = 0;
     for (attempt = 0; attempt < 500 && !ready; attempt++) {
         if (access(ready_path, F_OK) == 0) {
             ready = 1;
@@ -7272,7 +7272,8 @@ static int run_sigcount_child(const char *ready_path) {
 static void test_limiter_run_command_mode_forwards_signal_once(void) {
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
     pid_t wrapper_pid;
-    int wrapper_status, w_exited, w_exit_code, attempt, ready, ready_fd;
+    int wrapper_status, w_exited, w_exit_code, ready, ready_fd;
+    unsigned int attempt;
     int close_ret, reaped;
     char ready_path[] = "/tmp/cpulimit_test_sigcount_XXXXXX";
     char child_arg[] = SIGCOUNT_CHILD_ARG;
@@ -7384,7 +7385,8 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
 static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
     pid_t wrapper_pid;
-    int wrapper_status, w_exited, w_exit_code, attempt, ready, ready_fd;
+    int wrapper_status, w_exited, w_exit_code, ready, ready_fd;
+    unsigned int attempt;
     int close_ret, reaped;
     char ready_path[] = "/tmp/cpulimit_test_forward_XXXXXX";
     char child_arg[] = FORWARD_CHILD_ARG;
@@ -8830,6 +8832,27 @@ struct seam_signal {
     int failed;
 };
 
+/**
+ * @brief Allocate one area of seam storage
+ * @param bytes Number of bytes to allocate
+ * @return Pointer to the zero-filled area
+ *
+ * The storage is an anonymous mapping rather than a heap block so that
+ * forked limiter processes, which _exit() without any cleanup, leave no
+ * still-reachable allocation behind for valgrind: the kernel releases
+ * the mapping when the process goes away.
+ */
+static void *seam_alloc_array(size_t bytes) {
+    void *ptr;
+    ptr = mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
+               -1, 0);
+    if (ptr == MAP_FAILED) {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+    return ptr;
+}
+
 /** @brief Non-zero while a deterministic test owns clock, iterator, kill. */
 static int seam_active = 0;
 
@@ -8837,7 +8860,7 @@ static int seam_active = 0;
 static double seam_clock_ms = 0.0;
 
 /** @brief Scripted snapshots served by the fake process iterator. */
-static struct seam_proc seam_frames[SEAM_MAX_FRAMES][SEAM_MAX_FRAME_PROCS];
+static struct seam_proc (*seam_frames)[SEAM_MAX_FRAME_PROCS];
 
 /** @brief Number of processes in each scripted snapshot. */
 static int seam_frame_len[SEAM_MAX_FRAMES];
@@ -8861,7 +8884,7 @@ static int seam_repeat_last = 0;
 static int seam_frames_served = 0;
 
 /** @brief kill() calls recorded during this session, in order. */
-static struct seam_signal seam_signals[SEAM_MAX_SIGNALS];
+static struct seam_signal *seam_signals;
 
 /** @brief Number of kill() calls recorded. */
 static int seam_signal_count = 0;
@@ -8872,7 +8895,7 @@ static int seam_signal_count = 0;
  * Kept at file scope because a signal log of SEAM_MAX_SIGNALS entries is
  * far past the per-frame stack budget.
  */
-static struct seam_signal seam_run_snapshot[SEAM_MAX_SIGNALS];
+static struct seam_signal *seam_run_snapshot;
 
 /** @brief Number of entries in seam_run_snapshot. */
 static int seam_run_snapshot_len = 0;
@@ -8933,10 +8956,27 @@ static int seam_sleep_announce_fd = -1;
 static int seam_sleep_go_fd = -1;
 
 /** @brief Records read back from a forked limiter. */
-static struct seam_signal seam_child_log[SEAM_MAX_SIGNALS];
+static struct seam_signal *seam_child_log;
 
 /** @brief Number of entries in seam_child_log. */
 static int seam_child_log_len = 0;
+
+/**
+ * @brief Allocate all seam storage areas
+ *
+ * Called once from main() before any test can fork.  Kept out of main()
+ * because the test driver is already at the statement-count limit.
+ */
+static void seam_alloc_storage(void) {
+    seam_frames = (struct seam_proc(*)[SEAM_MAX_FRAME_PROCS])seam_alloc_array(
+        SEAM_MAX_FRAMES * sizeof(*seam_frames));
+    seam_signals = (struct seam_signal *)seam_alloc_array(
+        SEAM_MAX_SIGNALS * sizeof(*seam_signals));
+    seam_run_snapshot = (struct seam_signal *)seam_alloc_array(
+        SEAM_MAX_SIGNALS * sizeof(*seam_run_snapshot));
+    seam_child_log = (struct seam_signal *)seam_alloc_array(
+        SEAM_MAX_SIGNALS * sizeof(*seam_child_log));
+}
 
 /** @brief 1-based kill() call index that must fail; 0 disables failure. */
 static int seam_fail_call = 0;
@@ -9016,9 +9056,9 @@ static void seam_reset(void) {
     seam_sleep_announce_fd = -1;
     seam_sleep_go_fd = -1;
     seam_child_log_len = 0;
-    memset(seam_frames, 0, sizeof(seam_frames));
+    memset(seam_frames, 0, SEAM_MAX_FRAMES * sizeof(*seam_frames));
     memset(seam_frame_len, 0, sizeof(seam_frame_len));
-    memset(seam_signals, 0, sizeof(seam_signals));
+    memset(seam_signals, 0, SEAM_MAX_SIGNALS * sizeof(*seam_signals));
 }
 
 /**
@@ -9907,7 +9947,8 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     char ready_path[] = "/tmp/cpulimit_test_count_XXXXXX";
     int announce_pipe[2], go_pipe[2], log_pipe[2], release_pipe[2];
     pid_t wrapper_pid, waited;
-    int status, ready_fd, close_ret, attempts;
+    int status, ready_fd, close_ret;
+    unsigned int attempts;
     ssize_t n_read;
     char byte;
     struct seam_signal record;
@@ -10004,7 +10045,7 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     close(log_pipe[0]);
 
     if (attempts != 2) {
-        fprintf(stderr, "(forward attempted %d times)\n", attempts);
+        fprintf(stderr, "(forward attempted %u times)\n", attempts);
     }
     assert(attempts == 2);
 }
@@ -10281,6 +10322,22 @@ static void test_seam_limit_process_is_deterministic(void) {
 }
 
 /**
+ * @brief Seed the test run's random generator from the monotonic clock
+ *
+ * Kept out of main() because the test driver is already at the
+ * statement-count limit.
+ */
+static void seed_random(void) {
+    struct timespec time_seed;
+    if (get_current_time(&time_seed) != 0) {
+        fprintf(stderr, "Failed to get time for random seed: %s\n",
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    srandom((unsigned int)(time_seed.tv_sec ^ time_seed.tv_nsec));
+}
+
+/**
  * @brief Main test function
  * @param argc Argument count
  * @param argv Argument vector
@@ -10294,8 +10351,6 @@ static void test_seam_limit_process_is_deterministic(void) {
  *       of the forwarding fallback test instead of the suite.
  */
 int main(int argc, char *argv[]) {
-    struct timespec time_seed;
-
     assert(argc >= 1);
     argv0 = argv[0];
 
@@ -10311,14 +10366,11 @@ int main(int argc, char *argv[]) {
         return run_count_child(argv[2], atoi(argv[3]));
     }
 
-    check_y2038();
+    /* Allocate the seam storage before any test can fork. */
+    seam_alloc_storage();
 
-    if (get_current_time(&time_seed) != 0) {
-        fprintf(stderr, "Failed to get time for random seed: %s\n",
-                strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    srandom((unsigned int)(time_seed.tv_sec ^ time_seed.tv_nsec));
+    check_y2038();
+    seed_random();
 
     configure_signal_handler();
     printf("Starting tests...\n");
