@@ -580,14 +580,17 @@ static int collect_child_exit_status(pid_t child_pid,
              * is still running must not be killed for that: cpulimit
              * then simply waits for it, the way a shell does.
              */
-            if (signal_forwarded && timediff_in_ms(&current_time, &start_time) >
-                                        (double)CHILD_KILL_TIMEOUT_MS) {
-                if (cfg->verbose) {
-                    printf("Process %ld timed out, sending SIGKILL\n",
-                           (long)child_pid);
+            if (signal_forwarded) {
+                double elapsed_ms;
+                elapsed_ms = timediff_in_ms(&current_time, &start_time);
+                if (elapsed_ms > (double)CHILD_KILL_TIMEOUT_MS) {
+                    if (cfg->verbose) {
+                        printf("Process %ld timed out, sending SIGKILL\n",
+                               (long)child_pid);
+                    }
+                    /* SIGKILL cannot be caught or ignored */
+                    signal_command(child_pid, SIGKILL);
                 }
-                /* SIGKILL cannot be caught or ignored */
-                signal_command(child_pid, SIGKILL);
             }
             /* Brief sleep to avoid busy-waiting */
             sleep_timespec(&poll_sleep);
