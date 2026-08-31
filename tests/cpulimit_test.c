@@ -47,7 +47,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/select.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #if defined(__APPLE__)
@@ -6879,9 +6881,6 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  */
 #define COUNT_CHILD_ARG "--cpulimit-test-count-child"
 
-/** @brief How many 10 ms slots that command waits for a delivery. */
-#define COUNT_WAIT_SLOTS 250
-
 /** @brief How many 10 ms slots it lingers, so a duplicate shows up. */
 #define COUNT_LINGER_SLOTS 30
 
@@ -6965,6 +6964,38 @@ static int run_forward_child(const char *ready_path) {
 }
 
 /**
+ * @brief Sleep, returning early once the driving test releases the command
+ * @param release_fd Pipe end the driving test writes to; -1 to just sleep
+ * @param duration How long to sleep for
+ * @return 1 once the release was seen, 0 otherwise
+ *
+ * A signal arriving during the sleep reports EINTR, which is not a
+ * release: the caller checks its delivery count either way.
+ */
+static int seam_poll_release(int release_fd, const struct timespec *duration) {
+    struct timeval tv;
+    fd_set read_set;
+    int ready;
+
+    if (release_fd < 0) {
+        sleep_timespec(duration);
+        return 0;
+    }
+    tv.tv_sec = 0;
+    tv.tv_usec = (int)(duration->tv_nsec / 1000L);
+    FD_ZERO(&read_set);
+    FD_SET(release_fd, &read_set);
+    ready = select(release_fd + 1, &read_set, NULL, NULL, &tv);
+    if (ready > 0) {
+        return 1;
+    }
+    if (ready < 0 && errno != EINTR) {
+        sleep_timespec(duration);
+    }
+    return 0;
+}
+
+/**
  * @brief Count every termination signal delivered and report the total
  * @param ready_path File created once the handlers are installed
  * @return Number of deliveries, SIGCOUNT_NO_HANDLER if a handler could
@@ -6974,11 +7005,11 @@ static int run_forward_child(const char *ready_path) {
  * tests assert on is how many deliveries there were, not which signal
  * arrived, so a signal that gets remapped on the way still counts.
  */
-static int run_count_child(const char *ready_path) {
+static int run_count_child(const char *ready_path, int release_fd) {
     const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
     static const int counted[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     struct sigaction sa;
-    int ready_fd, slot;
+    int ready_fd, slot, released;
     size_t idx;
 
     memset(&sa, 0, sizeof(sa));
@@ -6997,10 +7028,16 @@ static int run_count_child(const char *ready_path) {
         close(ready_fd);
     }
 
-    /* Wait for the first delivery. */
-    for (slot = 0; slot < COUNT_WAIT_SLOTS && forward_delivery_count == 0;
-         slot++) {
-        sleep_timespec(&poll_time);
+    /*
+     * Wait for the first delivery, or to be told to stop waiting. The
+     * wait must not end on a timeout of its own: the limiter escalates to
+     * SIGKILL a command that has not exited, so a timeout here would race
+     * that escalation and the outcome would be decided by how fast the
+     * machine is rather than by what the limiter did.
+     */
+    released = 0;
+    while (forward_delivery_count == 0 && !released) {
+        released = seam_poll_release(release_fd, &poll_time);
     }
 
     /* Linger, so a duplicate delivered just after the first is visible. */
@@ -7020,7 +7057,7 @@ static int run_count_child(const char *ready_path) {
  * barriers block on the driving test: a test that aborts must not leave
  * the wrapper running for good.
  */
-static pid_t seam_fork_count_wrapper(char *ready_path) {
+static pid_t seam_fork_count_wrapper(char *ready_path, int release_fd) {
     pid_t wrapper_pid;
 
     fflush(stdout);
@@ -7029,12 +7066,20 @@ static pid_t seam_fork_count_wrapper(char *ready_path) {
     if (wrapper_pid == 0) {
         struct cpulimit_cfg cfg;
         char child_arg[] = COUNT_CHILD_ARG;
-        char *args[4];
-        alarm(60);
+        char release_arg[32];
+        char *args[5];
+        /*
+         * Last resort only: the command waits to be released rather than
+         * for a timeout, so a run that never delivers anything has no way
+         * to end by itself.
+         */
+        alarm(20);
+        snprintf(release_arg, sizeof(release_arg), "%d", release_fd);
         args[0] = argv0;
         args[1] = child_arg;
         args[2] = ready_path;
-        args[3] = NULL;
+        args[3] = release_arg;
+        args[4] = NULL;
         memset(&cfg, 0, sizeof(cfg));
         cfg.program_name = "test";
         cfg.command_mode = 1;
@@ -9700,7 +9745,7 @@ static void test_seam_quit_in_limit_process_forwards_once(void) {
     seam_limit_announce_fd = announce_pipe[1];
     seam_limit_go_fd = go_pipe[0];
 
-    wrapper_pid = seam_fork_count_wrapper(ready_path);
+    wrapper_pid = seam_fork_count_wrapper(ready_path, -1);
     close_ret = close(announce_pipe[1]);
     assert(close_ret == 0);
 
@@ -9766,7 +9811,7 @@ static void test_seam_quit_in_collect_forwards_once(void) {
     seam_waitpid_announce_fd = announce_pipe[1];
     seam_waitpid_go_fd = go_pipe[0];
 
-    wrapper_pid = seam_fork_count_wrapper(ready_path);
+    wrapper_pid = seam_fork_count_wrapper(ready_path, -1);
     close_ret = close(announce_pipe[1]);
     assert(close_ret == 0);
 
@@ -9806,7 +9851,7 @@ static void test_seam_quit_in_collect_forwards_once(void) {
  */
 static void test_seam_undeliverable_forward_is_not_retried(void) {
     char ready_path[] = "/tmp/cpulimit_test_count_XXXXXX";
-    int announce_pipe[2], go_pipe[2], log_pipe[2];
+    int announce_pipe[2], go_pipe[2], log_pipe[2], release_pipe[2];
     pid_t wrapper_pid, waited;
     int status, ready_fd, close_ret, attempts;
     ssize_t n_read;
@@ -9822,6 +9867,7 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     assert(pipe(announce_pipe) == 0);
     assert(pipe(go_pipe) == 0);
     assert(pipe(log_pipe) == 0);
+    assert(pipe(release_pipe) == 0);
 
     seam_reset();
     seam_hook_limit_process = 1;
@@ -9837,10 +9883,12 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     seam_fail_span = 2;
     seam_fail_errno = EPERM;
 
-    wrapper_pid = seam_fork_count_wrapper(ready_path);
+    wrapper_pid = seam_fork_count_wrapper(ready_path, release_pipe[0]);
     close_ret = close(announce_pipe[1]);
     assert(close_ret == 0);
     close_ret = close(log_pipe[1]);
+    assert(close_ret == 0);
+    close_ret = close(release_pipe[0]);
     assert(close_ret == 0);
 
     seam_wait_for_count_child(ready_path);
@@ -9852,6 +9900,30 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
 
     kill(wrapper_pid, SIGTERM);
     assert(write(go_pipe[1], "G", 1) == 1);
+
+    /*
+     * Let the limiter finish trying before the command is allowed to go.
+     * One attempt is the process group and then the command itself, and
+     * reading that far from the wrapper's log -- fork() gave it its own
+     * copy of the record -- is what makes the count below a count of
+     * everything that was tried rather than of what happened to arrive
+     * before the command got round to exiting.
+     */
+    attempts = 0;
+    while (attempts < 2) {
+        struct seam_signal forward;
+        do {
+            n_read = read(log_pipe[0], &forward, sizeof(forward));
+        } while (n_read < 0 && errno == EINTR);
+        assert(n_read == (ssize_t)sizeof(forward));
+        if (forward.sig == SIGTERM) {
+            attempts++;
+        }
+    }
+
+    /* Only now that the limiter is done may the command stop waiting. */
+    assert(write(release_pipe[1], "R", 1) == 1);
+    close(release_pipe[1]);
 
     waited = waitpid(wrapper_pid, &status, 0);
     assert(waited == wrapper_pid);
@@ -9868,12 +9940,7 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     }
     assert(WEXITSTATUS(status) == 0);
 
-    /*
-     * One forward attempt means two calls: the process group first, then
-     * the command itself once the group refused. Read the wrapper's log
-     * from the pipe, since fork() gave it its own copy of the record.
-     */
-    attempts = 0;
+    /* And nothing tried again once the delivery had been refused. */
     do {
         n_read = read(log_pipe[0], &record, sizeof(record));
         if (n_read == (ssize_t)sizeof(record) && record.sig == SIGTERM) {
@@ -10186,8 +10253,8 @@ int main(int argc, char *argv[]) {
         return run_forward_child(argv[2]);
     }
 
-    if (argc == 3 && strcmp(argv[1], COUNT_CHILD_ARG) == 0) {
-        return run_count_child(argv[2]);
+    if (argc == 4 && strcmp(argv[1], COUNT_CHILD_ARG) == 0) {
+        return run_count_child(argv[2], atoi(argv[3]));
     }
 
     check_y2038();
