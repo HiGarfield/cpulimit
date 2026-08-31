@@ -6832,9 +6832,6 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 /** @brief CPU bursts spent waiting for the limiter to suspend this process. */
 #define SIGCOUNT_HANDSHAKE_BURSTS 100000
 
-/** @brief How many 10 ms slots the counting command waits for its SIGINT. */
-#define SIGCOUNT_WAIT_SLOTS 1000
-
 /**
  * @brief How many 10 ms slots it lingers, so a duplicate shows up.
  *
@@ -6861,9 +6858,6 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  * very binary re-executed with this marker instead of a separate helper.
  */
 #define FORWARD_CHILD_ARG "--cpulimit-test-forward-child"
-
-/** @brief How many 10 ms slots that command waits for its SIGTERM. */
-#define FORWARD_WAIT_SLOTS 250
 
 /** @brief Reported when the forwarded signal reached that command. */
 #define FORWARD_DELIVERED 42
@@ -6931,7 +6925,7 @@ static void count_forward_delivery(int sig) {
 static int run_forward_child(const char *ready_path) {
     const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
     struct sigaction sa_term;
-    int ready_fd, slot;
+    int ready_fd;
 
     memset(&sa_term, 0, sizeof(sa_term));
     sa_term.sa_handler = count_forward_delivery;
@@ -6955,12 +6949,18 @@ static int run_forward_child(const char *ready_path) {
         close(ready_fd);
     }
 
-    for (slot = 0; slot < FORWARD_WAIT_SLOTS && forward_delivery_count == 0;
-         slot++) {
+    /*
+     * Wait for the delivery and for nothing else. A timeout of this
+     * command's own would race the arrival of the forwarded signal: on a
+     * slow host the command could give up first and report that nothing
+     * was delivered when the limiter was merely late. The limiter's own
+     * escalation ends the wait if the delivery really never comes.
+     */
+    while (forward_delivery_count == 0) {
         sleep_timespec(&poll_time);
     }
 
-    return forward_delivery_count == 0 ? 0 : FORWARD_DELIVERED;
+    return FORWARD_DELIVERED;
 }
 
 /**
@@ -7094,6 +7094,48 @@ static pid_t seam_fork_count_wrapper(char *ready_path, int release_fd) {
 }
 
 /**
+ * @brief How many 20 ms slots a wrapper gets to exit before being killed
+ *
+ * Only a backstop for a run that never delivers anything: the commands
+ * wait for the delivery rather than for a timeout, so without a bound
+ * here a broken run would leave the test waiting for ever.
+ */
+#define SEAM_WRAPPER_WAIT_SLOTS 500
+
+/**
+ * @brief Reap a wrapper, giving up instead of waiting for ever
+ * @param wrapper_pid Wrapper to wait for
+ * @param status Status out parameter, valid when this returns 1
+ * @return 1 once the wrapper was reaped, 0 if it had to be killed
+ *
+ * The commands end their wait on the delivery and not on a timeout of
+ * their own, so a run in which nothing is ever delivered would leave the
+ * wrapper in its polling loop for good -- and when the command has left
+ * its process group, the limiter's own escalation cannot reach it either.
+ *
+ * The bound is only about when to give up. Nothing else competes with
+ * it: on a run that delivers, the wrapper is gone well inside one slot.
+ */
+static int seam_wait_for_wrapper(pid_t wrapper_pid, int *status) {
+    const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
+    int attempt;
+
+    for (attempt = 0; attempt < SEAM_WRAPPER_WAIT_SLOTS; attempt++) {
+        pid_t waited;
+        waited = waitpid(wrapper_pid, status, WNOHANG);
+        if (waited == wrapper_pid || (waited == -1 && errno != EINTR)) {
+            return 1;
+        }
+        sleep_timespec(&poll_time);
+    }
+    kill(wrapper_pid, SIGKILL);
+    while (waitpid(wrapper_pid, NULL, 0) == -1 && errno == EINTR) {
+        /* Retry on EINTR */
+    }
+    return 0;
+}
+
+/**
  * @brief Wait for the counting command to be listening
  * @param ready_path Ready file the command creates
  */
@@ -7191,9 +7233,14 @@ static int run_sigcount_child(const char *ready_path) {
         close(ready_fd);
     }
 
-    /* Wait for the first SIGINT. */
-    for (slot = 0; slot < SIGCOUNT_WAIT_SLOTS && sigint_delivery_count == 0;
-         slot++) {
+    /*
+     * Wait for the first SIGINT, and for nothing else. This command used
+     * to give up after a fixed number of slots, which was longer than
+     * the limiter's escalation: whichever ran out first decided the exit
+     * code, so a slow host turned a delivered signal into 128 + SIGKILL.
+     * The escalation is the only finish line now.
+     */
+    while (sigint_delivery_count == 0) {
         sleep_timespec(&poll_time);
     }
 
@@ -7224,9 +7271,9 @@ static int run_sigcount_child(const char *ready_path) {
  */
 static void test_limiter_run_command_mode_forwards_signal_once(void) {
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
-    pid_t wrapper_pid, waited;
+    pid_t wrapper_pid;
     int wrapper_status, w_exited, w_exit_code, attempt, ready, ready_fd;
-    int close_ret;
+    int close_ret, reaped;
     char ready_path[] = "/tmp/cpulimit_test_sigcount_XXXXXX";
     char child_arg[] = SIGCOUNT_CHILD_ARG;
     char *args[4];
@@ -7294,17 +7341,21 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
     /* One interruption must produce exactly one forwarded SIGINT. */
     kill(wrapper_pid, SIGINT);
 
-    waited = waitpid(wrapper_pid, &wrapper_status, 0);
-    assert(waited == wrapper_pid);
-    w_exited = WIFEXITED(wrapper_status);
+    reaped = seam_wait_for_wrapper(wrapper_pid, &wrapper_status);
     unlink(ready_path);
+    if (reaped == 0) {
+        fprintf(stderr, "(wrapper never exited: nothing was delivered)\n");
+    }
+    assert(reaped == 1);
+    w_exited = WIFEXITED(wrapper_status);
     assert(w_exited);
     w_exit_code = WEXITSTATUS(wrapper_status);
     /*
-     * Report the code the command produced before asserting: 0 means it
-     * was never signalled at all, 98 that the limiter never suspended
-     * it, 99 that it could not install a handler, and 128+n that it was
-     * killed.  Which of those it is decides where to look.
+     * Report the code the command produced before asserting: 98 means
+     * the limiter never suspended it, 99 that it could not install a
+     * handler, and 128+n that it was killed instead of told, which is
+     * what a host too slow to forward inside the escalation window used
+     * to report as well.  Which of those it is decides where to look.
      */
     if (w_exit_code != 1) {
         fprintf(stderr, "(command reported exit code %d)\n", w_exit_code);
@@ -7332,9 +7383,9 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
  */
 static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
-    pid_t wrapper_pid, waited;
+    pid_t wrapper_pid;
     int wrapper_status, w_exited, w_exit_code, attempt, ready, ready_fd;
-    int close_ret;
+    int close_ret, reaped;
     char ready_path[] = "/tmp/cpulimit_test_forward_XXXXXX";
     char child_arg[] = FORWARD_CHILD_ARG;
     char *args[4];
@@ -7393,17 +7444,20 @@ static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
 
     kill(wrapper_pid, SIGTERM);
 
-    waited = waitpid(wrapper_pid, &wrapper_status, 0);
-    assert(waited == wrapper_pid);
-    w_exited = WIFEXITED(wrapper_status);
+    reaped = seam_wait_for_wrapper(wrapper_pid, &wrapper_status);
     unlink(ready_path);
+    if (reaped == 0) {
+        fprintf(stderr, "(wrapper never exited: nothing was delivered)\n");
+    }
+    assert(reaped == 1);
+    w_exited = WIFEXITED(wrapper_status);
     assert(w_exited);
     w_exit_code = WEXITSTATUS(wrapper_status);
     /*
-     * Report the code the command produced before asserting: 0 means the
-     * forwarded signal never reached it, 98 that it could not leave the
-     * process group, 99 that it could not install a handler, and 128+n
-     * that it was killed.  Which of those it is decides where to look.
+     * Report the code the command produced before asserting: 98 means it
+     * could not leave the process group, 99 that it could not install a
+     * handler, and 128+n that it was killed instead of told.  Which of
+     * those it is decides where to look.
      */
     if (w_exit_code != FORWARD_DELIVERED) {
         fprintf(stderr, "(command reported exit code %d)\n", w_exit_code);
