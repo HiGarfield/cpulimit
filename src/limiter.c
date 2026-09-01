@@ -415,6 +415,32 @@ static void signal_command(pid_t child_pid, int sig) {
 }
 
 /**
+ * @brief Forward the received quit signal to the child process group
+ * @param child_pid PID of the command; also the ID of its process group
+ *
+ * The exact signal that caused cpulimit to quit is forwarded so the
+ * command exits with the status a shell would report (128 + signal
+ * number).  Two special cases:
+ * - get_quit_signal() == 0: theoretically unreachable once the quit
+ *   flag is set, because a signal must have been recorded to set it;
+ *   guarded defensively.
+ * - SIGPIPE: an internal broken-pipe signal relevant only to the
+ *   writing process; forwarding it could terminate children that write
+ *   to unrelated pipes.
+ * Both are mapped to SIGTERM so the child group is asked to exit
+ * gracefully.  The process group is targeted first, the command itself
+ * as a fallback; see signal_command().
+ */
+static void forward_quit_signal(pid_t child_pid) {
+    int fwd_sig;
+    fwd_sig = get_quit_signal();
+    if (fwd_sig == SIGPIPE || fwd_sig == 0) {
+        fwd_sig = SIGTERM;
+    }
+    signal_command(child_pid, fwd_sig);
+}
+
+/**
  * @brief Wait for the child process to exit and collect its exit status
  * @return The child's exit status if successfully reaped, EXIT_FAILURE
  *         otherwise
@@ -544,15 +570,12 @@ static int collect_child_exit_status(pid_t child_pid,
              * race on macOS 10.7, where limit_process() returns before the
              * signal arrives).  Then the child has not been told to stop,
              * so the signal is forwarded here on the first poll that
-             * observes it.
+             * observes it.  SIGCONT is sent first so a stopped child is
+             * resumed before the forwarded signal is delivered.
              */
             if (is_quit_flag_set() && !signal_forwarded) {
-                int fwd_sig = get_quit_signal();
-                if (fwd_sig == SIGPIPE || fwd_sig == 0) {
-                    fwd_sig = SIGTERM;
-                }
                 signal_command(child_pid, SIGCONT);
-                signal_command(child_pid, fwd_sig);
+                forward_quit_signal(child_pid);
                 signal_forwarded = 1;
                 /*
                  * Reset the timeout anchor to the moment the signal is
@@ -564,23 +587,23 @@ static int collect_child_exit_status(pid_t child_pid,
                     perror("get_current_time");
                     exit(EXIT_FAILURE);
                 }
-            }
-
-            /*
-             * After CHILD_KILL_TIMEOUT_MS, forcefully kill any remaining
-             * processes.  This handles cases where processes ignore
-             * SIGTERM.  The process group is targeted so that
-             * descendants that are still running are terminated too,
-             * even though they cannot be wait()ed on directly.
-             *
-             * The escalation enforces a termination request, so it is
-             * armed only once one has been forwarded.  limit_process()
-             * also returns when the target is no longer visible to the
-             * process iterator without having exited, and a command that
-             * is still running must not be killed for that: cpulimit
-             * then simply waits for it, the way a shell does.
-             */
-            if (signal_forwarded) {
+            } else if (signal_forwarded) {
+                /*
+                 * After CHILD_KILL_TIMEOUT_MS, forcefully kill any
+                 * remaining processes.  This handles cases where
+                 * processes ignore SIGTERM.  The process group is
+                 * targeted so that descendants that are still running
+                 * are terminated too, even though they cannot be
+                 * wait()ed on directly.
+                 *
+                 * The escalation enforces a termination request, so it
+                 * is armed only once one has been forwarded.
+                 * limit_process() also returns when the target is no
+                 * longer visible to the process iterator without having
+                 * exited, and a command that is still running must not
+                 * be killed for that: cpulimit then simply waits for
+                 * it, the way a shell does.
+                 */
                 double elapsed_ms;
                 elapsed_ms = timediff_in_ms(&current_time, &start_time);
                 if (elapsed_ms > (double)CHILD_KILL_TIMEOUT_MS) {
@@ -641,7 +664,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
     int sync_pipe[2];
     /* Current file descriptor flags for sync_pipe[1] */
     int fd_flags;
-    /* 1 once the quit signal has been handed to the child process group */
+    /* 1 when the quit flag is set and the signal must be forwarded */
     int forwarded_quit_signal;
 
     /*
@@ -724,12 +747,10 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
     /*
      * Check if user requested termination via signal (Ctrl+C, SIGTERM,
      * etc). If so, gracefully terminate the entire process group by
-     * forwarding the exact received signal. This ensures behavior is
-     * consistent with a standard shell: for example, Ctrl+C (SIGINT)
-     * is forwarded as SIGINT so the child exits with status 130
+     * forwarding the exact received signal, so the child exits with the
+     * status a shell would report: for example, Ctrl+C (SIGINT) is
+     * forwarded as SIGINT so the child exits with status 130
      * (128+SIGINT), not 143 (128+SIGTERM).
-     * SIGPIPE is an internal pipe-break signal; map it to SIGTERM to
-     * avoid unexpected behavior in child processes that do not handle it.
      *
      * The child must receive this signal exactly once, so
      * collect_child_exit_status() is told that it has been delivered and
@@ -740,28 +761,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
      * process is invisible to the iterator), collect_child_exit_status()
      * will detect and forward it from inside its polling loop.
      */
-    forwarded_quit_signal = 0;
-    if (is_quit_flag_set()) {
-        int fwd_sig;
-        forwarded_quit_signal = 1;
-        fwd_sig = get_quit_signal();
-        /*
-         * Forward the actual received signal. Two special cases:
-         * - fwd_sig == 0: theoretically unreachable here because
-         *   is_quit_flag_set() is true, meaning a signal was already
-         *   delivered and recorded; however, guard defensively.
-         * - fwd_sig == SIGPIPE: SIGPIPE is an internal broken-pipe
-         *   signal relevant only to the writing process; forwarding it
-         *   to the child group could cause unintended termination of
-         *   children that write to unrelated pipes. Map it to SIGTERM
-         *   so the child group is asked to exit gracefully.
-         * The process group is targeted first, the command itself as a
-         * fallback; see signal_command().
-         */
-        if (fwd_sig == SIGPIPE || fwd_sig == 0) {
-            fwd_sig = SIGTERM;
-        }
-        signal_command(child_pid, fwd_sig);
+    forwarded_quit_signal = is_quit_flag_set();
+    if (forwarded_quit_signal) {
+        forward_quit_signal(child_pid);
     }
 
     exit(collect_child_exit_status(child_pid, cfg, forwarded_quit_signal));
