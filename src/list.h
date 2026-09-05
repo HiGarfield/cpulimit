@@ -176,8 +176,8 @@ struct list_node *first_list_node(const struct list *lst);
  *
  * @note Returns NULL if list is NULL, elem is NULL, or length is 0
  */
-struct list_node *locate_node(const struct list *lst, const void *elem,
-                              size_t offset, size_t length);
+struct list_node *find_node(const struct list *lst, const void *elem,
+                            size_t offset, size_t length);
 
 /**
  * @brief Search for an element by comparing a field in its data
@@ -187,12 +187,12 @@ struct list_node *locate_node(const struct list *lst, const void *elem,
  * @param length Number of bytes to compare
  * @return Pointer to the matching element's data, or NULL if not found
  *
- * Convenience wrapper around locate_node() that returns the data pointer
+ * Convenience wrapper around find_node() that returns the data pointer
  * directly rather than the node. Useful when you need the element itself
  * and don't need to manipulate the node.
  */
-void *locate_elem(const struct list *lst, const void *elem, size_t offset,
-                  size_t length);
+void *find_elem(const struct list *lst, const void *elem, size_t offset,
+                size_t length);
 
 /**
  * @brief Remove all nodes from the list without freeing node data

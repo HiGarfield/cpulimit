@@ -103,9 +103,9 @@ struct process *find_in_process_table(const struct process_table *proc_table,
         return NULL;
     }
     /* Search the linked list in this bucket, comparing PIDs */
-    return (struct process *)locate_elem(proc_table->buckets[bucket_idx], &pid,
-                                         offsetof(struct process, pid),
-                                         sizeof(pid_t));
+    return (struct process *)find_elem(proc_table->buckets[bucket_idx], &pid,
+                                       offsetof(struct process, pid),
+                                       sizeof(pid_t));
 }
 
 /**
@@ -141,8 +141,8 @@ void add_to_process_table(struct process_table *proc_table,
         init_list(proc_table->buckets[bucket_idx]);
     }
     /* Verify process doesn't already exist before adding */
-    if (locate_elem(proc_table->buckets[bucket_idx], &proc->pid,
-                    offsetof(struct process, pid), sizeof(pid_t)) == NULL) {
+    if (find_elem(proc_table->buckets[bucket_idx], &proc->pid,
+                  offsetof(struct process, pid), sizeof(pid_t)) == NULL) {
         add_list_elem(proc_table->buckets[bucket_idx], proc);
     }
 }
@@ -169,8 +169,8 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid) {
     if (proc_table->buckets[bucket_idx] == NULL) {
         return 1; /* Bucket is empty */
     }
-    node = locate_node(proc_table->buckets[bucket_idx], &pid,
-                       offsetof(struct process, pid), sizeof(pid_t));
+    node = find_node(proc_table->buckets[bucket_idx], &pid,
+                     offsetof(struct process, pid), sizeof(pid_t));
     if (node == NULL) {
         return 1; /* Process not found in bucket */
     }
@@ -219,9 +219,8 @@ void remove_stale_from_process_table(struct process_table *proc_table,
                 destroy_list_node(proc_table->buckets[bucket_idx], node);
             } else {
                 pid_t pid = ((const struct process *)node->data)->pid;
-                if (locate_elem(active_list, &pid,
-                                offsetof(struct process, pid),
-                                sizeof(pid_t)) == NULL) {
+                if (find_elem(active_list, &pid, offsetof(struct process, pid),
+                              sizeof(pid_t)) == NULL) {
                     destroy_list_node(proc_table->buckets[bucket_idx], node);
                 }
             }

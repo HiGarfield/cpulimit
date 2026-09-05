@@ -1321,7 +1321,7 @@ static void test_list_destroy_list_node(void) {
 
 /**
  * @brief Test locating nodes and elements in list
- * @note Tests locate_node and locate_elem including single-element list
+ * @note Tests find_node and find_elem including single-element list
  */
 static void test_list_locate(void) {
     struct list lst;
@@ -1355,49 +1355,49 @@ static void test_list_locate(void) {
     add_list_elem(&lst, proc2);
     add_list_elem(&lst, proc3);
 
-    /* Test locate_node - find by PID */
+    /* Test find_node - find by PID */
     search_pid = 200;
-    found_node = locate_node(&lst, &search_pid, offsetof(struct process, pid),
-                             sizeof(pid_t));
+    found_node = find_node(&lst, &search_pid, offsetof(struct process, pid),
+                           sizeof(pid_t));
     assert(found_node != NULL);
     found_proc = (const struct process *)found_node->data;
     assert(found_proc->pid == 200);
 
-    /* Test locate_node - not found */
+    /* Test find_node - not found */
     search_pid = 999;
-    found_node = locate_node(&lst, &search_pid, offsetof(struct process, pid),
-                             sizeof(pid_t));
+    found_node = find_node(&lst, &search_pid, offsetof(struct process, pid),
+                           sizeof(pid_t));
     assert(found_node == NULL);
 
-    /* Test locate_elem - find by PID */
+    /* Test find_elem - find by PID */
     search_pid = 100;
-    found_elem = (struct process *)locate_elem(
+    found_elem = (struct process *)find_elem(
         &lst, &search_pid, offsetof(struct process, pid), sizeof(pid_t));
     assert(found_elem == proc1);
     assert(found_elem->pid == 100);
 
-    /* Test locate_elem - not found */
+    /* Test find_elem - not found */
     search_pid = 999;
-    found_elem = (struct process *)locate_elem(
+    found_elem = (struct process *)find_elem(
         &lst, &search_pid, offsetof(struct process, pid), sizeof(pid_t));
     assert(found_elem == NULL);
 
     /* Test with NULL list */
-    found_node = locate_node(NULL, &search_pid, 0, sizeof(pid_t));
+    found_node = find_node(NULL, &search_pid, 0, sizeof(pid_t));
     assert(found_node == NULL);
-    void_elem = locate_elem(NULL, &search_pid, 0, sizeof(pid_t));
+    void_elem = find_elem(NULL, &search_pid, 0, sizeof(pid_t));
     assert(void_elem == NULL);
 
     /* Test with NULL element */
-    found_node = locate_node(&lst, NULL, 0, sizeof(pid_t));
+    found_node = find_node(&lst, NULL, 0, sizeof(pid_t));
     assert(found_node == NULL);
-    void_elem = locate_elem(&lst, NULL, 0, sizeof(pid_t));
+    void_elem = find_elem(&lst, NULL, 0, sizeof(pid_t));
     assert(void_elem == NULL);
 
     /* Test with zero length */
-    found_node = locate_node(&lst, &search_pid, 0, 0);
+    found_node = find_node(&lst, &search_pid, 0, 0);
     assert(found_node == NULL);
-    void_elem = locate_elem(&lst, &search_pid, 0, 0);
+    void_elem = find_elem(&lst, &search_pid, 0, 0);
     assert(void_elem == NULL);
 
     clear_list(&lst);
@@ -1411,17 +1411,17 @@ static void test_list_locate(void) {
     init_list(&lst);
     single_val = 42;
     add_list_elem(&lst, &single_val);
-    found_node = locate_node(&lst, &single_val, 0, sizeof(int));
+    found_node = find_node(&lst, &single_val, 0, sizeof(int));
     assert(found_node != NULL);
     single_node_val = *(int *)found_node->data;
     assert(single_node_val == 42);
-    void_elem = locate_elem(&lst, &single_val, 0, sizeof(int));
+    void_elem = find_elem(&lst, &single_val, 0, sizeof(int));
     assert(void_elem == &single_val);
     /* Miss case in single-element list */
     single_miss = 99;
-    found_node = locate_node(&lst, &single_miss, 0, sizeof(int));
+    found_node = find_node(&lst, &single_miss, 0, sizeof(int));
     assert(found_node == NULL);
-    void_elem = locate_elem(&lst, &single_miss, 0, sizeof(int));
+    void_elem = find_elem(&lst, &single_miss, 0, sizeof(int));
     assert(void_elem == NULL);
     clear_list(&lst);
 }
@@ -1580,9 +1580,9 @@ static void test_list_edge_cases(void) {
 }
 
 /**
- * @brief Test add_list_elem with NULL data and locate_node skipping NULL-data
+ * @brief Test add_list_elem with NULL data and find_node skipping NULL-data
  * nodes
- * @note Covers: add_list_elem(l, NULL), locate_node branch cur->data==NULL,
+ * @note Covers: add_list_elem(l, NULL), find_node branch cur->data==NULL,
  *       destroy_list_node with NULL data pointer
  */
 static void test_list_null_data_operations(void) {
@@ -1605,11 +1605,11 @@ static void test_list_null_data_operations(void) {
     empty = is_empty_list(&lst);
     assert(empty == 0);
 
-    /* locate_node must skip the NULL-data node (branch: cur->data == NULL) */
+    /* find_node must skip the NULL-data node (branch: cur->data == NULL) */
     search_val = 42;
-    tmp_node = locate_node(&lst, &search_val, 0, sizeof(int));
+    tmp_node = find_node(&lst, &search_val, 0, sizeof(int));
     assert(tmp_node == NULL);
-    void_elem = locate_elem(&lst, &search_val, 0, sizeof(int));
+    void_elem = find_elem(&lst, &search_val, 0, sizeof(int));
     assert(void_elem == NULL);
 
     /*
