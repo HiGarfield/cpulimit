@@ -243,11 +243,7 @@ void resume_stopped_pids(struct process_set *proc_set) {
     }
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
          node = node->next) {
-        pid_t pid;
-        if (node->data == NULL) {
-            continue;
-        }
-        pid = *(const pid_t *)node->data;
+        pid_t pid = *(const pid_t *)node->data;
         /*
          * A process that is still a group member is resumed by the
          * regular SIGCONT round that walks proc_list, so signalling it
@@ -269,7 +265,7 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
          node = next_node) {
         next_node = node->next;
-        if (node->data == NULL || *(const pid_t *)node->data != pid) {
+        if (*(const pid_t *)node->data != pid) {
             continue;
         }
         /*
