@@ -147,17 +147,6 @@ int is_empty_list(const struct list *lst) {
 }
 
 /**
- * @brief Get the number of elements in the list
- * @param lst Pointer to the list
- * @return Number of elements, or 0 if list is NULL
- *
- * Returns the count in O(1) time as it is maintained during operations.
- */
-size_t get_list_count(const struct list *lst) {
-    return lst != NULL ? lst->count : 0;
-}
-
-/**
  * @brief Get the first node in the list
  * @param lst Pointer to the list
  * @return Pointer to the first node, or NULL if list is empty or NULL
@@ -169,21 +158,19 @@ struct list_node *first_list_node(const struct list *lst) {
 }
 
 /**
- * @brief Search for a node by comparing a field in its data
+ * @brief Search for an element by comparing a field in its data
  * @param lst Pointer to the list to search
  * @param elem Pointer to the value to compare against
  * @param offset Byte offset of the field to compare within the data structure
  * @param length Number of bytes to compare
- * @return Pointer to the first matching node, or NULL if not found
+ * @return Pointer to the matching element's data, or NULL if not found
  *
  * Performs linear search comparing length bytes starting at offset within
  * each node's data against the provided value. Uses memcmp() for comparison.
  * Useful for finding nodes by a specific field (e.g., PID in a process struct).
- *
- * @note Returns NULL if list is NULL, elem is NULL, or length is 0
  */
-struct list_node *find_node(const struct list *lst, const void *elem,
-                            size_t offset, size_t length) {
+void *find_elem(const struct list *lst, const void *elem, size_t offset,
+                size_t length) {
     struct list_node *current_node;
 
     if (lst == NULL || elem == NULL || length == 0) {
@@ -198,29 +185,11 @@ struct list_node *find_node(const struct list *lst, const void *elem,
         }
         if (memcmp((const char *)current_node->data + offset, elem, length) ==
             0) {
-            return current_node;
+            return current_node->data;
         }
     }
 
     return NULL;
-}
-
-/**
- * @brief Search for an element by comparing a field in its data
- * @param lst Pointer to the list to search
- * @param elem Pointer to the value to compare against
- * @param offset Byte offset of the field to compare within the data structure
- * @param length Number of bytes to compare
- * @return Pointer to the matching element's data, or NULL if not found
- *
- * Convenience wrapper around find_node() that returns the data pointer
- * directly rather than the node. Useful when you need the element itself
- * and don't need to manipulate the node.
- */
-void *find_elem(const struct list *lst, const void *elem, size_t offset,
-                size_t length) {
-    const struct list_node *node = find_node(lst, elem, offset, length);
-    return node != NULL ? node->data : NULL;
 }
 
 /**

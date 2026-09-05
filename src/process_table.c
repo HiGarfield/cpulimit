@@ -169,8 +169,14 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid) {
     if (proc_table->buckets[bucket_idx] == NULL) {
         return 1; /* Bucket is empty */
     }
-    node = find_node(proc_table->buckets[bucket_idx], &pid,
-                     offsetof(struct process, pid), sizeof(pid_t));
+    /* Search the linked list in this bucket, comparing PIDs directly */
+    for (node = proc_table->buckets[bucket_idx]->first; node != NULL;
+         node = node->next) {
+        if (node->data != NULL &&
+            ((const struct process *)node->data)->pid == pid) {
+            break;
+        }
+    }
     if (node == NULL) {
         return 1; /* Process not found in bucket */
     }

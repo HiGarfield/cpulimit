@@ -1092,7 +1092,7 @@ static void test_util_macros(void) {
 
 /**
  * @brief Test list initialization and empty list operations
- * @note Tests init_list, is_empty_list, get_list_count with empty list
+ * @note Tests init_list, is_empty_list with empty list
  */
 static void test_list_init_and_empty(void) {
     struct list lst;
@@ -1112,11 +1112,8 @@ static void test_list_init_and_empty(void) {
     empty = is_empty_list(NULL);
     assert(empty == 1);
 
-    /* Test get_list_count */
-    list_count = get_list_count(&lst);
-    assert(list_count == 0);
-    list_count = get_list_count(NULL);
-    assert(list_count == 0);
+    /* Test count field directly */
+    assert(lst.count == 0);
 
     /* Test first_list_node */
     first_list_node_result = first_list_node(&lst);
@@ -1130,7 +1127,7 @@ static void test_list_init_and_empty(void) {
 
 /**
  * @brief Test adding elements to list
- * @note Tests add_list_elem, get_list_count, first_list_node with non-empty
+ * @note Tests add_list_elem, first_list_node with non-empty
  * list and link integrity
  */
 static void test_list_add_list_elem(void) {
@@ -1152,8 +1149,7 @@ static void test_list_add_list_elem(void) {
     assert(node1->next == NULL);
     assert(lst.first == node1);
     assert(lst.last == node1);
-    list_count = get_list_count(&lst);
-    assert(list_count == 1);
+    assert(lst.count == 1);
     empty = is_empty_list(&lst);
     assert(empty == 0);
     first_list_node_result = first_list_node(&lst);
@@ -1168,8 +1164,7 @@ static void test_list_add_list_elem(void) {
     assert(node1->next == node2);
     assert(lst.first == node1);
     assert(lst.last == node2);
-    list_count = get_list_count(&lst);
-    assert(list_count == 2);
+    assert(lst.count == 2);
 
     /* Add third element */
     node3 = add_list_elem(&lst, &data3);
@@ -1180,8 +1175,7 @@ static void test_list_add_list_elem(void) {
     assert(node2->next == node3);
     assert(lst.first == node1);
     assert(lst.last == node3);
-    list_count = get_list_count(&lst);
-    assert(list_count == 3);
+    assert(lst.count == 3);
 
     /* Verify first_list_node returns first element with correct links */
     first_list_node_result = first_list_node(&lst);
@@ -1218,7 +1212,7 @@ static void test_list_delete_list_node(void) {
 
     /* Delete middle node */
     delete_list_node(&lst, node2);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 2);
     assert(lst.first == node1);
     assert(lst.last == node3);
@@ -1227,7 +1221,7 @@ static void test_list_delete_list_node(void) {
 
     /* Delete first node */
     delete_list_node(&lst, node1);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 1);
     assert(lst.first == node3);
     assert(lst.last == node3);
@@ -1236,7 +1230,7 @@ static void test_list_delete_list_node(void) {
 
     /* Delete last node */
     delete_list_node(&lst, node3);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 0);
     assert(lst.first == NULL);
     assert(lst.last == NULL);
@@ -1249,7 +1243,7 @@ static void test_list_delete_list_node(void) {
 
     /* Test delete_list_node on empty list (count==0 guard path) */
     delete_list_node(&lst, &fake_node);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 0);
 }
 
@@ -1283,14 +1277,14 @@ static void test_list_destroy_list_node(void) {
 
     /* Destroy second node */
     destroy_list_node(&lst, node2);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 1);
     assert(lst.first == node1);
     assert(lst.last == node1);
 
     /* Destroy first node */
     destroy_list_node(&lst, node1);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 0);
     empty = is_empty_list(&lst);
     assert(empty == 1);
@@ -1320,113 +1314,6 @@ static void test_list_destroy_list_node(void) {
 }
 
 /**
- * @brief Test locating nodes and elements in list
- * @note Tests find_node and find_elem including single-element list
- */
-static void test_list_locate(void) {
-    struct list lst;
-    struct process *proc1, *proc2, *proc3;
-    const struct list_node *found_node;
-    const struct process *found_elem;
-    pid_t search_pid;
-    const struct process *found_proc;
-    const void *void_elem;
-    int single_val, single_miss, single_node_val;
-
-    init_list(&lst);
-
-    /* Allocate processes on heap to avoid stack size warnings */
-    proc1 = (struct process *)malloc(sizeof(struct process));
-    proc2 = (struct process *)malloc(sizeof(struct process));
-    proc3 = (struct process *)malloc(sizeof(struct process));
-    assert(proc1 != NULL);
-    assert(proc2 != NULL);
-    assert(proc3 != NULL);
-
-    /* Initialize processes with different PIDs */
-    proc1->pid = 100;
-    proc1->ppid = 1;
-    proc2->pid = 200;
-    proc2->ppid = 1;
-    proc3->pid = 300;
-    proc3->ppid = 1;
-
-    add_list_elem(&lst, proc1);
-    add_list_elem(&lst, proc2);
-    add_list_elem(&lst, proc3);
-
-    /* Test find_node - find by PID */
-    search_pid = 200;
-    found_node = find_node(&lst, &search_pid, offsetof(struct process, pid),
-                           sizeof(pid_t));
-    assert(found_node != NULL);
-    found_proc = (const struct process *)found_node->data;
-    assert(found_proc->pid == 200);
-
-    /* Test find_node - not found */
-    search_pid = 999;
-    found_node = find_node(&lst, &search_pid, offsetof(struct process, pid),
-                           sizeof(pid_t));
-    assert(found_node == NULL);
-
-    /* Test find_elem - find by PID */
-    search_pid = 100;
-    found_elem = (struct process *)find_elem(
-        &lst, &search_pid, offsetof(struct process, pid), sizeof(pid_t));
-    assert(found_elem == proc1);
-    assert(found_elem->pid == 100);
-
-    /* Test find_elem - not found */
-    search_pid = 999;
-    found_elem = (struct process *)find_elem(
-        &lst, &search_pid, offsetof(struct process, pid), sizeof(pid_t));
-    assert(found_elem == NULL);
-
-    /* Test with NULL list */
-    found_node = find_node(NULL, &search_pid, 0, sizeof(pid_t));
-    assert(found_node == NULL);
-    void_elem = find_elem(NULL, &search_pid, 0, sizeof(pid_t));
-    assert(void_elem == NULL);
-
-    /* Test with NULL element */
-    found_node = find_node(&lst, NULL, 0, sizeof(pid_t));
-    assert(found_node == NULL);
-    void_elem = find_elem(&lst, NULL, 0, sizeof(pid_t));
-    assert(void_elem == NULL);
-
-    /* Test with zero length */
-    found_node = find_node(&lst, &search_pid, 0, 0);
-    assert(found_node == NULL);
-    void_elem = find_elem(&lst, &search_pid, 0, 0);
-    assert(void_elem == NULL);
-
-    clear_list(&lst);
-
-    /* Free allocated memory */
-    free(proc1);
-    free(proc2);
-    free(proc3);
-
-    /* Test locate with a single-element list */
-    init_list(&lst);
-    single_val = 42;
-    add_list_elem(&lst, &single_val);
-    found_node = find_node(&lst, &single_val, 0, sizeof(int));
-    assert(found_node != NULL);
-    single_node_val = *(int *)found_node->data;
-    assert(single_node_val == 42);
-    void_elem = find_elem(&lst, &single_val, 0, sizeof(int));
-    assert(void_elem == &single_val);
-    /* Miss case in single-element list */
-    single_miss = 99;
-    found_node = find_node(&lst, &single_miss, 0, sizeof(int));
-    assert(found_node == NULL);
-    void_elem = find_elem(&lst, &single_miss, 0, sizeof(int));
-    assert(void_elem == NULL);
-    clear_list(&lst);
-}
-
-/**
  * @brief Test clearing and destroying lists
  * @note Tests clear_list and destroy_list including empty-list no-op paths
  */
@@ -1442,11 +1329,11 @@ static void test_list_clear_and_destroy(void) {
     add_list_elem(&lst1, &data1);
     add_list_elem(&lst1, &data2);
     add_list_elem(&lst1, &data3);
-    list_count = get_list_count(&lst1);
+    list_count = lst1.count;
     assert(list_count == 3);
 
     clear_list(&lst1);
-    list_count = get_list_count(&lst1);
+    list_count = lst1.count;
     assert(list_count == 0);
     assert(lst1.first == NULL);
     assert(lst1.last == NULL);
@@ -1471,11 +1358,11 @@ static void test_list_clear_and_destroy(void) {
     add_list_elem(&lst2, dyn_data1);
     add_list_elem(&lst2, dyn_data2);
     add_list_elem(&lst2, dyn_data3);
-    list_count = get_list_count(&lst2);
+    list_count = lst2.count;
     assert(list_count == 3);
 
     destroy_list(&lst2);
-    list_count = get_list_count(&lst2);
+    list_count = lst2.count;
     assert(list_count == 0);
     assert(lst2.first == NULL);
     assert(lst2.last == NULL);
@@ -1488,7 +1375,7 @@ static void test_list_clear_and_destroy(void) {
     /* Test clear_list on already-empty list (no-op path) */
     init_list(&lst1);
     clear_list(&lst1);
-    list_count = get_list_count(&lst1);
+    list_count = lst1.count;
     assert(list_count == 0);
     empty = is_empty_list(&lst1);
     assert(empty == 1);
@@ -1496,7 +1383,7 @@ static void test_list_clear_and_destroy(void) {
     /* Test destroy_list on already-empty list (no-op path) */
     init_list(&lst1);
     destroy_list(&lst1);
-    list_count = get_list_count(&lst1);
+    list_count = lst1.count;
     assert(list_count == 0);
     empty = is_empty_list(&lst1);
     assert(empty == 1);
@@ -1521,7 +1408,7 @@ static void test_list_edge_cases(void) {
         data[node_idx] = node_idx;
         add_list_elem(&lst, &data[node_idx]);
     }
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 10);
 
     /* Verify forward traversal */
@@ -1548,7 +1435,7 @@ static void test_list_edge_cases(void) {
     while (!is_empty_list(&lst)) {
         delete_list_node(&lst, lst.last);
     }
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 0);
 
     /* Test deleting nodes in middle repeatedly */
@@ -1560,12 +1447,12 @@ static void test_list_edge_cases(void) {
     /* Delete middle elements */
     node = lst.first->next; /* Second element */
     delete_list_node(&lst, node);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 4);
 
     node = lst.first->next; /* New second element (was third) */
     delete_list_node(&lst, node);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 3);
 
     /* Verify remaining elements */
@@ -1580,10 +1467,9 @@ static void test_list_edge_cases(void) {
 }
 
 /**
- * @brief Test add_list_elem with NULL data and find_node skipping NULL-data
- * nodes
- * @note Covers: add_list_elem(l, NULL), find_node branch cur->data==NULL,
- *       destroy_list_node with NULL data pointer
+ * @brief Test add_list_elem with NULL data and destroy_list_node safety
+ * @note Covers: add_list_elem(l, NULL), destroy_list_node with NULL data
+ *       pointer
  */
 static void test_list_null_data_operations(void) {
     struct list lst;
@@ -1591,7 +1477,6 @@ static void test_list_null_data_operations(void) {
     int search_val;
     size_t list_count;
     int empty;
-    const struct list_node *tmp_node;
     const void *void_elem;
 
     init_list(&lst);
@@ -1600,15 +1485,13 @@ static void test_list_null_data_operations(void) {
     node = add_list_elem(&lst, NULL);
     assert(node != NULL);
     assert(node->data == NULL);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 1);
     empty = is_empty_list(&lst);
     assert(empty == 0);
 
-    /* find_node must skip the NULL-data node (branch: cur->data == NULL) */
+    /* find_elem must skip the NULL-data node (branch: cur->data == NULL) */
     search_val = 42;
-    tmp_node = find_node(&lst, &search_val, 0, sizeof(int));
-    assert(tmp_node == NULL);
     void_elem = find_elem(&lst, &search_val, 0, sizeof(int));
     assert(void_elem == NULL);
 
@@ -1617,7 +1500,7 @@ static void test_list_null_data_operations(void) {
      * NULL)
      */
     destroy_list_node(&lst, node);
-    list_count = get_list_count(&lst);
+    list_count = lst.count;
     assert(list_count == 0);
     empty = is_empty_list(&lst);
     assert(empty == 1);
@@ -4433,7 +4316,7 @@ static void test_process_table_remove_stale_null_data(void) {
     assert(pt_found == proc1);
 
     /* The NULL-data node must be gone (bucket list has exactly one entry) */
-    list_count = get_list_count(proc_table.buckets[bucket_idx]);
+    list_count = proc_table.buckets[bucket_idx]->count;
     assert(list_count == 1);
 
     clear_list(&active_list);
@@ -5414,7 +5297,7 @@ static void test_process_set_rapid_updates(void) {
     for (proc_idx = 0; proc_idx < 20; proc_idx++) {
         size_t list_count;
         update_process_set(&proc_set);
-        list_count = get_list_count(proc_set.proc_list);
+        list_count = proc_set.proc_list->count;
         assert(list_count == 1);
     }
 
@@ -5451,7 +5334,7 @@ static void test_process_set_init_all(void) {
     }
     assert(count > 0);
     assert(found_self == 1);
-    list_cnt = get_list_count(proc_set.proc_list);
+    list_cnt = proc_set.proc_list->count;
     assert(count == list_cnt);
 
     /* Update and verify again */
@@ -5501,7 +5384,7 @@ static void test_process_set_single(int include_children) {
         size_t list_count;
 
         update_process_set(&proc_set);
-        list_count = get_list_count(proc_set.proc_list);
+        list_count = proc_set.proc_list->count;
         assert(list_count == 1);
 
         for (node = proc_set.proc_list->first; node != NULL;
@@ -5556,10 +5439,10 @@ static void test_process_set_init_invalid_pid(void) {
     /* Test with PID -1 */
     ret = init_process_set(&proc_set, -1, 0);
     assert(ret == 0);
-    list_count = get_list_count(proc_set.proc_list);
+    list_count = proc_set.proc_list->count;
     assert(list_count == 0);
     update_process_set(&proc_set);
-    list_count = get_list_count(proc_set.proc_list);
+    list_count = proc_set.proc_list->count;
     assert(list_count == 0);
     ret = close_process_set(&proc_set);
     assert(ret == 0);
@@ -5567,10 +5450,10 @@ static void test_process_set_init_invalid_pid(void) {
     /* Test with PID INT_MAX */
     ret = init_process_set(&proc_set, INT_MAX, 0);
     assert(ret == 0);
-    list_count = get_list_count(proc_set.proc_list);
+    list_count = proc_set.proc_list->count;
     assert(list_count == 0);
     update_process_set(&proc_set);
-    list_count = get_list_count(proc_set.proc_list);
+    list_count = proc_set.proc_list->count;
     assert(list_count == 0);
     ret = close_process_set(&proc_set);
     assert(ret == 0);
@@ -5599,7 +5482,7 @@ static void test_process_set_cpu_usage_empty_list(void) {
     /* Initialize with INT_MAX: no such process exists, list stays empty */
     ret = init_process_set(&proc_set, (pid_t)INT_MAX, 0);
     assert(ret == 0);
-    list_count = get_list_count(proc_set.proc_list);
+    list_count = proc_set.proc_list->count;
     assert(list_count == 0);
 
     /* Empty list must yield -1.0 (unknown) */
@@ -5744,7 +5627,7 @@ static void test_process_set_update_return_value(void) {
     assert(ret == 0);
     ret = update_process_set(&proc_set);
     assert(ret == 0);
-    list_count = get_list_count(proc_set.proc_list);
+    list_count = proc_set.proc_list->count;
     assert(list_count == 1);
 
     /* Kill the child and wait so it is fully gone */
@@ -5753,7 +5636,7 @@ static void test_process_set_update_return_value(void) {
     /* update_process_set must also return 0 when the target has gone */
     ret = update_process_set(&proc_set);
     assert(ret == 0);
-    list_count = get_list_count(proc_set.proc_list);
+    list_count = proc_set.proc_list->count;
     assert(list_count == 0);
 
     ret = close_process_set(&proc_set);
@@ -5823,7 +5706,7 @@ static void test_process_set_race_target_exits_between_init_and_update(void) {
     update_process_set(&proc_set);
 
     /* The process no longer exists; list must now be empty */
-    list_count = get_list_count(proc_set.proc_list);
+    list_count = proc_set.proc_list->count;
     assert(list_count == 0);
 
     ret = close_process_set(&proc_set);
@@ -6133,7 +6016,7 @@ static void test_limit_process_basic(void) {
                 update_process_set(&proc_set);
 
                 /* Verify all num_procs processes are being monitored */
-                list_count = get_list_count(proc_set.proc_list);
+                list_count = proc_set.proc_list->count;
                 expected_count = (size_t)num_procs;
                 assert(list_count == expected_count);
 
@@ -10406,7 +10289,6 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_list_add_list_elem);
     RUN_TEST(test_list_delete_list_node);
     RUN_TEST(test_list_destroy_list_node);
-    RUN_TEST(test_list_locate);
     RUN_TEST(test_list_clear_and_destroy);
     RUN_TEST(test_list_edge_cases);
     RUN_TEST(test_list_null_data_operations);

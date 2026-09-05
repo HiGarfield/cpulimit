@@ -292,7 +292,7 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
     if (verbose) {
         printf("Process group of PID %ld: %lu member(s)\n",
                (long)proc_set.target_pid,
-               (unsigned long)get_list_count(proc_set.proc_list));
+               (unsigned long)proc_set.proc_list->count);
     }
 
     /*

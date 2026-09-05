@@ -145,15 +145,6 @@ void destroy_list_node(struct list *lst, struct list_node *node);
 int is_empty_list(const struct list *lst);
 
 /**
- * @brief Get the number of elements in the list
- * @param lst Pointer to the list
- * @return Number of elements, or 0 if list is NULL
- *
- * Returns the count in O(1) time as it is maintained during operations.
- */
-size_t get_list_count(const struct list *lst);
-
-/**
  * @brief Get the first node in the list
  * @param lst Pointer to the list
  * @return Pointer to the first node, or NULL if list is empty or NULL
@@ -163,23 +154,6 @@ size_t get_list_count(const struct list *lst);
 struct list_node *first_list_node(const struct list *lst);
 
 /**
- * @brief Search for a node by comparing a field in its data
- * @param lst Pointer to the list to search
- * @param elem Pointer to the value to compare against
- * @param offset Byte offset of the field to compare within the data structure
- * @param length Number of bytes to compare
- * @return Pointer to the first matching node, or NULL if not found
- *
- * Performs linear search comparing length bytes starting at offset within
- * each node's data against the provided value. Uses memcmp() for comparison.
- * Useful for finding nodes by a specific field (e.g., PID in a process struct).
- *
- * @note Returns NULL if list is NULL, elem is NULL, or length is 0
- */
-struct list_node *find_node(const struct list *lst, const void *elem,
-                            size_t offset, size_t length);
-
-/**
  * @brief Search for an element by comparing a field in its data
  * @param lst Pointer to the list to search
  * @param elem Pointer to the value to compare against
@@ -187,9 +161,9 @@ struct list_node *find_node(const struct list *lst, const void *elem,
  * @param length Number of bytes to compare
  * @return Pointer to the matching element's data, or NULL if not found
  *
- * Convenience wrapper around find_node() that returns the data pointer
- * directly rather than the node. Useful when you need the element itself
- * and don't need to manipulate the node.
+ * Performs linear search comparing length bytes starting at offset within
+ * each node's data against the provided value. Uses memcmp() for comparison.
+ * Useful for finding nodes by a specific field (e.g., PID in a process struct).
  */
 void *find_elem(const struct list *lst, const void *elem, size_t offset,
                 size_t length);
