@@ -1,3 +1,6 @@
 build
 build_clang_san
 _codeql_build_dir
+.codebuddy
+build-clang
+build-gcc
