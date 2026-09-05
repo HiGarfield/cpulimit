@@ -416,10 +416,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
          * Apply PID filter early using kinfo_proc data before
          * performing expensive conversion and command reading.
          */
-        if (iter->filter->pid != 0 && iter->filter->include_children &&
-            kproc->ki_pid != iter->filter->pid &&
-            !is_child_via_kvm(iter->kvm_descriptor, kproc->ki_pid,
-                              iter->filter->pid)) {
+        if (!process_matches_filter(kproc->ki_pid, iter->filter)) {
             continue;
         }
 

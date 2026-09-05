@@ -490,9 +490,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
              * Apply PID filter after reading process info.
              * Accept if: no filter, exact match, or descendant match.
              */
-            if (iter->filter->pid == 0 || proc->pid == iter->filter->pid ||
-                (iter->filter->include_children &&
-                 is_child_of(proc->pid, iter->filter->pid))) {
+            if (process_matches_filter(proc->pid, iter->filter)) {
                 iter->current_index++;
                 return 0;
             }

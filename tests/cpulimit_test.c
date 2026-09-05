@@ -1097,7 +1097,6 @@ static void test_util_macros(void) {
 static void test_list_init_and_empty(void) {
     struct list lst;
     int empty;
-    size_t list_count;
     const struct list_node *first_list_node_result;
 
     /* Test initialization */
@@ -1134,7 +1133,6 @@ static void test_list_add_list_elem(void) {
     struct list lst;
     int data1 = 1, data2 = 2, data3 = 3;
     const struct list_node *node1, *node2, *node3;
-    size_t list_count;
     int empty;
     const struct list_node *first_list_node_result;
     const struct list_node *null_node;

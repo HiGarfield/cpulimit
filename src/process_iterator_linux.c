@@ -393,8 +393,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
             continue;
         }
         /* Apply PID filter: match target PID or its descendants */
-        if (iter->filter->pid != 0 && iter->filter->pid != pid &&
-            !is_child_of(pid, iter->filter->pid)) {
+        if (!process_matches_filter(pid, iter->filter)) {
             continue;
         }
         /* Read process info and skip on failure (e.g., process exited) */

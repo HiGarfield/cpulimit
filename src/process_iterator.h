@@ -302,6 +302,21 @@ int is_child_of(pid_t child_pid, pid_t parent_pid);
  */
 pid_t getppid_of(pid_t pid);
 
+/**
+ * @brief Determine whether a process ID satisfies the iterator filter
+ * @param pid Process ID to evaluate
+ * @param filter Filter criteria to apply
+ * @return 1 if the process matches the filter, 0 otherwise
+ *
+ * A process matches when:
+ * - no PID filter is set (filter->pid == 0), or
+ * - its PID equals the filter PID, or
+ * - include_children is enabled and it is a descendant of the filter PID.
+ *
+ * Returns 0 when filter is NULL.
+ */
+int process_matches_filter(pid_t pid, const struct process_filter *filter);
+
 #ifdef __cplusplus
 }
 #endif
