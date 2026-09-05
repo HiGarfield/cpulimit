@@ -55,10 +55,10 @@ struct cpulimit_cfg {
     const char *exe_name;
 
     /**
-     * CPU usage limit as a fraction (percentage/100).
-     * Range: (0, N_CPU].
+     * CPU usage limit expressed in CPU cores (core equivalents), in
+     * the range (0, N_CPU].
      */
-    double limit;
+    double cpu_limit;
 
     /**
      * Non-zero to apply the limit to the target and all descendants.

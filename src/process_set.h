@@ -116,7 +116,7 @@ struct process_set {
  * @note After return, proc_set is fully initialized and ready for use
  */
 int init_process_set(struct process_set *proc_set, pid_t target_pid,
-                       int include_children);
+                     int include_children);
 
 /**
  * @brief Release all resources associated with a process set

@@ -123,7 +123,7 @@ static void parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
  *
  * Converts limit string to a double-precision percentage value, validates
  * it is within the acceptable range (0, ncpu*100], and stores the
- * normalized fraction (percentage/100) in cfg->limit.
+ * limit in CPU cores (core equivalents) in cfg->cpu_limit.
  *
  * @note Exits the program with error message if limit is invalid or out of
  *       range
@@ -153,8 +153,8 @@ static void parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
-    /* Store as fraction (0.0 to ncpu) for internal calculations */
-    cfg->limit = percent_limit / 100.0;
+    /* Store as CPU cores (0.0 to ncpu) for internal calculations */
+    cfg->cpu_limit = percent_limit / 100.0;
 }
 
 /**
@@ -232,7 +232,8 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     /* Initialize configuration with default values */
     memset(cfg, 0, sizeof(struct cpulimit_cfg));
     cfg->program_name = file_basename(argv[0]);
-    cfg->limit = -1.0; /* Negative value indicates limit not yet specified */
+    cfg->cpu_limit =
+        -1.0; /* Negative value indicates limit not yet specified */
 
     /*
      * Reset getopt() global state so parse_arguments() remains re-entrant
@@ -359,7 +360,7 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     validate_target_options(cfg);
 
     /* Verify CPU limit was specified (required parameter) */
-    if (cfg->limit < 0) {
+    if (cfg->cpu_limit < 0) {
         fprintf(stderr, "CPU limit (-l/--limit) is required\n\n");
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }

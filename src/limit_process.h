@@ -31,10 +31,11 @@ extern "C" {
 /**
  * @brief Enforce CPU usage limit on a process or process set
  * @param pid Process ID of the target process to limit
- * @param limit CPU usage limit expressed in CPU cores (core equivalents), in
- *              the range (0, N_CPU]. Example: on a 4-core system,
- *              limit=0.5 means 50% of one core (12.5% of total capacity),
- *              and limit=2.0 means two full cores (50% of total capacity).
+ * @param cpu_limit CPU usage limit expressed in CPU cores (core
+ *              equivalents), in the range (0, N_CPU]. Example: on a 4-core
+ *              system, cpu_limit=0.5 means 50% of one core (12.5% of total
+ *              capacity), and cpu_limit=2.0 means two full cores (50% of
+ *              total capacity).
  * @param include_children If non-zero, limit applies to target and all
  *                         descendants; if zero, limit applies only to target
  *                         process
@@ -54,7 +55,8 @@ extern "C" {
  *       returns true
  * @note Always resumes suspended processes (sends SIGCONT) before returning
  */
-void limit_process(pid_t pid, double limit, int include_children, int verbose);
+void limit_process(pid_t pid, double cpu_limit, int include_children,
+                   int verbose);
 
 #ifdef __cplusplus
 }

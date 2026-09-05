@@ -26,8 +26,8 @@
 #include "limit_process.h"
 
 #include "list.h"
-#include "process_set.h"
 #include "process_iterator.h"
+#include "process_set.h"
 #include "process_table.h"
 #include "signal_handler.h"
 #include "time_util.h"
@@ -239,10 +239,11 @@ static void send_signal_to_processes(struct process_set *proc_set, int sig,
 /**
  * @brief Enforce CPU usage limit on a process or process set
  * @param pid Process ID of the target process to limit
- * @param limit CPU usage limit expressed in CPU cores (core equivalents), in
- *              the range (0, N_CPU]. Example: on a 4-core system,
- *              limit=0.5 means 50% of one core (12.5% of total capacity),
- *              and limit=2.0 means two full cores (50% of total capacity).
+ * @param cpu_limit CPU usage limit expressed in CPU cores (core
+ *              equivalents), in the range (0, N_CPU]. Example: on a 4-core
+ *              system, cpu_limit=0.5 means 50% of one core (12.5% of total
+ *              capacity), and cpu_limit=2.0 means two full cores (50% of
+ *              total capacity).
  * @param include_children If non-zero, limit applies to target and all
  *                         descendants; if zero, limit applies only to target
  *                         process
@@ -262,7 +263,8 @@ static void send_signal_to_processes(struct process_set *proc_set, int sig,
  *       returns true
  * @note Always resumes suspended processes (sends SIGCONT) before returning
  */
-void limit_process(pid_t pid, double limit, int include_children, int verbose) {
+void limit_process(pid_t pid, double cpu_limit, int include_children,
+                   int verbose) {
     struct process_set proc_set;
     int cycle_counter = 0, ncpu = get_ncpu();
     /* Fraction of time processes should be running */
@@ -270,9 +272,9 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
     /* Current state: 1 if processes are stopped, 0 if running */
     int is_stopped = 0;
 
-    /* Clamp limit to valid range and calculate initial work ratio */
-    limit = CLAMP(limit, WORK_RATIO_EPSILON, ncpu);
-    work_ratio = limit / ncpu;
+    /* Clamp cpu_limit to valid range and calculate initial work ratio */
+    cpu_limit = CLAMP(cpu_limit, WORK_RATIO_EPSILON, ncpu);
+    work_ratio = cpu_limit / ncpu;
 
     /*
      * Increase priority of cpulimit itself to ensure it can
@@ -324,11 +326,12 @@ void limit_process(pid_t pid, double limit, int include_children, int verbose) {
 
         /*
          * Adaptive control: adjust work ratio based on deviation from target.
-         * If actual usage > limit: decrease work_ratio (more stopping)
-         * If actual usage < limit: increase work_ratio (less stopping)
+         * If actual usage > cpu_limit: decrease work_ratio (more stopping)
+         * If actual usage < cpu_limit: increase work_ratio (less stopping)
          * Formula: new_ratio = old_ratio * (target / actual).
          */
-        work_ratio = work_ratio * limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
+        work_ratio =
+            work_ratio * cpu_limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
         /* Ensure work_ratio stays in valid range, never exactly 0 or 1 */
         work_ratio =
             CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON);

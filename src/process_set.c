@@ -66,7 +66,7 @@
  * @note After return, proc_set is fully initialized and ready for use
  */
 int init_process_set(struct process_set *proc_set, pid_t target_pid,
-                       int include_children) {
+                     int include_children) {
     if (proc_set == NULL) {
         return -1;
     }
@@ -483,8 +483,7 @@ int update_process_set(struct process_set *proc_set) {
      * entries for exited processes in proc_table forever, growing it
      * without bound during long runs (notably with --include-children).
      */
-    remove_stale_from_process_table(proc_set->proc_table,
-                                    proc_set->proc_list);
+    remove_stale_from_process_table(proc_set->proc_table, proc_set->proc_list);
 
     if (close_ret != 0) {
         return -1;

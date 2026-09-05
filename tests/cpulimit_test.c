@@ -30,8 +30,8 @@
 #include "../src/limiter.h"
 #include "../src/list.h"
 #include "../src/process_finder.h"
-#include "../src/process_set.h"
 #include "../src/process_iterator.h"
+#include "../src/process_set.h"
 #include "../src/process_table.h"
 #include "../src/signal_handler.h"
 #include "../src/time_util.h"
@@ -3395,7 +3395,7 @@ static void test_cli_pid_mode(void) {
     parse_arguments(5, test_argv, &cfg);
 
     assert(cfg.target_pid == self_pid);
-    assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
+    assert(cfg.cpu_limit >= 0.4999 && cfg.cpu_limit <= 0.5001);
     assert(cfg.lazy_mode == 1); /* -p implies lazy */
     assert(cfg.verbose == 0);
     assert(cfg.include_children == 0);
@@ -3430,7 +3430,7 @@ static void test_cli_exe_mode(void) {
     assert(cfg.exe_name != NULL);
     cmp_ret = strcmp(cfg.exe_name, "some_exe");
     assert(cmp_ret == 0);
-    assert(cfg.limit >= 0.2499 && cfg.limit <= 0.2501);
+    assert(cfg.cpu_limit >= 0.2499 && cfg.cpu_limit <= 0.2501);
     assert(cfg.lazy_mode == 0); /* -e alone does not imply lazy */
     assert(cfg.target_pid == 0);
     assert(cfg.command_mode == 0);
@@ -3467,7 +3467,7 @@ static void test_cli_command_mode(void) {
     assert(cfg.lazy_mode == 1); /* command mode implies lazy */
     assert(cfg.target_pid == 0);
     assert(cfg.exe_name == NULL);
-    assert(cfg.limit >= 0.7499 && cfg.limit <= 0.7501);
+    assert(cfg.cpu_limit >= 0.7499 && cfg.cpu_limit <= 0.7501);
 }
 
 /**
@@ -3493,7 +3493,7 @@ static void test_cli_long_options(void) {
     parse_arguments(3, test_argv, &cfg);
 
     assert(cfg.target_pid == self_pid);
-    assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
+    assert(cfg.cpu_limit >= 0.4999 && cfg.cpu_limit <= 0.5001);
     assert(cfg.lazy_mode == 1);
 }
 
@@ -3520,7 +3520,7 @@ static void test_cli_long_option_exe(void) {
     assert(cfg.exe_name != NULL);
     cmp_ret = strcmp(cfg.exe_name, "myapp");
     assert(cmp_ret == 0);
-    assert(cfg.limit >= 0.4999 && cfg.limit <= 0.5001);
+    assert(cfg.cpu_limit >= 0.4999 && cfg.cpu_limit <= 0.5001);
 }
 
 /**
@@ -3911,8 +3911,8 @@ static void test_cli_limit_at_max(void) {
     /* Limit stored as fraction: 100*ncpu/100 == ncpu */
     lower_limit = (double)ncpu - 0.001;
     upper_limit = (double)ncpu + 0.001;
-    assert(cfg.limit >= lower_limit);
-    assert(cfg.limit <= upper_limit);
+    assert(cfg.cpu_limit >= lower_limit);
+    assert(cfg.cpu_limit <= upper_limit);
 }
 
 /**
@@ -6710,7 +6710,7 @@ static void test_limiter_run_command_mode(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     /*
@@ -6756,7 +6756,7 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.exe_name = exe_name;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     /* Run in child since run_pid_or_exe_mode calls exit() */
@@ -6798,7 +6798,7 @@ static void test_limiter_run_command_mode_nonexistent(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     fflush(stdout);
@@ -7083,7 +7083,7 @@ static pid_t seam_fork_count_wrapper(char *ready_path, int release_fd) {
         cfg.program_name = "test";
         cfg.command_mode = 1;
         cfg.command_args = args;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         configure_signal_handler();
         run_command_mode(&cfg);
@@ -7321,7 +7321,7 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
         cfg.program_name = "test";
         cfg.command_mode = 1;
         cfg.command_args = args;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         configure_signal_handler();
         run_command_mode(&cfg);
@@ -7426,7 +7426,7 @@ static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
         cfg.program_name = "test";
         cfg.command_mode = 1;
         cfg.command_args = args;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         configure_signal_handler();
         run_command_mode(&cfg);
@@ -7506,7 +7506,7 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     fflush(stdout);
@@ -7598,7 +7598,7 @@ static void test_limiter_run_command_mode_fifo(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     fflush(stdout);
@@ -7697,7 +7697,7 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     ret = pipe(stderr_pipe);
@@ -7788,7 +7788,7 @@ static void test_limiter_run_command_mode_verbose(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
     cfg.verbose = 1;
 
@@ -7824,7 +7824,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.target_pid = (pid_t)INT_MAX;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     fflush(stdout);
@@ -7863,7 +7863,7 @@ static void test_limiter_run_command_mode_false(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     fflush(stdout);
@@ -7908,7 +7908,7 @@ static void test_limiter_run_command_mode_signal_term(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     fflush(stdout);
@@ -7954,7 +7954,7 @@ static void test_limiter_run_command_mode_signal_kill(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     fflush(stdout);
@@ -8002,7 +8002,7 @@ static void test_limiter_run_command_mode_with_fork(void) {
     cfg.program_name = "test";
     cfg.command_mode = 1;
     cfg.command_args = args;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
     fflush(stdout);
@@ -8067,7 +8067,7 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         cfg.program_name = "test";
         cfg.command_mode = 1;
         cfg.command_args = args;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         /* Notify test that wrapper is ready to call run_command_mode */
         if (write(ready_pipe[1], "A", 1) != 1) {
@@ -8144,7 +8144,7 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         cfg.program_name = "test";
         cfg.command_mode = 1;
         cfg.command_args = args;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         /* Notify test that wrapper is ready to call run_command_mode */
         if (write(ready_pipe[1], "A", 1) != 1) {
@@ -8196,7 +8196,7 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
     cfg.exe_name = exe;
-    cfg.limit = 0.5;
+    cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 0; /* non-lazy: loop until quit */
 
     fflush(stdout);
@@ -8255,7 +8255,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.target_pid = target_pid;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         cfg.verbose = 0; /* non-verbose: verbose guard must not print */
         run_pid_or_exe_mode(&cfg);
@@ -8293,7 +8293,7 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.target_pid = getpid(); /* target is the wrapper itself */
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         run_pid_or_exe_mode(&cfg);
         _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
@@ -8344,7 +8344,7 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.target_pid = target_pid;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         cfg.verbose = 1; /* exercises verbose branch in run_pid_or_exe_mode */
         run_pid_or_exe_mode(&cfg);
@@ -8479,7 +8479,7 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.target_pid = target_pid;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         cfg.verbose = 0;
         run_pid_or_exe_mode(&cfg);
@@ -8547,7 +8547,7 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
         cfg.program_name = "test";
         cfg.command_mode = 1;
         cfg.command_args = args;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
 
         configure_signal_handler();
 
@@ -8622,7 +8622,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
         cfg.program_name = "test";
         cfg.command_mode = 1;
         cfg.command_args = args;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
 
         configure_signal_handler();
 
@@ -8997,8 +8997,8 @@ static void seam_mark_snapshot(void);
 
 /* Hooks that park a call site on a barrier driven by the test. */
 /* NOLINTBEGIN(misc-use-internal-linkage) */
-void cpulimit_test_limit_process(pid_t pid, double limit, int include_children,
-                                 int verbose);
+void cpulimit_test_limit_process(pid_t pid, double cpu_limit,
+                                 int include_children, int verbose);
 pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options);
 /* NOLINTEND(misc-use-internal-linkage) */
 
@@ -9388,7 +9388,7 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem) {
 /**
  * @brief Replacement for limit_process() that parks on a barrier
  * @param pid Target PID (ignored while parked)
- * @param limit CPU limit (ignored while parked)
+ * @param cpu_limit CPU limit (ignored while parked)
  * @param include_children Descendant flag (ignored while parked)
  * @param verbose Verbosity (ignored while parked)
  *
@@ -9397,15 +9397,15 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem) {
  * inside limit_process() -- the checkpoint the limiter passes through
  * just before it decides whether to forward anything.
  */
-void cpulimit_test_limit_process(pid_t pid, double limit, int include_children,
-                                 int verbose) {
+void cpulimit_test_limit_process(pid_t pid, double cpu_limit,
+                                 int include_children, int verbose) {
     char go;
     if (!seam_hook_limit_process) {
-        limit_process(pid, limit, include_children, verbose);
+        limit_process(pid, cpu_limit, include_children, verbose);
         return;
     }
     (void)pid;
-    (void)limit;
+    (void)cpu_limit;
     (void)include_children;
     (void)verbose;
     if (seam_limit_announce_fd >= 0 &&
@@ -10218,7 +10218,7 @@ static pid_t seam_fork_exe_limiter(int announce_fd, int go_fd) {
         memset(&cfg, 0, sizeof(cfg));
         cfg.program_name = "test";
         cfg.exe_name = exe_name;
-        cfg.limit = 0.5;
+        cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 0;
         configure_signal_handler();
         run_pid_or_exe_mode(&cfg);

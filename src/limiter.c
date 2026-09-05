@@ -729,7 +729,8 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
     if (cfg->verbose) {
         printf("Limiting process %ld\n", (long)child_pid);
     }
-    limit_process(child_pid, cfg->limit, cfg->include_children, cfg->verbose);
+    limit_process(child_pid, cfg->cpu_limit, cfg->include_children,
+                  cfg->verbose);
 
     /*
      * Always resume the process group after limit_process() returns.
@@ -836,7 +837,7 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
              * This call blocks until the process terminates or quit flag is
              * set.
              */
-            limit_process(found_pid, cfg->limit, cfg->include_children,
+            limit_process(found_pid, cfg->cpu_limit, cfg->include_children,
                           cfg->verbose);
 
             /*
