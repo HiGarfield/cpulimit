@@ -61,7 +61,7 @@
  *
  * If path is NULL, returns an empty string.
  */
-const char *file_basename(const char *path) {
+const char *get_file_basename(const char *path) {
     const char *last_slash;
     if (path == NULL) {
         return "";

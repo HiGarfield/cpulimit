@@ -231,7 +231,7 @@ void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
 
     /* Initialize configuration with default values */
     memset(cfg, 0, sizeof(struct cpulimit_cfg));
-    cfg->program_name = file_basename(argv[0]);
+    cfg->program_name = get_file_basename(argv[0]);
     cfg->cpu_limit =
         -1.0; /* Negative value indicates limit not yet specified */
 

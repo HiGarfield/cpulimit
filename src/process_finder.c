@@ -107,10 +107,10 @@ pid_t find_process_by_name(const char *process_name) {
      */
     full_path_cmp = process_name[0] == '/';
     process_cmp_name =
-        full_path_cmp ? process_name : file_basename(process_name);
+        full_path_cmp ? process_name : get_file_basename(process_name);
     /*
      * Reject an empty comparison name (e.g. process_name == "bin/").
-     * file_basename("bin/") returns "" because the last '/' has nothing
+     * get_file_basename("bin/") returns "" because the last '/' has nothing
      * after it.  Matching against an empty string would produce false
      * positives for any process whose argv[0] also ends with '/'.
      */
@@ -136,7 +136,7 @@ pid_t find_process_by_name(const char *process_name) {
     /* Scan all processes to find matching executable */
     while (get_next_process(&iter, proc) != -1) {
         const char *cmd_cmp_name =
-            full_path_cmp ? proc->command : file_basename(proc->command);
+            full_path_cmp ? proc->command : get_file_basename(proc->command);
         /* Check if this process matches the target name */
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
             /*

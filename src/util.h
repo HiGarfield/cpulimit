@@ -81,7 +81,7 @@ extern "C" {
  *
  * If path is NULL, returns an empty string.
  */
-const char *file_basename(const char *path);
+const char *get_file_basename(const char *path);
 
 /**
  * @brief Attempt to increase the scheduling priority of the current process

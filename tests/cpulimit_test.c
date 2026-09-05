@@ -587,66 +587,66 @@ static void test_apple_proc_argv0_buffer_sizing(void) {
  ***************************************************************************/
 
 /**
- * @brief Test file_basename extraction
+ * @brief Test get_file_basename extraction
  * @note Tests extracting filename from path including edge cases
  */
-static void test_util_file_basename(void) {
+static void test_util_get_file_basename(void) {
     const char *result;
     int cmp_ret;
 
     /* Test simple filename */
-    result = file_basename("test.txt");
+    result = get_file_basename("test.txt");
     cmp_ret = strcmp(result, "test.txt");
     assert(cmp_ret == 0);
 
     /* Test path with directory */
-    result = file_basename("/usr/bin/test");
+    result = get_file_basename("/usr/bin/test");
     cmp_ret = strcmp(result, "test");
     assert(cmp_ret == 0);
 
     /* Test path with multiple directories */
-    result = file_basename("/home/user/documents/file.txt");
+    result = get_file_basename("/home/user/documents/file.txt");
     cmp_ret = strcmp(result, "file.txt");
     assert(cmp_ret == 0);
 
     /* Test path ending with slash */
-    result = file_basename("/home/user/");
+    result = get_file_basename("/home/user/");
     cmp_ret = strcmp(result, "");
     assert(cmp_ret == 0);
 
     /* Test root directory */
-    result = file_basename("/");
+    result = get_file_basename("/");
     cmp_ret = strcmp(result, "");
     assert(cmp_ret == 0);
 
     /* Test current directory */
-    result = file_basename("./file");
+    result = get_file_basename("./file");
     cmp_ret = strcmp(result, "file");
     assert(cmp_ret == 0);
 
     /* Test multiple consecutive slashes */
-    result = file_basename("//usr//bin//test");
+    result = get_file_basename("//usr//bin//test");
     cmp_ret = strcmp(result, "test");
     assert(cmp_ret == 0);
 
     /* Test path with no directory separator */
-    result = file_basename("filename");
+    result = get_file_basename("filename");
     cmp_ret = strcmp(result, "filename");
     assert(cmp_ret == 0);
 
     /* Test path with dot directory */
-    result = file_basename("../test");
+    result = get_file_basename("../test");
     cmp_ret = strcmp(result, "test");
     assert(cmp_ret == 0);
 
     /* Test empty string - no slash, returns itself */
-    result = file_basename("");
+    result = get_file_basename("");
     assert(result != NULL);
     cmp_ret = strcmp(result, "");
     assert(cmp_ret == 0);
 
     /* Test NULL input */
-    result = file_basename(NULL);
+    result = get_file_basename(NULL);
     assert(result != NULL);
     cmp_ret = strcmp(result, "");
     assert(cmp_ret == 0);
@@ -3002,7 +3002,7 @@ static void test_process_iterator_read_command(void) {
      * find_process_by_name may return an ancestor's PID.
      */
     assert(proc->command[0] != '\0');
-    found_pid = find_process_by_name(file_basename(proc->command));
+    found_pid = find_process_by_name(get_file_basename(proc->command));
     assert(found_pid != 0);
 
     /* Verify no more processes */
@@ -4921,7 +4921,7 @@ static void test_process_finder_find_by_name_self(void) {
         free(self_buf);
         return;
     }
-    self_name = file_basename(self_command);
+    self_name = get_file_basename(self_command);
     if (self_name == NULL || self_name[0] == '\0') {
         free(self_buf);
         return;
@@ -5150,7 +5150,7 @@ static void reap_all_by_name(const char *comm) {
     const struct dirent *entry;
     const char *wanted;
 
-    wanted = file_basename(comm);
+    wanted = get_file_basename(comm);
     proc_dir = opendir("/proc");
     if (proc_dir == NULL) {
         return;
@@ -5194,7 +5194,7 @@ static void reap_all_by_name(const char *comm) {
             ;
         }
         name[idx] = '\0';
-        if (name[0] != '\0' && strcmp(file_basename(name), wanted) == 0) {
+        if (name[0] != '\0' && strcmp(get_file_basename(name), wanted) == 0) {
             /* Same-named process: kill it for a clean scan. */
             kill(pid, SIGKILL);
         }
@@ -10387,7 +10387,7 @@ int main(int argc, char *argv[]) {
 
     /* Util module tests */
     printf("\n=== UTIL MODULE TESTS ===\n");
-    RUN_TEST(test_util_file_basename);
+    RUN_TEST(test_util_get_file_basename);
     RUN_TEST(test_util_get_ncpu);
     RUN_TEST(test_util_increase_priority);
     RUN_TEST(test_util_increase_priority_retries_lower_levels);
