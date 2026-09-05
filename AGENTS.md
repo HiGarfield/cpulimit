@@ -425,7 +425,7 @@ Additional requirements MUST be enforced:
 - `cli.[ch]`: CLI parsing and config creation
 - `limiter.[ch]`: high-level limiting orchestration
 - `limit_process.[ch]`: enforcement loop (`SIGSTOP` / `SIGCONT`)
-- `process_group.[ch]`: tracked-process set and descendant handling
+- `process_set.[ch]`: tracked-process set and descendant handling
 - `process_finder.[ch]`: PID/executable target resolution
 - `process_iterator.h`: process iteration API
   - `process_iterator_linux.c`: Linux `/proc`

@@ -179,7 +179,7 @@ set(CPULIMIT_SRC_COMMON
     ${PROJECT_SOURCE_DIR}/src/limiter.c
     ${PROJECT_SOURCE_DIR}/src/list.c
     ${PROJECT_SOURCE_DIR}/src/process_finder.c
-    ${PROJECT_SOURCE_DIR}/src/process_group.c
+    ${PROJECT_SOURCE_DIR}/src/process_set.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_linux.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_freebsd.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_apple.c

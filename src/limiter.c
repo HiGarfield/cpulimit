@@ -845,7 +845,7 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
              * returning, but on some platforms (e.g. macOS 10.7) a stopped
              * process may not be visible to the process iterator, leaving it
              * stopped even though limit_process() has exited; and if
-             * update_process_group() fails, proc_list is cleared so the
+             * update_process_set() fails, proc_list is cleared so the
              * cleanup SIGCONT inside limit_process() traverses an empty list
              * and cannot resume a still-stopped target. Sending SIGCONT here
              * unconditionally ensures the target is running when we leave.

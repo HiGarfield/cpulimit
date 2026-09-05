@@ -29,7 +29,7 @@ extern "C" {
 #include <sys/types.h>
 
 /**
- * @brief Enforce CPU usage limit on a process or process group
+ * @brief Enforce CPU usage limit on a process or process set
  * @param pid Process ID of the target process to limit
  * @param limit CPU usage limit expressed in CPU cores (core equivalents), in
  *              the range (0, N_CPU]. Example: on a 4-core system,
@@ -43,7 +43,7 @@ extern "C" {
  *
  * This function implements the core CPU limiting algorithm using
  * SIGSTOP/SIGCONT:
- * 1. Monitors the process group's actual CPU usage
+ * 1. Monitors the process set's actual CPU usage
  * 2. Calculates appropriate work/sleep intervals to achieve the target limit
  * 3. Alternately sends SIGCONT (allow execution) and SIGSTOP (suspend
  * execution)

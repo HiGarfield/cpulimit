@@ -23,7 +23,7 @@
 #define _GNU_SOURCE
 #endif
 
-#include "process_group.h"
+#include "process_set.h"
 
 #include "list.h"
 #include "process_iterator.h"
@@ -48,11 +48,11 @@
 #define PROCESS_TABLE_HASHSIZE 2048
 
 /**
- * @brief Initialize a process group for monitoring and CPU limiting
- * @param proc_group Pointer to uninitialized process_group structure to set up
+ * @brief Initialize a process set for monitoring and CPU limiting
+ * @param proc_set Pointer to uninitialized process_set structure to set up
  * @param target_pid PID of the primary process to monitor
  * @param include_children Non-zero to monitor descendants, zero for target only
- * @return 0 on success, -1 if proc_group is NULL; exits on other errors
+ * @return 0 on success, -1 if proc_set is NULL; exits on other errors
  *
  * This function:
  * 1. Allocates and initializes the process hashtable (PROCESS_TABLE_HASHSIZE
@@ -61,64 +61,64 @@
  * 3. Records the current time as baseline for CPU calculations
  * 4. Performs initial update to populate the process list
  *
- * @note Returns -1 immediately if proc_group is NULL
+ * @note Returns -1 immediately if proc_set is NULL
  * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
- * @note After return, proc_group is fully initialized and ready for use
+ * @note After return, proc_set is fully initialized and ready for use
  */
-int init_process_group(struct process_group *proc_group, pid_t target_pid,
+int init_process_set(struct process_set *proc_set, pid_t target_pid,
                        int include_children) {
-    if (proc_group == NULL) {
+    if (proc_set == NULL) {
         return -1;
     }
-    memset(proc_group, 0, sizeof(*proc_group));
+    memset(proc_set, 0, sizeof(*proc_set));
     /* Allocate and initialize hashtable for fast process lookup by PID */
-    proc_group->proc_table =
+    proc_set->proc_table =
         (struct process_table *)malloc(sizeof(struct process_table));
-    if (proc_group->proc_table == NULL) {
+    if (proc_set->proc_table == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         exit(EXIT_FAILURE);
     }
-    init_process_table(proc_group->proc_table, PROCESS_TABLE_HASHSIZE);
-    proc_group->target_pid = target_pid;
-    proc_group->include_children = include_children;
+    init_process_table(proc_set->proc_table, PROCESS_TABLE_HASHSIZE);
+    proc_set->target_pid = target_pid;
+    proc_set->include_children = include_children;
 
     /* Allocate and initialize linked list for process iteration */
-    proc_group->proc_list = (struct list *)malloc(sizeof(struct list));
-    if (proc_group->proc_list == NULL) {
+    proc_set->proc_list = (struct list *)malloc(sizeof(struct list));
+    if (proc_set->proc_list == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
-        close_process_group(proc_group);
+        close_process_set(proc_set);
         exit(EXIT_FAILURE);
     }
-    init_list(proc_group->proc_list);
+    init_list(proc_set->proc_list);
 
     /* Allocate and initialize the list of PIDs suspended by this group */
-    proc_group->stopped_pids = (struct list *)malloc(sizeof(struct list));
-    if (proc_group->stopped_pids == NULL) {
+    proc_set->stopped_pids = (struct list *)malloc(sizeof(struct list));
+    if (proc_set->stopped_pids == NULL) {
         fprintf(stderr,
                 "Memory allocation failed for the suspended process list\n");
-        close_process_group(proc_group);
+        close_process_set(proc_set);
         exit(EXIT_FAILURE);
     }
-    init_list(proc_group->stopped_pids);
+    init_list(proc_set->stopped_pids);
 
     /* Record baseline timestamp for CPU usage calculation */
-    if (get_current_time(&proc_group->last_update) != 0) {
+    if (get_current_time(&proc_set->last_update) != 0) {
         perror("get_current_time");
-        close_process_group(proc_group);
+        close_process_set(proc_set);
         exit(EXIT_FAILURE);
     }
     /* Perform initial scan to populate process list */
-    if (update_process_group(proc_group) != 0) {
+    if (update_process_set(proc_set) != 0) {
         fprintf(stderr, "Failed to perform initial process group scan\n");
-        close_process_group(proc_group);
+        close_process_set(proc_set);
         exit(EXIT_FAILURE);
     }
     return 0;
 }
 
 /**
- * @brief Release all resources associated with a process group
- * @param proc_group Pointer to the process_group structure to clean up
+ * @brief Release all resources associated with a process set
+ * @param proc_set Pointer to the process_set structure to clean up
  * @return 0 on success (always succeeds)
  *
  * This function:
@@ -126,48 +126,48 @@ int init_process_group(struct process_group *proc_group, pid_t target_pid,
  * 2. Destroys and frees the process hashtable
  * 3. Sets pointers to NULL and zeros numeric fields for safety
  *
- * @note Safe to call with NULL proc_group (returns 0 immediately)
- * @note Safe to call even if proc_group is partially initialized (NULLs are
+ * @note Safe to call with NULL proc_set (returns 0 immediately)
+ * @note Safe to call even if proc_set is partially initialized (NULLs are
  *       handled)
  * @note Does not send any signals to processes; they continue running
- * @note After return, proc_group fields should not be accessed without
+ * @note After return, proc_set fields should not be accessed without
  *       re-initialization
  */
-int close_process_group(struct process_group *proc_group) {
-    if (proc_group == NULL) {
+int close_process_set(struct process_set *proc_set) {
+    if (proc_set == NULL) {
         return 0;
     }
-    if (proc_group->proc_list != NULL) {
+    if (proc_set->proc_list != NULL) {
         /*
          * Use clear_list (not destroy_list) because the data pointers in
          * proc_list are the same process structs stored in proc_table.
          * destroy_process_table below will free all data exactly once.
          * Using destroy_list here would double-free the process structs.
          */
-        clear_list(proc_group->proc_list);
-        free(proc_group->proc_list);
-        proc_group->proc_list = NULL;
+        clear_list(proc_set->proc_list);
+        free(proc_set->proc_list);
+        proc_set->proc_list = NULL;
     }
 
-    if (proc_group->stopped_pids != NULL) {
+    if (proc_set->stopped_pids != NULL) {
         /*
          * Each element is a heap-allocated pid_t owned by this list, so
          * destroy_list() (not clear_list()) is required to release the
          * elements together with their nodes.
          */
-        destroy_list(proc_group->stopped_pids);
-        free(proc_group->stopped_pids);
-        proc_group->stopped_pids = NULL;
+        destroy_list(proc_set->stopped_pids);
+        free(proc_set->stopped_pids);
+        proc_set->stopped_pids = NULL;
     }
 
-    if (proc_group->proc_table != NULL) {
-        destroy_process_table(proc_group->proc_table);
-        free(proc_group->proc_table);
-        proc_group->proc_table = NULL;
+    if (proc_set->proc_table != NULL) {
+        destroy_process_table(proc_set->proc_table);
+        free(proc_set->proc_table);
+        proc_set->proc_table = NULL;
     }
 
     /* Zero out remaining fields to prevent stale data after close */
-    memset(proc_group, 0, sizeof(*proc_group));
+    memset(proc_set, 0, sizeof(*proc_set));
 
     return 0;
 }
@@ -197,18 +197,18 @@ static struct process *process_dup(const struct process *proc) {
 
 /**
  * @brief Record that a member of the group has just been suspended
- * @param proc_group Pointer to the process group structure
+ * @param proc_set Pointer to the process set structure
  * @param pid PID that was successfully sent SIGSTOP
  *
- * proc_list is rebuilt from scratch by update_process_group(), so a process
+ * proc_list is rebuilt from scratch by update_process_set(), so a process
  * can cease to be a member of the group while it is still suspended: a
  * descendant, for instance, is re-parented away when its monitored ancestor
  * exits, and is_child_of() then no longer matches it.  Recording the PID
  * here keeps the suspension undoable after the process has left proc_list.
  */
-void record_stopped_pid(struct process_group *proc_group, pid_t pid) {
+void record_stopped_pid(struct process_set *proc_set, pid_t pid) {
     pid_t *stopped_pid;
-    if (proc_group == NULL || proc_group->stopped_pids == NULL) {
+    if (proc_set == NULL || proc_set->stopped_pids == NULL) {
         return;
     }
     stopped_pid = (pid_t *)malloc(sizeof(*stopped_pid));
@@ -222,12 +222,12 @@ void record_stopped_pid(struct process_group *proc_group, pid_t pid) {
         return;
     }
     *stopped_pid = pid;
-    add_elem(proc_group->stopped_pids, stopped_pid);
+    add_elem(proc_set->stopped_pids, stopped_pid);
 }
 
 /**
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
- * @param proc_group Pointer to the process group structure
+ * @param proc_set Pointer to the process set structure
  *
  * Sends SIGCONT to every recorded PID that has left the group and frees the
  * list.  Group members are resumed by the regular resume round, which walks
@@ -236,12 +236,12 @@ void record_stopped_pid(struct process_group *proc_group, pid_t pid) {
  * which left the group while suspended are resumed as well instead of
  * staying suspended forever.
  */
-void resume_stopped_pids(struct process_group *proc_group) {
+void resume_stopped_pids(struct process_set *proc_set) {
     const struct list_node *node;
-    if (proc_group == NULL || proc_group->stopped_pids == NULL) {
+    if (proc_set == NULL || proc_set->stopped_pids == NULL) {
         return;
     }
-    for (node = first_node(proc_group->stopped_pids); node != NULL;
+    for (node = first_node(proc_set->stopped_pids); node != NULL;
          node = node->next) {
         pid_t pid;
         if (node->data == NULL) {
@@ -254,20 +254,20 @@ void resume_stopped_pids(struct process_group *proc_group) {
          * here as well would deliver a second, redundant SIGCONT. Only
          * the processes that have left the group need one here.
          */
-        if (locate_elem(proc_group->proc_list, &pid,
+        if (locate_elem(proc_set->proc_list, &pid,
                         offsetof(struct process, pid), sizeof(pid_t)) == NULL) {
             kill(pid, SIGCONT);
         }
     }
-    destroy_list(proc_group->stopped_pids);
+    destroy_list(proc_set->stopped_pids);
 }
 
-void forget_stopped_pid(struct process_group *proc_group, pid_t pid) {
+void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
     struct list_node *node, *next_node;
-    if (proc_group == NULL || proc_group->stopped_pids == NULL) {
+    if (proc_set == NULL || proc_set->stopped_pids == NULL) {
         return;
     }
-    for (node = first_node(proc_group->stopped_pids); node != NULL;
+    for (node = first_node(proc_set->stopped_pids); node != NULL;
          node = next_node) {
         next_node = node->next;
         if (node->data == NULL || *(const pid_t *)node->data != pid) {
@@ -279,7 +279,7 @@ void forget_stopped_pid(struct process_group *proc_group, pid_t pid) {
          * delete_node() only frees the node.
          */
         free(node->data);
-        delete_node(proc_group->stopped_pids, node);
+        delete_node(proc_set->stopped_pids, node);
     }
 }
 
@@ -385,10 +385,10 @@ static void update_existing_process_entry(struct process *proc,
 }
 
 /**
- * @brief Refresh process group state and recalculate CPU usage
- * @param proc_group Pointer to the process_group structure to update
+ * @brief Refresh process set state and recalculate CPU usage
+ * @param proc_set Pointer to the process_set structure to update
  *
- * This function performs a complete refresh of the process group:
+ * This function performs a complete refresh of the process set:
  * 1. Scans /proc (or platform equivalent) for current target and descendants
  * 2. Updates the process list, removing terminated processes from tracking
  * 3. Calculates CPU usage for each process using exponential moving average
@@ -409,20 +409,20 @@ static void update_existing_process_entry(struct process *proc,
  *         this path without first resuming any stopped processes; use the
  *         return value to break out of the limiting loop so that SIGCONT is
  *         sent by the cleanup code
- * @note Safe to call with NULL proc_group (returns 0 immediately)
+ * @note Safe to call with NULL proc_set (returns 0 immediately)
  * @note Should be called periodically (e.g., every 100ms) during CPU limiting
  * @note Stale hash table entries are purged even when the iterator fails to
  *       close, so proc_table never retains exited processes across cycles
  */
-int update_process_group(struct process_group *proc_group) {
+int update_process_set(struct process_set *proc_set) {
     struct process_iterator iter;
     struct process *scan_proc;
     struct process_filter filter;
     struct timespec now;
     double elapsed_ms;
     int ncpu, close_ret;
-    if (proc_group == NULL || proc_group->proc_list == NULL ||
-        proc_group->proc_table == NULL) {
+    if (proc_set == NULL || proc_set->proc_list == NULL ||
+        proc_set->proc_table == NULL) {
         return 0;
     }
     ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
@@ -438,11 +438,11 @@ int update_process_group(struct process_group *proc_group) {
         return -1;
     }
     /* Calculate elapsed time since last update (milliseconds) */
-    elapsed_ms = timediff_in_ms(&now, &proc_group->last_update);
+    elapsed_ms = timediff_in_ms(&now, &proc_set->last_update);
 
     /* Configure iterator to scan target process and optionally descendants */
-    filter.pid = proc_group->target_pid;
-    filter.include_children = proc_group->include_children;
+    filter.pid = proc_set->target_pid;
+    filter.include_children = proc_set->include_children;
     filter.read_cmd = 0;
     if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
@@ -451,22 +451,22 @@ int update_process_group(struct process_group *proc_group) {
     }
 
     /* Clear process list (will be rebuilt from scratch) */
-    clear_list(proc_group->proc_list);
+    clear_list(proc_set->proc_list);
 
     /* Scan currently running processes and update tracking data */
     while (get_next_process(&iter, scan_proc) != -1) {
         struct process *proc =
-            find_in_process_table(proc_group->proc_table, scan_proc->pid);
+            find_in_process_table(proc_set->proc_table, scan_proc->pid);
         if (proc == NULL) {
             /* New process detected: add to hashtable and list */
             proc = process_dup(scan_proc);
             /* Mark CPU usage as unknown until we have a time delta */
             proc->cpu_usage = -1;
-            add_to_process_table(proc_group->proc_table, proc);
-            add_elem(proc_group->proc_list, proc);
+            add_to_process_table(proc_set->proc_table, proc);
+            add_elem(proc_set->proc_list, proc);
         } else {
             /* Existing process: re-add to list for this cycle */
-            add_elem(proc_group->proc_list, proc);
+            add_elem(proc_set->proc_list, proc);
             update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
         }
     }
@@ -483,8 +483,8 @@ int update_process_group(struct process_group *proc_group) {
      * entries for exited processes in proc_table forever, growing it
      * without bound during long runs (notably with --include-children).
      */
-    remove_stale_from_process_table(proc_group->proc_table,
-                                    proc_group->proc_list);
+    remove_stale_from_process_table(proc_set->proc_table,
+                                    proc_set->proc_list);
 
     if (close_ret != 0) {
         return -1;
@@ -495,17 +495,17 @@ int update_process_group(struct process_group *proc_group) {
      * or if time moved backwards (to establish new baseline).
      */
     if (elapsed_ms < 0 || elapsed_ms >= CPU_MIN_DELTA_MS) {
-        proc_group->last_update = now;
+        proc_set->last_update = now;
     }
     return 0;
 }
 
 /**
  * @brief Calculate aggregate CPU usage across all processes in the group
- * @param proc_group Pointer to the process_group structure to query
+ * @param proc_set Pointer to the process_set structure to query
  * @return Sum of CPU usage values for all processes with known usage, or
  *         -1.0 if no processes have valid CPU measurements yet or if
- *         proc_group is NULL
+ *         proc_set is NULL
  *
  * CPU usage is expressed as a fraction of total system CPU capacity:
  * - 0.0 = idle
@@ -518,16 +518,16 @@ int update_process_group(struct process_group *proc_group) {
  * 3. Returns -1 if all processes have unknown usage (first update cycle)
  *
  * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
- * @note Thread-safe if proc_group is not being modified concurrently
- * @note Safe to call with NULL proc_group (returns -1)
+ * @note Thread-safe if proc_set is not being modified concurrently
+ * @note Safe to call with NULL proc_set (returns -1)
  */
-double get_process_group_cpu_usage(const struct process_group *proc_group) {
+double get_process_set_cpu_usage(const struct process_set *proc_set) {
     const struct list_node *node;
     double cpu_usage = -1;
-    if (proc_group == NULL || proc_group->proc_list == NULL) {
+    if (proc_set == NULL || proc_set->proc_list == NULL) {
         return -1;
     }
-    for (node = first_node(proc_group->proc_list); node != NULL;
+    for (node = first_node(proc_set->proc_list); node != NULL;
          node = node->next) {
         const struct process *proc = (const struct process *)node->data;
         /* Skip NULL-data nodes (should not occur but defensive) */

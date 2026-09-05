@@ -30,7 +30,7 @@
 #include "../src/limiter.h"
 #include "../src/list.h"
 #include "../src/process_finder.h"
-#include "../src/process_group.h"
+#include "../src/process_set.h"
 #include "../src/process_iterator.h"
 #include "../src/process_table.h"
 #include "../src/signal_handler.h"
@@ -5324,15 +5324,15 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
 }
 
 /***************************************************************************
- * PROCESS_GROUP MODULE TESTS
+ * PROCESS_SET MODULE TESTS
  ***************************************************************************/
 
 /**
- * @brief Test get_process_group_cpu_usage function
- * @note Tests CPU usage calculation for process group
+ * @brief Test get_process_set_cpu_usage function
+ * @note Tests CPU usage calculation for process set
  */
-static void test_process_group_cpu_usage(void) {
-    struct process_group proc_group;
+static void test_process_set_cpu_usage(void) {
+    struct process_set proc_set;
     double cpu_usage;
     pid_t child_pid;
     int node_idx, ret, ncpu;
@@ -5353,39 +5353,39 @@ static void test_process_group_cpu_usage(void) {
         _exit(EXIT_SUCCESS);
     }
 
-    /* Initialize process group for child */
-    ret = init_process_group(&proc_group, child_pid, 0);
+    /* Initialize process set for child */
+    ret = init_process_set(&proc_set, child_pid, 0);
     assert(ret == 0);
 
     /* First call should return -1 (no measurement yet) */
-    cpu_usage = get_process_group_cpu_usage(&proc_group);
+    cpu_usage = get_process_set_cpu_usage(&proc_set);
     assert(cpu_usage >= -1.00001 && cpu_usage <= -0.99999);
 
     /* Update a few times to get valid measurements */
     for (node_idx = 0; node_idx < 5; node_idx++) {
         const struct timespec sleep_time = {0, 100000000L}; /* 100ms */
         sleep_timespec(&sleep_time);
-        update_process_group(&proc_group);
+        update_process_set(&proc_set);
     }
 
     /* Should now have valid CPU usage */
-    cpu_usage = get_process_group_cpu_usage(&proc_group);
+    cpu_usage = get_process_set_cpu_usage(&proc_set);
     /* CPU usage should be between 0 and ncpu */
     ncpu = get_ncpu();
     assert(cpu_usage >= 0.0);
     assert(cpu_usage <= 1.0 * ncpu);
 
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
     kill_and_wait(child_pid, SIGKILL);
 }
 
 /**
- * @brief Test process group with rapid updates
- * @note Tests update_process_group called in quick succession
+ * @brief Test process set with rapid updates
+ * @note Tests update_process_set called in quick succession
  */
-static void test_process_group_rapid_updates(void) {
-    struct process_group proc_group;
+static void test_process_set_rapid_updates(void) {
+    struct process_set proc_set;
     pid_t child_pid;
     int proc_idx;
     int ret;
@@ -5406,41 +5406,41 @@ static void test_process_group_rapid_updates(void) {
     }
 
     /* Initialize and update rapidly */
-    ret = init_process_group(&proc_group, child_pid, 0);
+    ret = init_process_set(&proc_set, child_pid, 0);
     assert(ret == 0);
 
     for (proc_idx = 0; proc_idx < 20; proc_idx++) {
         size_t list_count;
-        update_process_group(&proc_group);
-        list_count = get_list_count(proc_group.proc_list);
+        update_process_set(&proc_set);
+        list_count = get_list_count(proc_set.proc_list);
         assert(list_count == 1);
     }
 
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
     kill_and_wait(child_pid, SIGKILL);
 }
 
 /**
- * @brief Test process group initialization with all processes
- * @note Verifies that a process group initialized with PID 0 (all processes)
+ * @brief Test process set initialization with all processes
+ * @note Verifies that a process set initialized with PID 0 (all processes)
  *       is non-empty and contains the current process
  */
-static void test_process_group_init_all(void) {
-    struct process_group proc_group;
+static void test_process_set_init_all(void) {
+    struct process_set proc_set;
     const struct list_node *node = NULL;
     size_t count = 0;
     int found_self = 0;
     int ret;
     size_t list_cnt;
 
-    /* Initialize process group with all processes */
-    ret = init_process_group(&proc_group, 0, 0);
+    /* Initialize process set with all processes */
+    ret = init_process_set(&proc_set, 0, 0);
     assert(ret == 0);
-    update_process_group(&proc_group);
+    update_process_set(&proc_set);
 
     /* Count processes in the group */
-    for (node = proc_group.proc_list->first; node != NULL; node = node->next) {
+    for (node = proc_set.proc_list->first; node != NULL; node = node->next) {
         const struct process *proc = (const struct process *)node->data;
         if (proc->pid == getpid()) {
             found_self = 1;
@@ -5449,23 +5449,23 @@ static void test_process_group_init_all(void) {
     }
     assert(count > 0);
     assert(found_self == 1);
-    list_cnt = get_list_count(proc_group.proc_list);
+    list_cnt = get_list_count(proc_set.proc_list);
     assert(count == list_cnt);
 
     /* Update and verify again */
-    update_process_group(&proc_group);
-    ret = close_process_group(&proc_group);
+    update_process_set(&proc_set);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test process group with a single process
+ * @brief Test process set with a single process
  * @param include_children Flag indicating whether to include child processes
- * @note Creates a child process and verifies that the process group
+ * @note Creates a child process and verifies that the process set
  *       correctly tracks it, with or without child process inclusion
  */
-static void test_process_group_single(int include_children) {
-    struct process_group proc_group;
+static void test_process_set_single(int include_children) {
+    struct process_set proc_set;
     int iter_idx;
     int ret;
     pid_t self_pid;
@@ -5487,22 +5487,22 @@ static void test_process_group_single(int include_children) {
         _exit(EXIT_SUCCESS);
     }
 
-    /* Initialize process group with the child PID */
+    /* Initialize process set with the child PID */
     self_pid = getpid();
-    ret = init_process_group(&proc_group, child_pid, include_children);
+    ret = init_process_set(&proc_set, child_pid, include_children);
     assert(ret == 0);
 
-    /* Update process group 100 times and verify consistency */
+    /* Update process set 100 times and verify consistency */
     for (iter_idx = 0; iter_idx < 100; iter_idx++) {
         const struct list_node *node = NULL;
         size_t count = 0;
         size_t list_count;
 
-        update_process_group(&proc_group);
-        list_count = get_list_count(proc_group.proc_list);
+        update_process_set(&proc_set);
+        list_count = get_list_count(proc_set.proc_list);
         assert(list_count == 1);
 
-        for (node = proc_group.proc_list->first; node != NULL;
+        for (node = proc_set.proc_list->first; node != NULL;
              node = node->next) {
             const struct process *proc = (const struct process *)node->data;
             int ncpu;
@@ -5520,7 +5520,7 @@ static void test_process_group_single(int include_children) {
         }
         assert(count == 1);
     }
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 
     /* Clean up child process */
@@ -5528,197 +5528,197 @@ static void test_process_group_single(int include_children) {
 }
 
 /**
- * @brief Test process group with a single process (both with and without
+ * @brief Test process set with a single process (both with and without
  * children)
- * @note Wrapper function to test process group with include_children set to
+ * @note Wrapper function to test process set with include_children set to
  *       0 and 1
  */
-static void test_process_group_init_single(void) {
+static void test_process_set_init_single(void) {
     /* Test without including children */
-    test_process_group_single(0);
+    test_process_set_single(0);
 
     /* Test with including children */
-    test_process_group_single(1);
+    test_process_set_single(1);
 }
 
 /**
- * @brief Test process group initialization with invalid PIDs
- * @note Verifies that process group initialization with invalid PIDs (-1 and
+ * @brief Test process set initialization with invalid PIDs
+ * @note Verifies that process set initialization with invalid PIDs (-1 and
  *       INT_MAX) results in empty process lists
  */
-static void test_process_group_init_invalid_pid(void) {
-    struct process_group proc_group;
+static void test_process_set_init_invalid_pid(void) {
+    struct process_set proc_set;
     int ret;
     size_t list_count;
 
     /* Test with PID -1 */
-    ret = init_process_group(&proc_group, -1, 0);
+    ret = init_process_set(&proc_set, -1, 0);
     assert(ret == 0);
-    list_count = get_list_count(proc_group.proc_list);
+    list_count = get_list_count(proc_set.proc_list);
     assert(list_count == 0);
-    update_process_group(&proc_group);
-    list_count = get_list_count(proc_group.proc_list);
+    update_process_set(&proc_set);
+    list_count = get_list_count(proc_set.proc_list);
     assert(list_count == 0);
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 
     /* Test with PID INT_MAX */
-    ret = init_process_group(&proc_group, INT_MAX, 0);
+    ret = init_process_set(&proc_set, INT_MAX, 0);
     assert(ret == 0);
-    list_count = get_list_count(proc_group.proc_list);
+    list_count = get_list_count(proc_set.proc_list);
     assert(list_count == 0);
-    update_process_group(&proc_group);
-    list_count = get_list_count(proc_group.proc_list);
+    update_process_set(&proc_set);
+    list_count = get_list_count(proc_set.proc_list);
     assert(list_count == 0);
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test init_process_group with NULL proc_group argument
- * @note Must return -1 without crashing when proc_group is NULL
+ * @brief Test init_process_set with NULL proc_set argument
+ * @note Must return -1 without crashing when proc_set is NULL
  */
-static void test_process_group_init_null(void) {
+static void test_process_set_init_null(void) {
     int ret;
-    ret = init_process_group(NULL, getpid(), 0);
+    ret = init_process_set(NULL, getpid(), 0);
     assert(ret == -1);
 }
 
 /**
- * @brief Test get_process_group_cpu_usage when process list is empty
+ * @brief Test get_process_set_cpu_usage when process list is empty
  * @note Must return -1.0 when no processes are tracked
  */
-static void test_process_group_cpu_usage_empty_list(void) {
-    struct process_group proc_group;
+static void test_process_set_cpu_usage_empty_list(void) {
+    struct process_set proc_set;
     double usage;
     int ret;
     size_t list_count;
 
     /* Initialize with INT_MAX: no such process exists, list stays empty */
-    ret = init_process_group(&proc_group, (pid_t)INT_MAX, 0);
+    ret = init_process_set(&proc_set, (pid_t)INT_MAX, 0);
     assert(ret == 0);
-    list_count = get_list_count(proc_group.proc_list);
+    list_count = get_list_count(proc_set.proc_list);
     assert(list_count == 0);
 
     /* Empty list must yield -1.0 (unknown) */
-    usage = get_process_group_cpu_usage(&proc_group);
+    usage = get_process_set_cpu_usage(&proc_set);
     assert(usage >= -1.00001 && usage <= -0.99999);
 
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test get_process_group_cpu_usage with NULL pointer
+ * @brief Test get_process_set_cpu_usage with NULL pointer
  * @note Verifies the null guard returns the -1 sentinel without crashing
  */
-static void test_process_group_cpu_usage_null(void) {
-    double usage = get_process_group_cpu_usage(NULL);
+static void test_process_set_cpu_usage_null(void) {
+    double usage = get_process_set_cpu_usage(NULL);
     assert(usage >= -1.00001 && usage <= -0.99999);
 }
 
 /**
- * @brief Test close_process_group with NULL pointer
+ * @brief Test close_process_set with NULL pointer
  * @note Must return 0 without crashing
  */
-static void test_process_group_close_null(void) {
-    struct process_group proc_group;
+static void test_process_set_close_null(void) {
+    struct process_set proc_set;
     int ret;
 
-    /* NULL proc_group pointer must return 0 without crashing */
-    ret = close_process_group(NULL);
+    /* NULL proc_set pointer must return 0 without crashing */
+    ret = close_process_set(NULL);
     assert(ret == 0);
 
     /* Partially initialised struct (NULL members) must also work */
-    memset(&proc_group, 0, sizeof(proc_group));
-    ret = close_process_group(&proc_group);
+    memset(&proc_set, 0, sizeof(proc_set));
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test that close_process_group zeros all numeric fields
+ * @brief Test that close_process_set zeros all numeric fields
  * @note After close, target_pid, include_children, and last_update must be 0
  */
-static void test_process_group_close_zeros_fields(void) {
-    struct process_group proc_group;
+static void test_process_set_close_zeros_fields(void) {
+    struct process_set proc_set;
     int ret;
     pid_t self_pid;
     self_pid = getpid();
-    ret = init_process_group(&proc_group, self_pid, 1);
+    ret = init_process_set(&proc_set, self_pid, 1);
     assert(ret == 0);
-    assert(proc_group.target_pid == self_pid);
-    assert(proc_group.include_children == 1);
-    ret = close_process_group(&proc_group);
+    assert(proc_set.target_pid == self_pid);
+    assert(proc_set.include_children == 1);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
-    assert(proc_group.proc_list == NULL);
-    assert(proc_group.proc_table == NULL);
-    assert(proc_group.target_pid == 0);
-    assert(proc_group.include_children == 0);
-    assert(proc_group.last_update.tv_sec == 0);
-    assert(proc_group.last_update.tv_nsec == 0);
+    assert(proc_set.proc_list == NULL);
+    assert(proc_set.proc_table == NULL);
+    assert(proc_set.target_pid == 0);
+    assert(proc_set.include_children == 0);
+    assert(proc_set.last_update.tv_sec == 0);
+    assert(proc_set.last_update.tv_nsec == 0);
 }
 
 /**
- * @brief Test update_process_group with NULL pointer
- * @note Must return 0 without crashing when proc_group is NULL
+ * @brief Test update_process_set with NULL pointer
+ * @note Must return 0 without crashing when proc_set is NULL
  */
-static void test_process_group_update_null(void) {
+static void test_process_set_update_null(void) {
     int ret;
-    /* NULL proc_group must not crash and must return 0 */
-    ret = update_process_group(NULL);
+    /* NULL proc_set must not crash and must return 0 */
+    ret = update_process_set(NULL);
     assert(ret == 0);
 }
 
 /**
- * @brief Test update_process_group with uninitialized process_group members
+ * @brief Test update_process_set with uninitialized process_set members
  * @note Must return 0 without dereferencing NULL proc_list/proc_table
  */
-static void test_process_group_update_uninitialized_struct(void) {
-    struct process_group proc_group;
+static void test_process_set_update_uninitialized_struct(void) {
+    struct process_set proc_set;
     int ret;
-    memset(&proc_group, 0, sizeof(proc_group));
+    memset(&proc_set, 0, sizeof(proc_set));
     /* NULL proc_list/proc_table must not crash and must return 0 */
-    ret = update_process_group(&proc_group);
+    ret = update_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test get_process_group_cpu_usage with uninitialized process_group
+ * @brief Test get_process_set_cpu_usage with uninitialized process_set
  * @note Must return -1.0 when proc_list is NULL
  */
-static void test_process_group_cpu_usage_uninitialized_struct(void) {
-    struct process_group proc_group;
+static void test_process_set_cpu_usage_uninitialized_struct(void) {
+    struct process_set proc_set;
     double usage;
-    memset(&proc_group, 0, sizeof(proc_group));
-    usage = get_process_group_cpu_usage(&proc_group);
+    memset(&proc_set, 0, sizeof(proc_set));
+    usage = get_process_set_cpu_usage(&proc_set);
     assert(usage >= -1.00001 && usage <= -0.99999);
 }
 
 /**
- * @brief Test update_process_group twice in quick succession
+ * @brief Test update_process_set twice in quick succession
  * @note Second call exercises the "insufficient dt" branch
  */
-static void test_process_group_double_update(void) {
-    struct process_group proc_group;
+static void test_process_set_double_update(void) {
+    struct process_set proc_set;
     int ret;
     pid_t self_pid;
     self_pid = getpid();
-    ret = init_process_group(&proc_group, self_pid, 0);
+    ret = init_process_set(&proc_set, self_pid, 0);
     assert(ret == 0);
-    update_process_group(&proc_group);
+    update_process_set(&proc_set);
     /* Immediate second update: dt < MIN_DT, so CPU usage stays -1 */
-    update_process_group(&proc_group);
-    ret = close_process_group(&proc_group);
+    update_process_set(&proc_set);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test that update_process_group returns 0 on successful updates
- * @note Regression test for the fix that changed update_process_group from
+ * @brief Test that update_process_set returns 0 on successful updates
+ * @note Regression test for the fix that changed update_process_set from
  *       void to int: verifies the return value on success paths
  */
-static void test_process_group_update_return_value(void) {
-    struct process_group proc_group;
+static void test_process_set_update_return_value(void) {
+    struct process_set proc_set;
     pid_t child_pid;
     int ret;
     size_t list_count;
@@ -5737,33 +5737,33 @@ static void test_process_group_update_return_value(void) {
         test_suspend_until_killed();
     }
 
-    /* update_process_group must return 0 when the target exists */
-    ret = init_process_group(&proc_group, child_pid, 0);
+    /* update_process_set must return 0 when the target exists */
+    ret = init_process_set(&proc_set, child_pid, 0);
     assert(ret == 0);
-    ret = update_process_group(&proc_group);
+    ret = update_process_set(&proc_set);
     assert(ret == 0);
-    list_count = get_list_count(proc_group.proc_list);
+    list_count = get_list_count(proc_set.proc_list);
     assert(list_count == 1);
 
     /* Kill the child and wait so it is fully gone */
     kill_and_wait(child_pid, SIGKILL);
 
-    /* update_process_group must also return 0 when the target has gone */
-    ret = update_process_group(&proc_group);
+    /* update_process_set must also return 0 when the target has gone */
+    ret = update_process_set(&proc_set);
     assert(ret == 0);
-    list_count = get_list_count(proc_group.proc_list);
+    list_count = get_list_count(proc_set.proc_list);
     assert(list_count == 0);
 
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test get_process_group_cpu_usage after waiting for a valid sample
+ * @brief Test get_process_set_cpu_usage after waiting for a valid sample
  * @note After two updates separated by enough time, cpu_usage may be >= 0
  */
-static void test_process_group_cpu_usage_with_usage(void) {
-    struct process_group proc_group;
+static void test_process_set_cpu_usage_with_usage(void) {
+    struct process_set proc_set;
     const struct timespec wait_time = {0, 50000000L}; /* 50 ms */
     double usage;
     int iter_idx;
@@ -5771,32 +5771,32 @@ static void test_process_group_cpu_usage_with_usage(void) {
     pid_t self_pid;
 
     self_pid = getpid();
-    ret = init_process_group(&proc_group, self_pid, 0);
+    ret = init_process_set(&proc_set, self_pid, 0);
     assert(ret == 0);
     for (iter_idx = 0; iter_idx < 5; iter_idx++) {
         sleep_timespec(&wait_time);
-        update_process_group(&proc_group);
+        update_process_set(&proc_set);
     }
-    usage = get_process_group_cpu_usage(&proc_group);
+    usage = get_process_set_cpu_usage(&proc_set);
     /*
      * After several updates usage should be either -1 (not yet measured)
      * or a valid non-negative value.
      */
     assert(usage >= -1.00001);
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test update_process_group when the target exits between init and
+ * @brief Test update_process_set when the target exits between init and
  *        the first explicit update call
  * @note Exercises the race where the target terminates after
- *       init_process_group (which performs one internal update) but before the
- *       caller invokes update_process_group again.  The function must handle a
+ *       init_process_set (which performs one internal update) but before the
+ *       caller invokes update_process_set again.  The function must handle a
  *       missing process gracefully and leave proc_list empty without crashing.
  */
-static void test_process_group_race_target_exits_between_init_and_update(void) {
-    struct process_group proc_group;
+static void test_process_set_race_target_exits_between_init_and_update(void) {
+    struct process_set proc_set;
     pid_t child_pid;
     pid_t waited;
     int ret;
@@ -5808,7 +5808,7 @@ static void test_process_group_race_target_exits_between_init_and_update(void) {
         _exit(EXIT_SUCCESS);
     }
 
-    ret = init_process_group(&proc_group, child_pid, 0);
+    ret = init_process_set(&proc_set, child_pid, 0);
     assert(ret == 0);
 
     /* Ensure child has definitely exited before calling update */
@@ -5817,26 +5817,26 @@ static void test_process_group_race_target_exits_between_init_and_update(void) {
     } while (waited == -1 && errno == EINTR);
     assert(waited == child_pid);
 
-    /* update_process_group must not crash when the target is gone */
-    update_process_group(&proc_group);
+    /* update_process_set must not crash when the target is gone */
+    update_process_set(&proc_set);
 
     /* The process no longer exists; list must now be empty */
-    list_count = get_list_count(proc_group.proc_list);
+    list_count = get_list_count(proc_set.proc_list);
     assert(list_count == 0);
 
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 }
 
 /**
- * @brief Test update_process_group with rapidly spawning and exiting children
+ * @brief Test update_process_set with rapidly spawning and exiting children
  * @note Exercises the race where child processes are created and destroyed
- *       between successive update_process_group calls.  The function must never
+ *       between successive update_process_set calls.  The function must never
  *       crash or corrupt internal state regardless of how quickly descendants
  *       appear and disappear.
  */
-static void test_process_group_race_rapid_child_spawn_exit(void) {
-    struct process_group proc_group;
+static void test_process_set_race_rapid_child_spawn_exit(void) {
+    struct process_set proc_set;
     pid_t parent_pid;
     pid_t spawner_pid;
     pid_t waited;
@@ -5868,17 +5868,17 @@ static void test_process_group_race_rapid_child_spawn_exit(void) {
     }
 
     parent_pid = spawner_pid;
-    ret = init_process_group(&proc_group, parent_pid, 1);
+    ret = init_process_set(&proc_set, parent_pid, 1);
     assert(ret == 0);
 
     /* Run several updates while children may be spawning and exiting */
     for (update_idx = 0; update_idx < 10; update_idx++) {
         const struct timespec small_sleep = {0, 5000000L}; /* 5 ms */
-        update_process_group(&proc_group);
+        update_process_set(&proc_set);
         sleep_timespec(&small_sleep);
     }
 
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 
     /* Reap spawner */
@@ -5890,7 +5890,7 @@ static void test_process_group_race_rapid_child_spawn_exit(void) {
 
 /**
  * @brief Regression test: proc_table must not retain exited descendants
- * @note update_process_group() previously returned early when
+ * @note update_process_set() previously returned early when
  *       close_process_iterator() failed, skipping
  *       remove_stale_from_process_table() and leaking hash table entries
  *       for processes that had already exited.  This test tracks a parent
@@ -5898,8 +5898,8 @@ static void test_process_group_race_rapid_child_spawn_exit(void) {
  *       cycles the table holds no entry for any exited child PID and that
  *       the live entry count matches the rebuilt active list exactly.
  */
-static void test_process_group_purges_exited_descendants(void) {
-    struct process_group proc_group;
+static void test_process_set_purges_exited_descendants(void) {
+    struct process_set proc_set;
     const struct list_node *node;
     pid_t spawner_pid, child_pids[4], waited;
     int child_idx, update_idx, ret, spawner_status;
@@ -5950,7 +5950,7 @@ static void test_process_group_purges_exited_descendants(void) {
            (ssize_t)sizeof(child_pids));
     close(sync_pipe[0]);
 
-    ret = init_process_group(&proc_group, spawner_pid, 1);
+    ret = init_process_set(&proc_set, spawner_pid, 1);
     assert(ret == 0);
 
     /*
@@ -5959,7 +5959,7 @@ static void test_process_group_purges_exited_descendants(void) {
      */
     for (update_idx = 0; update_idx < 5; update_idx++) {
         const struct timespec gap = {0, 25000000L}; /* 25 ms */
-        ret = update_process_group(&proc_group);
+        ret = update_process_set(&proc_set);
         assert(ret == 0);
         sleep_timespec(&gap);
     }
@@ -5967,7 +5967,7 @@ static void test_process_group_purges_exited_descendants(void) {
     /* No exited grandchild may remain in the hash table */
     for (child_idx = 0; child_idx < 4; child_idx++) {
         const struct process *stale =
-            find_in_process_table(proc_group.proc_table, child_pids[child_idx]);
+            find_in_process_table(proc_set.proc_table, child_pids[child_idx]);
         assert(stale == NULL);
     }
 
@@ -5975,14 +5975,14 @@ static void test_process_group_purges_exited_descendants(void) {
      * Every entry reachable from the active list must still resolve in the
      * table, proving the purge removed only stale entries.
      */
-    for (node = first_node(proc_group.proc_list); node != NULL;
+    for (node = first_node(proc_set.proc_list); node != NULL;
          node = node->next) {
         const struct process *live = (const struct process *)node->data;
         assert(live != NULL);
-        assert(find_in_process_table(proc_group.proc_table, live->pid) == live);
+        assert(find_in_process_table(proc_set.proc_table, live->pid) == live);
     }
 
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 
     kill_and_wait(spawner_pid, SIGKILL);
@@ -6001,8 +6001,8 @@ static void test_process_group_purges_exited_descendants(void) {
  * delta is measured against the new process rather than the old one, and
  * neither path had any coverage.
  */
-static void test_process_group_entry_resets_on_reuse_and_backward_clock(void) {
-    struct process_group proc_group;
+static void test_process_set_entry_resets_on_reuse_and_backward_clock(void) {
+    struct process_set proc_set;
     pid_t idle_pid, waited;
     int ret, idle_status;
     struct process *tracked;
@@ -6016,10 +6016,10 @@ static void test_process_group_entry_resets_on_reuse_and_backward_clock(void) {
         test_suspend_until_killed();
     }
 
-    ret = init_process_group(&proc_group, idle_pid, 0);
+    ret = init_process_set(&proc_set, idle_pid, 0);
     assert(ret == 0);
 
-    tracked = find_in_process_table(proc_group.proc_table, idle_pid);
+    tracked = find_in_process_table(proc_set.proc_table, idle_pid);
     assert(tracked != NULL);
 
     /*
@@ -6028,7 +6028,7 @@ static void test_process_group_entry_resets_on_reuse_and_backward_clock(void) {
      */
     inflated_cpu_time = tracked->cpu_time + 1e9;
     tracked->cpu_time = inflated_cpu_time;
-    ret = update_process_group(&proc_group);
+    ret = update_process_set(&proc_set);
     assert(ret == 0);
     assert(tracked->cpu_time < inflated_cpu_time);
     assert(tracked->cpu_usage < 0);
@@ -6038,12 +6038,12 @@ static void test_process_group_entry_resets_on_reuse_and_backward_clock(void) {
      * time of this cycle comes out negative.
      */
     tracked->cpu_usage = 0.5;
-    proc_group.last_update.tv_sec += (time_t)3600;
-    ret = update_process_group(&proc_group);
+    proc_set.last_update.tv_sec += (time_t)3600;
+    ret = update_process_set(&proc_set);
     assert(ret == 0);
     assert(tracked->cpu_usage < 0);
 
-    ret = close_process_group(&proc_group);
+    ret = close_process_set(&proc_set);
     assert(ret == 0);
 
     kill_and_wait(idle_pid, SIGKILL);
@@ -6113,12 +6113,12 @@ static void test_limit_process_basic(void) {
             int iter_idx;
             size_t count = 0;
             double cpu_usage = 0;
-            struct process_group proc_group;
+            struct process_set proc_set;
             const struct timespec sleep_time = {0, 500000000L};
             int ncpu;
 
-            /* Initialize process group monitoring */
-            ret = init_process_group(&proc_group, child_pid, 1);
+            /* Initialize process set monitoring */
+            ret = init_process_set(&proc_set, child_pid, 1);
             assert(ret == 0);
 
             /* Monitor CPU usage over 60 iterations */
@@ -6128,20 +6128,20 @@ static void test_limit_process_basic(void) {
                 size_t list_count;
                 size_t expected_count;
                 sleep_timespec(&sleep_time);
-                update_process_group(&proc_group);
+                update_process_set(&proc_set);
 
                 /* Verify all num_procs processes are being monitored */
-                list_count = get_list_count(proc_group.proc_list);
+                list_count = get_list_count(proc_set.proc_list);
                 expected_count = (size_t)num_procs;
                 assert(list_count == expected_count);
 
-                temp_cpu_usage = get_process_group_cpu_usage(&proc_group);
+                temp_cpu_usage = get_process_set_cpu_usage(&proc_set);
                 if (temp_cpu_usage > 0) {
                     cpu_usage += temp_cpu_usage;
                     count++;
                 }
             }
-            ret = close_process_group(&proc_group);
+            ret = close_process_set(&proc_set);
             assert(ret == 0);
             assert(count > 0);
 
@@ -6330,7 +6330,7 @@ static int drain_heartbeats(int fd) {
  * A descendant tracked through include_children stops matching the group as
  * soon as its monitored ancestor exits: the descendant is re-parented away,
  * so is_child_of() no longer finds the ancestor in its parent chain and the
- * descendant disappears from the process group while it still holds the
+ * descendant disappears from the process set while it still holds the
  * SIGSTOP that limit_process() sent.  limit_process() must therefore
  * remember every PID it suspended and resume those as well when it leaves;
  * otherwise the orphan stays suspended forever.
@@ -8367,7 +8367,7 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
  *       the symmetric guard in run_command_mode().  Without it, a target that
  *       is still SIGSTOP-ped when limit_process() exits (e.g. because a stopped
  *       process is momentarily invisible to the process iterator, or because
- *       update_process_group() failed and cleared the process list) would be
+ *       update_process_set() failed and cleared the process list) would be
  *       left permanently stopped.
  *
  *       The target installs a SIGCONT handler that increments a shared
@@ -10500,27 +10500,27 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_finder_find_by_name_ancestor_pref);
 
     /* Process group module tests */
-    printf("\n=== PROCESS_GROUP MODULE TESTS ===\n");
-    RUN_TEST(test_process_group_cpu_usage);
-    RUN_TEST(test_process_group_rapid_updates);
-    RUN_TEST(test_process_group_init_all);
-    RUN_TEST(test_process_group_init_single);
-    RUN_TEST(test_process_group_init_invalid_pid);
-    RUN_TEST(test_process_group_init_null);
-    RUN_TEST(test_process_group_cpu_usage_empty_list);
-    RUN_TEST(test_process_group_cpu_usage_null);
-    RUN_TEST(test_process_group_close_null);
-    RUN_TEST(test_process_group_close_zeros_fields);
-    RUN_TEST(test_process_group_update_null);
-    RUN_TEST(test_process_group_update_uninitialized_struct);
-    RUN_TEST(test_process_group_cpu_usage_uninitialized_struct);
-    RUN_TEST(test_process_group_double_update);
-    RUN_TEST(test_process_group_update_return_value);
-    RUN_TEST(test_process_group_cpu_usage_with_usage);
-    RUN_TEST(test_process_group_race_target_exits_between_init_and_update);
-    RUN_TEST(test_process_group_race_rapid_child_spawn_exit);
-    RUN_TEST(test_process_group_purges_exited_descendants);
-    RUN_TEST(test_process_group_entry_resets_on_reuse_and_backward_clock);
+    printf("\n=== PROCESS_SET MODULE TESTS ===\n");
+    RUN_TEST(test_process_set_cpu_usage);
+    RUN_TEST(test_process_set_rapid_updates);
+    RUN_TEST(test_process_set_init_all);
+    RUN_TEST(test_process_set_init_single);
+    RUN_TEST(test_process_set_init_invalid_pid);
+    RUN_TEST(test_process_set_init_null);
+    RUN_TEST(test_process_set_cpu_usage_empty_list);
+    RUN_TEST(test_process_set_cpu_usage_null);
+    RUN_TEST(test_process_set_close_null);
+    RUN_TEST(test_process_set_close_zeros_fields);
+    RUN_TEST(test_process_set_update_null);
+    RUN_TEST(test_process_set_update_uninitialized_struct);
+    RUN_TEST(test_process_set_cpu_usage_uninitialized_struct);
+    RUN_TEST(test_process_set_double_update);
+    RUN_TEST(test_process_set_update_return_value);
+    RUN_TEST(test_process_set_cpu_usage_with_usage);
+    RUN_TEST(test_process_set_race_target_exits_between_init_and_update);
+    RUN_TEST(test_process_set_race_rapid_child_spawn_exit);
+    RUN_TEST(test_process_set_purges_exited_descendants);
+    RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
