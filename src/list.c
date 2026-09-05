@@ -24,6 +24,7 @@
 #endif
 
 #include "list.h"
+#include "process_iterator.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -158,34 +159,31 @@ struct list_node *first_list_node(const struct list *lst) {
 }
 
 /**
- * @brief Search for an element by comparing a field in its data
+ * @brief Search for a process in the list by its PID
  * @param lst Pointer to the list to search
- * @param elem Pointer to the value to compare against
- * @param offset Byte offset of the field to compare within the data structure
- * @param length Number of bytes to compare
- * @return Pointer to the matching element's data, or NULL if not found
+ * @param pid Process ID to search for
+ * @return Pointer to the matching process structure, or NULL if not found
  *
- * Performs linear search comparing length bytes starting at offset within
- * each node's data against the provided value. Uses memcmp() for comparison.
- * Useful for finding nodes by a specific field (e.g., PID in a process struct).
+ * Performs linear search comparing the pid field of each node's data.
+ * The list is expected to contain struct process pointers.
+ *
+ * @note Returns NULL if list is NULL
  */
-void *find_elem(const struct list *lst, const void *elem, size_t offset,
-                size_t length) {
+struct process *find_process_in_list_by_pid(const struct list *lst, pid_t pid) {
     struct list_node *current_node;
 
-    if (lst == NULL || elem == NULL || length == 0) {
+    if (lst == NULL) {
         return NULL;
     }
 
-    /* Traverse list and compare specified field in each node's data */
+    /* Traverse list and compare PID directly in each node's data */
     for (current_node = lst->first; current_node != NULL;
          current_node = current_node->next) {
         if (current_node->data == NULL) {
             continue;
         }
-        if (memcmp((const char *)current_node->data + offset, elem, length) ==
-            0) {
-            return current_node->data;
+        if (((const struct process *)current_node->data)->pid == pid) {
+            return (struct process *)current_node->data;
         }
     }
 

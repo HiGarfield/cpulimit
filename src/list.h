@@ -27,6 +27,12 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <sys/types.h>
+
+/**
+ * Forward declaration; list nodes in this project carry struct process data.
+ */
+struct process;
 
 /**
  * @struct list_node
@@ -154,19 +160,17 @@ int is_empty_list(const struct list *lst);
 struct list_node *first_list_node(const struct list *lst);
 
 /**
- * @brief Search for an element by comparing a field in its data
+ * @brief Search for a process in the list by its PID
  * @param lst Pointer to the list to search
- * @param elem Pointer to the value to compare against
- * @param offset Byte offset of the field to compare within the data structure
- * @param length Number of bytes to compare
- * @return Pointer to the matching element's data, or NULL if not found
+ * @param pid Process ID to search for
+ * @return Pointer to the matching process structure, or NULL if not found
  *
- * Performs linear search comparing length bytes starting at offset within
- * each node's data against the provided value. Uses memcmp() for comparison.
- * Useful for finding nodes by a specific field (e.g., PID in a process struct).
+ * Performs linear search comparing the pid field of each node's data.
+ * The list is expected to contain struct process pointers.
+ *
+ * @note Returns NULL if list is NULL
  */
-void *find_elem(const struct list *lst, const void *elem, size_t offset,
-                size_t length);
+struct process *find_process_in_list_by_pid(const struct list *lst, pid_t pid);
 
 /**
  * @brief Remove all nodes from the list without freeing node data

@@ -254,8 +254,7 @@ void resume_stopped_pids(struct process_set *proc_set) {
          * here as well would deliver a second, redundant SIGCONT. Only
          * the processes that have left the group need one here.
          */
-        if (find_elem(proc_set->proc_list, &pid, offsetof(struct process, pid),
-                      sizeof(pid_t)) == NULL) {
+        if (find_process_in_list_by_pid(proc_set->proc_list, pid) == NULL) {
             kill(pid, SIGCONT);
         }
     }

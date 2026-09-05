@@ -103,9 +103,7 @@ struct process *find_in_process_table(const struct process_table *proc_table,
         return NULL;
     }
     /* Search the linked list in this bucket, comparing PIDs */
-    return (struct process *)find_elem(proc_table->buckets[bucket_idx], &pid,
-                                       offsetof(struct process, pid),
-                                       sizeof(pid_t));
+    return find_process_in_list_by_pid(proc_table->buckets[bucket_idx], pid);
 }
 
 /**
@@ -141,8 +139,8 @@ void add_to_process_table(struct process_table *proc_table,
         init_list(proc_table->buckets[bucket_idx]);
     }
     /* Verify process doesn't already exist before adding */
-    if (find_elem(proc_table->buckets[bucket_idx], &proc->pid,
-                  offsetof(struct process, pid), sizeof(pid_t)) == NULL) {
+    if (find_process_in_list_by_pid(proc_table->buckets[bucket_idx],
+                                    proc->pid) == NULL) {
         add_list_elem(proc_table->buckets[bucket_idx], proc);
     }
 }
@@ -225,8 +223,7 @@ void remove_stale_from_process_table(struct process_table *proc_table,
                 destroy_list_node(proc_table->buckets[bucket_idx], node);
             } else {
                 pid_t pid = ((const struct process *)node->data)->pid;
-                if (find_elem(active_list, &pid, offsetof(struct process, pid),
-                              sizeof(pid_t)) == NULL) {
+                if (find_process_in_list_by_pid(active_list, pid) == NULL) {
                     destroy_list_node(proc_table->buckets[bucket_idx], node);
                 }
             }

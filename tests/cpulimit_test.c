@@ -1467,6 +1467,63 @@ static void test_list_edge_cases(void) {
 }
 
 /**
+ * @brief Test type-safe PID lookup in a list of processes
+ * @note Tests find_process_in_list_by_pid including NULL list and miss cases
+ */
+static void test_list_find_process_in_list_by_pid(void) {
+    struct list lst;
+    struct process *proc1, *proc2, *proc3;
+    const struct process *found;
+
+    init_list(&lst);
+
+    /* Allocate processes on heap to avoid stack size warnings */
+    proc1 = (struct process *)malloc(sizeof(struct process));
+    proc2 = (struct process *)malloc(sizeof(struct process));
+    proc3 = (struct process *)malloc(sizeof(struct process));
+    assert(proc1 != NULL);
+    assert(proc2 != NULL);
+    assert(proc3 != NULL);
+
+    /* Initialize processes with different PIDs */
+    proc1->pid = 100;
+    proc1->ppid = 1;
+    proc2->pid = 200;
+    proc2->ppid = 1;
+    proc3->pid = 300;
+    proc3->ppid = 1;
+
+    add_list_elem(&lst, proc1);
+    add_list_elem(&lst, proc2);
+    add_list_elem(&lst, proc3);
+
+    /* Test find_process_in_list_by_pid - find by PID */
+    found = find_process_in_list_by_pid(&lst, 200);
+    assert(found == proc2);
+    assert(found->pid == 200);
+
+    /* Test find_process_in_list_by_pid - not found */
+    found = find_process_in_list_by_pid(&lst, 999);
+    assert(found == NULL);
+
+    /* Test with NULL list */
+    found = find_process_in_list_by_pid(NULL, 100);
+    assert(found == NULL);
+
+    /* Test find_process_in_list_by_pid skips NULL-data nodes */
+    add_list_elem(&lst, NULL);
+    found = find_process_in_list_by_pid(&lst, 100);
+    assert(found == proc1);
+
+    clear_list(&lst);
+
+    /* Free allocated memory */
+    free(proc1);
+    free(proc2);
+    free(proc3);
+}
+
+/**
  * @brief Test add_list_elem with NULL data and destroy_list_node safety
  * @note Covers: add_list_elem(l, NULL), destroy_list_node with NULL data
  *       pointer
@@ -1474,10 +1531,8 @@ static void test_list_edge_cases(void) {
 static void test_list_null_data_operations(void) {
     struct list lst;
     struct list_node *node;
-    int search_val;
     size_t list_count;
     int empty;
-    const void *void_elem;
 
     init_list(&lst);
 
@@ -1489,11 +1544,6 @@ static void test_list_null_data_operations(void) {
     assert(list_count == 1);
     empty = is_empty_list(&lst);
     assert(empty == 0);
-
-    /* find_elem must skip the NULL-data node (branch: cur->data == NULL) */
-    search_val = 42;
-    void_elem = find_elem(&lst, &search_val, 0, sizeof(int));
-    assert(void_elem == NULL);
 
     /*
      * destroy_list_node with NULL data must not crash (branch: node->data ==
@@ -10291,6 +10341,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_list_destroy_list_node);
     RUN_TEST(test_list_clear_and_destroy);
     RUN_TEST(test_list_edge_cases);
+    RUN_TEST(test_list_find_process_in_list_by_pid);
     RUN_TEST(test_list_null_data_operations);
 
     /* Signal handler module tests */
