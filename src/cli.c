@@ -105,7 +105,7 @@ static void parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);
     }
     /* Verify PID fits within pid_t range (catch overflow on 32-bit systems) */
-    pid_result = long2pid_t(pid);
+    pid_result = long_to_pid_t(pid);
     if (pid_result < 0) {
         fprintf(stderr, "Error: PID out of range: %s\n\n", pid_str);
         print_usage_and_exit(stderr, cfg, EXIT_FAILURE);

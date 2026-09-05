@@ -300,65 +300,65 @@ static const char *get_self_command(char *buf, size_t buf_size) {
  ***************************************************************************/
 
 /**
- * @brief Test nsec2timespec conversion
+ * @brief Test nsec_to_timespec conversion
  * @note Tests conversion from nanoseconds to timespec including rollover
  *       and boundary values
  */
-static void test_time_util_nsec2timespec(void) {
+static void test_time_util_nsec_to_timespec(void) {
     struct timespec result_ts;
 
     /* Test 0 nanoseconds */
-    nsec2timespec(0.0, &result_ts);
+    nsec_to_timespec(0.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 0);
 
     /* Test 1 second (1e9 nanoseconds) */
-    nsec2timespec(1000000000.0, &result_ts);
+    nsec_to_timespec(1000000000.0, &result_ts);
     assert(result_ts.tv_sec == 1);
     assert(result_ts.tv_nsec == 0);
 
     /* Test 1.5 seconds */
-    nsec2timespec(1500000000.0, &result_ts);
+    nsec_to_timespec(1500000000.0, &result_ts);
     assert(result_ts.tv_sec == 1);
     assert(result_ts.tv_nsec == 500000000);
 
     /* Test 2.25 seconds */
-    nsec2timespec(2250000000.0, &result_ts);
+    nsec_to_timespec(2250000000.0, &result_ts);
     assert(result_ts.tv_sec == 2);
     assert(result_ts.tv_nsec == 250000000);
 
     /* Test small value (100 microseconds) */
-    nsec2timespec(100000.0, &result_ts);
+    nsec_to_timespec(100000.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 100000);
 
     /* Test 500 milliseconds */
-    nsec2timespec(500000000.0, &result_ts);
+    nsec_to_timespec(500000000.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 500000000L);
 
     /* Test very large value: 10 seconds */
-    nsec2timespec(10000000000.0, &result_ts);
+    nsec_to_timespec(10000000000.0, &result_ts);
     assert(result_ts.tv_sec == 10);
     assert(result_ts.tv_nsec == 0);
 
     /* A large multiple of 1e9 can round tv_nsec up to 1e9 */
-    nsec2timespec(3e9, &result_ts);
+    nsec_to_timespec(3e9, &result_ts);
     assert(result_ts.tv_sec >= 2 && result_ts.tv_sec <= 4);
     assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
 
     /* 2 seconds exactly */
-    nsec2timespec(2e9, &result_ts);
+    nsec_to_timespec(2e9, &result_ts);
     assert(result_ts.tv_sec == 2);
     assert(result_ts.tv_nsec == 0L);
 
     /* 0.999999999 s = 999999999 ns -- must stay sub-second */
-    nsec2timespec(999999999.0, &result_ts);
+    nsec_to_timespec(999999999.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
 
     /* General invariant: result is always normalised */
-    nsec2timespec(1234567890.123, &result_ts);
+    nsec_to_timespec(1234567890.123, &result_ts);
     assert(result_ts.tv_nsec >= 0L && result_ts.tv_nsec <= 999999999L);
 }
 
@@ -756,40 +756,40 @@ static void test_util_increase_priority_retries_lower_levels(void) {
 }
 
 /**
- * @brief Test long2pid_t conversion
+ * @brief Test long_to_pid_t conversion
  * @note Tests safe conversion from long to pid_t including edge cases and
  *       overflow
  */
-static void test_util_long2pid_t(void) {
+static void test_util_long_to_pid_t(void) {
     pid_t result;
 
     /* Test valid positive values */
-    result = long2pid_t(1L);
+    result = long_to_pid_t(1L);
     assert(result == 1);
 
-    result = long2pid_t(1000L);
+    result = long_to_pid_t(1000L);
     assert(result == 1000);
 
-    result = long2pid_t(32767L);
+    result = long_to_pid_t(32767L);
     assert(result == 32767);
 
     /* Test zero */
-    result = long2pid_t(0L);
+    result = long_to_pid_t(0L);
     assert(result == 0);
 
     /* Test negative value (should return -1) */
-    result = long2pid_t(-1L);
+    result = long_to_pid_t(-1L);
     assert(result == -1);
 
-    result = long2pid_t(-100L);
+    result = long_to_pid_t(-100L);
     assert(result == -1);
 
     /* Test maximum reasonable PID */
-    result = long2pid_t(65535L);
+    result = long_to_pid_t(65535L);
     assert(result == 65535);
 
     /* Test with large positive value (must not crash) */
-    long2pid_t(1000000L);
+    long_to_pid_t(1000000L);
 
     /*
      * LONG_MAX overflows pid_t (32-bit) on 64-bit platforms.
@@ -797,7 +797,7 @@ static void test_util_long2pid_t(void) {
      * or, on exotic platforms where pid_t == long, the value fits.
      * Either way, the function must not crash.
      */
-    long2pid_t(LONG_MAX);
+    long_to_pid_t(LONG_MAX);
 }
 
 #if defined(__linux__)
@@ -1098,7 +1098,7 @@ static void test_list_init_and_empty(void) {
     struct list lst;
     int empty;
     size_t list_count;
-    const struct list_node *first_node_result;
+    const struct list_node *first_list_node_result;
 
     /* Test initialization */
     init_list(&lst);
@@ -1118,11 +1118,11 @@ static void test_list_init_and_empty(void) {
     list_count = get_list_count(NULL);
     assert(list_count == 0);
 
-    /* Test first_node */
-    first_node_result = first_node(&lst);
-    assert(first_node_result == NULL);
-    first_node_result = first_node(NULL);
-    assert(first_node_result == NULL);
+    /* Test first_list_node */
+    first_list_node_result = first_list_node(&lst);
+    assert(first_list_node_result == NULL);
+    first_list_node_result = first_list_node(NULL);
+    assert(first_list_node_result == NULL);
 
     /* Test init_list with NULL */
     init_list(NULL);
@@ -1130,22 +1130,22 @@ static void test_list_init_and_empty(void) {
 
 /**
  * @brief Test adding elements to list
- * @note Tests add_elem, get_list_count, first_node with non-empty list
- *       and link integrity
+ * @note Tests add_list_elem, get_list_count, first_list_node with non-empty
+ * list and link integrity
  */
-static void test_list_add_elem(void) {
+static void test_list_add_list_elem(void) {
     struct list lst;
     int data1 = 1, data2 = 2, data3 = 3;
     const struct list_node *node1, *node2, *node3;
     size_t list_count;
     int empty;
-    const struct list_node *first_node_result;
+    const struct list_node *first_list_node_result;
     const struct list_node *null_node;
 
     init_list(&lst);
 
     /* Add first element */
-    node1 = add_elem(&lst, &data1);
+    node1 = add_list_elem(&lst, &data1);
     assert(node1 != NULL);
     assert(node1->data == &data1);
     assert(node1->previous == NULL);
@@ -1156,11 +1156,11 @@ static void test_list_add_elem(void) {
     assert(list_count == 1);
     empty = is_empty_list(&lst);
     assert(empty == 0);
-    first_node_result = first_node(&lst);
-    assert(first_node_result == node1);
+    first_list_node_result = first_list_node(&lst);
+    assert(first_list_node_result == node1);
 
     /* Add second element */
-    node2 = add_elem(&lst, &data2);
+    node2 = add_list_elem(&lst, &data2);
     assert(node2 != NULL);
     assert(node2->data == &data2);
     assert(node2->previous == node1);
@@ -1172,7 +1172,7 @@ static void test_list_add_elem(void) {
     assert(list_count == 2);
 
     /* Add third element */
-    node3 = add_elem(&lst, &data3);
+    node3 = add_list_elem(&lst, &data3);
     assert(node3 != NULL);
     assert(node3->data == &data3);
     assert(node3->previous == node2);
@@ -1183,16 +1183,16 @@ static void test_list_add_elem(void) {
     list_count = get_list_count(&lst);
     assert(list_count == 3);
 
-    /* Verify first_node returns first element with correct links */
-    first_node_result = first_node(&lst);
-    assert(first_node_result == node1);
-    assert(first_node_result->data == &data1);
-    assert(first_node_result->next != NULL);
-    assert(first_node_result->next->data == &data2);
-    assert(first_node_result->previous == NULL);
+    /* Verify first_list_node returns first element with correct links */
+    first_list_node_result = first_list_node(&lst);
+    assert(first_list_node_result == node1);
+    assert(first_list_node_result->data == &data1);
+    assert(first_list_node_result->next != NULL);
+    assert(first_list_node_result->next->data == &data2);
+    assert(first_list_node_result->previous == NULL);
 
-    /* Test add_elem with NULL list */
-    null_node = add_elem(NULL, &data1);
+    /* Test add_list_elem with NULL list */
+    null_node = add_list_elem(NULL, &data1);
     assert(null_node == NULL);
 
     /* Clean up */
@@ -1201,9 +1201,9 @@ static void test_list_add_elem(void) {
 
 /**
  * @brief Test deleting nodes from list
- * @note Tests delete_node without freeing data, including empty-list guard
+ * @note Tests delete_list_node without freeing data, including empty-list guard
  */
-static void test_list_delete_node(void) {
+static void test_list_delete_list_node(void) {
     struct list lst;
     int data1 = 1, data2 = 2, data3 = 3;
     struct list_node *node1, *node2, *node3;
@@ -1212,12 +1212,12 @@ static void test_list_delete_node(void) {
     int empty;
 
     init_list(&lst);
-    node1 = add_elem(&lst, &data1);
-    node2 = add_elem(&lst, &data2);
-    node3 = add_elem(&lst, &data3);
+    node1 = add_list_elem(&lst, &data1);
+    node2 = add_list_elem(&lst, &data2);
+    node3 = add_list_elem(&lst, &data3);
 
     /* Delete middle node */
-    delete_node(&lst, node2);
+    delete_list_node(&lst, node2);
     list_count = get_list_count(&lst);
     assert(list_count == 2);
     assert(lst.first == node1);
@@ -1226,7 +1226,7 @@ static void test_list_delete_node(void) {
     assert(node3->previous == node1);
 
     /* Delete first node */
-    delete_node(&lst, node1);
+    delete_list_node(&lst, node1);
     list_count = get_list_count(&lst);
     assert(list_count == 1);
     assert(lst.first == node3);
@@ -1235,7 +1235,7 @@ static void test_list_delete_node(void) {
     assert(node3->next == NULL);
 
     /* Delete last node */
-    delete_node(&lst, node3);
+    delete_list_node(&lst, node3);
     list_count = get_list_count(&lst);
     assert(list_count == 0);
     assert(lst.first == NULL);
@@ -1243,22 +1243,22 @@ static void test_list_delete_node(void) {
     empty = is_empty_list(&lst);
     assert(empty == 1);
 
-    /* Test delete_node with NULL */
-    delete_node(NULL, NULL);
-    delete_node(&lst, NULL);
+    /* Test delete_list_node with NULL */
+    delete_list_node(NULL, NULL);
+    delete_list_node(&lst, NULL);
 
-    /* Test delete_node on empty list (count==0 guard path) */
-    delete_node(&lst, &fake_node);
+    /* Test delete_list_node on empty list (count==0 guard path) */
+    delete_list_node(&lst, &fake_node);
     list_count = get_list_count(&lst);
     assert(list_count == 0);
 }
 
 /**
  * @brief Test destroying nodes from list
- * @note Tests destroy_node which frees both node and data, including
+ * @note Tests destroy_list_node which frees both node and data, including
  *       NULL list safety
  */
-static void test_list_destroy_node(void) {
+static void test_list_destroy_list_node(void) {
     struct list lst;
     int *data1, *data2;
     struct list_node *node1, *node2;
@@ -1270,7 +1270,7 @@ static void test_list_destroy_node(void) {
 
     init_list(&lst);
 
-    /* Allocate data dynamically for destroy_node */
+    /* Allocate data dynamically for destroy_list_node */
     data1 = (int *)malloc(sizeof(int));
     data2 = (int *)malloc(sizeof(int));
     assert(data1 != NULL);
@@ -1278,28 +1278,28 @@ static void test_list_destroy_node(void) {
     *data1 = 1;
     *data2 = 2;
 
-    node1 = add_elem(&lst, data1);
-    node2 = add_elem(&lst, data2);
+    node1 = add_list_elem(&lst, data1);
+    node2 = add_list_elem(&lst, data2);
 
     /* Destroy second node */
-    destroy_node(&lst, node2);
+    destroy_list_node(&lst, node2);
     list_count = get_list_count(&lst);
     assert(list_count == 1);
     assert(lst.first == node1);
     assert(lst.last == node1);
 
     /* Destroy first node */
-    destroy_node(&lst, node1);
+    destroy_list_node(&lst, node1);
     list_count = get_list_count(&lst);
     assert(list_count == 0);
     empty = is_empty_list(&lst);
     assert(empty == 1);
 
-    /* Test destroy_node with NULL */
-    destroy_node(NULL, NULL);
-    destroy_node(&lst, NULL);
+    /* Test destroy_list_node with NULL */
+    destroy_list_node(NULL, NULL);
+    destroy_list_node(&lst, NULL);
 
-    /* Test destroy_node with NULL list is a no-op */
+    /* Test destroy_list_node with NULL list is a no-op */
     null_data = (int *)malloc(sizeof(int));
     assert(null_data != NULL);
     *null_data = 42;
@@ -1308,7 +1308,7 @@ static void test_list_destroy_node(void) {
     null_node->data = null_data;
     null_node->previous = NULL;
     null_node->next = NULL;
-    destroy_node(NULL, null_node);
+    destroy_list_node(NULL, null_node);
     /* Verify the call was truly a no-op */
     assert(null_node->data == null_data);
     null_val = *(int *)null_node->data;
@@ -1351,9 +1351,9 @@ static void test_list_locate(void) {
     proc3->pid = 300;
     proc3->ppid = 1;
 
-    add_elem(&lst, proc1);
-    add_elem(&lst, proc2);
-    add_elem(&lst, proc3);
+    add_list_elem(&lst, proc1);
+    add_list_elem(&lst, proc2);
+    add_list_elem(&lst, proc3);
 
     /* Test locate_node - find by PID */
     search_pid = 200;
@@ -1410,7 +1410,7 @@ static void test_list_locate(void) {
     /* Test locate with a single-element list */
     init_list(&lst);
     single_val = 42;
-    add_elem(&lst, &single_val);
+    add_list_elem(&lst, &single_val);
     found_node = locate_node(&lst, &single_val, 0, sizeof(int));
     assert(found_node != NULL);
     single_node_val = *(int *)found_node->data;
@@ -1439,9 +1439,9 @@ static void test_list_clear_and_destroy(void) {
 
     /* Test clear_list - data not freed */
     init_list(&lst1);
-    add_elem(&lst1, &data1);
-    add_elem(&lst1, &data2);
-    add_elem(&lst1, &data3);
+    add_list_elem(&lst1, &data1);
+    add_list_elem(&lst1, &data2);
+    add_list_elem(&lst1, &data3);
     list_count = get_list_count(&lst1);
     assert(list_count == 3);
 
@@ -1468,9 +1468,9 @@ static void test_list_clear_and_destroy(void) {
     *dyn_data2 = 2;
     *dyn_data3 = 3;
 
-    add_elem(&lst2, dyn_data1);
-    add_elem(&lst2, dyn_data2);
-    add_elem(&lst2, dyn_data3);
+    add_list_elem(&lst2, dyn_data1);
+    add_list_elem(&lst2, dyn_data2);
+    add_list_elem(&lst2, dyn_data3);
     list_count = get_list_count(&lst2);
     assert(list_count == 3);
 
@@ -1519,7 +1519,7 @@ static void test_list_edge_cases(void) {
     /* Test adding many elements */
     for (node_idx = 0; node_idx < 10; node_idx++) {
         data[node_idx] = node_idx;
-        add_elem(&lst, &data[node_idx]);
+        add_list_elem(&lst, &data[node_idx]);
     }
     list_count = get_list_count(&lst);
     assert(list_count == 10);
@@ -1546,7 +1546,7 @@ static void test_list_edge_cases(void) {
 
     /* Delete all nodes from back to front */
     while (!is_empty_list(&lst)) {
-        delete_node(&lst, lst.last);
+        delete_list_node(&lst, lst.last);
     }
     list_count = get_list_count(&lst);
     assert(list_count == 0);
@@ -1554,17 +1554,17 @@ static void test_list_edge_cases(void) {
     /* Test deleting nodes in middle repeatedly */
     for (node_idx = 0; node_idx < 5; node_idx++) {
         data[node_idx] = node_idx;
-        add_elem(&lst, &data[node_idx]);
+        add_list_elem(&lst, &data[node_idx]);
     }
 
     /* Delete middle elements */
     node = lst.first->next; /* Second element */
-    delete_node(&lst, node);
+    delete_list_node(&lst, node);
     list_count = get_list_count(&lst);
     assert(list_count == 4);
 
     node = lst.first->next; /* New second element (was third) */
-    delete_node(&lst, node);
+    delete_list_node(&lst, node);
     list_count = get_list_count(&lst);
     assert(list_count == 3);
 
@@ -1580,9 +1580,10 @@ static void test_list_edge_cases(void) {
 }
 
 /**
- * @brief Test add_elem with NULL data and locate_node skipping NULL-data nodes
- * @note Covers: add_elem(l, NULL), locate_node branch cur->data==NULL,
- *       destroy_node with NULL data pointer
+ * @brief Test add_list_elem with NULL data and locate_node skipping NULL-data
+ * nodes
+ * @note Covers: add_list_elem(l, NULL), locate_node branch cur->data==NULL,
+ *       destroy_list_node with NULL data pointer
  */
 static void test_list_null_data_operations(void) {
     struct list lst;
@@ -1595,8 +1596,8 @@ static void test_list_null_data_operations(void) {
 
     init_list(&lst);
 
-    /* add_elem with NULL data must create a valid node */
-    node = add_elem(&lst, NULL);
+    /* add_list_elem with NULL data must create a valid node */
+    node = add_list_elem(&lst, NULL);
     assert(node != NULL);
     assert(node->data == NULL);
     list_count = get_list_count(&lst);
@@ -1612,9 +1613,10 @@ static void test_list_null_data_operations(void) {
     assert(void_elem == NULL);
 
     /*
-     * destroy_node with NULL data must not crash (branch: node->data == NULL)
+     * destroy_list_node with NULL data must not crash (branch: node->data ==
+     * NULL)
      */
-    destroy_node(&lst, node);
+    destroy_list_node(&lst, node);
     list_count = get_list_count(&lst);
     assert(list_count == 0);
     empty = is_empty_list(&lst);
@@ -4353,8 +4355,8 @@ static void test_process_table_remove_stale(void) {
     add_to_process_table(&proc_table, proc3);
 
     /* Add only proc1 and proc3 to active list */
-    add_elem(&active_list, proc1);
-    add_elem(&active_list, proc3);
+    add_list_elem(&active_list, proc1);
+    add_list_elem(&active_list, proc3);
 
     /* Remove stale entries (proc2 should be removed) */
     remove_stale_from_process_table(&proc_table, &active_list);
@@ -4418,10 +4420,10 @@ static void test_process_table_remove_stale_null_data(void) {
      */
     bucket_idx = (size_t)101 % 16;
     assert(proc_table.buckets[bucket_idx] != NULL);
-    add_elem(proc_table.buckets[bucket_idx], NULL);
+    add_list_elem(proc_table.buckets[bucket_idx], NULL);
 
     /* add proc1 to active_list so it is not removed */
-    add_elem(&active_list, proc1);
+    add_list_elem(&active_list, proc1);
 
     /* remove_stale must remove the NULL-data node without crashing */
     remove_stale_from_process_table(&proc_table, &active_list);
@@ -5975,7 +5977,7 @@ static void test_process_set_purges_exited_descendants(void) {
      * Every entry reachable from the active list must still resolve in the
      * table, proving the purge removed only stale entries.
      */
-    for (node = first_node(proc_set.proc_list); node != NULL;
+    for (node = first_list_node(proc_set.proc_list); node != NULL;
          node = node->next) {
         const struct process *live = (const struct process *)node->data;
         assert(live != NULL);
@@ -10377,7 +10379,7 @@ int main(int argc, char *argv[]) {
 
     /* Time util module tests */
     printf("\n=== TIME_UTIL MODULE TESTS ===\n");
-    RUN_TEST(test_time_util_nsec2timespec);
+    RUN_TEST(test_time_util_nsec_to_timespec);
     RUN_TEST(test_time_util_get_current_time);
     RUN_TEST(test_time_util_sleep_timespec);
     RUN_TEST(test_time_util_timediff_in_ms);
@@ -10391,7 +10393,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_get_ncpu);
     RUN_TEST(test_util_increase_priority);
     RUN_TEST(test_util_increase_priority_retries_lower_levels);
-    RUN_TEST(test_util_long2pid_t);
+    RUN_TEST(test_util_long_to_pid_t);
 #if defined(__linux__)
     RUN_TEST(test_util_read_file_contents);
     RUN_TEST(test_util_parse_cpu_range);
@@ -10401,9 +10403,9 @@ int main(int argc, char *argv[]) {
     /* List module tests */
     printf("\n=== LIST MODULE TESTS ===\n");
     RUN_TEST(test_list_init_and_empty);
-    RUN_TEST(test_list_add_elem);
-    RUN_TEST(test_list_delete_node);
-    RUN_TEST(test_list_destroy_node);
+    RUN_TEST(test_list_add_list_elem);
+    RUN_TEST(test_list_delete_list_node);
+    RUN_TEST(test_list_destroy_list_node);
     RUN_TEST(test_list_locate);
     RUN_TEST(test_list_clear_and_destroy);
     RUN_TEST(test_list_edge_cases);

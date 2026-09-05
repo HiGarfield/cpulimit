@@ -222,7 +222,7 @@ void record_stopped_pid(struct process_set *proc_set, pid_t pid) {
         return;
     }
     *stopped_pid = pid;
-    add_elem(proc_set->stopped_pids, stopped_pid);
+    add_list_elem(proc_set->stopped_pids, stopped_pid);
 }
 
 /**
@@ -241,7 +241,7 @@ void resume_stopped_pids(struct process_set *proc_set) {
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
         return;
     }
-    for (node = first_node(proc_set->stopped_pids); node != NULL;
+    for (node = first_list_node(proc_set->stopped_pids); node != NULL;
          node = node->next) {
         pid_t pid;
         if (node->data == NULL) {
@@ -267,7 +267,7 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
         return;
     }
-    for (node = first_node(proc_set->stopped_pids); node != NULL;
+    for (node = first_list_node(proc_set->stopped_pids); node != NULL;
          node = next_node) {
         next_node = node->next;
         if (node->data == NULL || *(const pid_t *)node->data != pid) {
@@ -276,10 +276,10 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
         /*
          * Each element is a heap-allocated pid_t owned by this list, so
          * it has to be released before its node is unlinked:
-         * delete_node() only frees the node.
+         * delete_list_node() only frees the node.
          */
         free(node->data);
-        delete_node(proc_set->stopped_pids, node);
+        delete_list_node(proc_set->stopped_pids, node);
     }
 }
 
@@ -463,10 +463,10 @@ int update_process_set(struct process_set *proc_set) {
             /* Mark CPU usage as unknown until we have a time delta */
             proc->cpu_usage = -1;
             add_to_process_table(proc_set->proc_table, proc);
-            add_elem(proc_set->proc_list, proc);
+            add_list_elem(proc_set->proc_list, proc);
         } else {
             /* Existing process: re-add to list for this cycle */
-            add_elem(proc_set->proc_list, proc);
+            add_list_elem(proc_set->proc_list, proc);
             update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
         }
     }
@@ -526,7 +526,7 @@ double get_process_set_cpu_usage(const struct process_set *proc_set) {
     if (proc_set == NULL || proc_set->proc_list == NULL) {
         return -1;
     }
-    for (node = first_node(proc_set->proc_list); node != NULL;
+    for (node = first_list_node(proc_set->proc_list); node != NULL;
          node = node->next) {
         const struct process *proc = (const struct process *)node->data;
         /* Skip NULL-data nodes (should not occur but defensive) */

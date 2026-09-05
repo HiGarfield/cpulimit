@@ -107,7 +107,7 @@ void init_list(struct list *lst);
  * @note On memory allocation failure for the new node, this function
  *       terminates the process and does not return to the caller
  */
-struct list_node *add_elem(struct list *lst, void *elem);
+struct list_node *add_list_elem(struct list *lst, void *elem);
 
 /**
  * @brief Remove a node from the list without freeing its data
@@ -120,7 +120,7 @@ struct list_node *add_elem(struct list *lst, void *elem);
  *
  * @note Safe to call with NULL list or node (does nothing)
  */
-void delete_node(struct list *lst, struct list_node *node);
+void delete_list_node(struct list *lst, struct list_node *node);
 
 /**
  * @brief Remove a node from the list and free its data
@@ -133,7 +133,7 @@ void delete_node(struct list *lst, struct list_node *node);
  *
  * @note Safe to call with NULL list or node; does nothing when either is NULL
  */
-void destroy_node(struct list *lst, struct list_node *node);
+void destroy_list_node(struct list *lst, struct list_node *node);
 
 /**
  * @brief Check if the list is empty
@@ -160,7 +160,7 @@ size_t get_list_count(const struct list *lst);
  *
  * Provides O(1) access to the list head. Use for starting forward iteration.
  */
-struct list_node *first_node(const struct list *lst);
+struct list_node *first_list_node(const struct list *lst);
 
 /**
  * @brief Search for a node by comparing a field in its data

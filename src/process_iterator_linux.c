@@ -150,7 +150,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         return -1;
     }
     free(buffer);
-    proc->ppid = long2pid_t(ppid);
+    proc->ppid = long_to_pid_t(ppid);
     if (proc->ppid < 0) {
         return -1;
     }
@@ -274,7 +274,7 @@ pid_t getppid_of(pid_t pid) {
         return (pid_t)-1;
     }
     free(buffer);
-    return long2pid_t(ppid);
+    return long_to_pid_t(ppid);
 }
 
 /**
@@ -388,7 +388,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         if (errno != 0 || endptr == dir_entry->d_name || *endptr != '\0') {
             continue;
         }
-        pid = long2pid_t(long_pid);
+        pid = long_to_pid_t(long_pid);
         if (pid <= 0) {
             continue;
         }

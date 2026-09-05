@@ -333,7 +333,7 @@ int get_ncpu(void) {
  * the fixed-point values to floating-point. This implementation is used
  * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
  */
-int cpulimit_getloadavg(double *loadavg, int nelem) {
+int getloadavg_impl(double *loadavg, int nelem) {
     struct sysinfo sys_info;
     int load_idx;
 
@@ -460,7 +460,7 @@ error:
  *       approach is preferred over no overflow checking, as there is no
  *       portable way to check pid_t limits at compile time in C89/POSIX.1-2001.
  */
-pid_t long2pid_t(long long_pid) {
+pid_t long_to_pid_t(long long_pid) {
     pid_t result;
     /* Reject negative values */
     if (long_pid < 0) {

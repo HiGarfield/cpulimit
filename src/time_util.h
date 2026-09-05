@@ -78,7 +78,7 @@ void check_y2038(void);
  * to 0.5 s), so tv_sec is far below any 32-bit overflow threshold in that
  * context as well.
  */
-void nsec2timespec(double nsec, struct timespec *result_ts);
+void nsec_to_timespec(double nsec, struct timespec *result_ts);
 
 /**
  * @brief Get a high-resolution timestamp, preferring a monotonic clock

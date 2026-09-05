@@ -43,7 +43,7 @@ add_checked_flags(multi_process_busy CPULIMIT_C_FLAGS)
 # so each of the three groups below gets every rename except its own.
 #
 # getloadavg() is only renamed here because util.h redirects it to
-# cpulimit_getloadavg() solely for uClibc < 1.0.42, which is not a
+# getloadavg_impl() solely for uClibc < 1.0.42, which is not a
 # supported test host; on Linux/macOS/FreeBSD it is the libc symbol.
 
 set(CPULIMIT_TEST_SEAM_ALL

@@ -143,7 +143,7 @@ void add_to_process_table(struct process_table *proc_table,
     /* Verify process doesn't already exist before adding */
     if (locate_elem(proc_table->buckets[bucket_idx], &proc->pid,
                     offsetof(struct process, pid), sizeof(pid_t)) == NULL) {
-        add_elem(proc_table->buckets[bucket_idx], proc);
+        add_list_elem(proc_table->buckets[bucket_idx], proc);
     }
 }
 
@@ -175,7 +175,7 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid) {
         return 1; /* Process not found in bucket */
     }
     /* Remove node and free its data */
-    destroy_node(proc_table->buckets[bucket_idx], node);
+    destroy_list_node(proc_table->buckets[bucket_idx], node);
     /* If bucket is now empty, free the list structure */
     if (is_empty_list(proc_table->buckets[bucket_idx])) {
         free(proc_table->buckets[bucket_idx]);
@@ -211,18 +211,18 @@ void remove_stale_from_process_table(struct process_table *proc_table,
         if (proc_table->buckets[bucket_idx] == NULL) {
             continue;
         }
-        for (node = first_node(proc_table->buckets[bucket_idx]); node != NULL;
-             node = next_node) {
+        for (node = first_list_node(proc_table->buckets[bucket_idx]);
+             node != NULL; node = next_node) {
             next_node = node->next;
             if (node->data == NULL) {
                 /* Defensive: remove phantom NULL-data nodes */
-                destroy_node(proc_table->buckets[bucket_idx], node);
+                destroy_list_node(proc_table->buckets[bucket_idx], node);
             } else {
                 pid_t pid = ((const struct process *)node->data)->pid;
                 if (locate_elem(active_list, &pid,
                                 offsetof(struct process, pid),
                                 sizeof(pid_t)) == NULL) {
-                    destroy_node(proc_table->buckets[bucket_idx], node);
+                    destroy_list_node(proc_table->buckets[bucket_idx], node);
                 }
             }
         }

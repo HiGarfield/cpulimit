@@ -85,7 +85,7 @@ void check_y2038(void) {
  * to 0.5 s), so tv_sec is far below any 32-bit overflow threshold in that
  * context as well.
  */
-void nsec2timespec(double nsec, struct timespec *result_ts) {
+void nsec_to_timespec(double nsec, struct timespec *result_ts) {
     result_ts->tv_sec = (time_t)(nsec / 1e9);
     result_ts->tv_nsec = (long)(nsec - (double)result_ts->tv_sec * 1e9);
     /*
@@ -140,7 +140,7 @@ int get_current_time(struct timespec *result_ts) {
         factor = (long double)timebase_info.numer / timebase_info.denom;
     }
     nsec = mach_absolute_time() * factor;
-    nsec2timespec((double)nsec, result_ts);
+    nsec_to_timespec((double)nsec, result_ts);
     return 0;
 #elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
     /* Prefer monotonic clock: immune to system time adjustments */

@@ -178,7 +178,7 @@ static double get_dynamic_time_slot(void) {
  */
 static void send_signal_to_processes(struct process_set *proc_set, int sig,
                                      int verbose) {
-    struct list_node *node = first_node(proc_set->proc_list);
+    struct list_node *node = first_list_node(proc_set->proc_list);
     while (node != NULL) {
         /* Save next pointer before potential node deletion */
         struct list_node *next_node = node->next;
@@ -186,7 +186,7 @@ static void send_signal_to_processes(struct process_set *proc_set, int sig,
         int kill_result;
         if (node->data == NULL) {
             /* Defensive: skip and remove any NULL-data nodes */
-            delete_node(proc_set->proc_list, node);
+            delete_list_node(proc_set->proc_list, node);
             node = next_node;
             continue;
         }
@@ -219,7 +219,7 @@ static void send_signal_to_processes(struct process_set *proc_set, int sig,
              */
             forget_stopped_pid(proc_set, pid);
             /* Remove dead/inaccessible process from tracking */
-            delete_node(proc_set->proc_list, node);
+            delete_list_node(proc_set->proc_list, node);
             delete_from_process_table(proc_set->proc_table, pid);
         } else if (sig == SIGSTOP) {
             /* Track the suspension so it can always be undone */
@@ -341,10 +341,10 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
 
         /* Split time slot into work and sleep periods */
         work_time_ns = time_slot * 1000 * work_ratio;
-        nsec2timespec(work_time_ns, &work_time);
+        nsec_to_timespec(work_time_ns, &work_time);
 
         sleep_time_ns = time_slot * 1000 - work_time_ns;
-        nsec2timespec(sleep_time_ns, &sleep_time);
+        nsec_to_timespec(sleep_time_ns, &sleep_time);
 
         if (verbose) {
             if (cycle_counter % STATS_SAMPLE_PERIOD == 0) {
