@@ -28,6 +28,7 @@
 #include "cli.h"
 #include "limit_process.h"
 #include "process_finder.h"
+#include "script_check.h"
 #include "signal_forward.h"
 #include "signal_handler.h"
 #include "time_util.h"
@@ -85,80 +86,6 @@
  * calls to avoid busy-waiting.
  */
 #define CHILD_POLL_INTERVAL_NS 50000000L /* 50 ms */
-
-/**
- * @brief Check whether a script shebang references an inaccessible interpreter
- * @param path Path to the file to inspect
- * @return 1 if the file begins with "#!" and the interpreter path in the
- *         shebang cannot be accessed; 0 otherwise.
- *
- * This pre-exec check avoids calling execvp() on a script whose shebang
- * interpreter path cannot be accessed. Under normal execution execvp() would
- * fail, but under debugging tools such as valgrind the execve() interception
- * is unrecoverable on this path, so the check must be made before exec.
- *
- * The file is opened with O_NONBLOCK. argv[0] is not necessarily a regular
- * file: opening a FIFO that has no writer, or a character device that waits
- * for carrier, blocks until another process opens the other end. Blocking
- * here would strand this child before exec and, through the exec
- * synchronisation pipe, freeze the parent in a read that it cannot leave
- * even when asked to terminate. O_NONBLOCK is defined to have no effect on
- * regular files, so the check itself behaves exactly as before.
- */
-static int is_script_inaccessible_interpreter(const char *path) {
-    int fd;
-    int saved_errno;
-    char buf[256];
-    ssize_t n;
-    char *p;
-    char *end;
-
-    fd = open(path, O_RDONLY | O_NONBLOCK);
-    if (fd < 0) {
-        return 0;
-    }
-    /*
-     * Retry only on EINTR (which transfers no data, so the buffer
-     * position need not advance). Partial reads are acceptable: only
-     * the shebang prefix and the interpreter path are needed, and both
-     * fit comfortably within a single read of a regular file. A
-     * non-regular file (a FIFO with no data, for instance) simply
-     * reports EAGAIN here and is treated as "not a script".
-     */
-    do {
-        n = read(fd, buf, sizeof(buf) - 1);
-    } while (n < 0 && errno == EINTR);
-    saved_errno = errno;
-    close(fd);
-    errno = saved_errno;
-
-    /* Not a script if too short or no shebang prefix */
-    if (n < 2 || buf[0] != '#' || buf[1] != '!') {
-        return 0;
-    }
-    buf[n] = '\0';
-
-    /* Skip optional whitespace after "#!" */
-    p = buf + 2;
-    while (*p == ' ' || *p == '\t') {
-        p++;
-    }
-
-    /* Find end of interpreter path (terminated by whitespace, newline, NUL) */
-    end = p;
-    while (*end != '\0' && *end != '\n' && *end != '\r' && *end != ' ' &&
-           *end != '\t') {
-        end++;
-    }
-    *end = '\0';
-
-    if (*p == '\0') {
-        return 0; /* Empty shebang line */
-    }
-
-    /* Interpreter path is inaccessible -> report 126 */
-    return access(p, F_OK) != 0;
-}
 
 /**
  * @brief Execute a child process for command mode
