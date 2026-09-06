@@ -1,87 +1,12 @@
-# Compiler configuration
-CC ?= gcc
+include ../common.mk
 
 # Target binaries and source directory
 TARGETS := $(patsubst %.c,%,$(wildcard *.c))
 SRC := ../src
 
-# Detect operating system
-UNAME ?= $(shell uname -s)
-
-CFLAGS ?=
-LDFLAGS ?=
-PROJECT_CFLAGS :=
-PROJECT_LDFLAGS :=
-
-# Force 64-bit time_t and file offsets to prevent Y2038 issue
-PROJECT_CFLAGS += -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64
-
-# Compiler flags
-ifeq ($(filter -std=% -ansi,$(CFLAGS)),)
-PROJECT_CFLAGS += -std=c89
-endif
-
-ifeq ($(filter -O%,$(CFLAGS)),)
-PROJECT_CFLAGS += -O2
-endif
-
-PROJECT_CFLAGS += \
-    -Wall \
-    -Wextra \
-    -pipe
-
-# Set NOFLAGS to 1 for C++ compilers
-NOFLAGS ?= $(if $(findstring ++,$(notdir $(CC))),1)
-
-# If NOFLAGS is set to 1, set CFLAGS and LDFLAGS to empty
-ifeq ($(NOFLAGS),1)
-override CFLAGS :=
-override LDFLAGS :=
-PROJECT_CFLAGS :=
-PROJECT_LDFLAGS :=
-endif # NOFLAGS = 1
-
-# Platform-specific linker flags
-PROJECT_LDFLAGS += \
-    $(if $(findstring Linux,$(UNAME)),-lrt) \
-    $(if $(findstring FreeBSD,$(UNAME)),-lkvm) \
-    $(if $(findstring Darwin,$(UNAME)),-lproc)
-
-# Add pthread support
+# The test binary is multi-threaded
 PROJECT_CFLAGS += -pthread
 PROJECT_LDFLAGS += -pthread
-
-ALL_CFLAGS := $(PROJECT_CFLAGS) $(CFLAGS)
-ALL_LDFLAGS := $(LDFLAGS) $(PROJECT_LDFLAGS)
-
-# cppcheck options
-CPPCHECK_OPTS := \
-    --enable=all \
-    --language=c \
-    --inconclusive \
-    --check-level=exhaustive \
-    --library=gnu \
-    --force \
-    --std=c89 \
-    --project=compile_commands.json \
-    --suppress=missingIncludeSystem \
-    --suppress=ConfigurationNotChecked \
-    --suppress=unmatchedSuppression \
-    --suppress=checkersReport \
-    --inline-suppr
-
-# clang-tidy options
-CLANG_TIDY_OPTS :=
-ifeq ($(UNAME),Darwin)
-MACOS_SDK := $(shell xcrun --show-sdk-path 2>/dev/null || true)
-ifneq ($(MACOS_SDK),)
-CLANG_TIDY_OPTS += --extra-arg=-isysroot --extra-arg=$(MACOS_SDK)
-endif
-endif
-
-# Check report file
-CPPCHECK_REPORT := cppcheck-report.txt
-CLANG_TIDY_REPORT := clang-tidy-report.txt
 
 # Phony targets
 .PHONY: all clean format check
@@ -89,14 +14,17 @@ CLANG_TIDY_REPORT := clang-tidy-report.txt
 # Default target
 all: $(TARGETS)
 
-# Target rules
-busy: busy.c $(wildcard $(SRC)/util.*) $(wildcard $(SRC)/signal_handler.*) \
-	$(wildcard $(SRC)/cpu_count.*) $(wildcard $(SRC)/file_io.*)
-	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
-
-multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*) \
-	$(wildcard $(SRC)/signal_handler.*) $(wildcard $(SRC)/cpu_count.*) \
+# The load helpers need a subset of src/: the CPU count, the whole-file
+# read it uses on Linux, signal handling and the generic helpers.
+LOAD_HELPER_SRC := \
+	$(wildcard $(SRC)/util.*) \
+	$(wildcard $(SRC)/signal_handler.*) \
+	$(wildcard $(SRC)/cpu_count.*) \
 	$(wildcard $(SRC)/file_io.*)
+
+# Target rules: one static pattern rule builds both load helpers from
+# their own .c plus the shared subset above.
+busy multi_process_busy: %: %.c $(LOAD_HELPER_SRC)
 	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
 # Deterministic timing seam (test binary only)
@@ -153,18 +81,9 @@ format: $(wildcard *.c *.h)
 
 # Check source files with cppcheck
 check: $(wildcard *.c *.h) clean
-	@command -v bear >/dev/null 2>&1 || { \
-	echo "bear is not installed. Please install it to check the code."; \
-	exit 1; \
-	}
-	@command -v cppcheck >/dev/null 2>&1 || { \
-	echo "cppcheck is not installed. Please install it to check the code."; \
-	exit 1; \
-	}
-	@command -v clang-tidy >/dev/null 2>&1 || { \
-	echo "clang-tidy is not installed. Please install it to check the code."; \
-	exit 1; \
-	}
+	$(call require-tool,bear)
+	$(call require-tool,cppcheck)
+	$(call require-tool,clang-tidy)
 	bear --force-wrapper -- $(MAKE) all 2>/dev/null || \
 	bear -- $(MAKE) all
 	cppcheck $(CPPCHECK_OPTS) 2>"$(CPPCHECK_REPORT)"
