@@ -36,6 +36,19 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+/*
+ * The test harness renames getloadavg() to cpulimit_test_getloadavg() via a
+ * -D flag applied to the sources compiled into the test binary. On libcs that
+ * provide a getloadavg() prototype (glibc, uClibc >= 1.0.42) that rename also
+ * rewrites the prototype, so no extra declaration is needed. On uClibc < 1.0.42
+ * (flagged by CPULIMIT_IMPL_GETLOADAVG in util.h) there is no prototype to
+ * rewrite, so declare the renamed symbol here to avoid an implicit-declaration
+ * warning.
+ */
+#ifdef CPULIMIT_IMPL_GETLOADAVG
+int cpulimit_test_getloadavg(double *loadavg, int nelem);
+#endif
+
 /**
  * @def WORK_RATIO_EPSILON
  * @brief Very small positive value used to prevent division by zero and
