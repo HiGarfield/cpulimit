@@ -185,6 +185,7 @@ set(CPULIMIT_SRC_COMMON
     ${PROJECT_SOURCE_DIR}/src/process_iterator_freebsd.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_apple.c
     ${PROJECT_SOURCE_DIR}/src/process_table.c
+    ${PROJECT_SOURCE_DIR}/src/signal_forward.c
     ${PROJECT_SOURCE_DIR}/src/signal_handler.c
     ${PROJECT_SOURCE_DIR}/src/time_util.c
     ${PROJECT_SOURCE_DIR}/src/util.c
