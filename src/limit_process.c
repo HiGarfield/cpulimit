@@ -165,8 +165,8 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
          *   adjustments.
          */
         new_time_slot = ctx->time_slot * load / get_ncpu() / 0.3;
-        new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT_US,
-                              MAX_TIME_SLOT_US);
+        new_time_slot =
+            CLAMP(new_time_slot, MIN_TIME_SLOT_US, MAX_TIME_SLOT_US);
 
         /*
          * Smooth adaptation using exponential moving average:

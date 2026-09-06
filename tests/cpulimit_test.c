@@ -3281,7 +3281,7 @@ static void test_process_iterator_null_proc_dir_guard(void) {
  */
 static int run_parse_in_child(int argc, char **argv) {
     pid_t pid, waited;
-    int status, exited, parse_result;
+    int status, exited;
     struct cpulimit_cfg cfg;
 
     fflush(stdout);
@@ -3289,6 +3289,7 @@ static int run_parse_in_child(int argc, char **argv) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int parse_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
         parse_result = parse_arguments(argc, argv, &cfg);

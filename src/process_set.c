@@ -30,8 +30,8 @@
 #include "process_table.h"
 #include "time_util.h"
 #include "util.h"
-#include <errno.h>
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
