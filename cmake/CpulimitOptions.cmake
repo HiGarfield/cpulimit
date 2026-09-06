@@ -174,6 +174,7 @@ set(CPULIMIT_C_FLAGS
 # binary.  main.c is intentionally excluded; it provides the entry
 # point and is added per-target.
 set(CPULIMIT_SRC_COMMON
+    ${PROJECT_SOURCE_DIR}/src/child_exec.c
     ${PROJECT_SOURCE_DIR}/src/cli.c
     ${PROJECT_SOURCE_DIR}/src/limit_process.c
     ${PROJECT_SOURCE_DIR}/src/limiter.c
