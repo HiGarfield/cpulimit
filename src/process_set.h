@@ -48,18 +48,50 @@ extern "C" {
  * for CPU usage monitoring and limiting. It maintains a hashtable for fast
  * lookups and a list for iteration, along with timing information for
  * calculating CPU usage deltas.
+ *
+ * Ownership contract for the two process containers:
+ * - proc_table OWNS the process records. It allocates them when a new PID
+ *   is discovered and frees them once that PID stops being a group member.
+ * - proc_list is a NON-OWNING view. Its nodes hold borrowed pointers to
+ *   records owned by proc_table; it never allocates or frees them.
+ *
+ * The two are therefore not redundant copies of one state; they answer
+ * different questions. proc_table is the long-lived store that survives
+ * update cycles so CPU history can be compared across them: PID reuse
+ * detection and the EMA both need the previous sample for a PID that is
+ * still present. proc_list is the per-cycle membership snapshot used for
+ * iteration (CPU usage aggregation, signal delivery) and is rebuilt from
+ * scratch on every cycle. Collapsing them into one container would either
+ * lose the previous sample or make "is this PID still a member?" cost a
+ * linear scan.
+ *
+ * See update_process_set() for the ordering that keeps them in sync. The
+ * invariants it maintains are:
+ * - every proc_list entry points at a record owned by proc_table;
+ * - clear_list(proc_list) releases only the list nodes, never a record;
+ * - at the end of a cycle remove_stale_from_process_table() deletes the
+ *   records that proc_list did not name, so the two agree again.
  */
 struct process_set {
     /**
-     * Hashtable mapping PIDs to process structures for O(1) lookup.
-     * Used to detect new processes, reused PIDs, and track historical data.
+     * Owning hashtable mapping PIDs to process structures for O(1) lookup.
+     *
+     * Sole owner of the records: process_dup() allocates them and
+     * remove_stale_from_process_table() frees them. Survives update cycles
+     * on purpose, so the previous cpu_time sample is still available for
+     * PID reuse detection and EMA smoothing when a later cycle finds the
+     * same PID again.
      */
     struct process_table *proc_table;
 
     /**
-     * Linked list of currently active processes in this group.
-     * Rebuilt on each update by scanning /proc (or equivalent).
-     * Contains pointers to process structures stored in proc_table.
+     * Non-owning linked list of the processes active in the current cycle.
+     *
+     * Holds borrowed pointers into proc_table and never allocates or frees
+     * the records it points at. Rebuilt from scratch by every
+     * update_process_set() call by scanning /proc (or equivalent), so it
+     * carries only this cycle's membership and is the view used for
+     * iteration: CPU usage aggregation and SIGSTOP/SIGCONT delivery.
      */
     struct list *proc_list;
 

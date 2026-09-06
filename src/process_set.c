@@ -449,7 +449,13 @@ int update_process_set(struct process_set *proc_set) {
         return -1;
     }
 
-    /* Clear process list (will be rebuilt from scratch) */
+    /*
+     * Clear process list (will be rebuilt from scratch).  Only the list
+     * nodes are released: the records they pointed at belong to
+     * proc_table, which must keep them so that the next cycle can still
+     * compare cpu_time against the previous sample.  This is the point of
+     * the ownership contract documented on struct process_set.
+     */
     clear_list(proc_set->proc_list);
 
     /* Scan currently running processes and update tracking data */
