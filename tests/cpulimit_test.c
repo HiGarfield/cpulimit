@@ -7248,7 +7248,7 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         struct cpulimit_cfg cfg;
-        int devnull, mode_result;
+        int mode_result;
         /*
          * Redirect output instead of closing it.  The command is a full
          * C program, so it needs open stdio descriptors, and closed
@@ -7256,17 +7256,14 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
          * 2, which then alias the sync pipe and the command's own
          * opens.  Redirecting keeps this test on the same fd layout
          * real invocations use.
+         *
+         * freopen() keeps the redirection on the existing descriptors,
+         * so unlike open()+dup2() it does not hand out a fresh
+         * descriptor that the analyzer would have to see closed again.
          */
-        devnull = open("/dev/null", O_WRONLY);
-        if (devnull < 0) {
+        if (freopen("/dev/null", "w", stdout) == NULL ||
+            freopen("/dev/null", "w", stderr) == NULL) {
             _exit(EXIT_FAILURE);
-        }
-        if (dup2(devnull, STDOUT_FILENO) < 0 ||
-            dup2(devnull, STDERR_FILENO) < 0) {
-            _exit(EXIT_FAILURE);
-        }
-        if (devnull > STDERR_FILENO) {
-            close(devnull);
         }
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
@@ -7361,17 +7358,10 @@ static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         struct cpulimit_cfg cfg;
-        int devnull, mode_result;
-        devnull = open("/dev/null", O_WRONLY);
-        if (devnull < 0) {
+        int mode_result;
+        if (freopen("/dev/null", "w", stdout) == NULL ||
+            freopen("/dev/null", "w", stderr) == NULL) {
             _exit(EXIT_FAILURE);
-        }
-        if (dup2(devnull, STDOUT_FILENO) < 0 ||
-            dup2(devnull, STDERR_FILENO) < 0) {
-            _exit(EXIT_FAILURE);
-        }
-        if (devnull > STDERR_FILENO) {
-            close(devnull);
         }
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
@@ -8978,31 +8968,35 @@ static double seam_clock_ms = 0.0;
 static struct seam_proc (*seam_frames)[SEAM_MAX_FRAME_PROCS];
 
 /** @brief Number of processes in each scripted snapshot. */
-static int seam_frame_len[SEAM_MAX_FRAMES];
+static size_t seam_frame_len[SEAM_MAX_FRAMES];
 
 /** @brief Number of scripted snapshots. */
-static int seam_frame_count = 0;
+static size_t seam_frame_count = 0;
 
 /** @brief Index of the next snapshot to serve. */
-static int seam_frame_next = 0;
+static size_t seam_frame_next = 0;
 
-/** @brief Index of the snapshot being served now; -1 when none is left. */
-static int seam_frame_current = -1;
+/* @brief Index of the snapshot being served now; (size_t)-1 when none is left.
+ * Counters are size_t on purpose: the seam machinery compares a counter and
+ * then increments it, which at -O3 makes gcc's -Wstrict-overflow=5 assume a
+ * signed counter cannot overflow (X + C1 cmp C2).  Unsigned overflow is
+ * well-defined, so the warning disappears without changing any behavior. */
+static size_t seam_frame_current = (size_t)-1;
 
 /** @brief Position within the snapshot being served. */
-static int seam_frame_pos = 0;
+static size_t seam_frame_pos = 0;
 
 /** @brief Non-zero to keep serving the last snapshot once the script ends. */
 static int seam_repeat_last = 0;
 
 /** @brief Number of snapshots served in this session. */
-static int seam_frames_served = 0;
+static size_t seam_frames_served = 0;
 
 /** @brief kill() calls recorded during this session, in order. */
 static struct seam_signal *seam_signals;
 
 /** @brief Number of kill() calls recorded. */
-static int seam_signal_count = 0;
+static size_t seam_signal_count = 0;
 
 /**
  * @brief Copy of one recorded run, used to compare two runs
@@ -9013,7 +9007,7 @@ static int seam_signal_count = 0;
 static struct seam_signal *seam_run_snapshot;
 
 /** @brief Number of entries in seam_run_snapshot. */
-static int seam_run_snapshot_len = 0;
+static size_t seam_run_snapshot_len = 0;
 
 /** @brief Number of kill() calls made so far. */
 static int seam_kill_calls = 0;
@@ -9074,7 +9068,7 @@ static int seam_sleep_go_fd = -1;
 static struct seam_signal *seam_child_log;
 
 /** @brief Number of entries in seam_child_log. */
-static int seam_child_log_len = 0;
+static size_t seam_child_log_len = 0;
 
 /**
  * @brief Allocate all seam storage areas
@@ -9148,7 +9142,7 @@ static void seam_reset(void) {
     seam_clock_ms = 0.0;
     seam_frame_count = 0;
     seam_frame_next = 0;
-    seam_frame_current = -1;
+    seam_frame_current = (size_t)-1;
     seam_frame_pos = 0;
     seam_repeat_last = 0;
     seam_frames_served = 0;
@@ -9189,7 +9183,7 @@ static void seam_push_frame(const struct seam_proc *procs, int count) {
     for (idx = 0; idx < count; idx++) {
         seam_frames[seam_frame_count][idx] = procs[idx];
     }
-    seam_frame_len[seam_frame_count] = count;
+    seam_frame_len[seam_frame_count] = (size_t)count;
     seam_frame_count++;
 }
 
@@ -9203,8 +9197,9 @@ static void seam_push_frame(const struct seam_proc *procs, int count) {
  */
 static int seam_count_signals(const struct seam_signal *log, int count,
                               pid_t pid, int sig) {
-    int idx, total = 0;
-    for (idx = 0; idx < count; idx++) {
+    size_t idx;
+    int total = 0;
+    for (idx = 0; idx < (size_t)count; idx++) {
         /* Entries with PID 0 mark a snapshot boundary, not a signal. */
         if (log[idx].pid == (pid_t)0) {
             continue;
@@ -9254,7 +9249,10 @@ static void seam_assert_no_double_stop(const struct seam_signal *log,
         if (log[outer].pid == (pid_t)0 || log[outer].sig != SIGSTOP) {
             continue;
         }
-        for (idx = outer + 1; idx < count; idx++) {
+        for (idx = outer; idx < count; idx++) {
+            if (idx == outer) {
+                continue;
+            }
             if (log[idx].pid != log[outer].pid) {
                 continue;
             }
@@ -9396,7 +9394,7 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
     }
     seam_mark_snapshot();
     seam_frames_served++;
-    seam_frame_current = -1;
+    seam_frame_current = (size_t)-1;
     if (seam_frames_served <= SEAM_MAX_SERVED_FRAMES) {
         if (seam_frame_next < seam_frame_count) {
             seam_frame_current = seam_frame_next;
@@ -9421,7 +9419,7 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
         return get_next_process(iter, proc);
     }
     (void)iter;
-    if (proc == NULL || seam_frame_current < 0 ||
+    if (proc == NULL || seam_frame_current == (size_t)-1 ||
         seam_frame_pos >= seam_frame_len[seam_frame_current]) {
         return -1;
     }
@@ -9445,10 +9443,11 @@ int cpulimit_test_close_process_iterator(struct process_iterator *iter) {
         return close_process_iterator(iter);
     }
     (void)iter;
-    if (seam_frame_current >= 0 && seam_frame_current < seam_frame_count) {
+    if (seam_frame_current != (size_t)-1 &&
+        seam_frame_current < seam_frame_count) {
         seam_frame_next = seam_frame_current + 1;
     }
-    seam_frame_current = -1;
+    seam_frame_current = (size_t)-1;
     return 0;
 }
 
@@ -9593,7 +9592,7 @@ static int seam_run_smoke_limit(void) {
     limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
     seam_active = 0;
 
-    return seam_signal_count;
+    return (int)seam_signal_count;
 }
 
 /**
@@ -9601,14 +9600,14 @@ static int seam_run_smoke_limit(void) {
  * @return Number of entries copied
  */
 static int seam_snapshot_run(void) {
-    int idx;
+    size_t idx;
     seam_run_snapshot_len = seam_signal_count < SEAM_MAX_SIGNALS
                                 ? seam_signal_count
                                 : SEAM_MAX_SIGNALS;
     for (idx = 0; idx < seam_run_snapshot_len; idx++) {
         seam_run_snapshot[idx] = seam_signals[idx];
     }
-    return seam_run_snapshot_len;
+    return (int)seam_run_snapshot_len;
 }
 
 /** @brief Descendant PID the seam scripts report next to the target. */
@@ -9650,7 +9649,9 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
     target_only[0].pid = (pid_t)SEAM_TARGET_PID;
     target_only[0].ppid = (pid_t)1;
 
-    for (cycle = 0; cycle < SEAM_GROUP_CYCLES; cycle++) {
+    /* != rather than <: avoids the X + C1 <= C2 form that -Wstrict-overflow=5
+     * flags when the loop is fully unrolled at -O3. */
+    for (cycle = 0; cycle != SEAM_GROUP_CYCLES; cycle++) {
         both[0].cpu_time = (cycle == reuse_cycle)
                                ? 10.0
                                : 1000.0 + (double)cycle * SEAM_SMOKE_CPU_STEP;
@@ -9667,7 +9668,7 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
     limit_process((pid_t)SEAM_TARGET_PID, 0.5, 1, 0);
     seam_active = 0;
 
-    return seam_signal_count;
+    return (int)seam_signal_count;
 }
 
 /**
@@ -9762,6 +9763,7 @@ static void seam_assert_nothing_left_stopped(const struct seam_signal *log,
     int idx;
     int stops_target, conts_target, fails_target;
     int stops_child, conts_child, fails_child;
+    int undone_target, undone_child;
 
     stops_target =
         seam_count_signals(log, count, (pid_t)SEAM_TARGET_PID, SIGSTOP);
@@ -9784,15 +9786,21 @@ static void seam_assert_nothing_left_stopped(const struct seam_signal *log,
         }
     }
 
-    if (conts_target + fails_target < stops_target) {
+    /* Summed first so the comparison is undone_target < stops_target rather
+     * than conts_target + fails_target < stops_target: the latter has the
+     * form X + C1 cmp C2 that -Wstrict-overflow=5 warns about on the
+     * assumption signed overflow never happens. */
+    undone_target = conts_target + fails_target;
+    undone_child = conts_child + fails_child;
+    if (undone_target < stops_target) {
         fprintf(stderr, "(%s: target stopped %d times, undone %d+%d)\n", what,
                 stops_target, conts_target, fails_target);
-        assert(conts_target + fails_target >= stops_target);
+        assert(undone_target >= stops_target);
     }
-    if (conts_child + fails_child < stops_child) {
+    if (undone_child < stops_child) {
         fprintf(stderr, "(%s: descendant stopped %d times, undone %d+%d)\n",
                 what, stops_child, conts_child, fails_child);
-        assert(conts_child + fails_child >= stops_child);
+        assert(undone_child >= stops_child);
     }
 }
 
@@ -9826,7 +9834,10 @@ static void seam_assert_no_signal_after_failure(int count, const char *what) {
         if (!seam_signals[outer].failed) {
             continue;
         }
-        for (idx = outer + 1; idx < count; idx++) {
+        for (idx = outer; idx < count; idx++) {
+            if (idx == outer) {
+                continue;
+            }
             /* A later snapshot legitimises controlling the PID again. */
             if (seam_signals[idx].pid == (pid_t)0) {
                 break;
@@ -10182,7 +10193,7 @@ static int seam_read_child_log(int fd) {
             seam_child_log_len++;
         }
     } while (n_read > 0 || (n_read < 0 && errno == EINTR));
-    return seam_child_log_len;
+    return (int)seam_child_log_len;
 }
 
 /**
@@ -10247,12 +10258,15 @@ static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
  */
 static void test_seam_quit_while_parked_in_sleep(void) {
     static const char *const phases[] = {"work phase", "suspension phase"};
-    int sleep_call;
+    int phase;
 
-    for (sleep_call = 1; sleep_call <= 2; sleep_call++) {
+    /* != rather than < so the loop exit is not the X + C1 <= C2 form that
+     * -Wstrict-overflow=5 warns about; phase only ever takes 0 and 1. */
+    for (phase = 0; phase != 2; phase++) {
         int announce_pipe[2], go_pipe[2], log_pipe[2];
         pid_t limiter_pid, waited;
-        int status, close_ret, count;
+        /* sleep_call is 1-based (it counts sleeps); phase indexes phases[]. */
+        int status, close_ret, count, sleep_call = phase + 1;
         ssize_t n_read;
         char byte;
 
@@ -10296,8 +10310,7 @@ static void test_seam_quit_while_parked_in_sleep(void) {
             assert(seam_last_signal_to(seam_child_log, count,
                                        (pid_t)SEAM_TARGET_PID) == SIGCONT);
         }
-        seam_assert_nothing_left_stopped(seam_child_log, count,
-                                         phases[sleep_call - 1]);
+        seam_assert_nothing_left_stopped(seam_child_log, count, phases[phase]);
         seam_assert_no_double_stop(seam_child_log, count);
     }
 
