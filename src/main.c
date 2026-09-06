@@ -28,18 +28,27 @@
 #include "signal_handler.h"
 #include "time_util.h"
 
+#include <stdlib.h>
+
 int main(int argc, char *argv[]) {
     /*
      * Configuration structure to store parsed command line arguments
      * including target specification, CPU limit, and behavior flags.
      */
     struct cpulimit_cfg cfg;
+    int parse_result;
 
     /*
      * Parse and validate command line arguments.
-     * This function exits the program if arguments are invalid.
+     * Returns 0 on success, EXIT_FAILURE on error, -1 when help was shown.
      */
-    parse_arguments(argc, argv, &cfg);
+    parse_result = parse_arguments(argc, argv, &cfg);
+    if (parse_result != 0) {
+        if (parse_result < 0) {
+            return EXIT_SUCCESS;
+        }
+        return parse_result;
+    }
 
     if (cfg.verbose) {
         /*

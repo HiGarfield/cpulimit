@@ -97,13 +97,15 @@ struct cpulimit_cfg {
  * @param argv Array of command-line argument strings (from main)
  * @param cfg Pointer to configuration structure to be filled with parsed values
  *
- * This function processes all command-line options, validates the input,
- * and exits the program (via exit()) if any errors are encountered or if
- * help is requested. Upon successful return, cfg contains valid configuration.
+ * This function processes all command-line options and validates the input.
+ * On success, cfg contains valid configuration and the function returns 0.
+ * On validation failure, the function prints an error message and returns
+ * EXIT_FAILURE. If help is requested, usage is printed and the function
+ * returns -1 so the caller can exit with EXIT_SUCCESS.
  *
- * @note This function calls exit() and does not return on error or help request
+ * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested
  */
-void parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg);
+int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg);
 
 #ifdef __cplusplus
 }

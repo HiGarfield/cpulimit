@@ -3281,7 +3281,7 @@ static void test_process_iterator_null_proc_dir_guard(void) {
  */
 static int run_parse_in_child(int argc, char **argv) {
     pid_t pid, waited;
-    int status, exited;
+    int status, exited, parse_result;
     struct cpulimit_cfg cfg;
 
     fflush(stdout);
@@ -3291,7 +3291,13 @@ static int run_parse_in_child(int argc, char **argv) {
     if (pid == 0) {
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        parse_arguments(argc, argv, &cfg);
+        parse_result = parse_arguments(argc, argv, &cfg);
+        if (parse_result < 0) {
+            _exit(EXIT_SUCCESS);
+        }
+        if (parse_result != 0) {
+            _exit(parse_result);
+        }
         _exit(99); /* Only reached when parse_arguments returns (valid args) */
     }
     waited = waitpid(pid, &status, 0);
@@ -3982,10 +3988,11 @@ static void test_cli_null_cfg(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int parse_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        parse_arguments(5, test_argv, NULL);
-        _exit(99);
+        parse_result = parse_arguments(5, test_argv, NULL);
+        _exit(parse_result);
     }
     waited_pid = waitpid(pid, &status, 0);
     assert(waited_pid == pid);
@@ -4012,10 +4019,11 @@ static void test_cli_invalid_api_inputs(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int parse_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        parse_arguments(0, NULL, &cfg);
-        _exit(99);
+        parse_result = parse_arguments(0, NULL, &cfg);
+        _exit(parse_result);
     }
     waited_pid = waitpid(pid, &status, 0);
     assert(waited_pid == pid);
@@ -4031,10 +4039,11 @@ static void test_cli_invalid_api_inputs(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int parse_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        parse_arguments(1, test_argv, &cfg);
-        _exit(99);
+        parse_result = parse_arguments(1, test_argv, &cfg);
+        _exit(parse_result);
     }
     waited_pid = waitpid(pid, &status, 0);
     assert(waited_pid == pid);
@@ -6662,8 +6671,9 @@ static void test_limiter_run_command_mode(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE); /* Should not reach here */
+        int mode_result;
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -6698,11 +6708,12 @@ static void test_limiter_run_pid_or_exe_mode(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         /* Suppress output from run_pid_or_exe_mode in child */
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE); /* Should not reach here */
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -6739,10 +6750,11 @@ static void test_limiter_run_command_mode_nonexistent(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -7000,6 +7012,7 @@ static pid_t seam_fork_count_wrapper(char *ready_path, int release_fd) {
         char child_arg[] = COUNT_CHILD_ARG;
         char release_arg[32];
         char *args[5];
+        int mode_result;
         /*
          * Last resort only: the command waits to be released rather than
          * for a timeout, so a run that never delivers anything has no way
@@ -7019,8 +7032,8 @@ static pid_t seam_fork_count_wrapper(char *ready_path, int release_fd) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         configure_signal_handler();
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
     return wrapper_pid;
 }
@@ -7230,7 +7243,7 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         struct cpulimit_cfg cfg;
-        int devnull;
+        int devnull, mode_result;
         /*
          * Redirect output instead of closing it.  The command is a full
          * C program, so it needs open stdio descriptors, and closed
@@ -7257,8 +7270,8 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         configure_signal_handler();
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     /* Wait until the command has installed its handler. */
@@ -7343,7 +7356,7 @@ static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         struct cpulimit_cfg cfg;
-        int devnull;
+        int devnull, mode_result;
         devnull = open("/dev/null", O_WRONLY);
         if (devnull < 0) {
             _exit(EXIT_FAILURE);
@@ -7362,8 +7375,8 @@ static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         configure_signal_handler();
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     /* Wait until the command has left the group. */
@@ -7447,10 +7460,11 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -7539,10 +7553,11 @@ static void test_limiter_run_command_mode_fifo(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     /* cpulimit must reject the FIFO immediately; it must never block. */
@@ -7640,6 +7655,7 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(stderr_pipe[0]);
         ret = dup2(stderr_pipe[1], STDERR_FILENO);
@@ -7647,8 +7663,8 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
             _exit(EXIT_FAILURE);
         }
         close(stderr_pipe[1]);
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     close(stderr_pipe[1]);
@@ -7730,10 +7746,11 @@ static void test_limiter_run_command_mode_verbose(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -7765,10 +7782,11 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -7804,10 +7822,11 @@ static void test_limiter_run_command_mode_false(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(99);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -7849,10 +7868,11 @@ static void test_limiter_run_command_mode_signal_term(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(99);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -7895,10 +7915,11 @@ static void test_limiter_run_command_mode_signal_kill(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(99);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -7943,10 +7964,11 @@ static void test_limiter_run_command_mode_with_fork(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        run_command_mode(&cfg);
-        _exit(99);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     /*
@@ -7987,6 +8009,7 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         char cmd[] = "sleep";
         char arg1[] = "60";
         char *args[3];
+        int mode_result;
 
         ret = close(ready_pipe[0]);
         assert(ret == 0);
@@ -8009,8 +8032,8 @@ static void test_limiter_run_command_mode_quit_signal(void) {
         }
         ret = close(ready_pipe[1]);
         assert(ret == 0);
-        run_command_mode(&cfg);
-        _exit(99);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     /* Wait for wrapper to signal readiness */
@@ -8064,6 +8087,7 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         char cmd[] = "sleep";
         char arg1[] = "60";
         char *args[3];
+        int mode_result;
 
         ret = close(ready_pipe[0]);
         assert(ret == 0);
@@ -8086,8 +8110,8 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
         }
         ret = close(ready_pipe[1]);
         assert(ret == 0);
-        run_command_mode(&cfg);
-        _exit(99);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     /* Wait for wrapper to signal readiness */
@@ -8137,13 +8161,14 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int mode_result;
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
         configure_signal_handler();
         /* Send ourselves SIGTERM to set the quit flag, then call the mode */
         kill(getpid(), SIGTERM);
-        run_pid_or_exe_mode(&cfg);
-        _exit(99);
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(pid, &status, 0);
@@ -8173,6 +8198,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
     if (wrapper_pid == 0) {
         pid_t target_pid;
         struct cpulimit_cfg cfg;
+        int mode_result;
 
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -8191,9 +8217,8 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         cfg.verbose = 0; /* non-verbose: verbose guard must not print */
-        run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
-                                calls exit */
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(wrapper_pid, &wrapper_status, 0);
@@ -8219,6 +8244,7 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
         struct cpulimit_cfg cfg;
+        int mode_result;
 
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -8228,9 +8254,8 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
         cfg.target_pid = getpid(); /* target is the wrapper itself */
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
-        run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
-                                calls exit */
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(wrapper_pid, &wrapper_status, 0);
@@ -8262,6 +8287,7 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
     if (wrapper_pid == 0) {
         pid_t target_pid;
         struct cpulimit_cfg cfg;
+        int mode_result;
 
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -8280,9 +8306,8 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         cfg.verbose = 1; /* exercises verbose branch in run_pid_or_exe_mode */
-        run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE); /* safety fallback: run_pid_or_exe_mode always
-                                calls exit */
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(wrapper_pid, &wrapper_status, 0);
@@ -8338,6 +8363,7 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
         struct sigaction sa_cont;
         char ready_byte;
         ssize_t n_read;
+        int mode_result;
 
         memset(&sa_cont, 0, sizeof(sa_cont));
 
@@ -8415,7 +8441,8 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         cfg.verbose = 0;
-        run_pid_or_exe_mode(&cfg);
+        mode_result = run_pid_or_exe_mode(&cfg);
+        (void)mode_result;
         /*
          * run_pid_or_exe_mode only returns after the target terminates.
          * Reap it to learn whether the target was ever resumed.
@@ -8469,6 +8496,7 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
         char cmd[] = "sleep";
         char arg1[] = "60";
         char *args[3];
+        int mode_result;
 
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -8499,8 +8527,8 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
          * immediately because quit_flag is set), then forward SIGTERM to
          * the child process group.
          */
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE); /* safety: run_command_mode always calls exit */
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     waited = waitpid(wrapper_pid, &wrapper_status, 0);
@@ -8543,6 +8571,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
         char cmd[] = "sleep";
         char arg1[] = "60";
         char *args[3];
+        int mode_result;
 
         close(notify_pipe[0]);
         close(STDOUT_FILENO);
@@ -8573,8 +8602,8 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
          * restarted; quit_flag is set.  After reading the sync byte,
          * limit_process exits immediately and SIGTERM is forwarded.
          */
-        run_command_mode(&cfg);
-        _exit(EXIT_FAILURE); /* safety: run_command_mode always calls exit */
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
     }
 
     /* Wait for wrapper to be ready */
@@ -10147,6 +10176,7 @@ static pid_t seam_fork_exe_limiter(int announce_fd, int go_fd) {
     if (limiter_pid == 0) {
         struct cpulimit_cfg cfg;
         const char exe_name[] = "nonexistent_exe_cpulimit_test_12345";
+        int mode_result;
         alarm(60);
         memset(&cfg, 0, sizeof(cfg));
         cfg.program_name = "test";
@@ -10154,8 +10184,8 @@ static pid_t seam_fork_exe_limiter(int announce_fd, int go_fd) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 0;
         configure_signal_handler();
-        run_pid_or_exe_mode(&cfg);
-        _exit(EXIT_FAILURE);
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
     }
     return limiter_pid;
 }
