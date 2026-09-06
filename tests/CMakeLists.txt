@@ -3,6 +3,8 @@ find_package(Threads REQUIRED)
 # --- busy ---
 add_executable(busy
     busy.c
+    ${PROJECT_SOURCE_DIR}/src/cpu_count.c
+    ${PROJECT_SOURCE_DIR}/src/file_io.c
     ${PROJECT_SOURCE_DIR}/src/signal_handler.c
     ${PROJECT_SOURCE_DIR}/src/util.c
 )
@@ -12,6 +14,8 @@ add_checked_flags(busy CPULIMIT_C_FLAGS)
 # --- multi_process_busy ---
 add_executable(multi_process_busy
     multi_process_busy.c
+    ${PROJECT_SOURCE_DIR}/src/cpu_count.c
+    ${PROJECT_SOURCE_DIR}/src/file_io.c
     ${PROJECT_SOURCE_DIR}/src/signal_handler.c
     ${PROJECT_SOURCE_DIR}/src/util.c
 )

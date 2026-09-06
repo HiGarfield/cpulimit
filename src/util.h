@@ -71,19 +71,6 @@ extern "C" {
 #endif /* CLAMP */
 
 /**
- * @brief Extract filename from a full path
- * @param path Full file path (may contain directory separators), or NULL
- * @return Pointer to the filename portion within the path string
- *
- * Returns a pointer to the substring after the last '/' character, or the
- * original string if no '/' is found. Does not allocate memory; the returned
- * pointer references part of the input string.
- *
- * If path is NULL, returns an empty string.
- */
-const char *get_file_basename(const char *path);
-
-/**
  * @brief Attempt to increase the scheduling priority of the current process
  *
  * Tries to set the process nice value to -20 (highest priority) to minimize
@@ -95,20 +82,6 @@ const char *get_file_basename(const char *path);
  * with potentially higher latency.
  */
 void increase_priority(void);
-
-/**
- * @brief Get the number of online/available CPU cores
- * @return Number of CPUs available to the process (>= 1)
- *
- * Queries the system for the number of online CPUs using platform-specific
- * methods (sysconf on Linux/POSIX, sysctl on macOS/FreeBSD). The result is
- * cached after the first call for efficiency. On Linux, performs additional
- * validation by reading /sys/devices/system/cpu/online to work around older
- * library bugs. Returns 1 if count cannot be determined.
- *
- * @note Result is cached and never recalculated even if CPU hotplugging occurs
- */
-int get_ncpu(void);
 
 /*
  * On uClibc/uClibc-ng versions below 1.0.42, getloadavg() is not available.
@@ -132,34 +105,6 @@ int get_ncpu(void);
 int getloadavg_impl(double *loadavg, int nelem);
 #define getloadavg(loadavg, nelem) (getloadavg_impl((loadavg), (nelem)))
 #define CPULIMIT_IMPL_GETLOADAVG
-#endif
-
-#if defined(__linux__)
-/**
- * @brief Read the entire contents of a text file.
- *
- * Opens the specified text file and reads all of its bytes into a
- * heap-allocated, NUL-terminated buffer. Unlike a line reader, this reads
- * past any newline, which is required for files such as /proc/[pid]/stat
- * whose only string field (comm) may legitimately embed a newline.
- *
- * The returned buffer is heap-allocated and must be freed by the caller.
- *
- * @param file_name Path to the file.
- * @return Heap-allocated NUL-terminated string, or NULL on error or empty
- *         file.
- */
-char *read_file_contents(const char *file_name);
-
-/**
- * @brief Parse a Linux sysfs CPU range string into a CPU count
- * @param str CPU range specification (e.g. "0-3", "0,2,4", "0-1,4-7")
- * @return Number of CPUs described by the range, or -1 on parse error
- *
- * Public only so the unit tests can verify its boundary behaviour.
- * Behaviour and contract are documented at the definition in util.c.
- */
-int parse_cpu_range(const char *str);
 #endif
 
 /**

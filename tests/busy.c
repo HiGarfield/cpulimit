@@ -23,6 +23,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include "../src/cpu_count.h"
 #include "../src/signal_handler.h"
 #include "../src/util.h"
 

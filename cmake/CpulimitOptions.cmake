@@ -177,10 +177,13 @@ set(CPULIMIT_SRC_COMMON
     ${PROJECT_SOURCE_DIR}/src/child_exec.c
     ${PROJECT_SOURCE_DIR}/src/child_wait.c
     ${PROJECT_SOURCE_DIR}/src/cli.c
+    ${PROJECT_SOURCE_DIR}/src/cpu_count.c
     ${PROJECT_SOURCE_DIR}/src/exec_sync.c
+    ${PROJECT_SOURCE_DIR}/src/file_io.c
     ${PROJECT_SOURCE_DIR}/src/limit_process.c
     ${PROJECT_SOURCE_DIR}/src/limiter.c
     ${PROJECT_SOURCE_DIR}/src/list.c
+    ${PROJECT_SOURCE_DIR}/src/path_util.c
     ${PROJECT_SOURCE_DIR}/src/process_finder.c
     ${PROJECT_SOURCE_DIR}/src/process_set.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_common.c

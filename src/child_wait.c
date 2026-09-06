@@ -55,8 +55,7 @@
  */
 #define CHILD_POLL_INTERVAL_NS 50000000L /* 50 ms */
 
-int collect_child_exit_status(pid_t child_pid,
-                              const struct cpulimit_cfg *cfg,
+int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                               volatile int signal_forwarded) {
     /* Default exit status if child is not properly reaped */
     int child_exit_status = EXIT_FAILURE;

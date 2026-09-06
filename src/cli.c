@@ -25,6 +25,8 @@
 
 #include "cli.h"
 
+#include "cpu_count.h"
+#include "path_util.h"
 #include "util.h"
 
 #include <errno.h>

@@ -26,9 +26,12 @@
 #undef NDEBUG
 
 #include "../src/cli.h"
+#include "../src/cpu_count.h"
+#include "../src/file_io.h"
 #include "../src/limit_process.h"
 #include "../src/limiter.h"
 #include "../src/list.h"
+#include "../src/path_util.h"
 #include "../src/process_finder.h"
 #include "../src/process_iterator.h"
 #include "../src/process_set.h"

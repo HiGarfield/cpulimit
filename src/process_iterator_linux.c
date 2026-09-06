@@ -28,6 +28,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include "file_io.h"
 #include "process_iterator.h"
 #include "util.h"
 

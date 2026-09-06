@@ -25,8 +25,8 @@
 
 #include "process_finder.h"
 
+#include "path_util.h"
 #include "process_iterator.h"
-#include "util.h"
 
 #include <errno.h>
 #include <signal.h>

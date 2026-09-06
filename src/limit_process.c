@@ -25,6 +25,7 @@
 
 #include "limit_process.h"
 
+#include "cpu_count.h"
 #include "process_set.h"
 #include "signal_handler.h"
 #include "time_util.h"

@@ -90,11 +90,13 @@ CLANG_TIDY_REPORT := clang-tidy-report.txt
 all: $(TARGETS)
 
 # Target rules
-busy: busy.c $(wildcard $(SRC)/util.*) $(wildcard $(SRC)/signal_handler.*)
+busy: busy.c $(wildcard $(SRC)/util.*) $(wildcard $(SRC)/signal_handler.*) \
+	$(wildcard $(SRC)/cpu_count.*) $(wildcard $(SRC)/file_io.*)
 	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
 multi_process_busy: multi_process_busy.c $(wildcard $(SRC)/util.*) \
-	$(wildcard $(SRC)/signal_handler.*)
+	$(wildcard $(SRC)/signal_handler.*) $(wildcard $(SRC)/cpu_count.*) \
+	$(wildcard $(SRC)/file_io.*)
 	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
 # Deterministic timing seam (test binary only)

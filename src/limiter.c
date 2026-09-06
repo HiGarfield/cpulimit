@@ -35,7 +35,6 @@
 #include "signal_forward.h"
 #include "signal_handler.h"
 #include "time_util.h"
-#include "util.h"
 
 #include <errno.h>
 #include <fcntl.h>

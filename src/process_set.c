@@ -25,6 +25,7 @@
 
 #include "process_set.h"
 
+#include "cpu_count.h"
 #include "list.h"
 #include "process_iterator.h"
 #include "process_table.h"
