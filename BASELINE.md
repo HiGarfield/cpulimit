@@ -25,15 +25,25 @@ cmake --build build-gcc --target all
 ```
 - Result: PASS. Build exit code 0.
 - Errors: 0
-- Warnings: 36 (all in `tests/cpulimit_test.c`; **0 in `src/`**). Breakdown:
+- Warnings: **0**. All 36 previously-documented warnings were resolved by code
+  changes in `tests/cpulimit_test.c` (no build flags added or changed):
+  - 32 `-Wstrict-overflow` (the `X +- C1 cmp C2` form gcc assumes when a signed
+    counter is compared and then incremented, e.g. `seam_frame_pos >=
+    seam_frame_len[...]`, `seam_frame_count >= SEAM_MAX_FRAMES`, `seam_child_log_len
+    < SEAM_MAX_SIGNALS`): the seam bookkeeping counters are inherently
+    non-negative indices/counts, so `seam_frame_len[]`, `seam_frame_count`,
+    `seam_frame_next`, `seam_frame_current`, `seam_frame_pos`, `seam_frames_served`,
+    `seam_signal_count`, `seam_run_snapshot_len` and `seam_child_log_len` were
+    changed from `int` to `size_t`.  Unsigned overflow is well-defined, so the
+    warning disappears with no behavior change.  `seam_frame_current`'s `-1`
+    "no current snapshot" sentinel became `(size_t)-1`, and its `< 0` / `>= 0`
+    tests became `== (size_t)-1` / `!= (size_t)-1`.  The few `int` return values
+    and the `count` parameter are cast at the now-`size_t` boundaries.
+  - 4 `-Wanalyzer-fd-leak` (the `open("/dev/null") + dup2` redirection in two
+    command-mode tests): replaced with `freopen("/dev/null", "w", stdout/stderr)`,
+    which reuses the existing descriptors instead of handing out a fresh fd.
 
-| count | location | message |
-|------:|----------|---------|
-| 32 | `tests/cpulimit_test.c:10133` | `warning: assuming signed overflow does not occur when changing X +- C1 cmp C2 to X cmp C2 -+ C1 [-Wstrict-overflow]` |
-| 2 | `tests/cpulimit_test.c` | `warning: leak of file descriptor 'dup2(__open_alias("/dev/null", 1), 2)' [CWE-775] [-Wanalyzer-fd-leak]` |
-| 2 | `tests/cpulimit_test.c` | `warning: leak of file descriptor 'dup2(__open_alias("/dev/null", 1), 1)' [CWE-775] [-Wanalyzer-fd-leak]` |
-
-These 36 are the **warning baseline; no new warning may be added on top of these.**
+This is the **warning baseline: 0 warnings; none may be added.**
 
 ### 1.2 clang Release build
 Command:
@@ -263,7 +273,7 @@ The 0.17s over the nominal 5000 ms is the 100 ms `waitpid` poll interval (`CHILD
 ## 7. Regression gates (summary)
 
 A future change must not regress any of:
-- gcc build: exit 0, warning count not above 36 (all in `tests/cpulimit_test.c`).
+- gcc build: exit 0, 0 warnings (was 36; all resolved via code changes).
 - clang build: exit 0, 0 warnings.
 - `check`: exit 0, all four reports 0 bytes.
 - `valgrind`: exit 0, every invocation `0 errors`, `All heap blocks were freed`.
