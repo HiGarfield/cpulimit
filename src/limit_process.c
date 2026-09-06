@@ -83,7 +83,43 @@
 #endif
 
 /**
+ * @def MIN_TIME_SLOT_US
+ * @brief Minimum dynamic time slot in microseconds
+ *
+ * Derived from BASE_TIME_SLOT_US; kept as a macro because it is a compile
+ * time constant, not mutable state.
+ */
+#define MIN_TIME_SLOT_US BASE_TIME_SLOT_US
+
+/**
+ * @def MAX_TIME_SLOT_US
+ * @brief Maximum dynamic time slot in microseconds
+ *
+ * Derived from BASE_TIME_SLOT_US; kept as a macro because it is a compile
+ * time constant, not mutable state.
+ */
+#define MAX_TIME_SLOT_US (BASE_TIME_SLOT_US * 5)
+
+/**
+ * @struct dynamic_time_slot_ctx
+ * @brief Explicit state for the dynamic time-slot algorithm
+ *
+ * Holds the mutable state that was previously kept in static local
+ * variables inside get_dynamic_time_slot().  The caller owns an instance
+ * of this structure and passes it to get_dynamic_time_slot().
+ */
+struct dynamic_time_slot_ctx {
+    /** Current smoothed time slot in microseconds. */
+    double time_slot;
+    /** Non-zero after the first call has seeded the timestamp and PRNG. */
+    int initialized;
+    /** Timestamp of the most recent load-based adjustment. */
+    struct timespec last_update;
+};
+
+/**
  * @brief Calculate dynamic time slot duration based on system load
+ * @param ctx Pointer to dynamic_time_slot_ctx holding the algorithm state
  * @return Time slot duration in microseconds
  *
  * This function adapts the control time slot to system conditions:
@@ -91,7 +127,7 @@
  * - Under high load: uses larger time slots to reduce overhead
  *
  * The algorithm:
- * 1. Maintains a static time slot that evolves over time
+ * 1. Maintains a time slot that evolves over time (stored in ctx)
  * 2. Reads system load average via getloadavg()
  * 3. Adjusts time slot proportionally to load per CPU
  * 4. Applies smoothing (exponential moving average) to avoid oscillation
@@ -102,31 +138,24 @@
  * @note This function is not thread-safe and must only be called from a
  *       single thread.
  */
-static double get_dynamic_time_slot(void) {
-    static double time_slot = BASE_TIME_SLOT_US;
-    static const double
-        MIN_TIME_SLOT = BASE_TIME_SLOT_US, /* Minimum: 100ms for precision */
-        MAX_TIME_SLOT =
-            BASE_TIME_SLOT_US * 5; /* Maximum: 500ms to reduce overhead */
-    static int initialized = 0;
-    static struct timespec last_update = {0, 0};
+static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
     struct timespec now;
     double load;
 
     /* First call: initialize timestamp and seed PRNG for jitter */
-    if (!initialized) {
-        initialized = 1;
-        if (get_current_time(&last_update) == 0) {
+    if (!ctx->initialized) {
+        ctx->initialized = 1;
+        if (get_current_time(&ctx->last_update) == 0) {
             /* Seed PRNG with current time for randomization */
-            srandom((unsigned int)((unsigned long)last_update.tv_nsec ^
-                                   (unsigned long)last_update.tv_sec));
+            srandom((unsigned int)((unsigned long)ctx->last_update.tv_nsec ^
+                                   (unsigned long)ctx->last_update.tv_sec));
         }
     } else if (get_current_time(&now) == 0 &&
-               timediff_in_ms(&now, &last_update) >= 1000.0 &&
+               timediff_in_ms(&now, &ctx->last_update) >= 1000.0 &&
                getloadavg(&load, 1) == 1) {
         double new_time_slot;
 
-        last_update = now;
+        ctx->last_update = now;
 
         /*
          * Calculate new time slot based on load:
@@ -135,15 +164,16 @@ static double get_dynamic_time_slot(void) {
          * - Higher load -> larger time slot -> less frequent
          *   adjustments.
          */
-        new_time_slot = time_slot * load / get_ncpu() / 0.3;
-        new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT, MAX_TIME_SLOT);
+        new_time_slot = ctx->time_slot * load / get_ncpu() / 0.3;
+        new_time_slot = CLAMP(new_time_slot, MIN_TIME_SLOT_US,
+                              MAX_TIME_SLOT_US);
 
         /*
          * Smooth adaptation using exponential moving average:
          * new_value = 0.6 * old_value + 0.4 * measured_value
          * This prevents rapid oscillation in time slot size.
          */
-        time_slot = time_slot * 0.6 + new_time_slot * 0.4;
+        ctx->time_slot = ctx->time_slot * 0.6 + new_time_slot * 0.4;
     }
 
     /*
@@ -151,7 +181,7 @@ static double get_dynamic_time_slot(void) {
      * with system timer ticks. This improves accuracy by avoiding systematic
      * bias.
      */
-    return time_slot * (0.95 + (double)(random() % 1001) / 10000.0);
+    return ctx->time_slot * (0.95 + (double)(random() % 1001) / 10000.0);
 }
 
 /**
@@ -184,6 +214,7 @@ static double get_dynamic_time_slot(void) {
 void limit_process(pid_t pid, double cpu_limit, int include_children,
                    int verbose) {
     struct process_set proc_set;
+    struct dynamic_time_slot_ctx time_slot_ctx = {BASE_TIME_SLOT_US, 0, {0, 0}};
     int cycle_counter = 0, ncpu = get_ncpu();
     /* Fraction of time processes should be running */
     double work_ratio;
@@ -255,7 +286,7 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
             CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON);
 
         /* Get time slot duration (may vary based on system load) */
-        time_slot = get_dynamic_time_slot();
+        time_slot = get_dynamic_time_slot(&time_slot_ctx);
 
         /* Split time slot into work and sleep periods */
         work_time_ns = time_slot * 1000 * work_ratio;
