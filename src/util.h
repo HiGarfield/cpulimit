@@ -103,7 +103,17 @@ void increase_priority(void);
  * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
  */
 int getloadavg_impl(double *loadavg, int nelem);
+/*
+ * Only wrap getloadavg() with the custom implementation when it is not
+ * already provided. A build may predefine getloadavg on the command line
+ * (e.g. the test harness renames it to a seam function); redefining such a
+ * macro would emit a "redefined" warning and could shadow the intended
+ * target. uClibc itself never defines getloadavg in this version range, so
+ * the wrapper is still installed in the normal (non-test) build.
+ */
+#ifndef getloadavg
 #define getloadavg(loadavg, nelem) (getloadavg_impl((loadavg), (nelem)))
+#endif
 #define CPULIMIT_IMPL_GETLOADAVG
 #endif
 
