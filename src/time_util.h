@@ -32,6 +32,16 @@ extern "C" {
  * this header, all POSIX features are already enabled.  This guard
  * ensures the header is self-contained when analyzed or compiled
  * standalone (e.g., by clang-tidy).
+ *
+ * In a normal build this never fires: every .c file in this project
+ * defines _GNU_SOURCE before including anything, which is what makes the
+ * tree compile with a bare `cc *.c` and no build system. The guard only
+ * matters for a header compiled on its own.
+ *
+ * The identical guard is repeated verbatim in process_set.h. That
+ * duplication is deliberate: lifting it into a shared header would make
+ * every consumer of this header depend on one more file, and each
+ * public header has to keep working when included by itself.
  */
 #if !defined(_GNU_SOURCE) && !defined(_POSIX_C_SOURCE)
 #define _POSIX_C_SOURCE 200112L
