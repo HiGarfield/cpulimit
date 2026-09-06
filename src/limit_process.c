@@ -25,19 +25,14 @@
 
 #include "limit_process.h"
 
-#include "list.h"
-#include "process_iterator.h"
 #include "process_set.h"
-#include "process_table.h"
 #include "signal_handler.h"
 #include "time_util.h"
 #include "util.h"
 
-#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 /**
@@ -160,83 +155,6 @@ static double get_dynamic_time_slot(void) {
 }
 
 /**
- * @brief Send a signal to all processes in a process set
- * @param proc_set Pointer to process set structure containing target
- *                  processes
- * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose If non-zero, print errors when signal delivery fails
- *
- * Iterates through all processes in the group and sends the specified signal.
- * If signal delivery fails (e.g., process terminated), the process is removed
- * from the group to avoid repeated errors.
- *
- * Successful SIGSTOP delivery is recorded in the group so that the suspension
- * can always be undone, and SIGCONT delivery additionally resumes processes
- * that were recorded earlier but have since left the group.
- *
- * @note Safe iteration: stores next node before potential deletion
- */
-static void send_signal_to_processes(struct process_set *proc_set, int sig,
-                                     int verbose) {
-    struct list_node *node = first_list_node(proc_set->proc_list);
-    while (node != NULL) {
-        /* Save next pointer before potential node deletion */
-        struct list_node *next_node = node->next;
-        pid_t pid;
-        int kill_result;
-        if (node->data == NULL) {
-            /* Defensive: skip and remove any NULL-data nodes */
-            delete_list_node(proc_set->proc_list, node);
-            node = next_node;
-            continue;
-        }
-        pid = ((const struct process *)node->data)->pid;
-        kill_result = kill(pid, sig);
-
-        if (kill_result != 0) {
-            /*
-             * Signal delivery failed. Common reasons:
-             * - ESRCH: Process no longer exists
-             * - EPERM: Permission denied (rare in this context)
-             *
-             * kill() is non-blocking and cannot fail with EINTR, so any
-             * failure here indicates a process that can no longer be
-             * reliably controlled.
-             * Save errno before any other calls that may clobber it.
-             */
-            int saved_errno = errno;
-            if (verbose && saved_errno != ESRCH) {
-                fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
-                        sig, (long)pid, strerror(saved_errno));
-            }
-            /*
-             * Drop the suspension record with it. resume_stopped_pids()
-             * treats a PID that is suspended but no longer a group member
-             * as something it still has to resume, and this process is
-             * about to stop being a member even though its signal just
-             * failed: there is nothing left to undo, and the PID may
-             * already have been recycled for an unrelated process.
-             */
-            forget_stopped_pid(proc_set, pid);
-            /* Remove dead/inaccessible process from tracking */
-            delete_list_node(proc_set->proc_list, node);
-            delete_from_process_table(proc_set->proc_table, pid);
-        } else if (sig == SIGSTOP) {
-            /* Track the suspension so it can always be undone */
-            record_stopped_pid(proc_set, pid);
-        }
-        node = next_node;
-    }
-    if (sig == SIGCONT) {
-        /*
-         * Resume processes that were suspended but are no longer part of
-         * the group; the loop above cannot see them any more.
-         */
-        resume_stopped_pids(proc_set);
-    }
-}
-
-/**
  * @brief Enforce CPU usage limit on a process or process set
  * @param pid Process ID of the target process to limit
  * @param cpu_limit CPU usage limit expressed in CPU cores (core
@@ -292,7 +210,7 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
     if (verbose) {
         printf("Process group of PID %ld: %lu member(s)\n",
                (long)proc_set.target_pid,
-               (unsigned long)proc_set.proc_list->count);
+               (unsigned long)process_set_member_count(&proc_set));
     }
 
     /*
@@ -309,7 +227,7 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
         }
 
         /* Exit if all target processes have terminated */
-        if (is_empty_list(proc_set.proc_list)) {
+        if (process_set_is_empty(&proc_set)) {
             if (verbose) {
                 printf("No running target process found.\n");
             }
@@ -364,10 +282,10 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
         if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
             if (is_stopped) {
                 /* Resume all stopped processes */
-                send_signal_to_processes(&proc_set, SIGCONT, verbose);
+                process_set_send_signal(&proc_set, SIGCONT, verbose);
                 is_stopped = 0;
                 /* Recheck process list after signaling */
-                if (is_empty_list(proc_set.proc_list)) {
+                if (process_set_is_empty(&proc_set)) {
                     break;
                 }
             }
@@ -386,10 +304,10 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
             if (!is_stopped) {
                 /* Stop all running processes */
-                send_signal_to_processes(&proc_set, SIGSTOP, verbose);
+                process_set_send_signal(&proc_set, SIGSTOP, verbose);
                 is_stopped = 1;
                 /* Recheck process list after signaling */
-                if (is_empty_list(proc_set.proc_list)) {
+                if (process_set_is_empty(&proc_set)) {
                     break;
                 }
             }
@@ -422,7 +340,7 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
      * This also resumes processes that dropped out of the group while
      * suspended (see record_stopped_pid()).
      */
-    send_signal_to_processes(&proc_set, SIGCONT, 0);
+    process_set_send_signal(&proc_set, SIGCONT, 0);
 
     /* Release process tracking resources */
     close_process_set(&proc_set);

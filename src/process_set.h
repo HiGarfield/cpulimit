@@ -245,6 +245,38 @@ int update_process_set(struct process_set *proc_set);
  */
 double get_process_set_cpu_usage(const struct process_set *proc_set);
 
+/**
+ * @brief Check whether the process set currently has no active members
+ * @param proc_set Pointer to the process_set structure to query
+ * @return Non-zero if proc_list is empty or proc_set is NULL
+ */
+int process_set_is_empty(const struct process_set *proc_set);
+
+/**
+ * @brief Return the number of active members in the process set
+ * @param proc_set Pointer to the process_set structure to query
+ * @return Number of nodes in proc_list, or 0 if proc_set is NULL
+ */
+size_t process_set_member_count(const struct process_set *proc_set);
+
+/**
+ * @brief Send a signal to every active member of the process set
+ * @param proc_set Pointer to the process set structure
+ * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
+ * @param verbose If non-zero, print errors when signal delivery fails
+ *
+ * Iterates through all processes in the group and sends the specified
+ * signal.  If signal delivery fails (e.g., process terminated), the
+ * process is removed from the group and from the process table to avoid
+ * repeated errors.  Successful SIGSTOP delivery is recorded so that the
+ * suspension can always be undone; SIGCONT additionally resumes processes
+ * that were recorded earlier but have since left the group.
+ *
+ * @note Safe iteration: stores next node before potential deletion
+ */
+void process_set_send_signal(struct process_set *proc_set, int sig,
+                             int verbose);
+
 #ifdef __cplusplus
 }
 #endif

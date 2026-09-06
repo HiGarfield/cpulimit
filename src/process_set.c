@@ -30,6 +30,7 @@
 #include "process_table.h"
 #include "time_util.h"
 #include "util.h"
+#include <errno.h>
 
 #include <signal.h>
 #include <stdio.h>
@@ -539,4 +540,109 @@ double get_process_set_cpu_usage(const struct process_set *proc_set) {
         cpu_usage += proc->cpu_usage;
     }
     return cpu_usage;
+}
+
+/**
+ * @brief Check whether the process set currently has no active members
+ * @param proc_set Pointer to the process_set structure to query
+ * @return Non-zero if proc_list is empty or proc_set is NULL
+ */
+int process_set_is_empty(const struct process_set *proc_set) {
+    if (proc_set == NULL || proc_set->proc_list == NULL) {
+        return 1;
+    }
+    return is_empty_list(proc_set->proc_list);
+}
+
+/**
+ * @brief Return the number of active members in the process set
+ * @param proc_set Pointer to the process_set structure to query
+ * @return Number of nodes in proc_list, or 0 if proc_set is NULL
+ */
+size_t process_set_member_count(const struct process_set *proc_set) {
+    if (proc_set == NULL || proc_set->proc_list == NULL) {
+        return 0;
+    }
+    return proc_set->proc_list->count;
+}
+
+/**
+ * @brief Send a signal to every active member of the process set
+ * @param proc_set Pointer to the process set structure
+ * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
+ * @param verbose If non-zero, print errors when signal delivery fails
+ *
+ * Iterates through all processes in the group and sends the specified
+ * signal.  If signal delivery fails (e.g., process terminated), the
+ * process is removed from the group and from the process table to avoid
+ * repeated errors.  Successful SIGSTOP delivery is recorded so that the
+ * suspension can always be undone; SIGCONT additionally resumes processes
+ * that were recorded earlier but have since left the group.
+ *
+ * @note Safe iteration: stores next node before potential deletion
+ */
+void process_set_send_signal(struct process_set *proc_set, int sig,
+                             int verbose) {
+    struct list_node *node;
+
+    if (proc_set == NULL || proc_set->proc_list == NULL) {
+        return;
+    }
+
+    node = first_list_node(proc_set->proc_list);
+    while (node != NULL) {
+        /* Save next pointer before potential node deletion */
+        struct list_node *next_node = node->next;
+        pid_t pid;
+        int kill_result;
+        if (node->data == NULL) {
+            /* Defensive: skip and remove any NULL-data nodes */
+            delete_list_node(proc_set->proc_list, node);
+            node = next_node;
+            continue;
+        }
+        pid = ((const struct process *)node->data)->pid;
+        kill_result = kill(pid, sig);
+
+        if (kill_result != 0) {
+            /*
+             * Signal delivery failed. Common reasons:
+             * - ESRCH: Process no longer exists
+             * - EPERM: Permission denied (rare in this context)
+             *
+             * kill() is non-blocking and cannot fail with EINTR, so any
+             * failure here indicates a process that can no longer be
+             * reliably controlled.
+             * Save errno before any other calls that may clobber it.
+             */
+            int saved_errno = errno;
+            if (verbose && saved_errno != ESRCH) {
+                fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
+                        sig, (long)pid, strerror(saved_errno));
+            }
+            /*
+             * Drop the suspension record with it. resume_stopped_pids()
+             * treats a PID that is suspended but no longer a group member
+             * as something it still has to resume, and this process is
+             * about to stop being a member even though its signal just
+             * failed: there is nothing left to undo, and the PID may
+             * already have been recycled for an unrelated process.
+             */
+            forget_stopped_pid(proc_set, pid);
+            /* Remove dead/inaccessible process from tracking */
+            delete_list_node(proc_set->proc_list, node);
+            delete_from_process_table(proc_set->proc_table, pid);
+        } else if (sig == SIGSTOP) {
+            /* Track the suspension so it can always be undone */
+            record_stopped_pid(proc_set, pid);
+        }
+        node = next_node;
+    }
+    if (sig == SIGCONT) {
+        /*
+         * Resume processes that were suspended but are no longer part of
+         * the group; the loop above cannot see them any more.
+         */
+        resume_stopped_pids(proc_set);
+    }
 }
