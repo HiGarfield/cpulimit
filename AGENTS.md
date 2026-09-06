@@ -423,11 +423,20 @@ Additional requirements MUST be enforced:
 
 - `main.c`: entry point and top-level control flow
 - `cli.[ch]`: CLI parsing and config creation
-- `limiter.[ch]`: high-level limiting orchestration
+- `limiter.[ch]`: mode orchestration (`run_command_mode` /
+  `run_pid_or_exe_mode`); owns no subprocess machinery of its own
+- `child_exec.[ch]`: child setup after fork: `setpgid`, handler reset,
+  `execvp`, and the shell 126/127 exit-code mapping
+- `exec_sync.[ch]`: parent/child exec synchronization pipe protocol
+- `script_check.[ch]`: pre-exec probe for an inaccessible shebang interpreter
+- `child_wait.[ch]`: `waitpid` polling and SIGKILL timeout escalation
+- `signal_forward.[ch]`: forwarding the received quit signal to the
+  command's process group
 - `limit_process.[ch]`: enforcement loop (`SIGSTOP` / `SIGCONT`)
 - `process_set.[ch]`: tracked-process set and descendant handling
 - `process_finder.[ch]`: PID/executable target resolution
 - `process_iterator.h`: process iteration API
+  - `process_iterator_common.c`: platform-independent filter matching
   - `process_iterator_linux.c`: Linux `/proc`
   - `process_iterator_freebsd.c`: FreeBSD `libkvm`
   - `process_iterator_apple.c`: macOS `libproc` + `sysctl`
@@ -435,11 +444,19 @@ Additional requirements MUST be enforced:
 - `list.[ch]`: generic doubly linked list
 - `signal_handler.[ch]`: termination/TTY signal handling
 - `time_util.[ch]`: monotonic time and sleep helpers
-- `util.[ch]`: general utility helpers
+- `cpu_count.[ch]`: online CPU count and sysfs CPU-range parsing
+- `file_io.[ch]`: whole-file read (Linux)
+- `path_util.[ch]`: path basename extraction
+- `util.[ch]`: general helpers: `MAX`/`MIN`/`CLAMP` macros, scheduling
+  priority raise, `long` to `pid_t` conversion
 
 ## Tests (`/tests`)
 
-- `cpulimit_test.c`: main test suite
+- `cpulimit_test.c`: the whole unit/integration suite. New tests go here;
+  no additional `.c`/`.h` test sources are added. When a test needs a
+  program to drive, the suite re-executes itself with an internal argv
+  marker macro (for example `SIGCOUNT_CHILD_ARG`) instead of adding a
+  helper source file.
 - `busy.c`: pthread-based CPU load helper
 - `multi_process_busy.c`: fork-based multi-process load helper
 

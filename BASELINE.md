@@ -76,7 +76,9 @@ Command:
 cmake --build build-gcc --target valgrind
 ```
 - `valgrind` target exit code: 0.
-- Test invocations under valgrind: 117 `ERROR SUMMARY` lines.
+- Test invocations under valgrind: 122 `ERROR SUMMARY` lines (117 before the
+  regression tests of section 4.1 were added; each of them forks, which adds
+  a valgrind invocation per forked child).
 - Every invocation: `ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)`.
 - Every invocation: `in use at exit: 0 bytes in 0 blocks` and `All heap blocks were freed -- no leaks are possible`.
 - Non-zero error summaries: **none**.
@@ -93,10 +95,30 @@ cd build-gcc && ./tests/cpulimit_test
 ```
 - Exit code: 0.
 - Banner: `=== ALL TESTS PASSED ===`.
-- `... passed.` lines: 154. Distinct test function names reported passed: 152.
+- `... passed.` lines: 158. Distinct test function names reported passed: 156.
 - Test-result failures (`(...) FAILED` / `failed.`): 0. (The string "failed" appears only inside test names and one runtime `kill(...) failed:` message, not as a test outcome.)
 
 This is the test baseline: **all tests pass; any failure is a regression.**
+
+### 4.1 Regression tests added with the refactoring
+
+Four tests were added (154 -> 158 passed lines) to pin behavior that the
+refactoring touched. Each is deterministic (no `sleep`-based
+synchronization) and passes under valgrind:
+
+| test | pinned behavior |
+|------|-----------------|
+| `test_limiter_run_command_mode_not_executable` | exit 126: absolute path exists but has no execute bit; classified by `access(F_OK)`, not by errno |
+| `test_limiter_run_command_mode_path_name_not_found` | exit 127 for a bare PATH-resolved name (no `/`), i.e. the errno-driven 127 path |
+| `test_limiter_run_command_mode_signal_segv` | exit 128 + SIGSEGV (139), pinning the 128+N mapping for a third signal |
+| `test_child_wait_sigkill_escalation` | a child ignoring SIGTERM is escalated to SIGKILL after `CHILD_KILL_TIMEOUT_MS` and reported as 137 |
+
+Pre-existing coverage retained: `test_limiter_run_command_mode_nonexistent`
+(127, explicit path), `test_limiter_run_command_mode_signal_term` (143),
+`test_limiter_run_command_mode_signal_kill` (137 via `kill -9`),
+`test_limiter_run_command_mode_signal_forwarding` (Ctrl+C -> 130),
+`test_limiter_run_command_mode` (target exits normally -> 0),
+`test_limiter_run_pid_or_exe_mode_resumes_target` (SIGCONT resume).
 
 ---
 
@@ -245,6 +267,12 @@ A future change must not regress any of:
 - clang build: exit 0, 0 warnings.
 - `check`: exit 0, all four reports 0 bytes.
 - `valgrind`: exit 0, every invocation `0 errors`, `All heap blocks were freed`.
-- `./tests/cpulimit_test`: exit 0, `ALL TESTS PASSED`.
-- Exit codes: 0 / 126 / 127(explicit) / 127(PATH) / 128+signal / 137-on-SIGKILL-timeout as tabulated above.
+- `./tests/cpulimit_test`: exit 0, `ALL TESTS PASSED`, 158 passed lines
+  (see 4.1 for the regression tests added with the refactoring).
+- Exit codes: 0 / 126 / 127(explicit) / 127(PATH) / 128+signal / 137-on-SIGKILL-timeout as tabulated above; pinned by
+  `test_limiter_run_command_mode_not_executable` (126),
+  `test_limiter_run_command_mode_nonexistent` (127 explicit),
+  `test_limiter_run_command_mode_path_name_not_found` (127 PATH),
+  `test_limiter_run_command_mode_signal_term|_segv|_kill` (128+N),
+  `test_child_wait_sigkill_escalation` (137 on the SIGKILL timeout).
 - SIGCONT resume, target-exit-followed, lazy vs non-lazy, SIGINT propagation: as tabulated above.
