@@ -25,6 +25,7 @@
 
 #undef NDEBUG
 
+#include "../src/child_wait.h"
 #include "../src/cli.h"
 #include "../src/cpu_count.h"
 #include "../src/file_io.h"
@@ -7936,6 +7937,154 @@ static void test_limiter_run_command_mode_signal_kill(void) {
 }
 
 /**
+ * @brief Test run_command_mode exit code 126 for a file without execute bit
+ * @note The command is an absolute path that exists but carries no execute
+ *       permission. execvp() fails with EACCES while access(F_OK) succeeds,
+ *       which is exactly the "found but not executable" case the shell
+ *       reports as 126; it must not be misclassified as 127.
+ */
+static void test_limiter_run_command_mode_not_executable(void) {
+    pid_t pid, waited;
+    int status, exited, exit_code, fd, ret;
+    struct cpulimit_cfg cfg;
+    static const char script_body[] = "#!/bin/sh\nexit 0\n";
+    char path[] = "/tmp/cpulimit_test_noexec_XXXXXX";
+    char *args[2];
+    ssize_t nwritten;
+
+    fd = mkstemp(path);
+    assert(fd >= 0);
+    nwritten = write(fd, script_body, strlen(script_body));
+    assert(nwritten == (ssize_t)strlen(script_body));
+    ret = close(fd);
+    assert(ret == 0);
+    /* Present but deliberately not executable. */
+    ret = chmod(path, 0644);
+    assert(ret == 0);
+
+    args[0] = path;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int mode_result;
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    /* Found but not executable -> 126 */
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 126);
+    ret = unlink(path);
+    assert(ret == 0);
+}
+
+/**
+ * @brief Test run_command_mode exit code 127 for a bare PATH-resolved name
+ * @note argv[0] contains no '/', so execvp() performs a PATH search and the
+ *       classification falls back to its errno (ENOENT here) rather than to
+ *       access(F_OK). This is the second 127 path, distinct from the
+ *       explicit-path case in test_limiter_run_command_mode_nonexistent().
+ */
+static void test_limiter_run_command_mode_path_name_not_found(void) {
+    pid_t pid, waited;
+    int status, exited, exit_code;
+    struct cpulimit_cfg cfg;
+    char cmd[] = "cpulimit_test_no_such_command_xyz";
+    char *args[2];
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int mode_result;
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    /* Not found through PATH -> 127 */
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 127);
+}
+
+/**
+ * @brief Test run_command_mode exit status when command dies of SIGSEGV
+ * @note Complements the SIGTERM and SIGKILL cases with another signal number,
+ *       pinning the 128 + signal mapping rather than a specific signal.
+ */
+static void test_limiter_run_command_mode_signal_segv(void) {
+    pid_t pid, waited;
+    int status, exited, exit_code;
+    struct cpulimit_cfg cfg;
+    char cmd[] = "sh";
+    char arg1[] = "-c";
+    char arg2[] = "kill -SEGV $$";
+    char *args[4];
+
+    args[0] = cmd;
+    args[1] = arg1;
+    args[2] = arg2;
+    args[3] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int mode_result;
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    /* Shell killed by SIGSEGV -> exit status 128 + SIGSEGV */
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 128 + SIGSEGV);
+}
+
+/**
  * @brief Test run_command_mode when the command forks a background grandchild
  * @note Verifies that run_command_mode exits correctly (with the shell's exit
  *       status) even when the executed command itself forks a child process
@@ -10317,6 +10466,85 @@ static void seed_random(void) {
  *       When argv[1] is FORWARD_CHILD_ARG, runs as the out-of-group command
  *       of the forwarding fallback test instead of the suite.
  */
+
+/**
+ * @brief Test that a child ignoring SIGTERM is escalated to SIGKILL
+ * @note collect_child_exit_status() arms the SIGKILL escalation only once a
+ *       termination request has been forwarded (signal_forwarded != 0); a
+ *       command that is merely still running is waited for, not killed. The
+ *       child here ignores SIGTERM, so the escalation is the only thing that
+ *       can end it, and the resulting status must be 128 + SIGKILL.
+ */
+static void test_child_wait_sigkill_escalation(void) {
+    pid_t child_pid;
+    struct cpulimit_cfg cfg;
+    struct sigaction sa;
+    int result;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.cpu_limit = 0.5;
+
+    fflush(stdout);
+    fflush(stderr);
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = SIG_IGN;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        if (sigaction(SIGTERM, &sa, NULL) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        /*
+         * Safety net: SIGTERM is ignored and only SIGKILL ends this child,
+         * so if the escalation regressed the alarm keeps the suite from
+         * hanging forever.
+         */
+        alarm(60);
+        for (;;) {
+            pause();
+        }
+    }
+
+    result = collect_child_exit_status(child_pid, &cfg, 1);
+    assert(result == 128 + SIGKILL);
+}
+
+/**
+ * @brief Run the CLI module tests
+ * @note Grouped in a helper rather than inlined in main() so that main()
+ *       stays under the clang-tidy readability-function-size threshold; the
+ *       suite had grown past it one test at a time.
+ */
+static void run_cli_tests(void) {
+    RUN_TEST(test_cli_pid_mode);
+    RUN_TEST(test_cli_exe_mode);
+    RUN_TEST(test_cli_command_mode);
+    RUN_TEST(test_cli_long_options);
+    RUN_TEST(test_cli_long_option_exe);
+    RUN_TEST(test_cli_optional_flags);
+    RUN_TEST(test_cli_verbose_flag);
+    RUN_TEST(test_cli_help);
+    RUN_TEST(test_cli_missing_limit);
+    RUN_TEST(test_cli_invalid_limits);
+    RUN_TEST(test_cli_invalid_pids);
+    RUN_TEST(test_cli_empty_exe);
+    RUN_TEST(test_cli_no_target);
+    RUN_TEST(test_cli_multiple_targets);
+    RUN_TEST(test_cli_unknown_option);
+    RUN_TEST(test_cli_missing_arg);
+    RUN_TEST(test_cli_long_option_include_children);
+    RUN_TEST(test_cli_limit_at_max);
+    RUN_TEST(test_cli_pid_minimum_valid);
+    RUN_TEST(test_cli_limit_trailing_chars);
+    RUN_TEST(test_cli_long_options_lazy_verbose);
+    RUN_TEST(test_cli_duplicate_options);
+    RUN_TEST(test_cli_null_cfg);
+    RUN_TEST(test_cli_invalid_api_inputs);
+}
+
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];
@@ -10414,30 +10642,7 @@ int main(int argc, char *argv[]) {
 
     /* CLI module tests */
     printf("\n=== CLI MODULE TESTS ===\n");
-    RUN_TEST(test_cli_pid_mode);
-    RUN_TEST(test_cli_exe_mode);
-    RUN_TEST(test_cli_command_mode);
-    RUN_TEST(test_cli_long_options);
-    RUN_TEST(test_cli_long_option_exe);
-    RUN_TEST(test_cli_optional_flags);
-    RUN_TEST(test_cli_verbose_flag);
-    RUN_TEST(test_cli_help);
-    RUN_TEST(test_cli_missing_limit);
-    RUN_TEST(test_cli_invalid_limits);
-    RUN_TEST(test_cli_invalid_pids);
-    RUN_TEST(test_cli_empty_exe);
-    RUN_TEST(test_cli_no_target);
-    RUN_TEST(test_cli_multiple_targets);
-    RUN_TEST(test_cli_unknown_option);
-    RUN_TEST(test_cli_missing_arg);
-    RUN_TEST(test_cli_long_option_include_children);
-    RUN_TEST(test_cli_limit_at_max);
-    RUN_TEST(test_cli_pid_minimum_valid);
-    RUN_TEST(test_cli_limit_trailing_chars);
-    RUN_TEST(test_cli_long_options_lazy_verbose);
-    RUN_TEST(test_cli_duplicate_options);
-    RUN_TEST(test_cli_null_cfg);
-    RUN_TEST(test_cli_invalid_api_inputs);
+    run_cli_tests();
 
     /* Process table module tests */
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
@@ -10514,6 +10719,9 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_command_mode_signal_term);
     RUN_TEST(test_limiter_run_command_mode_signal_kill);
+    RUN_TEST(test_limiter_run_command_mode_signal_segv);
+    RUN_TEST(test_limiter_run_command_mode_not_executable);
+    RUN_TEST(test_limiter_run_command_mode_path_name_not_found);
     RUN_TEST(test_limiter_run_command_mode_with_fork);
     RUN_TEST(test_limiter_run_command_mode_quit_signal);
     RUN_TEST(test_limiter_run_command_mode_signal_forwarding);
@@ -10524,6 +10732,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_race_quit_flag_preset_before_limit);
     RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
+    RUN_TEST(test_child_wait_sigkill_escalation);
 
     /* Deterministic timing seam tests */
     printf("\n=== TIMING SEAM TESTS ===\n");
