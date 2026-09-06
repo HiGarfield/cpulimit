@@ -8950,7 +8950,7 @@ struct seam_signal {
 static void *seam_alloc_array(size_t bytes) {
     void *ptr;
     ptr = mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
-               -1, 0);
+               -1, (off_t)0);
     if (ptr == MAP_FAILED) {
         perror("mmap");
         exit(EXIT_FAILURE);
