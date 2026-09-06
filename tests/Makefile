@@ -31,11 +31,13 @@ busy multi_process_busy: %: %.c $(LOAD_HELPER_SRC)
 #
 # Mirrors tests/CMakeLists.txt: the race tests replace the program's
 # sources of non-determinism by renaming those entry points at compile
-# time.  cpulimit_test.c itself is left alone so it keeps calling the
-# real implementations and can forward to them while the seam is
-# inactive.  A file that defines a renamed function must be excluded from
-# that rename only, otherwise its definition would be renamed too and
-# collide with the replacement, so each group is compiled separately.
+# time. cpulimit_test.c itself is left alone so it keeps calling the real
+# implementations and can forward to them while the seam is inactive.
+#
+# A file that DEFINES a renamed entry point must not have that rename
+# applied, or its own definition would be renamed too and collide with the
+# test's replacement. Every source therefore receives all renames except
+# the ones it defines; the two lists below are the definers.
 SEAM_ALL_FLAGS := -Dkill=cpulimit_test_kill -Drandom=cpulimit_test_random \
 	-Dgetloadavg=cpulimit_test_getloadavg -Dwaitpid=cpulimit_test_waitpid
 SEAM_TIME_ITER_FLAGS := -Dget_current_time=cpulimit_test_get_current_time \
@@ -45,23 +47,19 @@ SEAM_TIME_ITER_FLAGS := -Dget_current_time=cpulimit_test_get_current_time \
 	-Dclose_process_iterator=cpulimit_test_close_process_iterator
 SEAM_LIMIT_FLAGS := -Dlimit_process=cpulimit_test_limit_process
 
+# Everything under src/ except the entry point.
 SEAM_SRC := $(filter-out $(SRC)/main.c,$(wildcard $(SRC)/*.c))
-# The three platform iterators are named explicitly because they are the
-# files that DEFINE init_process_iterator() and friends; the
-# platform-independent process_iterator_common.c must stay in the plain
-# group. A wildcard here would sweep it in and change which renames apply
-# to it, so this is one place a list is unavoidable.
-SEAM_TIME_ITER_SRC := $(SRC)/time_util.c $(SRC)/process_iterator_linux.c \
-	$(SRC)/process_iterator_freebsd.c $(SRC)/process_iterator_apple.c
-SEAM_LIMIT_SRC := $(SRC)/limit_process.c
-SEAM_PLAIN_SRC := $(filter-out $(SEAM_TIME_ITER_SRC) $(SEAM_LIMIT_SRC),$(SEAM_SRC))
 
-$(SEAM_PLAIN_SRC:$(SRC)/%.c=%.o): %.o: $(SRC)/%.c
-	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(SEAM_TIME_ITER_FLAGS) $(SEAM_LIMIT_FLAGS) -c $< -o $@
-$(SEAM_TIME_ITER_SRC:$(SRC)/%.c=%.o): %.o: $(SRC)/%.c
-	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(SEAM_LIMIT_FLAGS) -c $< -o $@
-$(SEAM_LIMIT_SRC:$(SRC)/%.c=%.o): %.o: $(SRC)/%.c
-	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(SEAM_TIME_ITER_FLAGS) -c $< -o $@
+# Definers of the clock/sleep/iterator entry points: time_util.c plus the
+# platform iterators. process_iterator_common.c only calls them, so it is
+# filtered out.
+SEAM_TIME_ITER_SRC := $(SRC)/time_util.c \
+	$(filter-out $(SRC)/process_iterator_common.c,$(wildcard $(SRC)/process_iterator_*.c))
+SEAM_LIMIT_SRC := $(SRC)/limit_process.c
+
+# One rule for all of them: each file gets every rename except its own.
+$(SEAM_SRC:$(SRC)/%.c=%.o): %.o: $(SRC)/%.c
+	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) -c $< -o $@
 
 cpulimit_test: cpulimit_test.c $(SEAM_SRC:$(SRC)/%.c=%.o)
 	$(CC) $(ALL_CFLAGS) cpulimit_test.c $(SEAM_SRC:$(SRC)/%.c=%.o) $(ALL_LDFLAGS) -o $@
