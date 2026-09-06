@@ -43,9 +43,9 @@ extern "C" {
  * - Signal termination (returns 128 + signal number)
  * - Timeout after termination request (sends SIGKILL)
  *
- * @note This function calls exit() and does not return
+ * @return Exit status code; the caller is responsible for calling exit()
  */
-void run_command_mode(const struct cpulimit_cfg *cfg);
+int run_command_mode(const struct cpulimit_cfg *cfg);
 
 /**
  * @brief Search for and limit an existing process by PID or executable name
@@ -58,9 +58,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg);
  *    - lazy_mode=1: Exit when target terminates or cannot be found
  *    - lazy_mode=0: Keep searching and re-attach if target restarts
  *
- * @note This function calls exit() and does not return
+ * @return Exit status code; the caller is responsible for calling exit()
  */
-void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg);
+int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg);
 
 #ifdef __cplusplus
 }

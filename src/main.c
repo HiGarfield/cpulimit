@@ -61,10 +61,7 @@ int main(int argc, char *argv[]) {
      * - PID/exe mode: search for an existing process and limit its CPU usage
      */
     if (cfg.command_mode) {
-        run_command_mode(&cfg);
-    } else {
-        run_pid_or_exe_mode(&cfg);
+        return run_command_mode(&cfg);
     }
-
-    return 0;
+    return run_pid_or_exe_mode(&cfg);
 }

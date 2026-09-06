@@ -293,9 +293,12 @@ error_out:
  * completed (or the child has exited on exec failure). Closes sync_read_fd
  * on return.
  *
- * On any error, kills and reaps the child, then calls exit(EXIT_FAILURE).
+ * On any error, kills and reaps the child, then returns -1 so the caller
+ * can decide how to terminate.
+ *
+ * @return 0 on success, -1 on error
  */
-static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
+static int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
     /* Synchronization byte from child */
     char sync_byte;
     /* Bytes read from pipe */
@@ -339,7 +342,7 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
         if (wait_result == -1) {
             perror("waitpid");
         }
-        exit(EXIT_FAILURE);
+        return -1;
     }
     /*
      * Drain the sync pipe until EOF to confirm the child has closed its
@@ -380,8 +383,9 @@ static void wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
         if (wait_result == -1) {
             perror("waitpid");
         }
-        exit(EXIT_FAILURE);
+        return -1;
     }
+    return 0;
 }
 
 /**
@@ -655,9 +659,9 @@ static int collect_child_exit_status(pid_t child_pid,
  * - Signal termination (returns 128 + signal number)
  * - Timeout after termination request (sends SIGKILL)
  *
- * @note This function calls exit() and does not return
+ * @return Exit status code; the caller is responsible for calling exit()
  */
-void run_command_mode(const struct cpulimit_cfg *cfg) {
+int run_command_mode(const struct cpulimit_cfg *cfg) {
     /* PID of forked child that will execute the command */
     pid_t child_pid;
     /* Pipe for parent-child synchronization */
@@ -680,7 +684,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
      */
     if (pipe(sync_pipe) < 0) {
         perror("pipe");
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
     fd_flags = fcntl(sync_pipe[1], F_GETFD);
     if (fd_flags < 0 ||
@@ -688,7 +692,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         perror("fcntl");
         close(sync_pipe[0]);
         close(sync_pipe[1]);
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
     /*
@@ -708,7 +712,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         perror("fork");
         close(sync_pipe[0]);
         close(sync_pipe[1]);
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
     if (child_pid == 0) {
@@ -718,7 +722,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
 
     /* Parent: close unused write end before waiting for child */
     close(sync_pipe[1]);
-    wait_for_child_exec(child_pid, sync_pipe[0]);
+    if (wait_for_child_exec(child_pid, sync_pipe[0]) != 0) {
+        return EXIT_FAILURE;
+    }
 
     /*
      * Apply CPU limiting to child process.
@@ -767,7 +773,7 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
         forward_quit_signal(child_pid);
     }
 
-    exit(collect_child_exit_status(child_pid, cfg, forwarded_quit_signal));
+    return collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
 }
 
 /**
@@ -781,9 +787,9 @@ void run_command_mode(const struct cpulimit_cfg *cfg) {
  *    - lazy_mode=1: Exit when target terminates or cannot be found
  *    - lazy_mode=0: Keep searching and re-attach if target restarts
  *
- * @note This function calls exit() and does not return
+ * @return Exit status code; the caller is responsible for calling exit()
  */
-void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
+int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     /*
      * Wait interval between search attempts when target not found.
      * Uses 2-second delay: {tv_sec=2, tv_nsec=0}.
@@ -827,7 +833,7 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 fprintf(stderr,
                         "Error: target process %ld is cpulimit itself\n",
                         (long)found_pid);
-                exit(EXIT_FAILURE);
+                return EXIT_FAILURE;
             }
             if (cfg->verbose) {
                 printf("Process %ld found\n", (long)found_pid);
@@ -878,5 +884,5 @@ void run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
          */
         sleep_timespec(&wait_time);
     }
-    exit(exit_status);
+    return exit_status;
 }
