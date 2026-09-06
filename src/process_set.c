@@ -53,7 +53,7 @@
  * @param proc_set Pointer to uninitialized process_set structure to set up
  * @param target_pid PID of the primary process to monitor
  * @param include_children Non-zero to monitor descendants, zero for target only
- * @return 0 on success, -1 if proc_set is NULL; exits on other errors
+ * @return 0 on success, -1 on error
  *
  * This function:
  * 1. Allocates and initializes the process hashtable (PROCESS_TABLE_HASHSIZE
@@ -63,8 +63,10 @@
  * 4. Performs initial update to populate the process list
  *
  * @note Returns -1 immediately if proc_set is NULL
- * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
- * @note After return, proc_set is fully initialized and ready for use
+ * @note Returns -1 on memory allocation, timing, or initial scan errors;
+ *       partially allocated resources are released before returning
+ * @note After successful return, proc_set is fully initialized and ready
+ *       for use
  */
 int init_process_set(struct process_set *proc_set, pid_t target_pid,
                      int include_children) {
@@ -77,7 +79,7 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
         (struct process_table *)malloc(sizeof(struct process_table));
     if (proc_set->proc_table == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     init_process_table(proc_set->proc_table, PROCESS_TABLE_HASHSIZE);
     proc_set->target_pid = target_pid;
@@ -88,7 +90,7 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
     if (proc_set->proc_list == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         close_process_set(proc_set);
-        exit(EXIT_FAILURE);
+        return -1;
     }
     init_list(proc_set->proc_list);
 
@@ -98,7 +100,7 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
         fprintf(stderr,
                 "Memory allocation failed for the suspended process list\n");
         close_process_set(proc_set);
-        exit(EXIT_FAILURE);
+        return -1;
     }
     init_list(proc_set->stopped_pids);
 
@@ -106,13 +108,13 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
     if (get_current_time(&proc_set->last_update) != 0) {
         perror("get_current_time");
         close_process_set(proc_set);
-        exit(EXIT_FAILURE);
+        return -1;
     }
     /* Perform initial scan to populate process list */
     if (update_process_set(proc_set) != 0) {
         fprintf(stderr, "Failed to perform initial process group scan\n");
         close_process_set(proc_set);
-        exit(EXIT_FAILURE);
+        return -1;
     }
     return 0;
 }
