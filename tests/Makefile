@@ -118,6 +118,11 @@ SEAM_TIME_ITER_FLAGS := -Dget_current_time=cpulimit_test_get_current_time \
 SEAM_LIMIT_FLAGS := -Dlimit_process=cpulimit_test_limit_process
 
 SEAM_SRC := $(filter-out $(SRC)/main.c,$(wildcard $(SRC)/*.c))
+# The three platform iterators are named explicitly because they are the
+# files that DEFINE init_process_iterator() and friends; the
+# platform-independent process_iterator_common.c must stay in the plain
+# group. A wildcard here would sweep it in and change which renames apply
+# to it, so this is one place a list is unavoidable.
 SEAM_TIME_ITER_SRC := $(SRC)/time_util.c $(SRC)/process_iterator_linux.c \
 	$(SRC)/process_iterator_freebsd.c $(SRC)/process_iterator_apple.c
 SEAM_LIMIT_SRC := $(SRC)/limit_process.c

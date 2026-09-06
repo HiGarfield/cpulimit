@@ -88,6 +88,13 @@ CLANG_TIDY_REPORT := clang-tidy-report.txt
 all: $(TARGET)
 
 # Build target
+#
+# Every .c in this directory is compiled on every supported platform; the
+# platform is resolved by conditional compilation inside the sources (see
+# the process_iterator_*.c files). That is what keeps this Makefile free of
+# both a filename list and per-platform source filtering, and it is also
+# why a new module needs no change here -- only
+# cmake/CpulimitOptions.cmake lists the sources explicitly.
 $(TARGET): $(wildcard *.c *.h)
 	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
 
