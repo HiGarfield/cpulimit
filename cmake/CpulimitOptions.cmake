@@ -175,6 +175,7 @@ set(CPULIMIT_C_FLAGS
 # point and is added per-target.
 set(CPULIMIT_SRC_COMMON
     ${PROJECT_SOURCE_DIR}/src/child_exec.c
+    ${PROJECT_SOURCE_DIR}/src/child_wait.c
     ${PROJECT_SOURCE_DIR}/src/cli.c
     ${PROJECT_SOURCE_DIR}/src/exec_sync.c
     ${PROJECT_SOURCE_DIR}/src/limit_process.c
