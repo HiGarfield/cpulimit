@@ -72,6 +72,16 @@
 #include <time.h>
 #include <unistd.h>
 
+/*
+ * The flag requesting an anonymous mapping is spelled MAP_ANONYMOUS on
+ * Linux and MAP_ANON on the BSDs, including macOS, whose 10.7 headers
+ * only provide the latter.  Alias it so the mmap() call in
+ * seam_alloc_array() compiles unchanged on all supported platforms.
+ */
+#if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
 /**
  * @brief Send SIGKILL to a process or process group and block until reaped
  * @param pid Process ID (positive) or negative process group ID
