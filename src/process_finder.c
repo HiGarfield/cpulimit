@@ -161,3 +161,48 @@ pid_t find_process_by_name(const char *process_name) {
     /* Verify the found process still exists and is accessible */
     return found ? find_process_by_pid(pid) : 0;
 }
+
+int process_has_other_name(pid_t pid, const char *process_name) {
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
+    const char *process_cmp_name;
+    const char *cmd_cmp_name;
+    int full_path_cmp;
+    int other_name = 0;
+
+    if (pid <= 0 || process_name == NULL || process_name[0] == '\0') {
+        return 0;
+    }
+    full_path_cmp = process_name[0] == '/';
+    process_cmp_name =
+        full_path_cmp ? process_name : get_file_basename(process_name);
+    if (process_cmp_name[0] == '\0') {
+        return 0;
+    }
+    proc = (struct process *)malloc(sizeof(struct process));
+    if (proc == NULL) {
+        return 0;
+    }
+    /*
+     * A single-PID filter reads one /proc entry, which is all this check
+     * costs; there is no need to walk the whole process table again.
+     */
+    filter.pid = pid;
+    filter.include_children = 0;
+    filter.read_cmd = 1;
+    if (init_process_iterator(&iter, &filter) != 0) {
+        free(proc);
+        return 0;
+    }
+    if (get_next_process(&iter, proc) == 0) {
+        cmd_cmp_name =
+            full_path_cmp ? proc->command : get_file_basename(proc->command);
+        if (strcmp(cmd_cmp_name, process_cmp_name) != 0) {
+            other_name = 1;
+        }
+    }
+    free(proc);
+    close_process_iterator(&iter);
+    return other_name;
+}

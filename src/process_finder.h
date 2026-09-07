@@ -65,6 +65,25 @@ pid_t find_process_by_pid(pid_t pid);
  */
 pid_t find_process_by_name(const char *process_name);
 
+/**
+ * @brief Check whether a PID has since been taken over by another program
+ * @param pid Process ID to inspect
+ * @param process_name Executable name or absolute path expected for that PID
+ * @return 1 only when the PID is positively identified as running a
+ *         different executable, 0 when it matches or when no conclusion can
+ *         be drawn
+ *
+ * Used to close the window between resolving a name to a PID and starting
+ * to limit it: if the original process exited and the PID was recycled, the
+ * name no longer matches and the PID must not be touched.
+ *
+ * The test is deliberately one-sided.  Anything that prevents a conclusion
+ * -- the process is gone, /proc cannot be read, no name was supplied -- is
+ * reported as "no mismatch", so callers keep behaving exactly as they did
+ * before; only a confirmed mismatch stops them.
+ */
+int process_has_other_name(pid_t pid, const char *process_name);
+
 #ifdef __cplusplus
 }
 #endif

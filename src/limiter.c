@@ -243,7 +243,14 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
             break;
         } else {
             /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never started */
-            int limit_status;
+            int limit_status = LIMIT_PROCESS_OK;
+            /*
+             * -e resolves the target by name, so the PID it produced can be
+             * recycled before we get here.  -p names the PID explicitly, so
+             * the user owns that choice and it is never second-guessed.
+             */
+            int stale_pid =
+                !pid_mode && process_has_other_name(found_pid, cfg->exe_name);
 
             /*
              * Sanity check: prevent cpulimit from limiting itself.
@@ -255,48 +262,64 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                         (long)found_pid);
                 return EXIT_FAILURE;
             }
-            if (cfg->verbose) {
-                printf("Process %ld found\n", (long)found_pid);
-            }
-            /*
-             * Apply CPU limiting to the target process.
-             * This call blocks until the process terminates or quit flag is
-             * set.
-             */
-            limit_status = limit_process(found_pid, cfg->cpu_limit,
-                                         cfg->include_children, cfg->verbose);
-
-            /*
-             * Always resume the target after limit_process() returns.
-             * limit_process() sends SIGCONT via its process list before
-             * returning, but on some platforms (e.g. macOS 10.7) a stopped
-             * process may not be visible to the process iterator, leaving it
-             * stopped even though limit_process() has exited; and if
-             * update_process_set() fails, proc_list is cleared so the
-             * cleanup SIGCONT inside limit_process() traverses an empty list
-             * and cannot resume a still-stopped target. Sending SIGCONT here
-             * unconditionally ensures the target is running when we leave.
-             * kill() to an already-exited process returns ESRCH, which is
-             * harmless here.
-             *
-             * This mirrors the symmetric guard already present in
-             * run_command_mode() after its limit_process() call.
-             */
-            if (kill(found_pid, SIGCONT) != 0 && errno != ESRCH) {
-                int err = errno;
-                fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n",
-                        (long)found_pid, strerror(err));
-            }
-
-            if (limit_status != LIMIT_PROCESS_OK) {
+            if (stale_pid) {
                 /*
-                 * Limiting never engaged for this target.  Stop instead of
-                 * retrying: the failure is in setting the group up, so the
-                 * next attempt would fail the same way and the loop would
-                 * just spin on it.
+                 * The PID now runs a different program, so the process we
+                 * resolved has exited and its ID was reused.  Suspending it
+                 * would suspend an unrelated program, and resuming it below
+                 * would be just as wrong, so this attempt simply does not
+                 * touch it.  In lazy mode the run ends here; otherwise the
+                 * search starts over and picks up the real target.
                  */
-                exit_status = EXIT_FAILURE;
-                break;
+                fprintf(stderr,
+                        "Process %ld is no longer '%s'; not limiting it\n",
+                        (long)found_pid, cfg->exe_name);
+            } else {
+                if (cfg->verbose) {
+                    printf("Process %ld found\n", (long)found_pid);
+                }
+                /*
+                 * Apply CPU limiting to the target process.
+                 * This call blocks until the process terminates or quit
+                 * flag is set.
+                 */
+                limit_status = limit_process(found_pid, cfg->cpu_limit,
+                                             cfg->include_children,
+                                             cfg->verbose);
+
+                /*
+                 * Always resume the target after limit_process() returns.
+                 * limit_process() sends SIGCONT via its process list before
+                 * returning, but on some platforms (e.g. macOS 10.7) a
+                 * stopped process may not be visible to the process
+                 * iterator, leaving it stopped even though limit_process()
+                 * has exited; and if update_process_set() fails, proc_list
+                 * is cleared so the cleanup SIGCONT inside limit_process()
+                 * traverses an empty list and cannot resume a still-stopped
+                 * target. Sending SIGCONT here unconditionally ensures the
+                 * target is running when we leave.  kill() to an
+                 * already-exited process returns ESRCH, which is harmless
+                 * here.
+                 *
+                 * This mirrors the symmetric guard already present in
+                 * run_command_mode() after its limit_process() call.
+                 */
+                if (kill(found_pid, SIGCONT) != 0 && errno != ESRCH) {
+                    int err = errno;
+                    fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n",
+                            (long)found_pid, strerror(err));
+                }
+
+                if (limit_status != LIMIT_PROCESS_OK) {
+                    /*
+                     * Limiting never engaged for this target.  Stop instead
+                     * of retrying: the failure is in setting the group up,
+                     * so the next attempt would fail the same way and the
+                     * loop would just spin on it.
+                     */
+                    exit_status = EXIT_FAILURE;
+                    break;
+                }
             }
         }
 
