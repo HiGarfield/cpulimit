@@ -225,8 +225,8 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
  *       returns true
  * @note Always resumes suspended processes (sends SIGCONT) before returning
  */
-void limit_process(pid_t pid, double cpu_limit, int include_children,
-                   int verbose) {
+int limit_process(pid_t pid, double cpu_limit, int include_children,
+                  int verbose) {
     struct process_set proc_set;
     struct dynamic_time_slot_ctx time_slot_ctx = {BASE_TIME_SLOT_US, 0, {0, 0}};
     int cycle_counter = 0, ncpu = get_ncpu();
@@ -249,7 +249,15 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
     if (init_process_set(&proc_set, pid, include_children) != 0) {
         fprintf(stderr, "Failed to initialize process group for PID %ld\n",
                 (long)pid);
-        exit(EXIT_FAILURE);
+        /*
+         * Report the failure to the caller instead of terminating the
+         * process.  Exiting here abandoned a command-mode child that had
+         * already been forked: it kept running at full speed, nobody
+         * waited for it and cpulimit reported EXIT_FAILURE without ever
+         * seeing the command's own status.  Nothing has been stopped at
+         * this point, so there is nothing to resume either.
+         */
+        return LIMIT_PROCESS_ERROR;
     }
 
     if (verbose) {
@@ -405,4 +413,6 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
 
     /* Release process tracking resources */
     close_process_set(&proc_set);
+
+    return LIMIT_PROCESS_OK;
 }

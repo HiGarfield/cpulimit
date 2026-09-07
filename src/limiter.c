@@ -72,6 +72,8 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
     int fd_flags;
     /* 1 when the quit flag is set and the signal must be forwarded */
     int forwarded_quit_signal;
+    /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if limiting never started */
+    int limit_status = LIMIT_PROCESS_OK;
 
     /*
      * Create pipe for synchronization.
@@ -137,8 +139,8 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
     if (cfg->verbose) {
         printf("Limiting process %ld\n", (long)child_pid);
     }
-    limit_process(child_pid, cfg->cpu_limit, cfg->include_children,
-                  cfg->verbose);
+    limit_status = limit_process(child_pid, cfg->cpu_limit,
+                                 cfg->include_children, cfg->verbose);
 
     /*
      * Always resume the process group after limit_process() returns.
@@ -175,6 +177,19 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
         forward_quit_signal(child_pid);
     }
 
+    /*
+     * Reap the child either way.  When limiting never started this is what
+     * keeps the command from being abandoned: the child was resumed above
+     * and is waited for here, so it never outlives cpulimit unaccounted
+     * for.  Its own status is then discarded, because a run in which the
+     * limiter never engaged must not be reported as a successful limited
+     * run.
+     */
+    if (limit_status != LIMIT_PROCESS_OK) {
+        (void)collect_child_exit_status(child_pid, cfg,
+                                        forwarded_quit_signal);
+        return EXIT_FAILURE;
+    }
     return collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
 }
 
@@ -227,6 +242,9 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
             exit_status = EXIT_FAILURE;
             break;
         } else {
+            /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never started */
+            int limit_status;
+
             /*
              * Sanity check: prevent cpulimit from limiting itself.
              * This could cause system instability or deadlock.
@@ -245,8 +263,8 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
              * This call blocks until the process terminates or quit flag is
              * set.
              */
-            limit_process(found_pid, cfg->cpu_limit, cfg->include_children,
-                          cfg->verbose);
+            limit_status = limit_process(found_pid, cfg->cpu_limit,
+                                         cfg->include_children, cfg->verbose);
 
             /*
              * Always resume the target after limit_process() returns.
@@ -268,6 +286,17 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 int err = errno;
                 fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n",
                         (long)found_pid, strerror(err));
+            }
+
+            if (limit_status != LIMIT_PROCESS_OK) {
+                /*
+                 * Limiting never engaged for this target.  Stop instead of
+                 * retrying: the failure is in setting the group up, so the
+                 * next attempt would fail the same way and the loop would
+                 * just spin on it.
+                 */
+                exit_status = EXIT_FAILURE;
+                break;
             }
         }
 

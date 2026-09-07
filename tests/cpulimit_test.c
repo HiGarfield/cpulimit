@@ -9106,8 +9106,8 @@ static void seam_mark_snapshot(void);
 
 /* Hooks that park a call site on a barrier driven by the test. */
 /* NOLINTBEGIN(misc-use-internal-linkage) */
-void cpulimit_test_limit_process(pid_t pid, double cpu_limit,
-                                 int include_children, int verbose);
+int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
+                                int include_children, int verbose);
 pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options);
 /* NOLINTEND(misc-use-internal-linkage) */
 
@@ -9511,12 +9511,15 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem) {
  * inside limit_process() -- the checkpoint the limiter passes through
  * just before it decides whether to forward anything.
  */
-void cpulimit_test_limit_process(pid_t pid, double cpu_limit,
-                                 int include_children, int verbose) {
+/*
+ * Must match the declaration the renamed limit_process.h produces in the
+ * sources that call it, which is why the return type tracks limit_process().
+ */
+int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
+                                int include_children, int verbose) {
     char go;
     if (!seam_hook_limit_process) {
-        limit_process(pid, cpu_limit, include_children, verbose);
-        return;
+        return limit_process(pid, cpu_limit, include_children, verbose);
     }
     (void)pid;
     (void)cpu_limit;
@@ -9531,6 +9534,7 @@ void cpulimit_test_limit_process(pid_t pid, double cpu_limit,
             ;
         }
     }
+    return LIMIT_PROCESS_OK;
 }
 
 /**

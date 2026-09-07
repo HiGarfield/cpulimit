@@ -29,6 +29,23 @@ extern "C" {
 #include <sys/types.h>
 
 /**
+ * @def LIMIT_PROCESS_OK
+ * @brief limit_process() completed: the target terminated or a quit signal
+ *        was received, and every suspended process has been resumed
+ */
+#define LIMIT_PROCESS_OK 0
+
+/**
+ * @def LIMIT_PROCESS_ERROR
+ * @brief limit_process() could not start limiting
+ *
+ * The process group could not be set up (allocation, clock or process-scan
+ * failure).  Nothing was stopped, so there is nothing to resume; the
+ * caller decides what to do and must not treat the target as limited.
+ */
+#define LIMIT_PROCESS_ERROR (-1)
+
+/**
  * @brief Enforce CPU usage limit on a process or process set
  * @param pid Process ID of the target process to limit
  * @param cpu_limit CPU usage limit expressed in CPU cores (core
@@ -54,9 +71,15 @@ extern "C" {
  * @note This function blocks until target terminates or is_quit_flag_set()
  *       returns true
  * @note Always resumes suspended processes (sends SIGCONT) before returning
+ *
+ * @return LIMIT_PROCESS_OK once limiting has finished, LIMIT_PROCESS_ERROR
+ *         if the process group could not be initialised.  On error nothing
+ *         has been stopped, so the caller is free to resume/reap its own
+ *         child; the previous behaviour of exiting the whole process here
+ *         left a command-mode child running unthrottled and unreaped.
  */
-void limit_process(pid_t pid, double cpu_limit, int include_children,
-                   int verbose);
+int limit_process(pid_t pid, double cpu_limit, int include_children,
+                  int verbose);
 
 #ifdef __cplusplus
 }
