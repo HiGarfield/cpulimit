@@ -34,7 +34,20 @@
 #include <unistd.h>
 
 void signal_command(pid_t child_pid, int sig) {
-    if (kill(-child_pid, sig) == 0) {
+    /*
+     * The negative-PID form signals the whole process group, which is only
+     * ours while child_pid is still the group leader.  exec_child_process()
+     * creates that group, but the program it execs is free to move itself
+     * to another one, and once the child exits the id can be handed to an
+     * unrelated group.  Sending to -child_pid without looking first would
+     * then reach processes that were never part of this run, which matters
+     * most for the SIGKILL escalation.
+     *
+     * Verify leadership before using the group form; otherwise, and if the
+     * group form fails for any reason, address the process directly.
+     */
+    if (child_pid > 0 && getpgid(child_pid) == child_pid &&
+        kill(-child_pid, sig) == 0) {
         return;
     }
     if (kill(child_pid, sig) != 0 && errno != ESRCH) {
