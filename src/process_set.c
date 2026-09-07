@@ -576,17 +576,53 @@ size_t process_set_member_count(const struct process_set *proc_set) {
 }
 
 /**
+ * @brief Report a signal that could not be delivered to a group member
+ * @param sig Signal whose delivery failed
+ * @param pid Process the signal could not be delivered to
+ * @param err errno value captured at the point of failure
+ * @param verbose If non-zero, report every occurrence instead of only the
+ *                first one
+ *
+ * A process that cannot be signalled is retried on every control cycle,
+ * so reporting every failure would flood the terminal; without
+ * --verbose only the first one is reported.  The diagnostic is printed
+ * even when not verbose because it means the requested limit cannot be
+ * enforced on that process, which the user has to be told about.
+ */
+static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
+    static int warned = 0;
+
+    if (!verbose) {
+        if (warned) {
+            return;
+        }
+        warned = 1;
+    }
+    fprintf(stderr,
+            "Warning: cannot send signal %d to PID %ld: %s\n"
+            "         (process stays tracked but cannot be limited)\n",
+            sig, (long)pid, strerror(err));
+}
+
+/**
  * @brief Send a signal to every active member of the process set
  * @param proc_set Pointer to the process set structure
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose If non-zero, print errors when signal delivery fails
+ * @param verbose If non-zero, print every signal delivery failure instead
+ *                of only the first one
  *
  * Iterates through all processes in the group and sends the specified
- * signal.  If signal delivery fails (e.g., process terminated), the
- * process is removed from the group and from the process table to avoid
- * repeated errors.  Successful SIGSTOP delivery is recorded so that the
- * suspension can always be undone; SIGCONT additionally resumes processes
- * that were recorded earlier but have since left the group.
+ * signal.  A process that no longer exists (ESRCH) is removed from the
+ * group and from the process table to avoid repeated errors.  A process
+ * that still exists but could not be signalled (EPERM/EACCES, a seccomp
+ * filter, ...) is kept: dropping it would silently end the limit for a
+ * process the user asked to limit, while its CPU time still counts
+ * against the group budget.  Such a failure is always reported, verbose
+ * or not.
+ *
+ * Successful SIGSTOP delivery is recorded so that the suspension can
+ * always be undone; SIGCONT additionally resumes processes that were
+ * recorded earlier but have since left the group.
  *
  * @note Safe iteration: stores next node before potential deletion
  */
@@ -625,22 +661,41 @@ void process_set_send_signal(struct process_set *proc_set, int sig,
              * Save errno before any other calls that may clobber it.
              */
             int saved_errno = errno;
-            if (verbose && saved_errno != ESRCH) {
-                fprintf(stderr, "Failed to send signal %d to PID %ld: %s\n",
-                        sig, (long)pid, strerror(saved_errno));
+            if (saved_errno == ESRCH) {
+                /*
+                 * The process is gone. Drop the suspension record with
+                 * it: resume_stopped_pids() treats a PID that is
+                 * suspended but no longer a group member as something it
+                 * still has to resume, and this process is about to stop
+                 * being a member even though its signal just failed:
+                 * there is nothing left to undo, and the PID may already
+                 * have been recycled for an unrelated process.
+                 */
+                forget_stopped_pid(proc_set, pid);
+                /* Remove the dead process from tracking */
+                delete_list_node(proc_set->proc_list, node);
+                delete_from_process_table(proc_set->proc_table, pid);
+            } else {
+                /*
+                 * The process is still alive but refused the signal:
+                 * EPERM/EACCES (a descendant that changed credentials or
+                 * is owned by another user), a seccomp filter, and so on.
+                 *
+                 * Keep tracking it. Removing it here is what used to
+                 * happen, and it silently ended the limit for that
+                 * process: it kept running past the requested budget and
+                 * nothing in the output explained why. It stays in the
+                 * set instead, so its CPU time is still accounted for and
+                 * the remaining members are still held to the budget.
+                 *
+                 * Consequence worth knowing: its usage keeps dragging
+                 * work_ratio down, so if it alone exceeds the limit the
+                 * controllable members are throttled harder. That is the
+                 * honest outcome -- the group really is over budget -- and
+                 * is preferable to ignoring the excess.
+                 */
+                warn_signal_failure(sig, pid, saved_errno, verbose);
             }
-            /*
-             * Drop the suspension record with it. resume_stopped_pids()
-             * treats a PID that is suspended but no longer a group member
-             * as something it still has to resume, and this process is
-             * about to stop being a member even though its signal just
-             * failed: there is nothing left to undo, and the PID may
-             * already have been recycled for an unrelated process.
-             */
-            forget_stopped_pid(proc_set, pid);
-            /* Remove dead/inaccessible process from tracking */
-            delete_list_node(proc_set->proc_list, node);
-            delete_from_process_table(proc_set->proc_table, pid);
         } else if (sig == SIGSTOP) {
             /* Track the suspension so it can always be undone */
             record_stopped_pid(proc_set, pid);
