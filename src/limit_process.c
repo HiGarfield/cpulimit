@@ -281,23 +281,29 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
 
         /* Get current CPU usage of all processes in group */
         cpu_usage = get_process_set_cpu_usage(&proc_set);
-        /*
-         * If CPU usage unknown (first samples), assume maximum.
-         * This prevents over-execution during initialization.
-         */
-        cpu_usage = cpu_usage < 0 ? ncpu : cpu_usage;
 
         /*
          * Adaptive control: adjust work ratio based on deviation from target.
          * If actual usage > cpu_limit: decrease work_ratio (more stopping)
          * If actual usage < cpu_limit: increase work_ratio (less stopping)
          * Formula: new_ratio = old_ratio * (target / actual).
+         *
+         * A negative cpu_usage means "not measured yet": the first cycles
+         * have no CPU-time delta to compare against. Substituting a guess
+         * here used to scale work_ratio by cpu_limit/ncpu on the very
+         * first cycle, so a run asking for 50% of one core started at a
+         * small fraction of that before converging. Leave the ratio
+         * untouched until there is a real measurement to act on.
          */
-        work_ratio =
-            work_ratio * cpu_limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
-        /* Ensure work_ratio stays in valid range, never exactly 0 or 1 */
-        work_ratio =
-            CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON);
+        if (cpu_usage >= 0) {
+            work_ratio =
+                work_ratio * cpu_limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
+            /*
+             * Ensure work_ratio stays in valid range, never exactly 0 or 1
+             */
+            work_ratio = CLAMP(work_ratio, WORK_RATIO_EPSILON,
+                               1 - WORK_RATIO_EPSILON);
+        }
 
         /* Get time slot duration (may vary based on system load) */
         time_slot = get_dynamic_time_slot(&time_slot_ctx);
@@ -315,9 +321,19 @@ void limit_process(pid_t pid, double cpu_limit, int include_children,
                     printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum",
                            "sleep quantum", "active rate");
                 }
-                printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n", cpu_usage * 100,
-                       work_time_ns / 1000, sleep_time_ns / 1000,
-                       work_ratio * 100);
+                if (cpu_usage >= 0) {
+                    printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n",
+                           cpu_usage * 100, work_time_ns / 1000,
+                           sleep_time_ns / 1000, work_ratio * 100);
+                } else {
+                    /*
+                     * No measurement for this cycle yet; report that
+                     * rather than a fabricated figure.
+                     */
+                    printf("%9s%13.0f us%13.0f us%13.2f%%\n", "n/a",
+                           work_time_ns / 1000, sleep_time_ns / 1000,
+                           work_ratio * 100);
+                }
             }
         }
 
