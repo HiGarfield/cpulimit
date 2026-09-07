@@ -271,7 +271,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
      * processes to maintain target CPU usage.
      */
     while (!is_quit_flag_set()) {
-        double cpu_usage, work_time_ns, sleep_time_ns, time_slot;
+        double cpu_usage, work_time_ns, sleep_time_ns, time_slot, slot_time_ns;
         struct timespec work_time, sleep_time;
 
         /* Refresh process list and update CPU usage measurements */
@@ -317,10 +317,29 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
         time_slot = get_dynamic_time_slot(&time_slot_ctx);
 
         /* Split time slot into work and sleep periods */
-        work_time_ns = time_slot * 1000 * work_ratio;
+        slot_time_ns = time_slot * 1000.0;
+        work_time_ns = slot_time_ns * work_ratio;
+        /*
+         * Keep both quanta at or above one nanosecond. nsec_to_timespec()
+         * truncates, so anything below 1 ns becomes a zero timespec and the
+         * whole phase below is skipped -- and with it the SIGCONT or
+         * SIGSTOP that phase is responsible for sending. A target stopped
+         * during the sleep phase would then never be resumed by its own
+         * work phase. Clamping keeps the signal sequence intact even for
+         * extreme limits, and leaves ordinary values untouched.
+         */
+        if (work_time_ns < 1.0) {
+            work_time_ns = 1.0;
+        }
+        if (work_time_ns > slot_time_ns - 1.0) {
+            work_time_ns = slot_time_ns - 1.0;
+        }
         nsec_to_timespec(work_time_ns, &work_time);
 
-        sleep_time_ns = time_slot * 1000 - work_time_ns;
+        sleep_time_ns = slot_time_ns - work_time_ns;
+        if (sleep_time_ns < 1.0) {
+            sleep_time_ns = 1.0;
+        }
         nsec_to_timespec(sleep_time_ns, &sleep_time);
 
         if (verbose) {
