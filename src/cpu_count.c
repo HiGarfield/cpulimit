@@ -180,8 +180,17 @@ int get_ncpu(void) {
          * even when multiple CPUs are online. Verify by reading sysfs.
          */
         if (ncpu <= 1) {
-            /* Cross-check with sysfs; use sysfs value if valid */
-            ncpu = get_online_cpu_count();
+            /*
+             * Cross-check with sysfs, but only let a usable answer replace
+             * what sysconf() reported: get_online_cpu_count() returns -1
+             * when /sys cannot be read (a restricted container, or sysfs
+             * not mounted), and taking that as the count used to overwrite
+             * a perfectly good value with 1.
+             */
+            long sysfs_ncpu = get_online_cpu_count();
+            if (sysfs_ncpu > 0) {
+                ncpu = sysfs_ncpu;
+            }
         }
 #endif
         cached_ncpu = (ncpu > 0 && ncpu <= INT_MAX) ? (int)ncpu : 1;
@@ -220,8 +229,11 @@ int get_ncpu(void) {
          * Verify by reading sysfs.
          */
         if (ncpu <= 1) {
-            /* Cross-check with sysfs; use sysfs value if valid */
-            ncpu = get_online_cpu_count();
+            /* Same guard as above: only a usable sysfs answer counts. */
+            int sysfs_ncpu = get_online_cpu_count();
+            if (sysfs_ncpu > 0) {
+                ncpu = sysfs_ncpu;
+            }
         }
         cached_ncpu = (ncpu > 0) ? ncpu : 1;
 
