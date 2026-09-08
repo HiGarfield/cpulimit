@@ -9177,6 +9177,9 @@ static int seam_fail_span = 1;
 /** @brief errno the failing kill() call must report. */
 static int seam_fail_errno = 0;
 
+/** @brief When set (and seam active), init_process_iterator() fails. */
+static int seam_init_fails = 0;
+
 /* Used by the iterator replacement below, which is defined further up. */
 static void seam_mark_snapshot(void);
 
@@ -9227,6 +9230,7 @@ static void seam_reset(void) {
     seam_fail_call = 0;
     seam_fail_span = 1;
     seam_fail_errno = 0;
+    seam_init_fails = 0;
     seam_hook_limit_process = 0;
     seam_hook_waitpid = 0;
     seam_limit_announce_fd = -1;
@@ -9464,6 +9468,9 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
     (void)filter;
     if (!seam_active) {
         return init_process_iterator(iter, filter);
+    }
+    if (seam_init_fails) {
+        return -1;
     }
     if (iter == NULL) {
         return -1;
@@ -10997,6 +11004,44 @@ static void test_process_set_resume_skips_recycled_pid(void) {
     seam_active = 0;
     seam_reset();
     assert(close_process_set(&proc_set) == 0);
+    free(frame);
+}
+
+/**
+ * @brief BUG-017: find_process_by_name() must not abort on iterator-init failure
+ * @note On a fatal error (here the process iterator cannot be initialized)
+ *       find_process_by_name() used to call exit(EXIT_FAILURE). It now returns
+ *       0 ("not found") so the caller (the -e non-lazy loop) can degrade. This
+ *       runs in a forked child: with the fix the child reaches _exit(0), while
+ *       the unfixed code kills the child with exit(EXIT_FAILURE) and it exits 1.
+ */
+static void test_find_process_by_name_survives_iterator_init_failure(void) {
+    pid_t pid, waited;
+    int status, exited, exit_code;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        seam_reset();
+        seam_active = 1;
+        seam_init_fails = 1;
+        /*
+         * The iterator init is forced to fail via the seam; with the fix
+         * find_process_by_name() returns 0 and the child reaches _exit(0).
+         */
+        if (find_process_by_name("cpulimit_test_does_not_matter") != 0) {
+            _exit(2);
+        }
+        _exit(0);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
 }
 
 
@@ -11226,6 +11271,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
+    RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
 
     /* Limit process module tests */

@@ -84,8 +84,9 @@ pid_t find_process_by_pid(pid_t pid) {
  * @note Returns 0 immediately for NULL or empty process_name
  * @note Iterates through all processes in the system, which may be slow on
  *       systems with many processes. For known PIDs, use find_process_by_pid().
- * @note Calls exit(EXIT_FAILURE) on critical errors (e.g., memory allocation
- *       failure or iterator initialization failure)
+ * @note On critical errors (e.g., memory allocation or iterator
+ *       initialization failure) returns 0, letting the caller treat the
+ *       target as "not found" and decide, instead of aborting the run.
  */
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
@@ -120,7 +121,7 @@ pid_t find_process_by_name(const char *process_name) {
     proc = (struct process *)malloc(sizeof(struct process));
     if (proc == NULL) {
         fprintf(stderr, "Memory allocation failed for the process\n");
-        exit(EXIT_FAILURE);
+        return 0;
     }
 
     /* Configure iterator to scan all processes and read command names */
@@ -130,7 +131,7 @@ pid_t find_process_by_name(const char *process_name) {
     if (init_process_iterator(&iter, &filter) != 0) {
         fprintf(stderr, "Failed to initialize process iterator\n");
         free(proc);
-        exit(EXIT_FAILURE);
+        return 0;
     }
 
     /* Scan all processes to find matching executable */
@@ -155,7 +156,11 @@ pid_t find_process_by_name(const char *process_name) {
     free(proc);
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
-        exit(EXIT_FAILURE);
+        /*
+         * The scan itself completed, so degrade gracefully and report
+         * whatever was found instead of aborting the whole run.
+         */
+        return found ? pid : 0;
     }
 
     /* Verify the found process still exists and is accessible */
