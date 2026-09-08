@@ -9307,6 +9307,75 @@ static void test_process_finder_find_by_pid_reports_eacces(void) {
 }
 
 /**
+ * @brief run_pid_or_exe_mode must exit with failure on a target that exists but
+ *        cannot be controlled (EPERM) instead of looping or breaking silently
+ *        (BUG-013)
+ * @note The kill() seam makes the permission probe kill(pid, 0) fail with
+ *       EPERM, so find_process_by_pid() reports the target as "permission
+ *       denied" (-pid).  The limiter must then terminate with EXIT_FAILURE and a
+ *       clear message, never spin forever.  This locks in the already-correct
+ *       behaviour (no source change required for BUG-013 itself).
+ */
+static void test_limiter_run_pid_or_exe_mode_exits_on_permission_denied(void) {
+    pid_t pid, waited;
+    int status, exited, exit_code, sec;
+    struct cpulimit_cfg cfg;
+
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.target_pid = 9999;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 0; /* non-lazy would loop forever without the EPERM exit */
+
+    seam_reset();
+    seam_active = 1;
+    seam_kill_calls = 0;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int mode_result;
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        configure_signal_handler();
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
+    }
+
+    /* A permission-denied target exits on the first loop iteration, so it must
+     * terminate within a few seconds, not block on the 30s give-up timer. */
+    waited = 0;
+    for (sec = 0; sec < 10; sec++) {
+        waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) {
+            break;
+        }
+        if (waited < 0 && errno != ECHILD) {
+            break;
+        }
+        sleep(1);
+    }
+    if (waited != pid) {
+        kill(pid, SIGKILL);
+        waitpid(pid, &status, 0);
+        assert(0 && "run_pid_or_exe_mode did not exit on permission denied");
+    }
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_FAILURE);
+    /* The parent armed the kill seam; reset it so later tests are unaffected. */
+    seam_active = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -11544,6 +11613,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_gives_up_without_target);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_exits_on_permission_denied);
     RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_command_mode_signal_term);
     RUN_TEST(test_limiter_run_command_mode_signal_kill);
