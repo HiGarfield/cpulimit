@@ -33,7 +33,21 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/wait.h>
+
+/* BUG-045: sleep_timespec() can fail (e.g. EINTR); ignoring the return would
+   let the collector spin at 100% CPU.  Check it and fall back to a short
+   blocking delay, and report it once. */
+static void sleep_with_fallback(const struct timespec *ts) {
+    if (sleep_timespec(ts) != 0) {
+        int saved = errno;
+        struct timespec fb = {0, 1000000L};
+        nanosleep(&fb, NULL);
+        fprintf(stderr, "cpulimit: sleep failed: %s (using fallback delay)\n",
+                strerror(saved));
+    }
+}
 
 /**
  * @def CHILD_KILL_TIMEOUT_MS
@@ -196,7 +210,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                 }
             }
             /* Brief sleep to avoid busy-waiting */
-            sleep_timespec(&poll_sleep);
+            sleep_with_fallback(&poll_sleep);
 
         } else {
             /* wpid < 0: waitpid() encountered an error */

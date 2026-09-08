@@ -9127,6 +9127,8 @@ static int seam_log_fd = -1;
 
 /** @brief Non-zero to park one sleep_timespec() call on a barrier. */
 static int seam_hook_sleep = 0;
+/** @brief Non-zero to make the sleep_timespec() seam report failure. */
+static int seam_sleep_fails = 0;
 
 /** @brief 1-based sleep call to park; the first is the work phase. */
 static int seam_sleep_call = 0;
@@ -9262,6 +9264,7 @@ static void seam_reset(void) {
     seam_hook_sleep = 0;
     seam_sleep_call = 0;
     seam_sleep_calls = 0;
+    seam_sleep_fails = 0;
     seam_sleep_announce_fd = -1;
     seam_sleep_go_fd = -1;
     seam_child_log_len = 0;
@@ -9405,6 +9408,10 @@ int cpulimit_test_get_current_time(struct timespec *result_ts) {
  */
 int cpulimit_test_sleep_timespec(const struct timespec *duration) {
     char go;
+    if (seam_sleep_fails) {
+        errno = EINVAL;
+        return -1;
+    }
     if (!seam_active && !seam_hook_sleep) {
         return sleep_timespec(duration);
     }
@@ -9706,8 +9713,9 @@ pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
  * of SEAM_MAX_SIGNALS entries is far past the per-frame stack budget.
  */
 static int seam_run_smoke_limit(void) {
-    struct seam_proc visible[1];
+    struct seam_proc *visible = (struct seam_proc *)malloc(sizeof(struct seam_proc));
     int cycle;
+    assert(visible != NULL);
 
     seam_reset();
     for (cycle = 0; cycle < SEAM_SMOKE_CYCLES; cycle++) {
@@ -10708,6 +10716,77 @@ static void test_child_wait_resumes_on_clock_failure(void) {
 }
 
 /**
+ * @brief Test that a failing sleep_timespec() is detected, not silently
+ *        busy-waited (BUG-045)
+ * @note The sleep seam is forced to fail on every call. Without the fix the
+ *       return value is ignored: the limiter spins at 100% CPU until the
+ *       target exits and emits no diagnostic. With the fix it falls back to a
+ *       short blocking delay and prints a one-time warning, so the captured
+ *       stderr must contain "sleep failed".
+ */
+/* Drive limit_process() on the victim.  Isolated so the analyzer's fd-state
+ * tracking stays scoped to the child that captured stderr, instead of being
+ * lost inside limit_process()'s internal (sleep-failing) control loop. */
+static void run_limiter_on_victim(pid_t victim) {
+    limit_process(victim, 0.5, 0, 0);
+}
+
+static void test_sleep_failure_is_reported_not_busy_waited(void) {
+    pid_t victim, limiter, waited;
+    int stderr_pipe[2];
+    int status;
+    char *buf = (char *)malloc(2048);
+    ssize_t n_read;
+    int found = 0;
+    assert(buf != NULL);
+
+    assert(pipe(stderr_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    victim = fork();
+    assert(victim >= 0);
+    if (victim == 0) {
+        struct timespec t = {1, 0};
+        nanosleep(&t, NULL);
+        _exit(EXIT_SUCCESS);
+    }
+
+    limiter = fork();
+    assert(limiter >= 0);
+    if (limiter == 0) {
+        int ret;
+        alarm(60);
+        close(stderr_pipe[0]);
+        ret = dup2(stderr_pipe[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(stderr_pipe[1]);
+        seam_reset();
+        seam_sleep_fails = 1; /* force every sleep to fail */
+        configure_signal_handler();
+        run_limiter_on_victim(victim);
+        _exit(EXIT_SUCCESS);
+    }
+    close(stderr_pipe[1]);
+    waited = waitpid(limiter, &status, 0);
+    assert(waited == limiter);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
+
+    n_read = read(stderr_pipe[0], buf, 2048 - 1);
+    close(stderr_pipe[0]);
+    if (n_read > 0) {
+        buf[n_read] = '\0';
+        if (strstr(buf, "sleep failed") != NULL) {
+            found = 1;
+        }
+    }
+    assert(found);
+    free(buf);
+}
+
+/**
  * @brief Run the CLI module tests
  * @note Grouped in a helper rather than inlined in main() so that main()
  *       stays under the clang-tidy readability-function-size threshold; the
@@ -11397,6 +11476,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
     RUN_TEST(test_child_wait_sigkill_escalation);
     RUN_TEST(test_child_wait_resumes_on_clock_failure);
+    RUN_TEST(test_sleep_failure_is_reported_not_busy_waited);
 
     /* Deterministic timing seam tests */
     printf("\n=== TIMING SEAM TESTS ===\n");
