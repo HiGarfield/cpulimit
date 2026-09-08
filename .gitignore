@@ -4,3 +4,6 @@ _codeql_build_dir
 .codebuddy
 build-clang
 build-gcc
+build-asan
+build-tidy
+compile_commands.json
