@@ -22,6 +22,8 @@
 #include "process_iterator.h"
 
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 /**
  * @brief Determine whether a process ID satisfies the iterator filter
@@ -50,4 +52,34 @@ int process_matches_filter(pid_t pid, const struct process_filter *filter) {
         return is_child_of(pid, filter->pid);
     }
     return 0;
+}
+
+double get_process_start_time(pid_t pid) {
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
+    double result = UNKNOWN_START_TIME;
+
+    if (pid <= 0) {
+        return UNKNOWN_START_TIME;
+    }
+    proc = (struct process *)malloc(sizeof(*proc));
+    if (proc == NULL) {
+        return UNKNOWN_START_TIME;
+    }
+    memset(&filter, 0, sizeof(filter));
+    filter.pid = pid;
+    if (init_process_iterator(&iter, &filter) != 0) {
+        free(proc);
+        return UNKNOWN_START_TIME;
+    }
+    while (get_next_process(&iter, proc) == 0) {
+        if (proc->pid == pid) {
+            result = proc->start_time;
+            break;
+        }
+    }
+    close_process_iterator(&iter);
+    free(proc);
+    return result;
 }

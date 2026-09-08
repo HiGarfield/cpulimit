@@ -8999,6 +8999,8 @@ struct seam_proc {
     pid_t ppid;
     /** @brief Cumulative CPU time in milliseconds. */
     double cpu_time;
+    /** @brief Process start time in seconds, or UNKNOWN_START_TIME (<=0). */
+    double start_time;
 };
 
 /** @brief One kill() call recorded by the seam. */
@@ -9502,6 +9504,7 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
     proc->pid = entry->pid;
     proc->ppid = entry->ppid;
     proc->cpu_time = entry->cpu_time;
+    proc->start_time = entry->start_time;
     proc->cpu_usage = -1;
     seam_frame_pos++;
     return 0;
@@ -9670,6 +9673,7 @@ static int seam_run_smoke_limit(void) {
     limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
     seam_active = 0;
 
+    free(visible);
     return (int)seam_signal_count;
 }
 
@@ -9713,10 +9717,11 @@ static int seam_snapshot_run(void) {
  * @return Number of kill() calls recorded; the log stays in seam_signals
  */
 static int seam_run_group_limit(int reuse_cycle, int fail_call) {
-    struct seam_proc both[2];
-    struct seam_proc target_only[1];
+    struct seam_proc *both = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *target_only = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
     int cycle;
 
+    assert(both != NULL && target_only != NULL);
     seam_reset();
     seam_fail_call = fail_call;
     seam_fail_errno = ESRCH;
@@ -9746,6 +9751,8 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
     limit_process((pid_t)SEAM_TARGET_PID, 0.5, 1, 0);
     seam_active = 0;
 
+    free(both);
+    free(target_only);
     return (int)seam_signal_count;
 }
 
@@ -10289,9 +10296,10 @@ static int seam_read_child_log(int fd) {
  */
 static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
                                         int go_fd, int log_fd) {
-    struct seam_proc frame[1];
+    struct seam_proc *frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
     int cycle;
     pid_t limiter_pid;
+    assert(frame != NULL);
 
     seam_reset();
     for (cycle = 0; cycle < SEAM_SMOKE_CYCLES; cycle++) {
@@ -10707,7 +10715,7 @@ static void atexit_driver_child(pid_t victim) {
     if (init_process_set(&ps, getpid(), 0) != 0) {
         _exit(2);
     }
-    record_stopped_pid(&ps, victim);
+    record_stopped_pid(&ps, victim, UNKNOWN_START_TIME);
     exit(0);
 }
 
@@ -10839,7 +10847,7 @@ static void test_process_set_resumes_without_proc_list(void) {
     ps = (struct process_set *)malloc(sizeof(*ps));
     assert(ps != NULL);
     assert(init_process_set(ps, victim, 0) == 0);
-    record_stopped_pid(ps, victim);
+    record_stopped_pid(ps, victim, UNKNOWN_START_TIME);
 
     /* The state in question: no list left, records still held. */
     clear_list(ps->proc_list);
@@ -10903,9 +10911,10 @@ static void test_process_set_reports_failed_resume(void) {
     assert(init_process_set(&ps, getpid(), 0) == 0);
     /*
      * cpulimit is never a member of its own group, so this reads as a PID
-     * that has left the group and is still owed a SIGCONT.
+     * that has left the group and is still owed a SIGCONT. No start time is
+     * available here, so the PID-reuse check is disabled for this record.
      */
-    record_stopped_pid(&ps, getpid());
+    record_stopped_pid(&ps, getpid(), UNKNOWN_START_TIME);
 
     seam_kill_calls = 0;
     seam_fail_call = 1;
@@ -10935,6 +10944,61 @@ static void test_process_set_reports_failed_resume(void) {
 
     assert(err_len > 0);
 }
+
+/**
+ * @brief BUG-016: a recycled PID must not receive a deferred SIGCONT
+ * @note record_stopped_pid() stores the suspended process's start time.
+ *       When that PID has left the group, resume_stopped_pids() re-queries
+ *       its start time and skips the resume if a different process now
+ *       occupies the PID, instead of signalling an unrelated process.
+ */
+static void test_process_set_resume_skips_recycled_pid(void) {
+    struct process_set proc_set;
+    struct seam_proc *frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    const pid_t child = 4242;
+    const double base = 1000.0;     /* start time of the real process */
+    const double recycled = 2000.0; /* start time of the replacement */
+    int cont_before, cont_after;
+    assert(frame != NULL);
+
+    seam_reset();
+
+    /*
+     * Initialise against a fake PID that does not exist on the system, so
+     * the real scan yields an empty group. The seam stays off here to avoid
+     * driving get_current_time; the verification below runs with the seam on.
+     */
+    assert(init_process_set(&proc_set, child, 0) == 0);
+
+    /*
+     * Record the suspension with the process's real start time. With the
+     * group empty the PID is already "orphaned", which is exactly the case
+     * resume_stopped_pids() guards against.
+     */
+    record_stopped_pid(&proc_set, child, base);
+
+    /* The PID is now recycled: same PID, different start time. */
+    seam_active = 1;
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = child;
+    frame[0].ppid = 1;
+    frame[0].cpu_time = 0.0;
+    frame[0].start_time = recycled;
+    seam_push_frame(frame, 1);
+    seam_repeat_last = 1;
+
+    cont_before = seam_count_signals(seam_signals, (int)seam_signal_count, child, SIGCONT);
+    resume_stopped_pids(&proc_set);
+    cont_after = seam_count_signals(seam_signals, (int)seam_signal_count, child, SIGCONT);
+
+    /* The recycled PID must NOT receive a spurious SIGCONT. */
+    assert(cont_after == cont_before);
+
+    seam_active = 0;
+    seam_reset();
+    assert(close_process_set(&proc_set) == 0);
+}
+
 
 /**
  * @brief Test that a target whose PID was recycled is no longer tracked
@@ -11161,6 +11225,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
+    RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
 
     /* Limit process module tests */

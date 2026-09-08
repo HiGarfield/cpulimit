@@ -338,6 +338,20 @@ pid_t getppid_of(pid_t pid);
  */
 int process_matches_filter(pid_t pid, const struct process_filter *filter);
 
+/**
+ * @brief Get the start time of a single process, if available
+ * @param pid Process ID to query
+ * @return The process start time in seconds, or UNKNOWN_START_TIME when the
+ *         process does not exist or the platform could not provide a value.
+ *
+ * A thin wrapper over the process iterator that returns just the start_time
+ * field for one PID. Used to confirm a PID still belongs to the same process
+ * before acting on it (e.g. sending a deferred signal to a PID that may have
+ * been recycled). Callers must treat UNKNOWN_START_TIME as "cannot compare"
+ * and fall back to acting on the PID.
+ */
+double get_process_start_time(pid_t pid);
+
 #ifdef __cplusplus
 }
 #endif

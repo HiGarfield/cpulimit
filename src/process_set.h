@@ -197,6 +197,7 @@ int close_process_set(struct process_set *proc_set);
  * @brief Record that a member of the group has just been suspended
  * @param proc_set Pointer to the process set structure
  * @param pid PID that was successfully sent SIGSTOP
+ * @param start_time Start time of pid at suspension, from get_process_start_time()
  *
  * proc_list is rebuilt from scratch by update_process_set(), so a process
  * can cease to be a member of the group while it is still suspended: a
@@ -204,12 +205,20 @@ int close_process_set(struct process_set *proc_set);
  * exits, and is_child_of() then no longer matches it.  Recording the PID
  * keeps the suspension undoable after the process has left proc_list.
  *
+ * The start time is stored with the PID so resume_stopped_pids() can confirm
+ * the PID still belongs to the same process before sending SIGCONT: if the
+ * PID was recycled in the meantime, a different process occupies it and the
+ * spurious resume must not reach it.  Pass UNKNOWN_START_TIME when no start
+ * time is available, which disables the check and falls back to always
+ * resuming the recorded PID.
+ *
  * @note Safe to call with NULL proc_set or a group whose suspended-PID
  *       list has not been allocated; the call is then a no-op
- * @note Skips the record if the pid_t cannot be allocated; the process is
- *       still a group member, so the regular resume round reaches it
+ * @note Skips the record if the bookkeeping node cannot be allocated; the
+ *       process is still a group member, so the regular resume round reaches it
  */
-void record_stopped_pid(struct process_set *proc_set, pid_t pid);
+void record_stopped_pid(struct process_set *proc_set, pid_t pid,
+                        double start_time);
 
 /**
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list

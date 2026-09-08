@@ -249,9 +249,9 @@ int close_process_set(struct process_set *proc_set) {
 
     if (proc_set->stopped_pids != NULL) {
         /*
-         * Each element is a heap-allocated pid_t owned by this list, so
-         * destroy_list() (not clear_list()) is required to release the
-         * elements together with their nodes.
+         * Each element is a heap-allocated stopped_pid_record owned by this
+         * list, so destroy_list() (not clear_list()) is required to release
+         * the elements together with their nodes.
          */
         destroy_list(proc_set->stopped_pids);
         free(proc_set->stopped_pids);
@@ -293,10 +293,22 @@ static struct process *process_dup(const struct process *proc) {
     return new_proc;
 }
 
+/*
+ * A suspension record: the PID that was stopped, plus the start time it had
+ * at that moment. The start time lets resume_stopped_pids() confirm the PID
+ * still belongs to the same process before sending the undoing SIGCONT, so a
+ * recycled PID does not receive a spurious resume meant for its predecessor.
+ */
+struct stopped_pid_record {
+    pid_t pid;
+    double start_time;
+};
+
 /**
  * @brief Record that a member of the group has just been suspended
  * @param proc_set Pointer to the process set structure
  * @param pid PID that was successfully sent SIGSTOP
+ * @param start_time Start time of pid at suspension, from get_process_start_time()
  *
  * proc_list is rebuilt from scratch by update_process_set(), so a process
  * can cease to be a member of the group while it is still suspended: a
@@ -304,13 +316,14 @@ static struct process *process_dup(const struct process *proc) {
  * exits, and is_child_of() then no longer matches it.  Recording the PID
  * here keeps the suspension undoable after the process has left proc_list.
  */
-void record_stopped_pid(struct process_set *proc_set, pid_t pid) {
-    pid_t *stopped_pid;
+void record_stopped_pid(struct process_set *proc_set, pid_t pid,
+                        double start_time) {
+    struct stopped_pid_record *rec;
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
         return;
     }
-    stopped_pid = (pid_t *)malloc(sizeof(*stopped_pid));
-    if (stopped_pid == NULL) {
+    rec = (struct stopped_pid_record *)malloc(sizeof(*rec));
+    if (rec == NULL) {
         /*
          * Nothing can record this suspension, so nothing would be able to
          * undo it later: undo it now. Leaving the process suspended would
@@ -320,8 +333,9 @@ void record_stopped_pid(struct process_set *proc_set, pid_t pid) {
         kill(pid, SIGCONT);
         return;
     }
-    *stopped_pid = pid;
-    add_list_elem(proc_set->stopped_pids, stopped_pid);
+    rec->pid = pid;
+    rec->start_time = start_time;
+    add_list_elem(proc_set->stopped_pids, rec);
 }
 
 /*
@@ -349,7 +363,9 @@ void resume_stopped_pids(struct process_set *proc_set) {
     }
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
          node = node->next) {
-        pid_t pid = *(const pid_t *)node->data;
+        const struct stopped_pid_record *rec =
+            (const struct stopped_pid_record *)node->data;
+        pid_t pid = rec->pid;
         /*
          * A process that is still a group member is resumed by the
          * regular SIGCONT round that walks proc_list, so signalling it
@@ -357,6 +373,24 @@ void resume_stopped_pids(struct process_set *proc_set) {
          * the processes that have left the group need one here.
          */
         if (find_process_in_list_by_pid(proc_set->proc_list, pid) == NULL) {
+            /*
+             * The PID may have been recycled since it was suspended. If we
+             * recorded its start time, re-query it now: a different process
+             * occupying the recycled PID must not receive the resume that
+             * was meant for its predecessor. When the recorded start time is
+             * unknown we cannot tell, so we fall back to resuming it.
+             */
+            if (!start_time_matches(rec->start_time, UNKNOWN_START_TIME)) {
+                double current = get_process_start_time(pid);
+                if (!start_time_matches(current, UNKNOWN_START_TIME) &&
+                    !start_time_matches(current, rec->start_time)) {
+                    /*
+                     * PID reused: the original process is gone and the new
+                     * one was never suspended by us, so skip the SIGCONT.
+                     */
+                    continue;
+                }
+            }
             /*
              * Last chance for this process: the record is dropped below,
              * so a failure here leaves it suspended with nothing left to
@@ -378,13 +412,15 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
     }
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
          node = next_node) {
+        const struct stopped_pid_record *rec =
+            (const struct stopped_pid_record *)node->data;
         next_node = node->next;
-        if (*(const pid_t *)node->data != pid) {
+        if (rec->pid != pid) {
             continue;
         }
         /*
-         * Each element is a heap-allocated pid_t owned by this list, so
-         * it has to be released before its node is unlinked:
+         * Each element is a heap-allocated stopped_pid_record owned by this
+         * list, so it has to be released before its node is unlinked:
          * delete_list_node() only frees the node.
          */
         free(node->data);
@@ -859,7 +895,8 @@ void process_set_send_signal(struct process_set *proc_set, int sig,
             }
         } else if (sig == SIGSTOP) {
             /* Track the suspension so it can always be undone */
-            record_stopped_pid(proc_set, pid);
+            record_stopped_pid(proc_set, pid,
+                               ((const struct process *)node->data)->start_time);
         }
         node = next_node;
     }
