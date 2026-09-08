@@ -9600,6 +9600,106 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
 }
 
 /**
+ * @brief limit_process() must report (and exit non-zero) when a process cannot
+ *        be resumed at shutdown (BUG-050)
+ * @note A kill() seam makes the final SIGCONT delivery fail with EPERM.  The
+ *       quit flag is preset so the control loop is skipped and limit_process()
+ *       goes straight to its cleanup resume, which must then fail and return
+ *       LIMIT_PROCESS_ERROR instead of silently reporting success.
+ */
+static void test_limit_process_reports_resume_failure(void) {
+    int pipe_fds[2];
+    int ret, waited, exited;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        pid_t target;
+        int limit_ret;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        /* A separate process to act as the limiting target. */
+        target = fork();
+        if (target < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (target == 0) {
+            while (1) {
+                pause();
+            }
+        }
+        configure_signal_handler();
+        /* Preset the quit flag so limit_process() skips the control loop. */
+        raise(SIGTERM);
+        /*
+         * Arm only the kill() failure injection.  seam_active stays 0 so the
+         * process iterator is the real one and the target is found; the kill
+         * seam fails deliveries whenever seam_fail_call is set, independent of
+         * seam_active, so the shutdown SIGCONT still fails (BUG-050).
+         */
+        seam_reset();
+        seam_kill_calls = 0;
+        seam_fail_call = 1;
+        seam_fail_span = 100;
+        seam_fail_errno = EPERM;
+        limit_ret = limit_process(target, 0.5, 0, 0);
+        /* Re-enable real signals before reaping the target. */
+        seam_fail_call = 0;
+        seam_fail_errno = 0;
+        kill(target, SIGKILL);
+        waitpid(target, NULL, 0);
+        _exit(limit_ret == LIMIT_PROCESS_ERROR ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    close(pipe_fds[1]);
+
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread =
+            read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 512 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    /* A suspended process we could not resume must be reported (BUG-050). */
+    assert(strstr(err_buf, "left suspended at shutdown") != NULL);
+    free(err_buf);
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -11818,6 +11918,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
+    RUN_TEST(test_limit_process_reports_resume_failure);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");

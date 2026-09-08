@@ -796,9 +796,10 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
  *
  * @note Safe iteration: stores next node before potential deletion
  */
-void process_set_send_signal(struct process_set *proc_set, int sig,
-                             int verbose) {
+int process_set_send_signal(struct process_set *proc_set, int sig,
+                            int verbose) {
     struct list_node *node;
+    int failed = 0;
 
     /*
      * Resume recorded PIDs before the guard below: those processes have
@@ -809,7 +810,7 @@ void process_set_send_signal(struct process_set *proc_set, int sig,
         resume_stopped_pids(proc_set);
     }
     if (proc_set == NULL || proc_set->proc_list == NULL) {
-        return;
+        return 0;
     }
 
     node = first_list_node(proc_set->proc_list);
@@ -873,6 +874,7 @@ void process_set_send_signal(struct process_set *proc_set, int sig,
                  * is preferable to ignoring the excess.
                  */
                 warn_signal_failure(sig, pid, saved_errno, verbose);
+                failed++;
             }
         } else if (sig == SIGSTOP) {
             /* Track the suspension so it can always be undone */
@@ -881,4 +883,5 @@ void process_set_send_signal(struct process_set *proc_set, int sig,
         }
         node = next_node;
     }
+    return failed;
 }

@@ -340,8 +340,8 @@ size_t process_set_member_count(const struct process_set *proc_set);
  *
  * @note Safe iteration: stores next node before potential deletion
  */
-void process_set_send_signal(struct process_set *proc_set, int sig,
-                             int verbose);
+int process_set_send_signal(struct process_set *proc_set, int sig,
+                            int verbose);
 
 #ifdef __cplusplus
 }

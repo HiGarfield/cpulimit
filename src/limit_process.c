@@ -245,6 +245,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     struct process_set proc_set;
     struct dynamic_time_slot_ctx time_slot_ctx = {BASE_TIME_SLOT_US, 0, {0, 0}};
     int cycle_counter = 0, ncpu = get_ncpu();
+    int resume_failed;
     /* Fraction of time processes should be running */
     double work_ratio;
     /* Current state: 1 if processes are stopped, 0 if running */
@@ -451,10 +452,23 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
      * This also resumes processes that dropped out of the group while
      * suspended (see record_stopped_pid()).
      */
-    process_set_send_signal(&proc_set, SIGCONT, 0);
+    resume_failed = process_set_send_signal(&proc_set, SIGCONT, 0);
 
     /* Release process tracking resources */
     close_process_set(&proc_set);
+
+    if (resume_failed > 0) {
+        /*
+         * At least one suspended process could not be resumed at shutdown
+         * (BUG-050).  It may stay stopped forever, so report it and exit
+         * non-zero rather than silently returning success.
+         */
+        fprintf(stderr,
+                "Warning: %d process(es) left suspended at shutdown; "
+                "run 'kill -CONT <pid>' for each to recover.\n",
+                resume_failed);
+        return LIMIT_PROCESS_ERROR;
+    }
 
     return LIMIT_PROCESS_OK;
 }
