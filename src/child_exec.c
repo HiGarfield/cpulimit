@@ -29,6 +29,7 @@
 #include "signal_handler.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,6 +56,51 @@
  * for exit status 127.
  */
 #define EXIT_CMD_NOT_FOUND 127
+
+/**
+ * @brief Resolve a bare command name to its absolute path using PATH
+ * @param name Command name without a '/'
+ * @param out  Buffer receiving the resolved path (must hold PATH_MAX bytes)
+ * @param out_size Size of out in bytes
+ * @return 1 if the name resolves to an existing file under PATH, 0 otherwise
+ *
+ * Mirrors execvp()'s PATH search so the shebang pre-check below can inspect a
+ * PATH-resolved script the same way it inspects an explicit path.  Returns 0
+ * (no resolution) for names that already contain a '/', leaving the existing
+ * explicit-path path untouched.
+ */
+static int resolve_command_path(const char *name, char *out, size_t out_size) {
+    const char *path_env;
+    char *path_copy;
+    char *saveptr = NULL;
+    char *dir;
+    int found = 0;
+
+    if (strchr(name, '/') != NULL) {
+        return 0;
+    }
+    path_env = getenv("PATH");
+    if (path_env == NULL) {
+        path_env = "/usr/bin:/bin";
+    }
+    path_copy = strdup(path_env);
+    if (path_copy == NULL) {
+        return 0;
+    }
+    for (dir = strtok_r(path_copy, ":", &saveptr); dir != NULL;
+         dir = strtok_r(NULL, ":", &saveptr)) {
+        int len = snprintf(out, out_size, "%s/%s", dir, name);
+        if (len < 0 || (size_t)len >= out_size) {
+            continue;
+        }
+        if (access(out, F_OK) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    free(path_copy);
+    return found;
+}
 
 void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
                         int sync_write_fd) {
@@ -116,19 +162,45 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * flag (FD_CLOEXEC) on sync_write_fd causes the kernel to close it
      * automatically, signalling exec completion to the parent.
      *
-     * Pre-check: if the target is an explicit path, detect a script
-     * whose shebang interpreter is inaccessible before calling execvp().
-     * Under normal execution execvp() would fail in this case,
-     * but under valgrind the exec interception is unrecoverable, so the
-     * check must happen before exec.  _exit() closes all fds (including
+     * Pre-check: detect a script whose shebang interpreter is inaccessible
+     * before calling execvp().  Under normal execution execvp() would fail in
+     * this case, but under valgrind the exec interception is unrecoverable, so
+     * the check must happen before exec.  _exit() closes all fds (including
      * sync_write_fd), which also signals exec completion to the parent.
+     *
+     * The check runs for an explicit path AND for a bare name resolved through
+     * PATH, so both spellings of the same script report the same code (BUG-053):
+     * an inaccessible interpreter always yields 126, never a misleading 127.
      */
-    if (strchr(cfg->command_args[0], '/') != NULL &&
-        is_script_inaccessible_interpreter(cfg->command_args[0])) {
-        fprintf(stderr,
-                "%s: cannot execute: shebang interpreter is inaccessible\n",
-                cfg->command_args[0]);
-        _exit(EXIT_CMD_NOT_EXECUTABLE);
+    {
+        const char *check_path = cfg->command_args[0];
+        char *resolved = (char *)malloc(PATH_MAX);
+        /*
+         * Heap-allocate the PATH resolution buffer instead of putting a
+         * PATH_MAX-sized array on the stack, which would blow the project's
+         * -Wstack-usage=512 limit.  On allocation failure we simply skip the
+         * PATH-resolved shebang pre-check (the explicit-path branch still runs,
+         * and a bare name falls through to execvp() and reports the usual code).
+         */
+        if (resolved != NULL) {
+            if (strchr(check_path, '/') != NULL) {
+                if (is_script_inaccessible_interpreter(check_path)) {
+                    fprintf(stderr,
+                            "%s: cannot execute: shebang interpreter is inaccessible\n",
+                            check_path);
+                    free(resolved);
+                    _exit(EXIT_CMD_NOT_EXECUTABLE);
+                }
+            } else if (resolve_command_path(check_path, resolved, PATH_MAX) &&
+                       is_script_inaccessible_interpreter(resolved)) {
+                fprintf(stderr,
+                        "%s: cannot execute: shebang interpreter is inaccessible\n",
+                        check_path);
+                free(resolved);
+                _exit(EXIT_CMD_NOT_EXECUTABLE);
+            }
+            free(resolved);
+        }
     }
     execvp(cfg->command_args[0], cfg->command_args);
 

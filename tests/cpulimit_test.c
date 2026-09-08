@@ -7506,6 +7506,102 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
 }
 
 /**
+ * @brief A script resolved via PATH with a missing shebang interpreter must
+ *        also report 126 (BUG-053)
+ * @note The pre-check that detects an inaccessible shebang interpreter used to
+ *       run only for explicit (slash-containing) paths, so a script reached
+ *       through PATH reported 127 instead of 126 for the very same condition.
+ *       This test places a bad-shebang script in a directory on PATH and invokes
+ *       it by bare name; with the fix it resolves through PATH and returns 126,
+ *       matching the explicit-path case.  Without the fix execvp() fails with
+ *       ENOENT for the (found) script and the parent reports 127, so this
+ *       assertion fails.  Verified by mutation: reverting the PATH branch of the
+ *       pre-check makes exit_code == 127.
+ */
+static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
+    pid_t pid, waited;
+    int status, fd, fchmod_ret, exited, exit_code, close_ret;
+    static const char shebang[] = "#!/nonexistent_interpreter_cpulimit_xyz\n";
+    ssize_t nwritten, expected_len;
+    struct cpulimit_cfg cfg;
+    char dir[] = "/tmp/cpulimit_test_shdir_XXXXXX";
+    char script_path[sizeof(dir) + 32];
+    char name_buf[] = "badsh_cpulimit_xyz";
+    char *args[2];
+    char *orig_path;
+    char *new_path;
+
+    assert(mkdtemp(dir) != NULL);
+    {
+        int len = snprintf(script_path, sizeof(script_path), "%s/badsh_cpulimit_xyz", dir);
+        assert(len > 0 && (size_t)len < sizeof(script_path));
+    }
+    fd = open(script_path, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    assert(fd >= 0);
+    nwritten = write(fd, shebang, sizeof(shebang) - 1);
+    expected_len = (ssize_t)(sizeof(shebang) - 1);
+    assert(nwritten == expected_len);
+    fchmod_ret = fchmod(fd, 0755);
+    assert(fchmod_ret == 0);
+    close_ret = close(fd);
+    assert(close_ret == 0);
+
+    /* Prepend our dir to PATH so the bare name resolves through it. */
+    orig_path = getenv("PATH");
+    {
+        size_t dir_len = strlen(dir);
+        size_t orig_len = orig_path ? strlen(orig_path) : 0;
+        size_t need = dir_len + 1 + orig_len + 1;
+        new_path = (char *)malloc(need);
+        assert(new_path != NULL);
+        memcpy(new_path, dir, dir_len);
+        new_path[dir_len] = ':';
+        if (orig_len > 0) {
+            memcpy(new_path + dir_len + 1, orig_path, orig_len);
+        }
+        new_path[dir_len + 1 + orig_len] = '\0';
+        setenv("PATH", new_path, 1);
+    }
+
+    args[0] = name_buf; /* bare name, resolved via PATH */
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int mode_result;
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    /* Same condition as the explicit-path case: 126, never 127. */
+    assert(exit_code == 126);
+
+    if (orig_path) {
+        setenv("PATH", orig_path, 1);
+    } else {
+        unsetenv("PATH");
+    }
+    free(new_path);
+    unlink(script_path);
+    rmdir(dir);
+}
+
+/**
  * @brief Detect whether the test binary is running under valgrind
  * @return 1 when a valgrind preload library has been injected, 0 otherwise
  *
@@ -12525,6 +12621,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
+    RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
     RUN_TEST(test_limiter_run_command_mode_fifo);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_without_group);
