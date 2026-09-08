@@ -9744,6 +9744,65 @@ static void test_cli_accepts_pid_one(void) {
 }
 
 /**
+ * @brief CLI must reject numeric options with leading whitespace (BUG-035)
+ * @note strtol()/strtod() silently skip leading whitespace, so "-l ' 50'" or
+ *       "-p ' 5'" were accepted as 50 / 5, inconsistent with the strict
+ *       trailing-character rejection.  After the fix, a leading space makes
+ *       parse_arguments() fail, while the same value without the space still
+ *       parses.  Verified by mutation: reverting the isspace() guard makes the
+ *       two rejection assertions fail, confirming the test guards the fix.
+ */
+static void test_cli_rejects_leading_whitespace_in_numbers(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_p[] = "-p";
+    char arg_1[] = "1";
+    char arg_l[] = "-l";
+    char arg_space50[] = " 50";
+    char arg_50[] = "50";
+    char arg_space5[] = " 5";
+    char *lead_space_limit[6];
+    char *lead_space_pid[6];
+    char *no_space[6];
+
+    lead_space_limit[0] = arg0;
+    lead_space_limit[1] = arg_p;
+    lead_space_limit[2] = arg_1;
+    lead_space_limit[3] = arg_l;
+    lead_space_limit[4] = arg_space50;
+    lead_space_limit[5] = NULL;
+    lead_space_pid[0] = arg0;
+    lead_space_pid[1] = arg_l;
+    lead_space_pid[2] = arg_50;
+    lead_space_pid[3] = arg_p;
+    lead_space_pid[4] = arg_space5;
+    lead_space_pid[5] = NULL;
+    no_space[0] = arg0;
+    no_space[1] = arg_l;
+    no_space[2] = arg_50;
+    no_space[3] = arg_p;
+    no_space[4] = arg_1;
+    no_space[5] = NULL;
+
+    /* "-l ' 50'" must be rejected. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "cpulimit";
+    assert(parse_arguments(5, lead_space_limit, &cfg) == EXIT_FAILURE);
+
+    /* "-p ' 5'" must be rejected. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "cpulimit";
+    assert(parse_arguments(5, lead_space_pid, &cfg) == EXIT_FAILURE);
+
+    /* Without leading space, parsing still succeeds. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "cpulimit";
+    assert(parse_arguments(5, no_space, &cfg) == 0);
+    assert(cfg.target_pid == 1);
+    assert(cfg.cpu_limit >= 0.5 - 1e-9 && cfg.cpu_limit <= 0.5 + 1e-9);
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -11326,6 +11385,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_invalid_limits);
     RUN_TEST(test_cli_invalid_pids);
     RUN_TEST(test_cli_accepts_pid_one);
+    RUN_TEST(test_cli_rejects_leading_whitespace_in_numbers);
     RUN_TEST(test_cli_empty_exe);
     RUN_TEST(test_cli_no_target);
     RUN_TEST(test_cli_multiple_targets);

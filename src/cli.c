@@ -29,6 +29,7 @@
 #include "path_util.h"
 #include "util.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <getopt.h>
 #include <stdio.h>
@@ -93,6 +94,16 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     char *endptr;
     long pid;
     pid_t pid_result;
+    /*
+     * Reject a leading whitespace before conversion.  strtol() skips leading
+     * whitespace, so "-p ' 5'" would otherwise be accepted as PID 5, which is
+     * inconsistent with the strict trailing-character rejection (BUG-035).
+     */
+    if (pid_str == NULL || isspace((unsigned char)pid_str[0])) {
+        fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
+        print_usage(stderr, cfg);
+        return EXIT_FAILURE;
+    }
     errno = 0;
     pid = strtol(pid_str, &endptr, 10);
     /*
@@ -137,6 +148,16 @@ static int parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
     char *endptr;
     double percent_limit;
     double max_limit;
+    /*
+     * Reject a leading whitespace before conversion.  strtod() skips leading
+     * whitespace, so "-l ' 50'" would otherwise be accepted as 50%, which is
+     * inconsistent with the strict trailing-character rejection (BUG-035).
+     */
+    if (limit_str == NULL || isspace((unsigned char)limit_str[0])) {
+        fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
+        print_usage(stderr, cfg);
+        return EXIT_FAILURE;
+    }
     errno = 0;
     percent_limit = strtod(limit_str, &endptr);
     /*
