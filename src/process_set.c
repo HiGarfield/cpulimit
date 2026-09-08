@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /**
  * @def PROCESS_TABLE_HASHSIZE
@@ -488,11 +489,13 @@ int update_process_set(struct process_set *proc_set) {
     struct timespec now;
     double elapsed_ms;
     int ncpu, close_ret;
+    pid_t self_pid;
     if (proc_set == NULL || proc_set->proc_list == NULL ||
         proc_set->proc_table == NULL) {
         return 0;
     }
     ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
+    self_pid = getpid();
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
@@ -528,8 +531,21 @@ int update_process_set(struct process_set *proc_set) {
 
     /* Scan currently running processes and update tracking data */
     while (get_next_process(&iter, scan_proc) != -1) {
-        struct process *proc =
-            find_in_process_table(proc_set->proc_table, scan_proc->pid);
+        struct process *proc;
+        /*
+         * Never track cpulimit itself. With --include-children the target
+         * may be an ancestor of this process, and is_child_of() then
+         * reports it as a group member like any other descendant.
+         * Suspending it would stop the limiter before it can reach the
+         * cleanup that resumes the group, and SIGSTOP can be neither
+         * caught nor blocked, so the whole group would stay suspended.
+         * Its own CPU time must not count against the target's budget
+         * either.
+         */
+        if (scan_proc->pid == self_pid) {
+            continue;
+        }
+        proc = find_in_process_table(proc_set->proc_table, scan_proc->pid);
         if (proc == NULL) {
             /* New process detected: add to hashtable and list */
             proc = process_dup(scan_proc);

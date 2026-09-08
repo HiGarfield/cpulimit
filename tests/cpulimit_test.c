@@ -5381,7 +5381,10 @@ static void test_process_set_rapid_updates(void) {
 /**
  * @brief Test process set initialization with all processes
  * @note Verifies that a process set initialized with PID 0 (all processes)
- *       is non-empty and contains the current process
+ *       is non-empty and never contains the current process: cpulimit must
+ *       not suspend itself, and with --include-children a target that is an
+ *       ancestor of this process would otherwise make it a group member
+ *       (BUG-001).
  */
 static void test_process_set_init_all(void) {
     struct process_set proc_set;
@@ -5405,7 +5408,7 @@ static void test_process_set_init_all(void) {
         count++;
     }
     assert(count > 0);
-    assert(found_self == 1);
+    assert(found_self == 0);
     list_cnt = proc_set.proc_list->count;
     assert(count == list_cnt);
 
@@ -10690,6 +10693,56 @@ static void test_process_set_atexit_resumes_stopped(void) {
     assert(resumed);
 }
 
+/**
+ * @brief Test that the tracked group never contains cpulimit itself
+ * @note With --include-children the target may be an ancestor of this very
+ *       process, and is_child_of() then reports this process as a group
+ *       member like any other descendant. Suspending it would freeze the
+ *       limiter: SIGSTOP can neither be caught nor blocked, so it would stop
+ *       before reaching the cleanup that resumes the group.
+ *
+ *       The check runs in a child that really is a descendant of the target,
+ *       so the scan has nothing to distinguish it from a legitimate member.
+ *       Membership is asserted rather than a signal being sent, because an
+ *       actual SIGSTOP would wedge the test process.
+ */
+static void test_process_set_excludes_self_from_group(void) {
+    pid_t target, waited;
+    int status, verdict;
+
+    fflush(stdout);
+    fflush(stderr);
+
+    target = fork();
+    assert(target >= 0);
+    if (target == 0) {
+        pid_t inspector;
+        int inspector_status = 0;
+
+        inspector = fork();
+        if (inspector == 0) {
+            struct process_set ps;
+            int in_group = 2;
+
+            if (init_process_set(&ps, getppid(), 1) == 0) {
+                in_group =
+                    find_process_in_list_by_pid(ps.proc_list, getpid()) != NULL;
+                close_process_set(&ps);
+            }
+            _exit(in_group == 0 ? 0 : (in_group > 0 ? 1 : 2));
+        }
+        waitpid(inspector, &inspector_status, 0);
+        _exit(WIFEXITED(inspector_status) ? WEXITSTATUS(inspector_status) : 3);
+    }
+
+    waited = waitpid(target, &status, 0);
+    assert(waited == target);
+    assert(WIFEXITED(status));
+
+    verdict = WEXITSTATUS(status);
+    assert(verdict == 0);
+}
+
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];
@@ -10839,6 +10892,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_purges_exited_descendants);
     RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
     RUN_TEST(test_process_set_atexit_resumes_stopped);
+    RUN_TEST(test_process_set_excludes_self_from_group);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
