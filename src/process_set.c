@@ -392,7 +392,8 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
  * @param ncpu      Number of available CPU cores (used to cap the sample)
  *
  * Handles four mutually exclusive cases:
- * - PID reuse (scan_proc->cpu_time < proc->cpu_time): resets all fields.
+ * - PID reuse (scan_proc->cpu_time < proc->cpu_time, or the start time
+ *   differs despite the same PID): resets all fields.
  * - Backward clock (elapsed_ms < 0): updates ppid and cpu_time, marks
  *   usage unknown so the next cycle starts from a clean baseline.
  * - Short interval (elapsed_ms < CPU_MIN_DELTA_MS): updates ppid only;
@@ -405,10 +406,20 @@ static void update_existing_process_entry(struct process *proc,
                                           const struct process *scan_proc,
                                           double elapsed_ms, int ncpu) {
     double sample;
-    if (scan_proc->cpu_time < proc->cpu_time) {
+    if (scan_proc->cpu_time < proc->cpu_time ||
+        (!start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
+         !start_time_matches(scan_proc->start_time, UNKNOWN_START_TIME) &&
+         !start_time_matches(proc->start_time, scan_proc->start_time))) {
         /*
-         * CPU time decreased: PID has been reused for a new process.
-         * Reset all historical data.
+         * CPU time decreased, or the start time changed while the PID is
+         * unchanged: the PID has been recycled for a new process.  A fresh
+         * process after a reuse often has a *higher* CPU time than the old
+         * one (especially when the old process had barely started), so the
+         * cpu_time-only check would miss it and the new process would be
+         * misattributed to the old entry -- keeping an innocent process in
+         * the throttled group (BUG-004).  The start time is the authoritative
+         * identity, so use it as the second detection signal.  Reset all
+         * historical data.
          */
         memcpy(proc, scan_proc, sizeof(*proc));
         /* Mark CPU usage as unknown for new process */

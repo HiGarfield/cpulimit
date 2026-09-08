@@ -9903,6 +9903,105 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     free(err_buf);
 }
 
+/* Forward declaration: defined further below, after SEAM_CHILD_PID. */
+static void seam_push_frame(const struct seam_proc *procs, int count);
+
+/**
+ * @brief A recycled descendant PID must not be misattributed (BUG-004)
+ * @note update_existing_process_entry() used to detect PID reuse only from a
+ *       decrease in cpu_time.  A freshly recycled PID often has a *higher*
+ *       cpu_time than the process it replaced (the old one had barely
+ *       started), so the new process slipped past the check and was
+ *       misattributed to the old group entry -- an innocent process stayed in
+ *       the throttled set.  Using start_time as an identity signal recognises
+ *       the PID as a new process: its cpu_usage resets to -1 and the group
+ *       aggregate no longer includes its stale contribution.
+ *
+ *       The test scripts a target plus one descendant that reuses its PID
+ *       between two update cycles: cpu_time rises (100 -> 200) while start_time
+ *       changes (20 -> 21).  With the fix, after the second cycle the group CPU
+ *       usage collapses to the target's alone (the descendant is -1 and skipped,
+ *       so the sum is ~0); without the fix the descendant's 1.0 sample is summed
+ *       in and the assert fails.  The (seam-controlled) clock is advanced 100ms
+ *       per cycle so a real delta is computed.  Verified by mutation: reverting
+ *       the start_time branch makes the descendant's 1.0 be counted.
+ */
+static void test_process_set_detects_pid_reuse_by_start_time(void) {
+    struct process_set proc_set;
+    int ret;
+    struct seam_proc (*frames)[2] =
+        (struct seam_proc(*)[2])malloc(sizeof(struct seam_proc[3][2]));
+    assert(frames != NULL);
+
+    seam_reset();
+
+    /* Frame 0: target only; consumed by init_process_set's own initial scan. */
+    memset(&frames[0][0], 0, sizeof(frames[0][0]));
+    frames[0][0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[0][0].ppid = (pid_t)1;
+    frames[0][0].cpu_time = 100.0;
+    frames[0][0].start_time = 10.0;
+    seam_push_frame(frames[0], 1);
+
+    /* Cycle 0: target plus one descendant, both with a known baseline. */
+    memset(&frames[1][0], 0, sizeof(frames[1][0]));
+    memset(&frames[1][1], 0, sizeof(frames[1][1]));
+    frames[1][0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[1][0].ppid = (pid_t)1;
+    frames[1][0].cpu_time = 100.0;
+    frames[1][0].start_time = 10.0;
+    frames[1][1].pid = (pid_t)42425; /* SEAM_CHILD_PID, defined later */
+    frames[1][1].ppid = (pid_t)SEAM_TARGET_PID;
+    frames[1][1].cpu_time = 100.0;
+    frames[1][1].start_time = 20.0;
+    seam_push_frame(frames[1], 2);
+
+    /*
+     * Cycle 1: the descendant's PID is recycled -- cpu_time went UP (so the
+     * old cpu_time-only check would miss it) but its start_time differs.
+     */
+    memset(&frames[2][0], 0, sizeof(frames[2][0]));
+    memset(&frames[2][1], 0, sizeof(frames[2][1]));
+    frames[2][0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[2][0].ppid = (pid_t)1;
+    frames[2][0].cpu_time = 100.0;
+    frames[2][0].start_time = 10.0;
+    frames[2][1].pid = (pid_t)42425; /* SEAM_CHILD_PID, defined later */
+    frames[2][1].ppid = (pid_t)SEAM_TARGET_PID;
+    frames[2][1].cpu_time = 200.0;
+    frames[2][1].start_time = 21.0;
+    seam_push_frame(frames[2], 2);
+
+    seam_active = 1;
+    seam_clock_ms = 0.0;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
+    assert(ret == 0);
+
+    /* Advance the seam clock past the minimum delta and run cycle 0. */
+    seam_clock_ms = 100.0;
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+
+    /* Another delta, cycle 1: the descendant reuses its PID here. */
+    seam_clock_ms = 200.0;
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+
+    /*
+     * The target's own usage is ~0 (its cpu_time did not change), so with the
+     * fix the only valid member contributes ~0 and the recycled descendant is
+     * excluded; without the fix the descendant's 1.0 sample is summed in.
+     */
+    {
+        double usage = get_process_set_cpu_usage(&proc_set);
+        assert(usage >= -0.001 && usage < 0.01);
+    }
+
+    free(frames);
+    close_process_set(&proc_set);
+    seam_active = 0;
+}
+
 /**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
@@ -12122,6 +12221,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_reports_failed_resume);
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
+    RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
