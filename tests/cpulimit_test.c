@@ -9022,6 +9022,8 @@ struct seam_proc {
     double cpu_time;
     /** @brief Process start time in seconds, or UNKNOWN_START_TIME (<=0). */
     double start_time;
+    /** @brief Command (argv[0] or path), used by name-based matching. */
+    char command[CMD_BUFF_SIZE];
 };
 
 /** @brief One kill() call recorded by the seam. */
@@ -10003,6 +10005,79 @@ static void test_process_set_detects_pid_reuse_by_start_time(void) {
 }
 
 /**
+ * @brief Multiple unrelated same-name matches must resolve deterministically (BUG-055)
+ * @note find_process_by_name() only replaced the current winner when the new
+ *       candidate was a descendant of it, so when several matches are mutually
+ *       unrelated the first one encountered won -- and the /proc enumeration
+ *       order is unspecified, so the chosen target drifted across runs.  The
+ *       fix breaks ties by smallest PID.  Two unrelated processes named "busy"
+ *       (42424 and 42425) are scripted through the iterator seam in both
+ *       (42424, 42425) and (42425, 42424) orders; the function must return the
+ *       same PID (the smaller, 42424) either way.  Without the tie-break the
+ *       second order keeps 42425 and the final assert fails.  Verified by
+ *       mutation: reverting the `unrelated && proc->pid < pid` branch makes the
+ *       two orders disagree.  The recheck snapshot contains both PIDs so the
+ *       final find_process_by_pid() existence check succeeds for the winner.
+ */
+static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
+    pid_t first, second;
+    struct seam_proc *frame_a = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *frame_b = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *recheck = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    assert(frame_a != NULL && frame_b != NULL && recheck != NULL);
+
+    /* Two unrelated processes named "busy". */
+    memset(frame_a, 0, sizeof(struct seam_proc) * 2);
+    frame_a[0].pid = (pid_t)SEAM_TARGET_PID; /* 42424 */
+    frame_a[0].ppid = (pid_t)1;
+    strcpy(frame_a[0].command, "busy");
+    frame_a[1].pid = (pid_t)42425;
+    frame_a[1].ppid = (pid_t)1;
+    strcpy(frame_a[1].command, "busy");
+
+    memset(frame_b, 0, sizeof(struct seam_proc) * 2);
+    frame_b[0].pid = (pid_t)42425;
+    frame_b[0].ppid = (pid_t)1;
+    strcpy(frame_b[0].command, "busy");
+    frame_b[1].pid = (pid_t)SEAM_TARGET_PID;
+    frame_b[1].ppid = (pid_t)1;
+    strcpy(frame_b[1].command, "busy");
+
+    /* Recheck snapshot must contain the expected winner (42424). */
+    memset(recheck, 0, sizeof(struct seam_proc) * 2);
+    recheck[0].pid = (pid_t)SEAM_TARGET_PID;
+    recheck[0].ppid = (pid_t)1;
+    strcpy(recheck[0].command, "busy");
+    recheck[1].pid = (pid_t)42425;
+    recheck[1].ppid = (pid_t)1;
+    strcpy(recheck[1].command, "busy");
+
+    /* Order (42424, 42425). */
+    seam_reset();
+    seam_push_frame(frame_a, 2);
+    seam_push_frame(recheck, 2);
+    seam_active = 1;
+    first = find_process_by_name("busy");
+    seam_active = 0;
+    assert(first == (pid_t)SEAM_TARGET_PID);
+
+    /* Order (42425, 42424). */
+    seam_reset();
+    seam_push_frame(frame_b, 2);
+    seam_push_frame(recheck, 2);
+    seam_active = 1;
+    second = find_process_by_name("busy");
+    seam_active = 0;
+    assert(second == (pid_t)SEAM_TARGET_PID);
+
+    /* Both orders must agree on the same (smallest) PID. */
+    assert(first == second);
+    free(frame_a);
+    free(frame_b);
+    free(recheck);
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -10323,6 +10398,7 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
     proc->ppid = entry->ppid;
     proc->cpu_time = entry->cpu_time;
     proc->start_time = entry->start_time;
+    memcpy(proc->command, entry->command, sizeof(proc->command));
     proc->cpu_usage = -1;
     seam_frame_pos++;
     return 0;
@@ -12222,6 +12298,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
+    RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);

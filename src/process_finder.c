@@ -145,11 +145,19 @@ pid_t find_process_by_name(const char *process_name) {
             /*
              * Select this PID if:
              * - No match found yet (!found), OR
-             * - This process is an ancestor of the previous match
-             * This heuristic prefers older/parent processes over newer/child
-             * ones.
+             * - This process is a descendant of the previous match
+             *   (is_child_of(pid, proc->pid)) -- keep the higher/older one,
+             * - The two matches are unrelated and this PID is smaller, which
+             *   makes the winner independent of scan order (BUG-055).  The
+             *   /proc readdir / proc_listpids / kvm_getprocs order is not
+             *   guaranteed, so without this tie-break the chosen target would
+             *   change across runs.
              */
-            if (!found || is_child_of(pid, proc->pid)) {
+            int candidate_is_descendant = is_child_of(pid, proc->pid);
+            int unrelated =
+                !candidate_is_descendant && !is_child_of(proc->pid, pid);
+            if (!found || candidate_is_descendant ||
+                (unrelated && proc->pid < pid)) {
                 pid = proc->pid;
                 found = 1;
             }
