@@ -124,6 +124,19 @@ struct process_set {
     pid_t target_pid;
 
     /**
+     * Start time that target_pid had when the group was created, or
+     * UNKNOWN_START_TIME if the platform could not provide one.
+     *
+     * Kept here rather than in the proc_table record because records that
+     * stop being group members are purged at the end of every cycle: a
+     * baseline stored in a record would be dropped along with it, and the
+     * process now occupying the recycled PID would then be accepted as
+     * brand new on the next cycle, which is exactly what this guards
+     * against.
+     */
+    double target_start_time;
+
+    /**
      * Flag controlling descendant tracking:
      * - Non-zero: monitor target and all descendant processes (recursive)
      * - Zero: monitor only the target process itself

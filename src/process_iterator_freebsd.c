@@ -186,6 +186,9 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     proc->ppid = kproc->ki_ppid;
     /* Convert runtime from microseconds to milliseconds */
     proc->cpu_time = (double)kproc->ki_runtime / 1000.0;
+    /* Start time: seconds since the epoch. */
+    proc->start_time =
+        (double)kproc->ki_start.tv_sec + (double)kproc->ki_start.tv_usec / 1e6;
     if (!read_cmd) {
         return 0;
     }

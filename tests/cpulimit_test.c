@@ -10875,6 +10875,79 @@ static void test_process_set_reports_failed_resume(void) {
     assert(err_len > 0);
 }
 
+/**
+ * @brief Test that a target whose PID was recycled is no longer tracked
+ * @note The old heuristic compared cpu_time only, so a replacement that had
+ *       already burned more CPU than the original looked legitimate and was
+ *       suspended for as long as cpulimit ran. The start time recorded when
+ *       the group was created is what tells the two apart.
+ *
+ *       The baseline lives in process_set rather than in the proc_table
+ *       record, because records that stop being members are purged at the
+ *       end of every cycle: a baseline kept there would be dropped with the
+ *       record and the replacement would be accepted as brand new.
+ */
+static void test_process_set_rejects_recycled_target_pid(void) {
+    struct process_set proc_set;
+    pid_t idle_pid, waited;
+    int ret, idle_status;
+    struct process *tracked;
+    double original_start;
+
+    fflush(stdout);
+    fflush(stderr);
+
+    idle_pid = fork();
+    assert(idle_pid >= 0);
+    if (idle_pid == 0) {
+        test_suspend_until_killed();
+    }
+
+    ret = init_process_set(&proc_set, idle_pid, 0);
+    assert(ret == 0);
+
+    tracked = find_in_process_table(proc_set.proc_table, idle_pid);
+    assert(tracked != NULL);
+    /* The platform has to report a start time for the check to work. */
+    assert(tracked->start_time < UNKNOWN_START_TIME ||
+           tracked->start_time > UNKNOWN_START_TIME);
+    original_start = tracked->start_time;
+    assert(proc_set.target_start_time >= original_start - 1e-9 &&
+           proc_set.target_start_time <= original_start + 1e-9);
+
+    /* A normal cycle keeps the process. */
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    assert(find_process_in_list_by_pid(proc_set.proc_list, idle_pid) != NULL);
+
+    /*
+     * Recycle the PID. Only the start time changes: cpu_time keeps rising,
+     * so this is precisely the case the cpu_time heuristic cannot see.
+     */
+    proc_set.target_start_time = original_start + 1000.0;
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    assert(find_process_in_list_by_pid(proc_set.proc_list, idle_pid) == NULL);
+    assert(proc_set.proc_list->count == 0);
+
+    /*
+     * And it stays rejected: the baseline must survive the purge that
+     * follows an empty group, otherwise the next cycle would adopt the
+     * replacement as a new process.
+     */
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    assert(find_process_in_list_by_pid(proc_set.proc_list, idle_pid) == NULL);
+
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+
+    kill_and_wait(idle_pid, SIGKILL);
+    do {
+        waited = waitpid(idle_pid, &idle_status, WNOHANG);
+    } while (waited == -1 && errno == EINTR);
+}
+
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];
@@ -11027,6 +11100,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
+    RUN_TEST(test_process_set_rejects_recycled_target_pid);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");

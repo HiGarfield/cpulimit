@@ -111,6 +111,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char state;
     long ppid;
     double user_time, sys_time;
+    double start_time = -1.0;
+    int parsed;
     static long sc_clk_tck = -1;
     int cmdline_fd;
     size_t total_read;
@@ -140,11 +142,20 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     /*
      * Parse stat fields via sscanf. After ')':
      *   state ppid pgrp session tty_nr tpgid flags
-     *   minflt cminflt majflt cmajflt utime stime ...
+     *   minflt cminflt majflt cmajflt utime stime
+     *   cutime cstime priority nice num_threads itrealvalue starttime
      * The leading space in the format string skips whitespace before state.
+     *
+     * starttime (field 22) is read last and accepted as optional: a
+     * container runtime that truncates the line must not make the process
+     * invisible, so a result of 4 means "no start time" rather than a
+     * parse failure, and start_time stays unknown.
      */
-    if (sscanf(p + 1, " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf",
-               &state, &ppid, &user_time, &sys_time) != 4 ||
+    parsed = sscanf(p + 1,
+                    " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf"
+                    " %*s %*s %*s %*s %*s %*s %lf",
+                    &state, &ppid, &user_time, &sys_time, &start_time);
+    if ((parsed != 4 && parsed != 5) ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
         ppid <= 0 || user_time < 0 || sys_time < 0) {
         free(buffer);
@@ -166,6 +177,9 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     }
     /* Convert CPU times from clock ticks to milliseconds */
     proc->cpu_time = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
+    /* Convert the start time from clock ticks to seconds since boot */
+    proc->start_time =
+        (parsed == 5) ? start_time / (double)sc_clk_tck : UNKNOWN_START_TIME;
 
     if (!read_cmd) {
         return 0;

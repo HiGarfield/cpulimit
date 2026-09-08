@@ -445,6 +445,16 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         return -1;
     }
     ret = proc_taskinfo_to_proc(task_info, proc, read_cmd);
+    if (ret == 0) {
+        /*
+         * Start time from the BSD half of proc_taskallinfo: seconds since
+         * the epoch. pbi_start_tvusec holds microseconds, not nanoseconds,
+         * so it is divided by 1e6. Only equality with another macOS start
+         * time matters.
+         */
+        proc->start_time = (double)task_info->pbsd.pbi_start_tvsec +
+                           (double)task_info->pbsd.pbi_start_tvusec / 1e6;
+    }
     free(task_info);
     return ret;
 }

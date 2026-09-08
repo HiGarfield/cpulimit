@@ -39,6 +39,16 @@
 #include <string.h>
 #include <unistd.h>
 
+/*
+ * Bit-exact double equality, used only for the UNKNOWN_START_TIME sentinel and
+ * for detecting PID reuse via start-time identity.  A plain `==' on doubles
+ * trips -Wfloat-equal even though these values are exact sentinels, so compare
+ * the raw bytes instead.  Returns 1 when the two doubles are bit-identical.
+ */
+static int start_time_matches(double a, double b) {
+    return memcmp(&a, &b, sizeof(double)) == 0;
+}
+
 /**
  * @def PROCESS_TABLE_HASHSIZE
  * @brief Number of hash buckets for the process hashtable
@@ -171,11 +181,26 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
         close_process_set(proc_set);
         return -1;
     }
+    /* No reuse baseline yet: the initial scan must not reject the target. */
+    proc_set->target_start_time = UNKNOWN_START_TIME;
     /* Perform initial scan to populate process list */
     if (update_process_set(proc_set) != 0) {
         fprintf(stderr, "Failed to perform initial process group scan\n");
         close_process_set(proc_set);
         return -1;
+    }
+    /*
+     * Remember when the target started. Without this, a target that exits
+     * and has its PID recycled mid-session looks identical to the target:
+     * the group would keep suspending whatever now occupies that PID, for
+     * as long as cpulimit runs.
+     */
+    if (target_pid > 0) {
+        const struct process *target =
+            find_in_process_table(proc_set->proc_table, target_pid);
+        if (target != NULL) {
+            proc_set->target_start_time = target->start_time;
+        }
     }
     return 0;
 }
@@ -506,12 +531,14 @@ int update_process_set(struct process_set *proc_set) {
     double elapsed_ms;
     int ncpu, close_ret;
     pid_t self_pid;
+    int target_replaced;
     if (proc_set == NULL || proc_set->proc_list == NULL ||
         proc_set->proc_table == NULL) {
         return 0;
     }
     ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
     self_pid = getpid();
+    target_replaced = 0;
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
@@ -561,6 +588,25 @@ int update_process_set(struct process_set *proc_set) {
         if (scan_proc->pid == self_pid) {
             continue;
         }
+        /*
+         * PID reuse of the target: this group was built around a process
+         * that started at target_start_time, and here is a different
+         * process wearing the same PID. Nothing in this scan is the target
+         * any more, so stop and leave the group empty -- limit_process()
+         * then returns, and the caller either exits or, with -e, searches
+         * for the target by name again.
+         *
+         * Only the target is checked. A recycled descendant PID is not a
+         * hazard on its own: is_child_of() decides membership from the
+         * live parent chain, so the replacement rarely matches at all.
+         */
+        if (!start_time_matches(proc_set->target_start_time, UNKNOWN_START_TIME) &&
+            !start_time_matches(scan_proc->start_time, UNKNOWN_START_TIME) &&
+            scan_proc->pid == proc_set->target_pid &&
+            !start_time_matches(scan_proc->start_time, proc_set->target_start_time)) {
+            target_replaced = 1;
+            break;
+        }
         proc = find_in_process_table(proc_set->proc_table, scan_proc->pid);
         if (proc == NULL) {
             /* New process detected: add to hashtable and list */
@@ -574,6 +620,13 @@ int update_process_set(struct process_set *proc_set) {
             add_list_elem(proc_set->proc_list, proc);
             update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
         }
+    }
+    if (target_replaced) {
+        /*
+         * Drop whatever was gathered before the recycled PID showed up, so
+         * the group reads as empty and purge the table entries below.
+         */
+        clear_list(proc_set->proc_list);
     }
     free(scan_proc);
     close_ret = close_process_iterator(&iter);

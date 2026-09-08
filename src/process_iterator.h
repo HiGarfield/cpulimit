@@ -62,6 +62,15 @@ extern "C" {
 #endif
 
 /**
+ * @brief Value of struct process::start_time when the platform could not
+ *        provide one
+ *
+ * Real start times are never negative, so a caller can tell "unknown" from
+ * "started at some point" with a single comparison and skip the check.
+ */
+#define UNKNOWN_START_TIME (-1.0)
+
+/**
  * @struct process
  * @brief Represents a snapshot of process information
  *
@@ -78,6 +87,18 @@ struct process {
      * Parent process ID.
      */
     pid_t ppid;
+
+    /**
+     * Time at which this process started, in seconds.
+     *
+     * The reference point is platform-specific: seconds since boot on Linux
+     * (derived from the starttime field of /proc/[pid]/stat) and seconds
+     * since the epoch on macOS and FreeBSD. Only equality against another
+     * start time obtained on the same platform is meaningful, and that is
+     * all PID reuse detection needs. A value of -1.0 means the platform
+     * could not provide it, in which case callers must not compare it.
+     */
+    double start_time;
 
     /**
      * Cumulative CPU time consumed by the process in milliseconds.
