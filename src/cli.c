@@ -324,6 +324,17 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
                 print_usage(stderr, cfg);
                 return EXIT_FAILURE;
             }
+            /*
+             * A bare "/" is the root directory, not an executable name; handing
+             * it to find_process_by_name() would never match and, in non-lazy
+             * mode, retry forever.  Reject it up front with a clear error
+             * (BUG-071).
+             */
+            if (optarg[0] == '/' && optarg[1] == '\0') {
+                fprintf(stderr, "Error: invalid match name '/'\n\n");
+                print_usage(stderr, cfg);
+                return EXIT_FAILURE;
+            }
             cfg->exe_name = optarg;
             break;
 

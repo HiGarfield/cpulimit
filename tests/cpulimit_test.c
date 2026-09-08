@@ -9956,6 +9956,50 @@ static void test_cli_rejects_empty_command_name(void) {
 }
 
 /**
+ * @brief CLI must reject a bare "/" as an executable match name (BUG-071)
+ * @note `cpulimit -l 50 -e /` set full_path_cmp with the root directory as the
+ *       name; find_process_by_name() then never matches and, in non-lazy mode,
+ *       retries forever.  parse_arguments() now rejects the bare root path up
+ *       front with EXIT_FAILURE and a clear message.  A normal name still parses.
+ *       Verified by mutation: reverting the `optarg[0] == '/' && optarg[1] == '\0'`
+ *       guard lets "-e /" slip through (so this rejection assertion fails).
+ */
+static void test_cli_rejects_root_match_name(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_e[] = "-e";
+    char arg_slash[] = "/";
+    char arg_busy[] = "busy";
+    char *root_match[6];
+    char *ok_match[6];
+    root_match[0] = arg0;
+    root_match[1] = arg_l;
+    root_match[2] = arg_50;
+    root_match[3] = arg_e;
+    root_match[4] = arg_slash;
+    root_match[5] = NULL;
+    ok_match[0] = arg0;
+    ok_match[1] = arg_l;
+    ok_match[2] = arg_50;
+    ok_match[3] = arg_e;
+    ok_match[4] = arg_busy;
+    ok_match[5] = NULL;
+
+    /* A bare "/" is not a usable match name and must be rejected. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "cpulimit";
+    assert(parse_arguments(5, root_match, &cfg) == EXIT_FAILURE);
+
+    /* A normal name still parses. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "cpulimit";
+    assert(parse_arguments(5, ok_match, &cfg) == 0);
+    assert(cfg.exe_name != NULL);
+}
+
+/**
  * @brief A repeated SIGCONT failure must not flood stderr (BUG-058)
  * @note A member that can never be resumed (EPERM) is retried every control
  *       cycle, so reporting each failure would print 40+ lines per second in
@@ -9966,6 +10010,16 @@ static void test_cli_rejects_empty_command_name(void) {
  *       (back to warn_signal_failure every call) makes the assertion
  *       `warn_count <= 2` fail, since the hint is then emitted 100 times.
  */
+/* Send `n` identical SIGCONT signals to the process set.  Isolated in its own
+ * function so the analyzer's fd-state tracking stays scoped to the caller that
+ * captured stderr (the grandchild loop is not on the child's direct path). */
+static void throttle_send_sigcont(struct process_set *proc_set, int n) {
+    int i;
+    for (i = 0; i < n; i++) {
+        process_set_send_signal(proc_set, SIGCONT, 1);
+    }
+}
+
 static void test_process_set_throttles_repeated_sigcont_failure(void) {
     int pipe_fds[2];
     pid_t pid;
@@ -11961,6 +12015,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_accepts_pid_one);
     RUN_TEST(test_cli_rejects_leading_whitespace_in_numbers);
     RUN_TEST(test_cli_rejects_empty_command_name);
+    RUN_TEST(test_cli_rejects_root_match_name);
     RUN_TEST(test_cli_empty_exe);
     RUN_TEST(test_cli_no_target);
     RUN_TEST(test_cli_multiple_targets);
