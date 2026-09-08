@@ -9177,6 +9177,9 @@ static int seam_fail_span = 1;
 /** @brief errno the failing kill() call must report. */
 static int seam_fail_errno = 0;
 
+/** @brief Non-zero to make the get_current_time() seam report failure. */
+static int seam_clock_fails = 0;
+
 /** @brief When set (and seam active), init_process_iterator() fails. */
 static int seam_init_fails = 0;
 
@@ -9244,6 +9247,7 @@ static void seam_reset(void) {
     seam_fail_call = 0;
     seam_fail_span = 1;
     seam_fail_errno = 0;
+    seam_clock_fails = 0;
     seam_init_fails = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
@@ -9372,6 +9376,10 @@ static void seam_assert_no_double_stop(const struct seam_signal *log,
 /* cppcheck-suppress-begin unusedFunction */
 int cpulimit_test_get_current_time(struct timespec *result_ts) {
     double whole_seconds;
+    if (seam_clock_fails) {
+        errno = EIO;
+        return -1;
+    }
     if (!seam_active) {
         return get_current_time(result_ts);
     }
@@ -10654,6 +10662,52 @@ static void test_child_wait_sigkill_escalation(void) {
 }
 
 /**
+ * @brief Test that collect_child_exit_status() resumes the child before
+ *        bailing out on a get_current_time() failure (BUG-019)
+ * @note The clock seam is forced to fail. On that path the only signal the
+ *       function must emit is a SIGCONT to child_pid; with the seam active no
+ *       real signal is delivered, so we assert on the recorded log. Without
+ *       the fix it exits without signalling anything, so the assertion fails.
+ */
+static void test_child_wait_resumes_on_clock_failure(void) {
+    pid_t child_pid, waited;
+    struct cpulimit_cfg cfg;
+    int log_pipe[2];
+    int status, count;
+    const pid_t target = (pid_t)SEAM_TARGET_PID;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.cpu_limit = 0.5;
+
+    assert(pipe(log_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        alarm(30);
+        seam_reset();
+        seam_active = 1;
+        seam_clock_fails = 1;
+        seam_log_fd = log_pipe[1];
+        (void)collect_child_exit_status(target, &cfg, 0);
+        _exit(EXIT_SUCCESS); /* unreachable: the function exits on failure */
+    }
+    close(log_pipe[1]);
+    waited = waitpid(child_pid, &status, 0);
+    assert(waited == child_pid);
+    /* The clock failure must drive an error exit. */
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+
+    count = seam_read_child_log(log_pipe[0]);
+    close(log_pipe[0]);
+    /* The child must have been sent a resume before the bail-out. */
+    assert(seam_count_signals(seam_child_log, count, target, SIGCONT) >= 1);
+}
+
+/**
  * @brief Run the CLI module tests
  * @note Grouped in a helper rather than inlined in main() so that main()
  *       stays under the clang-tidy readability-function-size threshold; the
@@ -11342,6 +11396,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
     RUN_TEST(test_child_wait_sigkill_escalation);
+    RUN_TEST(test_child_wait_resumes_on_clock_failure);
 
     /* Deterministic timing seam tests */
     printf("\n=== TIMING SEAM TESTS ===\n");

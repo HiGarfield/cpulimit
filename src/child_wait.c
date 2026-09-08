@@ -67,6 +67,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
     /* Record time for timeout monitoring during cleanup */
     if (get_current_time(&start_time) != 0) {
         perror("get_current_time");
+        kill(child_pid, SIGCONT);
         exit(EXIT_FAILURE);
     }
 
@@ -132,6 +133,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
             struct timespec current_time;
             if (get_current_time(&current_time) != 0) {
                 perror("get_current_time");
+                kill(child_pid, SIGCONT);
                 exit(EXIT_FAILURE);
             }
 
@@ -162,6 +164,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                  */
                 if (get_current_time(&start_time) != 0) {
                     perror("get_current_time");
+                    kill(child_pid, SIGCONT);
                     exit(EXIT_FAILURE);
                 }
             } else if (signal_forwarded) {
