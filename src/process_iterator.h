@@ -348,6 +348,20 @@ pid_t getppid_of(pid_t pid);
 pid_t cpulimit_test_getppid_of(pid_t pid);
 /** @brief Non-zero: is_child_of() should use the getppid_of() seam (BUG-043). */
 extern int seam_getppid_fabricate;
+
+/**
+ * @brief Test seam backing find_process_by_pid()'s existence probe.
+ *
+ * When the harness arms seam_find_by_pid_override, find_process_by_pid() routes
+ * its liveness check through this function instead of sending a real
+ * kill(pid, 0).  The backing reads the currently selected iterator seam frame,
+ * so a candidate that the scripted snapshot dropped is reported as gone -- this
+ * lets name-based lookup tests (BUG-055/BUG-056) drive the final recheck
+ * deterministically instead of depending on a real PID being alive.
+ */
+pid_t cpulimit_test_find_by_pid(pid_t pid);
+/** @brief Non-zero: find_process_by_pid() should use the seam probe (BUG-055/056). */
+extern int seam_find_by_pid_override;
 #endif
 
 /**

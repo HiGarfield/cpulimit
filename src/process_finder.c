@@ -34,6 +34,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Maximum number of name matches kept for fallback when the preferred one
+ * vanishes between selection and the existence recheck (BUG-056). */
+#define PROC_FINDER_MAX_CANDIDATES 16
+
 /**
  * @brief Check if a process exists and can be controlled by cpulimit
  * @param pid Process ID to search for
@@ -51,6 +55,14 @@ pid_t find_process_by_pid(pid_t pid) {
     if (pid <= 0) {
         return 0;
     }
+#ifdef CPULIMIT_TEST_BUILD
+    /* When the harness arms it, probe existence from the scripted iterator
+     * seam instead of a real kill(pid, 0) so name-based lookup tests can drive
+     * the final recheck deterministically (BUG-055/BUG-056). */
+    if (seam_find_by_pid_override) {
+        return cpulimit_test_find_by_pid(pid);
+    }
+#endif
     /*
      * Attempt to send null signal (doesn't actually signal, just checks
      * permission).
@@ -93,6 +105,8 @@ pid_t find_process_by_pid(pid_t pid) {
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
+    pid_t candidates[PROC_FINDER_MAX_CANDIDATES];
+    int n_candidates = 0;
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
@@ -161,6 +175,11 @@ pid_t find_process_by_name(const char *process_name) {
                 pid = proc->pid;
                 found = 1;
             }
+            /* Remember every match so a vanished winner can fall back to
+             * another live candidate (BUG-056). */
+            if (n_candidates < PROC_FINDER_MAX_CANDIDATES) {
+                candidates[n_candidates++] = proc->pid;
+            }
         }
     }
     free(proc);
@@ -173,8 +192,30 @@ pid_t find_process_by_name(const char *process_name) {
         return found ? pid : 0;
     }
 
-    /* Verify the found process still exists and is accessible */
-    return found ? find_process_by_pid(pid) : 0;
+    /*
+     * Verify the selected process still exists.  If it vanished between the
+     * scan and this recheck, fall back to another live candidate instead of
+     * giving up entirely: a still-running match is better than a spurious
+     * "not found" that would make cpulimit throttle nothing (BUG-056).
+     */
+    if (n_candidates == 0) {
+        return 0;
+    }
+    if (find_process_by_pid(pid) != 0) {
+        return pid;
+    }
+    {
+        int i;
+        for (i = 0; i < n_candidates; i++) {
+            if (candidates[i] == pid) {
+                continue;
+            }
+            if (find_process_by_pid(candidates[i]) != 0) {
+                return candidates[i];
+            }
+        }
+    }
+    return 0;
 }
 
 int process_has_other_name(pid_t pid, const char *process_name) {

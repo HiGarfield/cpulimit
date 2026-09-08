@@ -9155,6 +9155,19 @@ static int seam_sleep_fails = 0;
 
 /** @brief Non-zero: getppid_of() seam fabricates a fixed ancestor chain (BUG-043). */
 int seam_getppid_fabricate = 0;
+
+/** @brief Non-zero: find_process_by_pid() probes from the iterator seam (BUG-055/056). */
+int seam_find_by_pid_override = 0;
+
+/**
+ * @brief PIDs reported alive by cpulimit_test_find_by_pid() under override.
+ * @note The iterator seam caps served snapshots (SEAM_MAX_SERVED_FRAMES), so
+ *       find_process_by_name()'s final recheck (a second iterator use) can never
+ *       reach a scripted frame.  The recheck is therefore driven by this
+ *       independent "alive set" instead of the scan frames.
+ */
+static pid_t seam_alive[SEAM_MAX_FRAME_PROCS];
+static int seam_alive_count = 0;
 /** @brief PID whose getppid_of() lookup fails once (BUG-043 reproduction). */
 static pid_t seam_getppid_fail_pid = 0;
 /** @brief Cleared after the one-shot failure above. */
@@ -9274,6 +9287,7 @@ static void seam_reset(void) {
     seam_frame_pos = 0;
     seam_repeat_last = 0;
     seam_frames_served = 0;
+    seam_alive_count = 0;
     seam_signal_count = 0;
     seam_kill_calls = 0;
     seam_fail_call = 0;
@@ -10056,8 +10070,13 @@ static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
     seam_reset();
     seam_push_frame(frame_a, 2);
     seam_push_frame(recheck, 2);
+    seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+    seam_alive[1] = (pid_t)42425;
+    seam_alive_count = 2;
     seam_active = 1;
+    seam_find_by_pid_override = 1;
     first = find_process_by_name("busy");
+    seam_find_by_pid_override = 0;
     seam_active = 0;
     assert(first == (pid_t)SEAM_TARGET_PID);
 
@@ -10065,8 +10084,13 @@ static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
     seam_reset();
     seam_push_frame(frame_b, 2);
     seam_push_frame(recheck, 2);
+    seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+    seam_alive[1] = (pid_t)42425;
+    seam_alive_count = 2;
     seam_active = 1;
+    seam_find_by_pid_override = 1;
     second = find_process_by_name("busy");
+    seam_find_by_pid_override = 0;
     seam_active = 0;
     assert(second == (pid_t)SEAM_TARGET_PID);
 
@@ -10074,6 +10098,65 @@ static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
     assert(first == second);
     free(frame_a);
     free(frame_b);
+    free(recheck);
+}
+
+/**
+ * @brief -e must fall back when the preferred match vanishes before recheck (BUG-056)
+ * @note find_process_by_name() picked the best match, then verified it with a
+ *       single find_process_by_pid(): if that process had exited in the
+ *       meantime the call returned 0 and the whole lookup reported "not
+ *       found" -- even though other valid matches still existed.  The fix
+ *       keeps every match and falls back to another live candidate.  Three
+ *       same-name processes (42424, 42425, 42426) are scripted; the recheck
+ *       snapshot drops 42424, so the function must return 42425 or 42426
+ *       (the smallest survivor), not 0.  Without the fallback it returns 0 and
+ *       the assert fails.  Verified by mutation: reverting the fallback loop
+ *       makes result == 0.  seam_repeat_last lets the extra find_process_by_pid()
+ *       calls reuse the recheck snapshot.
+ */
+static void test_find_process_by_name_falls_back_when_winner_gone(void) {
+    pid_t result;
+    struct seam_proc *scan = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 3);
+    struct seam_proc *recheck = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    assert(scan != NULL && recheck != NULL);
+
+    memset(scan, 0, sizeof(struct seam_proc) * 3);
+    scan[0].pid = (pid_t)SEAM_TARGET_PID; /* 42424 = A, will vanish */
+    scan[0].ppid = (pid_t)1;
+    strcpy(scan[0].command, "busy");
+    scan[1].pid = (pid_t)42425; /* B */
+    scan[1].ppid = (pid_t)1;
+    strcpy(scan[1].command, "busy");
+    scan[2].pid = (pid_t)42426; /* C */
+    scan[2].ppid = (pid_t)1;
+    strcpy(scan[2].command, "busy");
+
+    /* Recheck snapshot: A has exited, B and C are still alive. */
+    memset(recheck, 0, sizeof(struct seam_proc) * 2);
+    recheck[0].pid = (pid_t)42425;
+    recheck[0].ppid = (pid_t)1;
+    strcpy(recheck[0].command, "busy");
+    recheck[1].pid = (pid_t)42426;
+    recheck[1].ppid = (pid_t)1;
+    strcpy(recheck[1].command, "busy");
+
+    seam_reset();
+    seam_push_frame(scan, 3);
+    seam_push_frame(recheck, 2);
+    seam_alive[0] = (pid_t)42425;
+    seam_alive[1] = (pid_t)42426;
+    seam_alive_count = 2; /* A (42424) has exited */
+    seam_active = 1;
+    seam_find_by_pid_override = 1;
+    result = find_process_by_name("busy");
+    seam_find_by_pid_override = 0;
+    seam_active = 0;
+
+    /* The preferred (smallest) match vanished, so fall back to B or C. */
+    assert(result != 0);
+    assert(result != (pid_t)SEAM_TARGET_PID);
+    free(scan);
     free(recheck);
 }
 
@@ -10284,7 +10367,25 @@ pid_t cpulimit_test_getppid_of(pid_t pid) {
 }
 
 /**
- * @brief Test that is_child_of() retries a transient getppid_of() failure
+ * @brief Backing for find_process_by_pid() under seam_find_by_pid_override.
+ * @note Reports a PID as alive only when it is present in the currently served
+ *       iterator snapshot, so a candidate the test dropped from the recheck
+ *       frame is seen as gone (BUG-056).  This avoids a real kill(pid, 0) that
+ *       would otherwise depend on an arbitrary PID being alive on the host.
+ */
+pid_t cpulimit_test_find_by_pid(pid_t pid);
+
+pid_t cpulimit_test_find_by_pid(pid_t pid) {
+    int i;
+    for (i = 0; i < seam_alive_count; i++) {
+        if (seam_alive[i] == pid) {
+            return pid;
+        }
+    }
+    return 0;
+}
+
+/** * @brief Test that is_child_of() retries a transient getppid_of() failure
  *        instead of reporting a false negative (BUG-043)
  * @note The getppid_of() seam fabricates the chain C(300)->B(200)->A(100)->1 and
  *       makes the lookup for B fail exactly once.  Without the retry fix
@@ -12299,6 +12400,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
+    RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
