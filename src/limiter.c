@@ -209,8 +209,18 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
      * run.
      */
     if (limit_status != LIMIT_PROCESS_OK) {
-        (void)collect_child_exit_status(child_pid, cfg,
-                                        forwarded_quit_signal);
+        /*
+         * Limiting never engaged (e.g. allocator/clock/iterator failure inside
+         * limit_process()).  The command child ran unthrottled; surface its
+         * real exit status so the operator can diagnose the outcome (BUG-018)
+         * instead of only seeing cpulimit's own EXIT_FAILURE.
+         */
+        int child_exit_status =
+            collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
+        fprintf(stderr,
+                "Warning: CPU limit could not be applied to process %ld; "
+                "the command exited with status %d\n",
+                (long)child_pid, child_exit_status);
         return EXIT_FAILURE;
     }
     return collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);

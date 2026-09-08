@@ -6823,6 +6823,17 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  */
 #define FORWARD_CHILD_ARG "--cpulimit-test-forward-child"
 
+/**
+ * @brief Marker: run as a command child that exits immediately with the code
+ *        given in argv[2].  Used by the BUG-018 regression test, which needs a
+ *        command whose real exit status is known and non-zero.
+ *
+ * Unit tests must live in cpulimit_test.c, so the command used by
+ * test_limiter_run_command_mode_reports_child_exit_on_limit_failure() is this
+ * very binary re-executed with this marker instead of a separate helper.
+ */
+#define EXIT_CHILD_ARG "--cpulimit-test-exit-child"
+
 /** @brief Reported when the forwarded signal reached that command. */
 #define FORWARD_DELIVERED 42
 
@@ -6879,6 +6890,17 @@ static void count_forward_delivery(int sig) {
 }
 
 /**
+ * @brief Exit immediately with the code supplied in code_arg (BUG-018 child).
+ * @param code_arg Decimal exit code, parsed with atoi(); used by the
+ *                 test_limiter_run_command_mode_reports_child_exit_on_limit_failure
+ *                 regression test so the command's real exit status is known.
+ */
+static int run_exit_child(const char *code_arg) {
+    int code = atoi(code_arg);
+    _exit(code);
+}
+
+/**
  * @brief Leave the limiter's process group and report the forwarded signal
  * @param ready_path File created once this process has left the group, so
  *                   the driving test can interrupt at that point
@@ -6890,7 +6912,6 @@ static int run_forward_child(const char *ready_path) {
     const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
     struct sigaction sa_term;
     int ready_fd;
-
     memset(&sa_term, 0, sizeof(sa_term));
     sa_term.sa_handler = count_forward_delivery;
     if (sigemptyset(&sa_term.sa_mask) != 0 ||
@@ -9376,6 +9397,106 @@ static void test_limiter_run_pid_or_exe_mode_exits_on_permission_denied(void) {
 }
 
 /**
+ * @brief run_command_mode() must surface the command's real exit code on stderr
+ *        when limiting never starts (LIMIT_PROCESS_ERROR) (BUG-018)
+ * @note The init_process_iterator seam (seam_init_fails) makes limit_process()
+ *       return LIMIT_PROCESS_ERROR.  The command child deliberately exits with a
+ *       known non-zero code (42); before the fix cpulimit discarded that code
+ *       and only returned 1, so the diagnostic line was absent from stderr.
+ */
+static void test_limiter_run_command_mode_reports_child_exit_on_limit_failure(void) {
+    int pipe_fds[2];
+    int ret, waited, exited, exit_code;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+    struct cpulimit_cfg cfg;
+    char child_arg[] = EXIT_CHILD_ARG;
+    char code_arg[8];
+    char *args[4];
+
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    snprintf(code_arg, sizeof(code_arg), "%d", 42);
+    args[0] = argv0;
+    args[1] = child_arg;
+    args[2] = code_arg;
+    args[3] = NULL;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int mode_result;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        seam_reset();
+        seam_active = 1;
+        seam_init_fails = 1;
+        configure_signal_handler();
+        mode_result = run_command_mode(&cfg);
+        _exit(mode_result);
+    }
+    close(pipe_fds[1]);
+
+    /*
+     * Allocate err_buf only now: 512 bytes exceeds the 256-byte per-object
+     * stack limit, so it has to live on the heap, but the forked children
+     * inherit the heap and neither of them uses it.  Allocating before the
+     * fork leaves the block reachable at their exit and shows up in leak
+     * reports.
+     */
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
+
+    err_len = 0;
+    while (1) {
+        ssize_t nread =
+            read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 512 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    /* Limiting never started, so cpulimit still reports its own failure. */
+    assert(exit_code == EXIT_FAILURE);
+    /* The command's real exit code (42) must appear in the diagnostic line. */
+    assert(strstr(err_buf, "exited with status 42") != NULL);
+    free(err_buf);
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -11444,6 +11565,10 @@ int main(int argc, char *argv[]) {
         return run_forward_child(argv[2]);
     }
 
+    if (argc == 3 && strcmp(argv[1], EXIT_CHILD_ARG) == 0) {
+        return run_exit_child(argv[2]);
+    }
+
     if (argc == 4 && strcmp(argv[1], COUNT_CHILD_ARG) == 0) {
         return run_count_child(argv[2], atoi(argv[3]));
     }
@@ -11622,6 +11747,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_path_name_not_found);
     RUN_TEST(test_limiter_run_command_mode_with_fork);
     RUN_TEST(test_limiter_run_command_mode_quit_signal);
+    RUN_TEST(test_limiter_run_command_mode_reports_child_exit_on_limit_failure);
     RUN_TEST(test_limiter_run_command_mode_signal_forwarding);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_quit);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
