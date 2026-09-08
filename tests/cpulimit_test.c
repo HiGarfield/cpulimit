@@ -9497,6 +9497,109 @@ static void test_limiter_run_command_mode_reports_child_exit_on_limit_failure(vo
 }
 
 /**
+ * @brief process_set_send_signal() must strongly warn (with a recovery hint)
+ *        when a SIGCONT (resume) fails (BUG-049)
+ * @note The kill() seam makes the SIGCONT delivery fail with EPERM.  Before the
+ *       fix warn_signal_failure() gated all non-verbose warnings to the first
+ *       one and never mentioned recovery, so a process left stopped by cpulimit
+ *       produced no actionable message.
+ */
+static void test_process_set_send_signal_reports_sigcont_failure(void) {
+    int pipe_fds[2];
+    int ret, waited, exited;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+    struct process_set proc_set;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        pid_t target;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        /*
+         * Spawn a separate process to be the limiting target.  It must not be
+         * the cpulimit process itself, which is excluded from its own group.
+         */
+        target = fork();
+        if (target < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (target == 0) {
+            while (1) {
+                pause();
+            }
+        }
+        if (init_process_set(&proc_set, target, 0) != 0) {
+            kill(target, SIGKILL);
+            waitpid(target, NULL, 0);
+            _exit(EXIT_FAILURE);
+        }
+        /* Make the resume signal fail so warn_signal_failure() is exercised. */
+        seam_reset();
+        seam_active = 1;
+        seam_kill_calls = 0;
+        seam_fail_call = 1;
+        seam_fail_span = 100;
+        seam_fail_errno = EPERM;
+        process_set_send_signal(&proc_set, SIGCONT, 0);
+        close_process_set(&proc_set);
+        /* Re-enable real signals before reaping the target. */
+        seam_active = 0;
+        seam_fail_call = 0;
+        seam_fail_errno = 0;
+        kill(target, SIGKILL);
+        waitpid(target, NULL, 0);
+        _exit(EXIT_SUCCESS);
+    }
+    close(pipe_fds[1]);
+
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread =
+            read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 512 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    /* A failed resume must be reported with a recovery hint (BUG-049). */
+    assert(strstr(err_buf, "kill -CONT") != NULL);
+    free(err_buf);
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -11711,6 +11814,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
+    RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);

@@ -748,6 +748,20 @@ size_t process_set_member_count(const struct process_set *proc_set) {
 static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
     static int warned = 0;
 
+    if (sig == SIGCONT) {
+        /*
+         * A failed SIGCONT means a process this group suspended could not be
+         * resumed, so it may stay stopped forever.  That is critical and must
+         * not be swallowed by the once-only gate used for SIGSTOP, so it is
+         * always reported with a recovery hint (BUG-049).
+         */
+        fprintf(stderr,
+                "Warning: cannot resume PID %ld with SIGCONT: %s\n"
+                "         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
+                (long)pid, strerror(err), (long)pid);
+        return;
+    }
+
     if (!verbose) {
         if (warned) {
             return;
