@@ -393,6 +393,16 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         cfg->command_mode = 1;
         cfg->command_args = argv + optind;
         cfg->lazy_mode = 1;
+        /*
+         * An empty command name ("cpulimit -l 50 ''") would otherwise fall
+         * through to execvp(""), which fails with a confusing 126/127.  Reject
+         * it up front so the user gets a clear error and exit code 1 (BUG-077).
+         */
+        if (argv[optind][0] == '\0') {
+            fprintf(stderr, "Error: empty command name\n\n");
+            print_usage(stderr, cfg);
+            return EXIT_FAILURE;
+        }
     }
 
     /* Ensure exactly one target specification (PID, exe, or command) */

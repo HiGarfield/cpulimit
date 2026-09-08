@@ -9819,6 +9819,47 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
 }
 
 /**
+ * @brief CLI must reject an empty command name (BUG-077)
+ * @note `cpulimit -l 50 ''` entered command mode and then handed the empty
+ *       string to execvp(), which fails with a confusing 126/127.  After the
+ *       fix, parse_arguments() rejects the empty command name with EXIT_FAILURE
+ *       and a clear message.  A non-empty command still parses.  Verified by
+ *       mutation: reverting the `argv[optind][0] == '\0'` guard lets the empty
+ *       command slip through (so this rejection assertion fails).
+ */
+static void test_cli_rejects_empty_command_name(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_empty[] = "";
+    char arg_busy[] = "busy";
+    char *empty_cmd[5];
+    char *ok_cmd[5];
+    empty_cmd[0] = arg0;
+    empty_cmd[1] = arg_l;
+    empty_cmd[2] = arg_50;
+    empty_cmd[3] = arg_empty;
+    empty_cmd[4] = NULL;
+    ok_cmd[0] = arg0;
+    ok_cmd[1] = arg_l;
+    ok_cmd[2] = arg_50;
+    ok_cmd[3] = arg_busy;
+    ok_cmd[4] = NULL;
+
+    /* An empty command name must be rejected. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "cpulimit";
+    assert(parse_arguments(4, empty_cmd, &cfg) == EXIT_FAILURE);
+
+    /* A non-empty command still parses and enables command mode. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "cpulimit";
+    assert(parse_arguments(5, ok_cmd, &cfg) == 0);
+    assert(cfg.command_mode == 1);
+}
+
+/**
  * @brief A repeated SIGCONT failure must not flood stderr (BUG-058)
  * @note A member that can never be resumed (EPERM) is retried every control
  *       cycle, so reporting each failure would print 40+ lines per second in
@@ -11823,6 +11864,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_invalid_pids);
     RUN_TEST(test_cli_accepts_pid_one);
     RUN_TEST(test_cli_rejects_leading_whitespace_in_numbers);
+    RUN_TEST(test_cli_rejects_empty_command_name);
     RUN_TEST(test_cli_empty_exe);
     RUN_TEST(test_cli_no_target);
     RUN_TEST(test_cli_multiple_targets);
