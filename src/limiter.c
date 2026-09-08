@@ -23,6 +23,16 @@
 #define _GNU_SOURCE
 #endif
 
+/*
+ * Number of "target not found" retries allowed in non-lazy mode before
+ * cpulimit gives up.  See MAX_TARGET_LOOKUP_ATTEMPTS usage in
+ * run_pid_or_exe_mode: a target that never appears should not be retried
+ * forever.  Fifteen attempts at the two-second wait below is thirty seconds
+ * of grace for a target that is slow to start, after which giving up is the
+ * only sane outcome.
+ */
+#define MAX_TARGET_LOOKUP_ATTEMPTS 15
+
 #include "limiter.h"
 
 #include "child_exec.h"
@@ -213,6 +223,15 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
      */
     const struct timespec wait_time = {2, 0};
     int pid_mode = cfg->target_pid > 0, exit_status = EXIT_SUCCESS;
+    /*
+     * Bound the "target not found" retries in non-lazy mode.  Without a
+     * cap the loop below printed "retrying..." forever and never exited,
+     * so a name that can never match (e.g. "-e /") or a process that
+     * simply never starts would spin indefinitely.  Thirty attempts at
+     * two seconds each is a minute of grace for a target that is slow to
+     * appear, after which giving up is the only sane outcome.
+     */
+    int lookup_attempts = 0;
 
     while (!is_quit_flag_set()) {
         pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
@@ -231,6 +250,20 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
             if (cfg->lazy_mode) {
                 /* In lazy mode, missing target is an error condition */
                 exit_status = EXIT_FAILURE;
+            } else {
+                /*
+                 * BUG-014: non-lazy mode used to retry without bound.
+                 * Give up after a fixed number of attempts so the run
+                 * terminates with a non-zero status instead of looping
+                 * forever and growing stderr without limit.
+                 */
+                lookup_attempts++;
+                if (lookup_attempts >= MAX_TARGET_LOOKUP_ATTEMPTS) {
+                    fprintf(stderr,
+                            "Giving up after %d attempts: target not found\n",
+                            lookup_attempts);
+                    exit_status = EXIT_FAILURE;
+                }
             }
         } else if (found_pid < 0) {
             /*
@@ -328,7 +361,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
          * - lazy_mode: Exit after first attempt (regardless of success)
          * - quit_flag: User requested termination via signal
          */
-        if (cfg->lazy_mode || is_quit_flag_set()) {
+        if (cfg->lazy_mode || is_quit_flag_set() || exit_status != EXIT_SUCCESS) {
             break;
         }
 

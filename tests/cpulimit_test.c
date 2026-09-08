@@ -8337,6 +8337,67 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
 }
 
 /**
+ * @brief BUG-014: non-lazy mode must give up on a target that never appears
+ * @note Unlike test_limiter_run_pid_or_exe_mode_nonexistent_exe this does NOT
+ *       raise the quit signal, so the only way out of the retry loop is the
+ *       lookup cap added in run_pid_or_exe_mode. Without it the run printed
+ *       "retrying..." forever and never returned, hanging the invocation.
+ *       With the cap it must terminate with EXIT_FAILURE within the bound.
+ */
+static void test_limiter_run_pid_or_exe_mode_gives_up_without_target(void) {
+    pid_t pid, waited;
+    int status, exited, exit_code, sec;
+    struct cpulimit_cfg cfg;
+
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.exe_name = "cpulimit_test_no_such_process_xyz";
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 0; /* non-lazy: would loop until quit without the cap */
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int mode_result;
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        configure_signal_handler();
+        mode_result = run_pid_or_exe_mode(&cfg);
+        _exit(mode_result);
+    }
+
+    /*
+     * Poll up to MAX_TARGET_LOOKUP_ATTEMPTS * 2 + slack seconds. The cap is
+     * 15 attempts at a 2s wait, so the child must exit at ~30s; we allow a
+     * comfortable margin. A missing cap would block until the harness
+     * timeout instead.
+     */
+    waited = 0;
+    for (sec = 0; sec < 50; sec++) {
+        waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) {
+            break;
+        }
+        if (waited < 0 && errno != ECHILD) {
+            break;
+        }
+        sleep(1);
+    }
+    if (waited != pid) {
+        /* Safety net: never leave a looping child behind. */
+        kill(pid, SIGKILL);
+        waitpid(pid, &status, 0);
+        assert(0 && "run_pid_or_exe_mode did not give up within the cap");
+    }
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_FAILURE);
+}
+
+/**
  * @brief Test run_pid_or_exe_mode with verbose=0 when process is found
  * @note Verifies that the non-verbose code path (verbose guard is false)
  *       works correctly when a process is found: the function limits it and
@@ -11124,6 +11185,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_inaccessible);
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_gives_up_without_target);
     RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_command_mode_signal_term);
     RUN_TEST(test_limiter_run_command_mode_signal_kill);
