@@ -313,6 +313,14 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
+#ifdef CPULIMIT_TEST_BUILD
+/* Opt-in: only route through the test seam when the harness arms it, so the
+   default path stays a direct call to the real getppid_of() (BUG-043). */
+#define GETPPID_OF(c) \
+    (seam_getppid_fabricate ? cpulimit_test_getppid_of(c) : getppid_of(c))
+#else
+#define GETPPID_OF(c) getppid_of(c)
+#endif
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
         pid_t next_ppid;
@@ -325,7 +333,16 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
         if (depth++ >= IS_CHILD_MAX_DEPTH) {
             return 0;
         }
-        next_ppid = getppid_of(child_pid);
+        next_ppid = GETPPID_OF(child_pid);
+        /*
+         * A transient lookup failure (e.g. the process exited or became a
+         * zombie between the previous step and this one) must not be taken as
+         * proof of non-membership: retry once before giving up, so a single
+         * -1 does not break the ancestor chain (BUG-043).
+         */
+        if (next_ppid < 0) {
+            next_ppid = GETPPID_OF(child_pid);
+        }
         /*
          * Guard against invalid parent links or self-parenting processes,
          * either of which would cause an infinite loop.
@@ -335,6 +352,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
         }
         child_pid = next_ppid;
     }
+#undef GETPPID_OF
     return child_pid == parent_pid;
 }
 

@@ -323,6 +323,19 @@ int is_child_of(pid_t child_pid, pid_t parent_pid);
  */
 pid_t getppid_of(pid_t pid);
 
+#ifdef CPULIMIT_TEST_BUILD
+/**
+ * @brief Test seam backing getppid_of() inside is_child_of().
+ *
+ * When the test harness is built, is_child_of() routes its parent-PID lookups
+ * through this function (only when seam_getppid_fabricate is set) so
+ * ancestor-chain breakage (BUG-043) can be reproduced deterministically.
+ */
+pid_t cpulimit_test_getppid_of(pid_t pid);
+/** @brief Non-zero: is_child_of() should use the getppid_of() seam (BUG-043). */
+extern int seam_getppid_fabricate;
+#endif
+
 /**
  * @brief Determine whether a process ID satisfies the iterator filter
  * @param pid Process ID to evaluate

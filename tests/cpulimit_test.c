@@ -9130,6 +9130,13 @@ static int seam_hook_sleep = 0;
 /** @brief Non-zero to make the sleep_timespec() seam report failure. */
 static int seam_sleep_fails = 0;
 
+/** @brief Non-zero: getppid_of() seam fabricates a fixed ancestor chain (BUG-043). */
+int seam_getppid_fabricate = 0;
+/** @brief PID whose getppid_of() lookup fails once (BUG-043 reproduction). */
+static pid_t seam_getppid_fail_pid = 0;
+/** @brief Cleared after the one-shot failure above. */
+static int seam_getppid_failed_once = 0;
+
 /** @brief 1-based sleep call to park; the first is the work phase. */
 static int seam_sleep_call = 0;
 
@@ -9265,6 +9272,9 @@ static void seam_reset(void) {
     seam_sleep_call = 0;
     seam_sleep_calls = 0;
     seam_sleep_fails = 0;
+    seam_getppid_fabricate = 0;
+    seam_getppid_fail_pid = 0;
+    seam_getppid_failed_once = 0;
     seam_sleep_announce_fd = -1;
     seam_sleep_go_fd = -1;
     seam_child_log_len = 0;
@@ -9449,6 +9459,57 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
  * made, and reports success unless the test scripted a failure for this
  * call, in which case no signal is recorded as delivered.
  */
+/*
+ * Test seam for getppid_of(): when seam_getppid_fabricate is set it returns a
+ * fixed ancestor chain (C=300 -> B=200 -> A=100 -> init=1) and fails the lookup
+ * for seam_getppid_fail_pid exactly once, so is_child_of() can be exercised
+ * without spawning real processes.  Otherwise it forwards to the real
+ * getppid_of().  This is what makes BUG-043's "ancestor chain breaks mid-walk"
+ * scenario reproducible deterministically.
+ */
+pid_t cpulimit_test_getppid_of(pid_t pid);
+pid_t cpulimit_test_getppid_of(pid_t pid) {
+    static const struct { pid_t pid; pid_t ppid; } chain[] = {
+        {300, 200}, {200, 100}, {100, 1}, {1, 0},
+    };
+    int i;
+    if (seam_getppid_fabricate) {
+        if (seam_getppid_fail_pid != 0 && pid == seam_getppid_fail_pid &&
+            !seam_getppid_failed_once) {
+            seam_getppid_failed_once = 1;
+            return -1;
+        }
+        for (i = 0; i < (int)(sizeof(chain) / sizeof(chain[0])); i++) {
+            if (chain[i].pid == pid) {
+                return chain[i].ppid;
+            }
+        }
+        return -1;
+    }
+    return getppid_of(pid);
+}
+
+/**
+ * @brief Test that is_child_of() retries a transient getppid_of() failure
+ *        instead of reporting a false negative (BUG-043)
+ * @note The getppid_of() seam fabricates the chain C(300)->B(200)->A(100)->1 and
+ *       makes the lookup for B fail exactly once.  Without the retry fix
+ *       is_child_of(300, 100) returns 0 (the -1 breaks the chain); with the fix
+ *       it retries and returns 1.
+ */
+static void test_is_child_of_retries_on_ppid_lookup_failure(void) {
+    int result;
+    seam_reset();
+    seam_getppid_fabricate = 1;
+    seam_getppid_fail_pid = 200; /* B fails once */
+    result = is_child_of(300, 100);
+    assert(result == 1);
+    /* Do not leak the getppid_of seam state into later tests. */
+    seam_getppid_fabricate = 0;
+    seam_getppid_fail_pid = 0;
+    seam_getppid_failed_once = 0;
+}
+
 int cpulimit_test_kill(pid_t pid, int sig) {
     int failed;
     if (!seam_active && seam_fail_call == 0) {
@@ -11358,6 +11419,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_iterator_is_child_of);
     RUN_TEST(test_process_iterator_is_child_of_deep);
     RUN_TEST(test_is_child_of_kernel_thread_not_child_of_init);
+    RUN_TEST(test_is_child_of_retries_on_ppid_lookup_failure);
     RUN_TEST(test_process_iterator_newline_comm);
     RUN_TEST(test_process_iterator_filter_edge_cases);
     RUN_TEST(test_process_iterator_single);
