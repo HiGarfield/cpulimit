@@ -9284,6 +9284,29 @@ static void seam_reset(void) {
 }
 
 /**
+ * @brief Test that find_process_by_pid() reports EACCES as "permission denied"
+ *        (negative PID), not "not found" (BUG-075)
+ * @note Some platforms (and certain seccomp / credential configurations) make
+ *       kill(pid, 0) fail with EACCES instead of EPERM.  Both mean the process
+ *       exists but cannot be controlled, so the result must be -pid, not 0.
+ *       The kill() seam is armed to fail the first call with EACCES.
+ */
+static void test_process_finder_find_by_pid_reports_eacces(void) {
+    pid_t result;
+    seam_reset();
+    seam_active = 1;
+    seam_kill_calls = 0;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EACCES;
+    result = find_process_by_pid((pid_t)9999);
+    assert(result == -(pid_t)9999);
+    seam_active = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -11461,6 +11484,7 @@ int main(int argc, char *argv[]) {
     /* Process finder module tests */
     printf("\n=== PROCESS_FINDER MODULE TESTS ===\n");
     RUN_TEST(test_process_finder_find_by_pid);
+    RUN_TEST(test_process_finder_find_by_pid_reports_eacces);
     RUN_TEST(test_process_finder_find_by_name);
     RUN_TEST(test_process_finder_find_by_name_self);
     RUN_TEST(test_process_finder_find_by_name_symlink);

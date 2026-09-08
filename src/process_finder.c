@@ -58,8 +58,10 @@ pid_t find_process_by_pid(pid_t pid) {
     if (kill(pid, 0) == 0) {
         return pid;
     }
-    /* Process exists but we lack permission to signal it */
-    if (errno == EPERM) {
+    /* Process exists but we lack permission to signal it.  Some systems
+     * report EACCES rather than EPERM for an inaccessible process, so accept
+     * both: neither is "does not exist". */
+    if (errno == EPERM || errno == EACCES) {
         return -pid;
     }
     /* Process does not exist (errno is ESRCH or other error) */
