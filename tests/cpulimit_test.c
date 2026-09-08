@@ -9180,6 +9180,19 @@ static int seam_fail_errno = 0;
 /** @brief When set (and seam active), init_process_iterator() fails. */
 static int seam_init_fails = 0;
 
+/**
+ * @brief After this many successful update_process_set() calls, force the
+ *        next one to fail (-1). 0 disables the injection.
+ *
+ * Used to drive limit_process() down its error path: the group is built and
+ * a member stopped on the first cycle, then the scan fails so the loop breaks
+ * and must resume the group through its own cleanup (no atexit, and crucially
+ * no exit() that would strand a stopped process).
+ */
+static int seam_fail_update_after = 0;
+/** @brief Success counter consumed by seam_fail_update_after. */
+static int seam_update_call_count = 0;
+
 /* Used by the iterator replacement below, which is defined further up. */
 static void seam_mark_snapshot(void);
 
@@ -9205,6 +9218,7 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
 int cpulimit_test_get_next_process(struct process_iterator *iter,
                                    struct process *proc);
 int cpulimit_test_close_process_iterator(struct process_iterator *iter);
+int cpulimit_test_update_process_set(struct process_set *proc_set);
 long cpulimit_test_random(void);
 int cpulimit_test_getloadavg(double *loadavg, int nelem);
 
@@ -9231,6 +9245,8 @@ static void seam_reset(void) {
     seam_fail_span = 1;
     seam_fail_errno = 0;
     seam_init_fails = 0;
+    seam_fail_update_after = 0;
+    seam_update_call_count = 0;
     seam_hook_limit_process = 0;
     seam_hook_waitpid = 0;
     seam_limit_announce_fd = -1;
@@ -9619,6 +9635,25 @@ int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
         }
     }
     return LIMIT_PROCESS_OK;
+}
+
+/**
+ * @brief Replacement for update_process_set() that can be forced to fail
+ *
+ * cpulimit_test.c is compiled without the rename, so the real
+ * update_process_set() is still reachable here for forwarding. When
+ * seam_fail_update_after is set, the first seam_fail_update_after calls are
+ * forwarded and every call after that returns -1, driving limit_process() down
+ * its error path so its cleanup (which resumes the group) is exercised.
+ */
+int cpulimit_test_update_process_set(struct process_set *proc_set) {
+    if (seam_fail_update_after > 0) {
+        if (seam_update_call_count >= seam_fail_update_after) {
+            return -1;
+        }
+        seam_update_call_count++;
+    }
+    return update_process_set(proc_set);
 }
 
 /**
@@ -10692,41 +10727,34 @@ static void atexit_victim_child(void) {
 }
 
 /**
- * @brief Test that exit() from a limiting context still resumes the group
- * @note limit_process() resumes its group on the way out, but the error
- *       paths inside the limiting loop terminate the process instead of
- *       returning, so nothing sends the matching SIGCONT and every member
- *       stays suspended. An atexit handler installed when the group is
- *       created covers those paths. exit() cannot be exercised in-process,
- *       so a driver child builds a group, suspends a victim and exits; the
- *       victim leaves as soon as it is continued, so a victim that is still
- *       stopped afterwards means the handler never ran.
+ * @brief Test that limit_process() resumes a stopped group on its error path
+ * @note The group is built and a member is stopped on the first cycle; the
+ *       very next scan is forced to fail (update_process_set() returns -1 via
+ *       the seam). limit_process() must then break its loop and run its own
+ *       cleanup, which sends SIGCONT to the still-stopped member -- no atexit,
+ *       and no exit() left in the loop that would strand the process. The
+ *       victim leaves as soon as it is continued, so a victim still stopped
+ *       afterwards means the cleanup never ran.
  */
 /**
- * @brief Driver child: build a group, suspend the victim, then exit
- * @note Never returns. It leaves through exit(), which is exactly the path
- *       limit_process()'s own cleanup does not cover.
+ * @brief Driver child: run limit_process() until its scan fails, then exit
+ * @note Never returns. It forces update_process_set() to fail after one
+ *       successful scan (which already stopped the victim) and lets
+ *       limit_process()'s own cleanup resume the group before returning; the
+ *       seam kills are real (seam_active = 0) so the victim is actually
+ *       stopped and continued.
  */
-static void atexit_driver_child(pid_t victim) {
-    struct process_set ps;
-    struct timespec settle;
-    struct timespec remaining;
-
-    settle.tv_sec = 0;
-    settle.tv_nsec = 200000000L;
-    remaining = settle;
-    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
-        ;
-    }
-    assert(kill(victim, SIGSTOP) == 0);
-    if (init_process_set(&ps, getpid(), 0) != 0) {
-        _exit(2);
-    }
-    record_stopped_pid(&ps, victim, UNKNOWN_START_TIME);
-    exit(0);
+static void loop_exit_driver_child(pid_t victim) {
+    seam_reset();
+    seam_active = 0; /* real signals: the victim must actually be stopped */
+    seam_fail_update_after = 1; /* fail the 2nd update_process_set() */
+    (void)victim;
+    limit_process(victim, 0.5, 0, 0);
+    seam_reset();
+    _exit(0);
 }
 
-static void test_process_set_atexit_resumes_stopped(void) {
+static void test_process_set_resumes_stopped_on_loop_exit(void) {
     pid_t victim, driver, waited, reaped;
     int status, resumed, victim_status, i;
     const struct timespec poll = {0, 100000000L};
@@ -10740,7 +10768,7 @@ static void test_process_set_atexit_resumes_stopped(void) {
     driver = fork();
     assert(driver >= 0);
     if (driver == 0) {
-        atexit_driver_child(victim);
+        loop_exit_driver_child(victim);
     }
 
     waited = waitpid(driver, &status, 0);
@@ -11266,7 +11294,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_race_rapid_child_spawn_exit);
     RUN_TEST(test_process_set_purges_exited_descendants);
     RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
-    RUN_TEST(test_process_set_atexit_resumes_stopped);
+    RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);

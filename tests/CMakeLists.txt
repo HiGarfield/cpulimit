@@ -66,6 +66,9 @@ set(CPULIMIT_TEST_SEAM_TIME_ITER
 set(CPULIMIT_TEST_SEAM_LIMIT
     limit_process=cpulimit_test_limit_process)
 
+set(CPULIMIT_TEST_SEAM_UPDATE
+    update_process_set=cpulimit_test_update_process_set)
+
 set(CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS
     ${PROJECT_SOURCE_DIR}/src/time_util.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_linux.c
@@ -75,22 +78,29 @@ set(CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS
 set(CPULIMIT_TEST_SEAM_LIMIT_DEFINERS
     ${PROJECT_SOURCE_DIR}/src/limit_process.c)
 
-# The three groups have to be disjoint: a source file property is replaced,
-# not merged, so a file listed twice would end up with the last set only.
+set(CPULIMIT_TEST_SEAM_UPDATE_DEFINERS
+    ${PROJECT_SOURCE_DIR}/src/process_set.c)
+
+# The groups have to be disjoint: a source file property is replaced, not
+# merged, so a file listed twice would end up with the last set only.
 set(CPULIMIT_TEST_SEAM_PLAIN_SOURCES ${CPULIMIT_SRC_COMMON})
 list(REMOVE_ITEM CPULIMIT_TEST_SEAM_PLAIN_SOURCES
      ${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS}
-     ${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS})
+     ${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS}
+     ${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS})
 
 set_source_files_properties(${CPULIMIT_TEST_SEAM_PLAIN_SOURCES} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LIMIT}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_UPDATE}")
+set_source_files_properties(${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS} PROPERTIES
+    COMPILE_DEFINITIONS
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT}")
 
 # --- cpulimit_test ---
 add_executable(cpulimit_test

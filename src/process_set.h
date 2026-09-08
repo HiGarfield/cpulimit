@@ -167,7 +167,9 @@ struct process_set {
  * 5. Performs initial update to populate the process list
  *
  * @note Returns -1 immediately if proc_set is NULL
- * @note Calls exit(EXIT_FAILURE) on memory allocation or timing errors
+ * @note Returns -1 on memory allocation or timing errors; it never calls
+ *       exit(), so the caller (limit_process) can resume the group and exit
+ *       cleanly instead of stranding a stopped process
  * @note After return, proc_set is fully initialized and ready for use
  */
 int init_process_set(struct process_set *proc_set, pid_t target_pid,

@@ -46,6 +46,7 @@ SEAM_TIME_ITER_FLAGS := -Dget_current_time=cpulimit_test_get_current_time \
 	-Dget_next_process=cpulimit_test_get_next_process \
 	-Dclose_process_iterator=cpulimit_test_close_process_iterator
 SEAM_LIMIT_FLAGS := -Dlimit_process=cpulimit_test_limit_process
+SEAM_UPDATE_FLAGS := -Dupdate_process_set=cpulimit_test_update_process_set
 
 # Everything under src/ except the entry point.
 SEAM_SRC := $(filter-out $(SRC)/main.c,$(wildcard $(SRC)/*.c))
@@ -56,10 +57,11 @@ SEAM_SRC := $(filter-out $(SRC)/main.c,$(wildcard $(SRC)/*.c))
 SEAM_TIME_ITER_SRC := $(SRC)/time_util.c \
 	$(filter-out $(SRC)/process_iterator_common.c,$(wildcard $(SRC)/process_iterator_*.c))
 SEAM_LIMIT_SRC := $(SRC)/limit_process.c
+SEAM_UPDATE_SRC := $(SRC)/process_set.c
 
 # One rule for all of them: each file gets every rename except its own.
 $(SEAM_SRC:$(SRC)/%.c=%.o): %.o: $(SRC)/%.c
-	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) -c $< -o $@
+	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) -c $< -o $@
 
 cpulimit_test: cpulimit_test.c $(SEAM_SRC:$(SRC)/%.c=%.o)
 	$(CC) $(ALL_CFLAGS) cpulimit_test.c $(SEAM_SRC:$(SRC)/%.c=%.o) $(ALL_LDFLAGS) -o $@

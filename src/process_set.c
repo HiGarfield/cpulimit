@@ -61,50 +61,6 @@ static int start_time_matches(double a, double b) {
 #define PROCESS_TABLE_HASHSIZE 2048
 
 /**
- * @brief Process group currently being limited, for emergency cleanup
- *
- * Set by init_process_set() and cleared by close_process_set().
- * emergency_resume_all() reads it from an atexit handler so that processes
- * suspended by this group are resumed even when the program leaves through
- * an exit() call that never reaches limit_process()'s own cleanup: every
- * error path inside the limiting loop terminates the process instead of
- * returning, and without this the suspended members stay suspended.
- */
-static struct process_set *active_process_set = NULL;
-
-/**
- * @brief Non-zero once the atexit handler below has been installed
- *
- * init_process_set() runs once per limiting session, and atexit() handlers
- * are inherited across fork(), so the handler must not be registered twice.
- */
-static int atexit_handler_registered = 0;
-
-/**
- * @brief Resume every PID this group suspended, without unwinding state
- * @note Installed with atexit(). Unlike resume_stopped_pids() it does not
- *       skip processes that are still group members and it frees nothing:
- *       its only job is to leave nothing suspended, and the process is
- *       about to go away anyway. kill() is async-signal-safe, which keeps
- *       this usable from any exit path.
- */
-static void emergency_resume_all(void) {
-    const struct list_node *node;
-    struct process_set *proc_set = active_process_set;
-
-    if (proc_set == NULL || proc_set->stopped_pids == NULL) {
-        return;
-    }
-    for (node = first_list_node(proc_set->stopped_pids); node != NULL;
-         node = node->next) {
-        if (node->data == NULL) {
-            continue;
-        }
-        kill(*(const pid_t *)node->data, SIGCONT);
-    }
-}
-
-/**
  * @brief Initialize a process set for monitoring and CPU limiting
  * @param proc_set Pointer to uninitialized process_set structure to set up
  * @param target_pid PID of the primary process to monitor
@@ -160,21 +116,6 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
     }
     init_list(proc_set->stopped_pids);
 
-    /*
-     * Anything this group suspends has to be resumed even if the process
-     * leaves through exit() rather than through limit_process(): the error
-     * paths in the limiting loop terminate the process instead of
-     * returning, and a suspended target would then never receive the
-     * matching SIGCONT. Registered before the initial scan so that a
-     * failure during the scan is covered as well.
-     */
-    active_process_set = proc_set;
-    if (!atexit_handler_registered) {
-        if (atexit(emergency_resume_all) == 0) {
-            atexit_handler_registered = 1;
-        }
-    }
-
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&proc_set->last_update) != 0) {
         perror("get_current_time");
@@ -226,15 +167,6 @@ int close_process_set(struct process_set *proc_set) {
     if (proc_set == NULL) {
         return 0;
     }
-    /*
-     * The group is gone, so the atexit handler must not touch it again:
-     * its list is about to be freed, and every suspension it recorded has
-     * already been undone by the caller (limit_process() resumes the group
-     * before closing it).
-     */
-    if (proc_set == active_process_set) {
-        active_process_set = NULL;
-    }
     if (proc_set->proc_list != NULL) {
         /*
          * Use clear_list (not destroy_list) because the data pointers in
@@ -278,14 +210,15 @@ int close_process_set(struct process_set *proc_set) {
  * Allocates memory for a new process structure and copies all fields from
  * the source. The caller is responsible for freeing the returned pointer.
  *
- * @note Calls exit(EXIT_FAILURE) if memory allocation fails
+ * @note Returns NULL if memory allocation fails, so the caller can abort
+ *       the scan and let limit_process() resume the group cleanly
  */
 static struct process *process_dup(const struct process *proc) {
     struct process *new_proc;
     new_proc = (struct process *)malloc(sizeof(struct process));
     if (new_proc == NULL) {
         fprintf(stderr, "Memory allocation failed for duplicated process\n");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
     /* Copy via memcpy: avoids generating a large stack temporary for a
        by-value struct assignment (struct process is ~4 KiB). */
@@ -568,6 +501,7 @@ int update_process_set(struct process_set *proc_set) {
     int ncpu, close_ret;
     pid_t self_pid;
     int target_replaced;
+    int alloc_failed;
     if (proc_set == NULL || proc_set->proc_list == NULL ||
         proc_set->proc_table == NULL) {
         return 0;
@@ -575,6 +509,7 @@ int update_process_set(struct process_set *proc_set) {
     ncpu = get_ncpu(); /* get_ncpu() caches its result across calls */
     self_pid = getpid();
     target_replaced = 0;
+    alloc_failed = 0;
 
     /* Get current timestamp for delta calculation */
     if (get_current_time(&now) != 0) {
@@ -647,10 +582,33 @@ int update_process_set(struct process_set *proc_set) {
         if (proc == NULL) {
             /* New process detected: add to hashtable and list */
             proc = process_dup(scan_proc);
+            if (proc == NULL) {
+                /*
+                 * Out of memory: abandon this scan cycle. Returning -1
+                 * makes limit_process() break the limiting loop and run
+                 * its own cleanup, which resumes every still-stopped member
+                 * (no atexit needed, so no exit() left in this path).
+                 */
+                alloc_failed = 1;
+                break;
+            }
             /* Mark CPU usage as unknown until we have a time delta */
             proc->cpu_usage = -1;
-            add_to_process_table(proc_set->proc_table, proc);
-            add_list_elem(proc_set->proc_list, proc);
+            if (add_to_process_table(proc_set->proc_table, proc) != 0) {
+                free(proc);
+                alloc_failed = 1;
+                break;
+            }
+            if (add_list_elem(proc_set->proc_list, proc) == NULL) {
+                /*
+                 * The duplicate is in the table but not yet in the list,
+                 * so drop it from the table (which frees the data) and
+                 * abort the scan rather than leaking the orphan entry.
+                 */
+                delete_from_process_table(proc_set->proc_table, proc->pid);
+                alloc_failed = 1;
+                break;
+            }
         } else {
             /* Existing process: re-add to list for this cycle */
             add_list_elem(proc_set->proc_list, proc);
@@ -680,6 +638,15 @@ int update_process_set(struct process_set *proc_set) {
     remove_stale_from_process_table(proc_set->proc_table, proc_set->proc_list);
 
     if (close_ret != 0) {
+        return -1;
+    }
+    if (alloc_failed) {
+        /*
+         * An allocation in the scan loop failed. limit_process() sees the
+         * -1, breaks its loop and resumes the group through its own cleanup
+         * path -- there is no exit() left here that could strand a stopped
+         * process.
+         */
         return -1;
     }
 

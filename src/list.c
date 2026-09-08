@@ -50,14 +50,18 @@ void init_list(struct list *lst) {
  * @brief Append an element to the end of the list
  * @param lst Pointer to the list
  * @param elem Pointer to the data element to add
- * @return Pointer to the newly created node, or NULL if lst is NULL
+ * @return Pointer to the newly created node, or NULL if lst is NULL or
+ *         memory allocation for the new node fails
  *
  * Creates a new node containing the data pointer and appends it to the end
  * of the list in O(1) time. The list stores only the pointer; ownership of
  * the data remains with the caller.
  *
- * @note On memory allocation failure for the new node, this function
- *       terminates the process and does not return to the caller
+ * @note On memory allocation failure the caller must decide how to proceed;
+ *       this function returns NULL rather than terminating the process, so
+ *       an out-of-memory condition in the limiting loop can be turned into a
+ *       clean SIGCONT to the group instead of an abrupt exit that strands a
+ *       stopped process.
  */
 struct list_node *add_list_elem(struct list *lst, void *elem) {
     struct list_node *new_node;
@@ -67,7 +71,7 @@ struct list_node *add_list_elem(struct list *lst, void *elem) {
     new_node = (struct list_node *)malloc(sizeof(struct list_node));
     if (new_node == NULL) {
         fprintf(stderr, "Memory allocation failed for the new list node\n");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
     new_node->data = elem;
     new_node->previous = lst->last;

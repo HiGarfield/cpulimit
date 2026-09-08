@@ -172,7 +172,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         sc_clk_tck = sysconf(_SC_CLK_TCK);
         if (sc_clk_tck <= 0) {
             perror("sysconf(_SC_CLK_TCK)");
-            exit(EXIT_FAILURE);
+            return -1;
         }
     }
     /* Convert CPU times from clock ticks to milliseconds */

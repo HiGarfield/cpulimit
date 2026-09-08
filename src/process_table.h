@@ -97,8 +97,8 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  * @note Safe to call when proc_table is NULL or the table has been destroyed
  *       (proc_table->buckets is NULL): the call is a no-op in both cases.
  */
-void add_to_process_table(struct process_table *proc_table,
-                          struct process *proc);
+int add_to_process_table(struct process_table *proc_table,
+                         struct process *proc);
 
 /**
  * @brief Remove a process from the hash table by PID
