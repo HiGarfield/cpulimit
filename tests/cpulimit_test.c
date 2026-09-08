@@ -10161,6 +10161,66 @@ static void test_find_process_by_name_falls_back_when_winner_gone(void) {
 }
 
 /**
+ * @brief A PID appearing twice in one scan must not be double-counted (BUG-073)
+ * @note update_process_set() clears the group list at the top of each cycle and
+ *       rebuilds it from the iterator snapshot.  When the same PID shows up more
+ *       than once in a single snapshot (a /proc race), the first occurrence is
+ *       added to the table and the list, and the second is found in the table
+ *       and "re-added" to the list -- appending the same process twice, so it
+ *       would be signalled and accounted for twice.  The fix only re-adds when
+ *       the PID is not already in the list this cycle.  The test scripts one
+ *       target PID twice within a single snapshot and asserts the group list
+ *       holds exactly one member; without the fix the count is 2.  Verified by
+ *       mutation: reverting the find_process_in_list_by_pid() guard makes the
+ *       assert fail.
+ */
+static void test_process_set_does_not_duplicate_pid(void) {
+    struct process_set proc_set;
+    int ret;
+    struct seam_proc *init_frame = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
+    struct seam_proc *cycle_frame = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    assert(init_frame != NULL && cycle_frame != NULL);
+
+    seam_reset();
+
+    /* Frame 0: the target alone; consumed by init_process_set's own scan. */
+    memset(&init_frame[0], 0, sizeof(init_frame[0]));
+    init_frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    init_frame[0].ppid = (pid_t)1;
+    init_frame[0].cpu_time = 100.0;
+    init_frame[0].start_time = 10.0;
+    seam_push_frame(init_frame, 1);
+
+    /* Cycle snapshot: the SAME target PID reported twice in one frame. */
+    memset(&cycle_frame[0], 0, sizeof(cycle_frame[0]));
+    memset(&cycle_frame[1], 0, sizeof(cycle_frame[1]));
+    cycle_frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    cycle_frame[0].ppid = (pid_t)1;
+    cycle_frame[0].cpu_time = 100.0;
+    cycle_frame[0].start_time = 10.0;
+    cycle_frame[1].pid = (pid_t)SEAM_TARGET_PID;
+    cycle_frame[1].ppid = (pid_t)1;
+    cycle_frame[1].cpu_time = 100.0;
+    cycle_frame[1].start_time = 10.0;
+    seam_push_frame(cycle_frame, 2);
+
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
+    assert(ret == 0);
+
+    /* Run one cycle; the snapshot must contain the PID exactly once. */
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+
+    assert(proc_set.proc_list->count == 1);
+
+    free(init_frame);
+    free(cycle_frame);
+    close_process_set(&proc_set);
+    seam_active = 0;
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -12399,6 +12459,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
+    RUN_TEST(test_process_set_does_not_duplicate_pid);
     RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
     RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);

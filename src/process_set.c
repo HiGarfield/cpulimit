@@ -621,8 +621,19 @@ int update_process_set(struct process_set *proc_set) {
                 break;
             }
         } else {
-            /* Existing process: re-add to list for this cycle */
-            add_list_elem(proc_set->proc_list, proc);
+            /*
+             * Existing process: re-add to the list for this cycle.  The list
+             * was cleared at the top of the cycle, so a process that survived
+             * from the previous cycle is legitimately absent and must be put
+             * back.  A PID, however, can appear more than once within a single
+             * iterator snapshot (a /proc race), and its first occurrence has
+             * already added it -- adding it again would double-count it, so it
+             * would be signalled and accounted for twice (BUG-073).  Only re-add
+             * when it is not already in the list.
+             */
+            if (find_process_in_list_by_pid(proc_set->proc_list, proc->pid) == NULL) {
+                add_list_elem(proc_set->proc_list, proc);
+            }
             update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
         }
     }
