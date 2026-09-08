@@ -96,10 +96,13 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     errno = 0;
     pid = strtol(pid_str, &endptr, 10);
     /*
-     * Validate conversion: check for errors, empty strings, trailing
-     * characters, and ensure PID is greater than 1 (PIDs 0 and 1 are reserved).
+     * Validate conversion: check for errors, empty strings, and trailing
+     * characters.  PID 1 is allowed (it is the only reserved PID worth
+     * rejecting indirectly) so that cpulimit can throttle PID 1 inside a
+     * container where the target process is init (BUG-008); only PID 0 and
+     * negative values are invalid.
      */
-    if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid <= 1) {
+    if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid < 1) {
         fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
         print_usage(stderr, cfg);
         return EXIT_FAILURE;

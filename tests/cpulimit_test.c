@@ -3674,9 +3674,9 @@ static void test_cli_invalid_pids(void) {
     assert(parse_ret == EXIT_FAILURE);
 
     test_argv[4] =
-        arg_pid1; /* pid <= 1 validation rejects PID 1 (init/systemd) */
+        arg_pid1; /* PID 1 is valid (container init); accepted, not rejected */
     parse_ret = run_parse_in_child(5, test_argv);
-    assert(parse_ret == EXIT_FAILURE);
+    assert(parse_ret == 99);
 
     test_argv[4] = arg_pidneg;
     parse_ret = run_parse_in_child(5, test_argv);
@@ -9700,6 +9700,50 @@ static void test_limit_process_reports_resume_failure(void) {
 }
 
 /**
+ * @brief CLI must accept "-p 1" (limiting PID 1 / container init) (BUG-008)
+ * @note The legacy guard rejected any PID <= 1, so cpulimit refused to limit
+ *       PID 1 even in containers where init is the only target.  After relaxing
+ *       the guard to PID < 1, "-p 1" parses successfully while "-p 0" is still
+ *       rejected.  Verified by mutation: reverting the guard (back to pid <= 1)
+ *       makes parse_arguments("-p 1") fail, so the assertion below fails.
+ */
+static void test_cli_accepts_pid_one(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_p[] = "-p";
+    char arg_1[] = "1";
+    char arg_0[] = "0";
+    char *args[6];
+    args[0] = arg0;
+    args[1] = arg_l;
+    args[2] = arg_50;
+    args[3] = arg_p;
+    args[4] = arg_1;
+    args[5] = NULL;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "cpulimit";
+    assert(parse_arguments(5, args, &cfg) == 0);
+    assert(cfg.target_pid == 1);
+    assert(cfg.cpu_limit >= 0.5 - 1e-9 && cfg.cpu_limit <= 0.5 + 1e-9);
+    /* PID 0 and negative values must still be rejected. */
+    {
+        char *args0[6];
+        struct cpulimit_cfg cfg0;
+        args0[0] = arg0;
+        args0[1] = arg_l;
+        args0[2] = arg_50;
+        args0[3] = arg_p;
+        args0[4] = arg_0;
+        args0[5] = NULL;
+        memset(&cfg0, 0, sizeof(cfg0));
+        cfg0.program_name = "cpulimit";
+        assert(parse_arguments(5, args0, &cfg0) == EXIT_FAILURE);
+    }
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -11281,6 +11325,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_missing_limit);
     RUN_TEST(test_cli_invalid_limits);
     RUN_TEST(test_cli_invalid_pids);
+    RUN_TEST(test_cli_accepts_pid_one);
     RUN_TEST(test_cli_empty_exe);
     RUN_TEST(test_cli_no_target);
     RUN_TEST(test_cli_multiple_targets);
