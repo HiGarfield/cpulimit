@@ -7,3 +7,4 @@ build-gcc
 build-asan
 build-tidy
 compile_commands.json
+docs/
