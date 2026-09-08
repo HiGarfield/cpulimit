@@ -119,6 +119,20 @@ struct process {
      * Size is platform-dependent (see CMD_BUFF_SIZE).
      */
     char command[CMD_BUFF_SIZE];
+
+    /**
+     * Throttle state for signal-failure diagnostics (BUG-058).
+     *
+     * A member whose SIGCONT/SIGSTOP cannot be delivered (EPERM/EACCES) is
+     * retried on every control cycle, so reporting each failure would flood
+     * the terminal in --verbose mode.  These flags record that the failure
+     * for the given signal has already been reported for the current
+     * failure episode; the matching success path clears them so a later
+     * failure re-reports.  They are intentionally per-member rather than a
+     * single global so concurrent members report independently.
+     */
+    int cont_warned;
+    int stop_warned;
 };
 
 /**

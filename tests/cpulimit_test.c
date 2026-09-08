@@ -9803,6 +9803,107 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
 }
 
 /**
+ * @brief A repeated SIGCONT failure must not flood stderr (BUG-058)
+ * @note A member that can never be resumed (EPERM) is retried every control
+ *       cycle, so reporting each failure would print 40+ lines per second in
+ *       --verbose.  The diagnostic is throttled to once per failure episode
+ *       (cleared when a SIGCONT finally succeeds).  This test fires 100
+ *       identical SIGCONT failures and asserts the recovery hint appears at
+ *       most a couple of times.  Verified by mutation: reverting the throttle
+ *       (back to warn_signal_failure every call) makes the assertion
+ *       `warn_count <= 2` fail, since the hint is then emitted 100 times.
+ */
+static void test_process_set_throttles_repeated_sigcont_failure(void) {
+    int pipe_fds[2];
+    pid_t pid;
+    int status;
+    int ret;
+    char *err_buf;
+    size_t err_len;
+    ssize_t nread;
+    int warn_count = 0;
+    const char *p;
+    const size_t BUFSZ = 262144;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        pid_t target;
+        struct process_set proc_set;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        target = fork();
+        if (target < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (target == 0) {
+            while (1) {
+                pause();
+            }
+        }
+        if (init_process_set(&proc_set, target, 0) != 0) {
+            kill(target, SIGKILL);
+            waitpid(target, NULL, 0);
+            _exit(EXIT_FAILURE);
+        }
+        /* Make every SIGCONT to the target fail with EPERM (BUG-058). */
+        seam_reset();
+        seam_kill_calls = 0;
+        seam_fail_call = 1;
+        seam_fail_span = 100000;
+        seam_fail_errno = EPERM;
+        throttle_send_sigcont(&proc_set, 100);
+        /* Restore real signals before reaping the target. */
+        seam_fail_call = 0;
+        seam_fail_span = 1;
+        seam_fail_errno = 0;
+        close_process_set(&proc_set);
+        kill(target, SIGKILL);
+        waitpid(target, NULL, 0);
+        _exit(EXIT_SUCCESS);
+    }
+    close(pipe_fds[1]);
+    err_buf = (char *)malloc(BUFSZ);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        nread = read(pipe_fds[0], err_buf + err_len, BUFSZ - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
+    /* Count how many times the SIGCONT recovery hint was emitted. */
+    for (p = strstr(err_buf, "kill -CONT"); p != NULL;
+         p = strstr(p + 1, "kill -CONT")) {
+        warn_count++;
+    }
+    assert(warn_count >= 1); /* the first failure is always reported */
+    assert(warn_count <= 2); /* identical repeats are throttled */
+    free(err_buf);
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -12020,6 +12121,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
+    RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);

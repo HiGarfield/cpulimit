@@ -817,6 +817,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
     while (node != NULL) {
         /* Save next pointer before potential node deletion */
         struct list_node *next_node = node->next;
+        struct process *proc;
         pid_t pid;
         int kill_result;
         if (node->data == NULL) {
@@ -825,7 +826,8 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
             node = next_node;
             continue;
         }
-        pid = ((const struct process *)node->data)->pid;
+        proc = (struct process *)node->data;
+        pid = proc->pid;
         kill_result = kill(pid, sig);
 
         if (kill_result != 0) {
@@ -873,13 +875,31 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                  * honest outcome -- the group really is over budget -- and
                  * is preferable to ignoring the excess.
                  */
-                warn_signal_failure(sig, pid, saved_errno, verbose);
+                /*
+                 * Throttle the diagnostic: a member that can never be
+                 * signalled is retried every control cycle, so reporting
+                 * every failure would flood the terminal (BUG-058).  Report
+                 * once per failure episode and only re-report once a
+                 * successful delivery clears the flag.
+                 */
+                if ((sig == SIGCONT && !proc->cont_warned) ||
+                    (sig != SIGCONT && !proc->stop_warned)) {
+                    warn_signal_failure(sig, pid, saved_errno, verbose);
+                }
+                if (sig == SIGCONT) {
+                    proc->cont_warned = 1;
+                } else {
+                    proc->stop_warned = 1;
+                }
                 failed++;
             }
         } else if (sig == SIGSTOP) {
             /* Track the suspension so it can always be undone */
-            record_stopped_pid(proc_set, pid,
-                               ((const struct process *)node->data)->start_time);
+            record_stopped_pid(proc_set, pid, proc->start_time);
+        } else {
+            /* SIGCONT delivered: clear the warnable state so a later
+             * failure re-reports instead of going unnoticed. */
+            proc->cont_warned = 0;
         }
         node = next_node;
     }
