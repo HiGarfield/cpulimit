@@ -10743,6 +10743,138 @@ static void test_process_set_excludes_self_from_group(void) {
     assert(verdict == 0);
 }
 
+/**
+ * @brief Test that a group whose list is gone still resumes recorded PIDs
+ * @note Processes that left the group are resumed from the record kept by
+ *       record_stopped_pid(), not from proc_list, so dropping the list must
+ *       not drop their SIGCONT with it. The resumption used to happen after
+ *       the NULL guard, so a group with no list left resumed nothing and
+ *       left those processes suspended.
+ */
+static void test_process_set_resumes_without_proc_list(void) {
+    struct process_set *ps;
+    struct timespec remaining;
+    pid_t victim, reaped;
+    int status, resumed, victim_status, i;
+    const struct timespec poll = {0, 100000000L};
+
+    fflush(stdout);
+    fflush(stderr);
+
+    victim = fork();
+    assert(victim >= 0);
+    if (victim == 0) {
+        atexit_victim_child();
+    }
+
+    remaining.tv_sec = 0;
+    remaining.tv_nsec = 200000000L;
+    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+        ;
+    }
+
+    assert(kill(victim, SIGSTOP) == 0);
+    /* Heap-allocated: the group keeps the frame within the stack budget. */
+    ps = (struct process_set *)malloc(sizeof(*ps));
+    assert(ps != NULL);
+    assert(init_process_set(ps, victim, 0) == 0);
+    record_stopped_pid(ps, victim);
+
+    /* The state in question: no list left, records still held. */
+    clear_list(ps->proc_list);
+    free(ps->proc_list);
+    ps->proc_list = NULL;
+
+    process_set_send_signal(ps, SIGCONT, 0);
+
+    resumed = 0;
+    victim_status = 0;
+    for (i = 0; i < 60 && !resumed; i++) {
+        reaped = waitpid(victim, &victim_status, WNOHANG);
+        if (reaped == victim && WIFEXITED(victim_status) &&
+            WEXITSTATUS(victim_status) == 0) {
+            resumed = 1;
+            break;
+        }
+        remaining = poll;
+        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+            ;
+        }
+    }
+
+    close_process_set(ps);
+    free(ps);
+
+    if (!resumed) {
+        kill(victim, SIGCONT);
+        kill(victim, SIGKILL);
+        waitpid(victim, &status, 0);
+    }
+    assert(resumed);
+}
+
+/**
+ * @brief Test that a resume which cannot be delivered is reported
+ * @note Resuming a process that has left the group is its last chance: the
+ *       record is dropped afterwards, so a failure there used to leave the
+ *       process suspended with nothing printed anywhere. The failure is
+ *       injected through the kill() seam and stderr is captured, because the
+ *       only observable effect is the diagnostic.
+ */
+static void test_process_set_reports_failed_resume(void) {
+    struct process_set ps;
+    int fds[2];
+    int saved_stderr;
+    /*
+     * Small on purpose: only "was anything written" matters, and a larger
+     * buffer would push this function past the per-function stack budget.
+     */
+    char err_buf[64];
+    ssize_t got;
+    size_t err_len = 0;
+
+    assert(pipe(fds) == 0);
+    fflush(stderr);
+    saved_stderr = dup(STDERR_FILENO);
+    assert(saved_stderr >= 0);
+    assert(dup2(fds[1], STDERR_FILENO) != -1);
+
+    assert(init_process_set(&ps, getpid(), 0) == 0);
+    /*
+     * cpulimit is never a member of its own group, so this reads as a PID
+     * that has left the group and is still owed a SIGCONT.
+     */
+    record_stopped_pid(&ps, getpid());
+
+    seam_kill_calls = 0;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+
+    process_set_send_signal(&ps, SIGCONT, 0);
+
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+
+    fflush(stderr);
+    assert(dup2(saved_stderr, STDERR_FILENO) != -1);
+    close(saved_stderr);
+    close(fds[1]);
+
+    do {
+        got = read(fds[0], err_buf + err_len, sizeof(err_buf) - 1 - err_len);
+        if (got > 0) {
+            err_len = err_len + (size_t)got;
+        }
+    } while (got > 0 || (got < 0 && errno == EINTR));
+    close(fds[0]);
+    err_buf[err_len] = '\0';
+
+    close_process_set(&ps);
+
+    assert(err_len > 0);
+}
+
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];
@@ -10893,6 +11025,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
     RUN_TEST(test_process_set_atexit_resumes_stopped);
     RUN_TEST(test_process_set_excludes_self_from_group);
+    RUN_TEST(test_process_set_resumes_without_proc_list);
+    RUN_TEST(test_process_set_reports_failed_resume);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");

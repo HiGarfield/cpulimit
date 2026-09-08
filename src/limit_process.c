@@ -328,11 +328,19 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          * work phase. Clamping keeps the signal sequence intact even for
          * extreme limits, and leaves ordinary values untouched.
          */
-        if (work_time_ns < 1.0) {
-            work_time_ns = 1.0;
-        }
+        /*
+         * Upper bound first, lower bound last: a slot too small to hold
+         * both a work and a sleep phase must still get one nanosecond
+         * each. Clamping the other way round could drive work_time_ns
+         * back below one, nsec_to_timespec() would truncate it to a zero
+         * timespec, and the whole work phase -- including the SIGCONT it
+         * is responsible for -- would be skipped.
+         */
         if (work_time_ns > slot_time_ns - 1.0) {
             work_time_ns = slot_time_ns - 1.0;
+        }
+        if (work_time_ns < 1.0) {
+            work_time_ns = 1.0;
         }
         nsec_to_timespec(work_time_ns, &work_time);
 

@@ -287,16 +287,24 @@ void record_stopped_pid(struct process_set *proc_set, pid_t pid) {
     stopped_pid = (pid_t *)malloc(sizeof(*stopped_pid));
     if (stopped_pid == NULL) {
         /*
-         * Give up on recording this PID rather than aborting: the
-         * process is still a group member, so the regular SIGCONT round
-         * reaches it. Only the narrower case of it leaving the group
-         * before that round would then be missed.
+         * Nothing can record this suspension, so nothing would be able to
+         * undo it later: undo it now. Leaving the process suspended would
+         * be worse than letting it run for the rest of this cycle, and it
+         * stays a group member, so limiting resumes from the next one.
          */
+        kill(pid, SIGCONT);
         return;
     }
     *stopped_pid = pid;
     add_list_elem(proc_set->stopped_pids, stopped_pid);
 }
+
+/*
+ * Declared here because resume_stopped_pids() has to report a failed resume
+ * the same way process_set_send_signal() reports a failed signal inside the
+ * group; that definition sits further down with its only other caller.
+ */
+static void warn_signal_failure(int sig, pid_t pid, int err, int verbose);
 
 /**
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
@@ -324,7 +332,15 @@ void resume_stopped_pids(struct process_set *proc_set) {
          * the processes that have left the group need one here.
          */
         if (find_process_in_list_by_pid(proc_set->proc_list, pid) == NULL) {
-            kill(pid, SIGCONT);
+            /*
+             * Last chance for this process: the record is dropped below,
+             * so a failure here leaves it suspended with nothing left to
+             * retry it. Say so instead of letting it stop silently.
+             */
+            if (kill(pid, SIGCONT) != 0) {
+                int err = errno;
+                warn_signal_failure(SIGCONT, pid, err, 0);
+            }
         }
     }
     destroy_list(proc_set->stopped_pids);
@@ -714,6 +730,14 @@ void process_set_send_signal(struct process_set *proc_set, int sig,
                              int verbose) {
     struct list_node *node;
 
+    /*
+     * Resume recorded PIDs before the guard below: those processes have
+     * already left the group, so a group whose list is gone still owes
+     * them a SIGCONT, and this is their last chance at one.
+     */
+    if (sig == SIGCONT) {
+        resume_stopped_pids(proc_set);
+    }
     if (proc_set == NULL || proc_set->proc_list == NULL) {
         return;
     }
@@ -785,12 +809,5 @@ void process_set_send_signal(struct process_set *proc_set, int sig,
             record_stopped_pid(proc_set, pid);
         }
         node = next_node;
-    }
-    if (sig == SIGCONT) {
-        /*
-         * Resume processes that were suspended but are no longer part of
-         * the group; the loop above cannot see them any more.
-         */
-        resume_stopped_pids(proc_set);
     }
 }
