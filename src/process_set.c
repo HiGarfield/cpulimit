@@ -50,6 +50,50 @@
 #define PROCESS_TABLE_HASHSIZE 2048
 
 /**
+ * @brief Process group currently being limited, for emergency cleanup
+ *
+ * Set by init_process_set() and cleared by close_process_set().
+ * emergency_resume_all() reads it from an atexit handler so that processes
+ * suspended by this group are resumed even when the program leaves through
+ * an exit() call that never reaches limit_process()'s own cleanup: every
+ * error path inside the limiting loop terminates the process instead of
+ * returning, and without this the suspended members stay suspended.
+ */
+static struct process_set *active_process_set = NULL;
+
+/**
+ * @brief Non-zero once the atexit handler below has been installed
+ *
+ * init_process_set() runs once per limiting session, and atexit() handlers
+ * are inherited across fork(), so the handler must not be registered twice.
+ */
+static int atexit_handler_registered = 0;
+
+/**
+ * @brief Resume every PID this group suspended, without unwinding state
+ * @note Installed with atexit(). Unlike resume_stopped_pids() it does not
+ *       skip processes that are still group members and it frees nothing:
+ *       its only job is to leave nothing suspended, and the process is
+ *       about to go away anyway. kill() is async-signal-safe, which keeps
+ *       this usable from any exit path.
+ */
+static void emergency_resume_all(void) {
+    const struct list_node *node;
+    struct process_set *proc_set = active_process_set;
+
+    if (proc_set == NULL || proc_set->stopped_pids == NULL) {
+        return;
+    }
+    for (node = first_list_node(proc_set->stopped_pids); node != NULL;
+         node = node->next) {
+        if (node->data == NULL) {
+            continue;
+        }
+        kill(*(const pid_t *)node->data, SIGCONT);
+    }
+}
+
+/**
  * @brief Initialize a process set for monitoring and CPU limiting
  * @param proc_set Pointer to uninitialized process_set structure to set up
  * @param target_pid PID of the primary process to monitor
@@ -105,6 +149,21 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
     }
     init_list(proc_set->stopped_pids);
 
+    /*
+     * Anything this group suspends has to be resumed even if the process
+     * leaves through exit() rather than through limit_process(): the error
+     * paths in the limiting loop terminate the process instead of
+     * returning, and a suspended target would then never receive the
+     * matching SIGCONT. Registered before the initial scan so that a
+     * failure during the scan is covered as well.
+     */
+    active_process_set = proc_set;
+    if (!atexit_handler_registered) {
+        if (atexit(emergency_resume_all) == 0) {
+            atexit_handler_registered = 1;
+        }
+    }
+
     /* Record baseline timestamp for CPU usage calculation */
     if (get_current_time(&proc_set->last_update) != 0) {
         perror("get_current_time");
@@ -140,6 +199,15 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
 int close_process_set(struct process_set *proc_set) {
     if (proc_set == NULL) {
         return 0;
+    }
+    /*
+     * The group is gone, so the atexit handler must not touch it again:
+     * its list is about to be freed, and every suspension it recorded has
+     * already been undone by the caller (limit_process() resumes the group
+     * before closing it).
+     */
+    if (proc_set == active_process_set) {
+        active_process_set = NULL;
     }
     if (proc_set->proc_list != NULL) {
         /*

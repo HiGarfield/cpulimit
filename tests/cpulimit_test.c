@@ -10572,6 +10572,124 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_invalid_api_inputs);
 }
 
+/**
+ * @brief SIGCONT handler for the atexit victim: leaves at once
+ * @note Runs in the victim child only. _exit() is async-signal-safe, so the
+ *       handler stays usable from a signal context.
+ */
+static void atexit_victim_on_sigcont(int sig) {
+    (void)sig;
+    _exit(EXIT_SUCCESS);
+}
+
+/**
+ * @brief Victim child that only leaves once it is continued
+ * @note Suspended by the driver below. It never gets a chance to run its
+ *       timeout loop while stopped, so a victim that is still stopped when
+ *       the driver has exited proves no SIGCONT ever arrived.
+ */
+static void atexit_victim_child(void) {
+    const struct timespec tick = {0, 100000000L};
+    struct timespec remaining;
+    int i;
+
+    /*
+     * signal() rather than sigaction(): this only has to notice that it was
+     * continued, and the sigaction structure is large enough to push the
+     * caller over the per-function stack budget once the compiler inlines
+     * this single-call helper.
+     */
+    if (signal(SIGCONT, atexit_victim_on_sigcont) == SIG_ERR) {
+        _exit(EXIT_FAILURE);
+    }
+
+    for (i = 0; i < 40; i++) {
+        remaining = tick;
+        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+            ;
+        }
+    }
+    _exit(EXIT_FAILURE);
+}
+
+/**
+ * @brief Test that exit() from a limiting context still resumes the group
+ * @note limit_process() resumes its group on the way out, but the error
+ *       paths inside the limiting loop terminate the process instead of
+ *       returning, so nothing sends the matching SIGCONT and every member
+ *       stays suspended. An atexit handler installed when the group is
+ *       created covers those paths. exit() cannot be exercised in-process,
+ *       so a driver child builds a group, suspends a victim and exits; the
+ *       victim leaves as soon as it is continued, so a victim that is still
+ *       stopped afterwards means the handler never ran.
+ */
+/**
+ * @brief Driver child: build a group, suspend the victim, then exit
+ * @note Never returns. It leaves through exit(), which is exactly the path
+ *       limit_process()'s own cleanup does not cover.
+ */
+static void atexit_driver_child(pid_t victim) {
+    struct process_set ps;
+    struct timespec settle;
+    struct timespec remaining;
+
+    settle.tv_sec = 0;
+    settle.tv_nsec = 200000000L;
+    remaining = settle;
+    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+        ;
+    }
+    assert(kill(victim, SIGSTOP) == 0);
+    if (init_process_set(&ps, getpid(), 0) != 0) {
+        _exit(2);
+    }
+    record_stopped_pid(&ps, victim);
+    exit(0);
+}
+
+static void test_process_set_atexit_resumes_stopped(void) {
+    pid_t victim, driver, waited, reaped;
+    int status, resumed, victim_status, i;
+    const struct timespec poll = {0, 100000000L};
+
+    victim = fork();
+    assert(victim >= 0);
+    if (victim == 0) {
+        atexit_victim_child();
+    }
+
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        atexit_driver_child(victim);
+    }
+
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+
+    resumed = 0;
+    victim_status = 0;
+    for (i = 0; i < 60 && !resumed; i++) {
+        struct timespec remaining = poll;
+        reaped = waitpid(victim, &victim_status, WNOHANG);
+        if (reaped == victim && WIFEXITED(victim_status) &&
+            WEXITSTATUS(victim_status) == 0) {
+            resumed = 1;
+            break;
+        }
+        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+            ;
+        }
+    }
+
+    if (!resumed) {
+        kill(victim, SIGCONT);
+        kill(victim, SIGKILL);
+        waitpid(victim, &status, 0);
+    }
+    assert(resumed);
+}
+
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];
@@ -10720,6 +10838,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_set_race_rapid_child_spawn_exit);
     RUN_TEST(test_process_set_purges_exited_descendants);
     RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
+    RUN_TEST(test_process_set_atexit_resumes_stopped);
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
