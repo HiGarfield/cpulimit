@@ -9828,31 +9828,30 @@ static void test_cli_accepts_pid_one(void) {
     char arg_1[] = "1";
     char arg_0[] = "0";
     char *args[6];
+    char *args0[6];
+    int parse_ret;
     args[0] = arg0;
     args[1] = arg_l;
     args[2] = arg_50;
     args[3] = arg_p;
     args[4] = arg_1;
     args[5] = NULL;
+    args0[0] = arg0;
+    args0[1] = arg_l;
+    args0[2] = arg_50;
+    args0[3] = arg_p;
+    args0[4] = arg_0;
+    args0[5] = NULL;
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "cpulimit";
     assert(parse_arguments(5, args, &cfg) == 0);
     assert(cfg.target_pid == 1);
     assert(cfg.cpu_limit >= 0.5 - 1e-9 && cfg.cpu_limit <= 0.5 + 1e-9);
-    /* PID 0 and negative values must still be rejected. */
-    {
-        char *args0[6];
-        struct cpulimit_cfg cfg0;
-        args0[0] = arg0;
-        args0[1] = arg_l;
-        args0[2] = arg_50;
-        args0[3] = arg_p;
-        args0[4] = arg_0;
-        args0[5] = NULL;
-        memset(&cfg0, 0, sizeof(cfg0));
-        cfg0.program_name = "cpulimit";
-        assert(parse_arguments(5, args0, &cfg0) == EXIT_FAILURE);
-    }
+    /* PID 0 and negative values must still be rejected.  Parsed in a child
+       whose stderr is closed so the expected rejection message stays out of
+       the test log. */
+    parse_ret = run_parse_in_child(5, args0);
+    assert(parse_ret == EXIT_FAILURE);
 }
 
 /**
@@ -9876,6 +9875,7 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     char *lead_space_limit[6];
     char *lead_space_pid[6];
     char *no_space[6];
+    int parse_ret;
 
     lead_space_limit[0] = arg0;
     lead_space_limit[1] = arg_p;
@@ -9896,15 +9896,14 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     no_space[4] = arg_1;
     no_space[5] = NULL;
 
-    /* "-l ' 50'" must be rejected. */
-    memset(&cfg, 0, sizeof(cfg));
-    cfg.program_name = "cpulimit";
-    assert(parse_arguments(5, lead_space_limit, &cfg) == EXIT_FAILURE);
+    /* "-l ' 50'" must be rejected.  Parsed in a child whose stderr is closed
+       so the expected rejection message stays out of the test log. */
+    parse_ret = run_parse_in_child(5, lead_space_limit);
+    assert(parse_ret == EXIT_FAILURE);
 
     /* "-p ' 5'" must be rejected. */
-    memset(&cfg, 0, sizeof(cfg));
-    cfg.program_name = "cpulimit";
-    assert(parse_arguments(5, lead_space_pid, &cfg) == EXIT_FAILURE);
+    parse_ret = run_parse_in_child(5, lead_space_pid);
+    assert(parse_ret == EXIT_FAILURE);
 
     /* Without leading space, parsing still succeeds. */
     memset(&cfg, 0, sizeof(cfg));
@@ -9932,6 +9931,7 @@ static void test_cli_rejects_empty_command_name(void) {
     char arg_busy[] = "busy";
     char *empty_cmd[5];
     char *ok_cmd[5];
+    int parse_ret;
     empty_cmd[0] = arg0;
     empty_cmd[1] = arg_l;
     empty_cmd[2] = arg_50;
@@ -9943,10 +9943,11 @@ static void test_cli_rejects_empty_command_name(void) {
     ok_cmd[3] = arg_busy;
     ok_cmd[4] = NULL;
 
-    /* An empty command name must be rejected. */
-    memset(&cfg, 0, sizeof(cfg));
-    cfg.program_name = "cpulimit";
-    assert(parse_arguments(4, empty_cmd, &cfg) == EXIT_FAILURE);
+    /* An empty command name must be rejected.  Parsed in a child whose
+       stderr is closed so the expected rejection message stays out of the
+       test log. */
+    parse_ret = run_parse_in_child(4, empty_cmd);
+    assert(parse_ret == EXIT_FAILURE);
 
     /* A non-empty command still parses and enables command mode. */
     memset(&cfg, 0, sizeof(cfg));
@@ -9974,6 +9975,7 @@ static void test_cli_rejects_root_match_name(void) {
     char arg_busy[] = "busy";
     char *root_match[6];
     char *ok_match[6];
+    int parse_ret;
     root_match[0] = arg0;
     root_match[1] = arg_l;
     root_match[2] = arg_50;
@@ -9987,10 +9989,11 @@ static void test_cli_rejects_root_match_name(void) {
     ok_match[4] = arg_busy;
     ok_match[5] = NULL;
 
-    /* A bare "/" is not a usable match name and must be rejected. */
-    memset(&cfg, 0, sizeof(cfg));
-    cfg.program_name = "cpulimit";
-    assert(parse_arguments(5, root_match, &cfg) == EXIT_FAILURE);
+    /* A bare "/" is not a usable match name and must be rejected.  Parsed
+       in a child whose stderr is closed so the expected rejection message
+       stays out of the test log. */
+    parse_ret = run_parse_in_child(5, root_match);
+    assert(parse_ret == EXIT_FAILURE);
 
     /* A normal name still parses. */
     memset(&cfg, 0, sizeof(cfg));
