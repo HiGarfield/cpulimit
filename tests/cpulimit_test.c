@@ -7534,8 +7534,6 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     char script_path[sizeof(dir) + 32];
     char name_buf[] = "badsh_cpulimit_xyz";
     char *args[2];
-    char *orig_path;
-    char *new_path;
 
     assert(mkdtemp(dir) != NULL);
     {
@@ -7552,23 +7550,6 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     close_ret = close(fd);
     assert(close_ret == 0);
 
-    /* Prepend our dir to PATH so the bare name resolves through it. */
-    orig_path = getenv("PATH");
-    {
-        size_t dir_len = strlen(dir);
-        size_t orig_len = orig_path ? strlen(orig_path) : 0;
-        size_t need = dir_len + 1 + orig_len + 1;
-        new_path = (char *)malloc(need);
-        assert(new_path != NULL);
-        memcpy(new_path, dir, dir_len);
-        new_path[dir_len] = ':';
-        if (orig_len > 0) {
-            memcpy(new_path + dir_len + 1, orig_path, orig_len);
-        }
-        new_path[dir_len + 1 + orig_len] = '\0';
-        setenv("PATH", new_path, 1);
-    }
-
     args[0] = name_buf; /* bare name, resolved via PATH */
     args[1] = NULL;
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
@@ -7583,7 +7564,16 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        int mode_result;
+        int mode_result, setenv_ret;
+        /*
+         * PATH is redirected inside the forked child only, so the parent
+         * needs no restore and holds nothing this child could inherit.  A
+         * heap buffer alive here would be reported as lost when the child
+         * _exit()s, and valgrind's --error-exitcode would then replace the
+         * very exit code this test asserts on.
+         */
+        setenv_ret = setenv("PATH", dir, 1);
+        assert(setenv_ret == 0);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
         mode_result = run_command_mode(&cfg);
@@ -7597,12 +7587,6 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     /* Same condition as the explicit-path case: 126, never 127. */
     assert(exit_code == 126);
 
-    if (orig_path) {
-        setenv("PATH", orig_path, 1);
-    } else {
-        unsetenv("PATH");
-    }
-    free(new_path);
     unlink(script_path);
     rmdir(dir);
 }
@@ -10952,6 +10936,12 @@ static int seam_run_smoke_limit(void) {
     struct seam_proc *visible = (struct seam_proc *)malloc(sizeof(struct seam_proc));
     int cycle;
     assert(visible != NULL);
+    /*
+     * The script fills only pid, ppid and cpu_time; the iterator copies the
+     * remaining fields (start time, command) into every struct process it
+     * hands to the code under test, so they must not be indeterminate.
+     */
+    memset(visible, 0, sizeof(struct seam_proc));
 
     seam_reset();
     for (cycle = 0; cycle < SEAM_SMOKE_CYCLES; cycle++) {
@@ -11016,6 +11006,10 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
     int cycle;
 
     assert(both != NULL && target_only != NULL);
+    /* As in seam_run_smoke_limit(): the fields the script does not fill
+     * are copied out by the iterator and must not be indeterminate. */
+    memset(both, 0, sizeof(struct seam_proc) * 2);
+    memset(target_only, 0, sizeof(struct seam_proc) * 1);
     seam_reset();
     seam_fail_call = fail_call;
     seam_fail_errno = ESRCH;
@@ -11593,6 +11587,9 @@ static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
     int cycle;
     pid_t limiter_pid;
     assert(frame != NULL);
+    /* As in seam_run_smoke_limit(): the fields the script does not fill
+     * are copied out by the iterator and must not be indeterminate. */
+    memset(frame, 0, sizeof(struct seam_proc));
 
     seam_reset();
     for (cycle = 0; cycle < SEAM_SMOKE_CYCLES; cycle++) {
@@ -11601,6 +11598,13 @@ static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
         frame[0].cpu_time = 1000.0 + (double)cycle * SEAM_SMOKE_CPU_STEP;
         seam_push_frame(frame, 1);
     }
+    /*
+     * Released before the fork: the snapshots live in the seam's own
+     * storage from here on, and a heap block inherited by the limiter
+     * child would be reported as lost when it _exit()s, which valgrind's
+     * --error-exitcode turns into a bogus exit status.
+     */
+    free(frame);
     /* Keep reporting the target, so only the interruption stops it. */
     seam_repeat_last = 1;
     seam_active = 1;
