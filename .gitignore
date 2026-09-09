@@ -1,10 +1,4 @@
 build
-build_clang_san
-_codeql_build_dir
+build_*
+build-*
 .codebuddy
-build-clang
-build-gcc
-build-asan
-build-tidy
-compile_commands.json
-docs/
