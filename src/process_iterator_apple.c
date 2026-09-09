@@ -394,7 +394,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 #ifdef CPULIMIT_TEST_BUILD
 /* Opt-in: only route through the test seam when the harness arms it, so the
    default path stays a direct call to the real getppid_of() (BUG-043). */
-#define GETPPID_OF(c) \
+#define GETPPID_OF(c)                                                          \
     (seam_getppid_fabricate ? cpulimit_test_getppid_of(c) : getppid_of(c))
 #else
 #define GETPPID_OF(c) getppid_of(c)

@@ -151,12 +151,13 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * invisible, so a result of 4 means "no start time" rather than a
      * parse failure, and start_time stays unknown.
      */
-    parsed = sscanf(p + 1,
-                    " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf %*s %*s %*s %*s %*s %*s %lf",
-                    &state, &ppid, &user_time, &sys_time, &start_time);
-    if ((parsed != 4 && parsed != 5) ||
-        !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
-        ppid <= 0 || user_time < 0 || sys_time < 0) {
+    parsed = sscanf(
+        p + 1,
+        " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf %*s %*s %*s %*s %*s %*s %lf",
+        &state, &ppid, &user_time, &sys_time, &start_time);
+    if ((parsed != 4 && parsed != 5) || !isalpha((unsigned char)state) ||
+        strchr("ZXx", state) != NULL || ppid <= 0 || user_time < 0 ||
+        sys_time < 0) {
         free(buffer);
         return -1;
     }
@@ -315,7 +316,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 #ifdef CPULIMIT_TEST_BUILD
 /* Opt-in: only route through the test seam when the harness arms it, so the
    default path stays a direct call to the real getppid_of() (BUG-043). */
-#define GETPPID_OF(c) \
+#define GETPPID_OF(c)                                                          \
     (seam_getppid_fabricate ? cpulimit_test_getppid_of(c) : getppid_of(c))
 #else
 #define GETPPID_OF(c) getppid_of(c)

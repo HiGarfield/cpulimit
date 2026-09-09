@@ -199,7 +199,8 @@ int close_process_set(struct process_set *proc_set);
  * @brief Record that a member of the group has just been suspended
  * @param proc_set Pointer to the process set structure
  * @param pid PID that was successfully sent SIGSTOP
- * @param start_time Start time of pid at suspension, from get_process_start_time()
+ * @param start_time Start time of pid at suspension, from
+ * get_process_start_time()
  *
  * proc_list is rebuilt from scratch by update_process_set(), so a process
  * can cease to be a member of the group while it is still suspended: a
@@ -340,8 +341,7 @@ size_t process_set_member_count(const struct process_set *proc_set);
  *
  * @note Safe iteration: stores next node before potential deletion
  */
-int process_set_send_signal(struct process_set *proc_set, int sig,
-                            int verbose);
+int process_set_send_signal(struct process_set *proc_set, int sig, int verbose);
 
 #ifdef __cplusplus
 }

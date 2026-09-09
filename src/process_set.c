@@ -49,7 +49,8 @@
  * never NaN, so the pitfalls of memcmp() on a double do not apply here.
  */
 static int start_time_matches(double a, double b) {
-    /* NOLINTNEXTLINE(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c) */
+    /* NOLINTNEXTLINE(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c)
+     */
     return memcmp(&a, &b, sizeof(double)) == 0;
 }
 
@@ -245,7 +246,8 @@ struct stopped_pid_record {
  * @brief Record that a member of the group has just been suspended
  * @param proc_set Pointer to the process set structure
  * @param pid PID that was successfully sent SIGSTOP
- * @param start_time Start time of pid at suspension, from get_process_start_time()
+ * @param start_time Start time of pid at suspension, from
+ * get_process_start_time()
  *
  * proc_list is rebuilt from scratch by update_process_set(), so a process
  * can cease to be a member of the group while it is still suspended: a
@@ -586,10 +588,12 @@ int update_process_set(struct process_set *proc_set) {
          * hazard on its own: is_child_of() decides membership from the
          * live parent chain, so the replacement rarely matches at all.
          */
-        if (!start_time_matches(proc_set->target_start_time, UNKNOWN_START_TIME) &&
+        if (!start_time_matches(proc_set->target_start_time,
+                                UNKNOWN_START_TIME) &&
             !start_time_matches(scan_proc->start_time, UNKNOWN_START_TIME) &&
             scan_proc->pid == proc_set->target_pid &&
-            !start_time_matches(scan_proc->start_time, proc_set->target_start_time)) {
+            !start_time_matches(scan_proc->start_time,
+                                proc_set->target_start_time)) {
             target_replaced = 1;
             break;
         }
@@ -632,10 +636,11 @@ int update_process_set(struct process_set *proc_set) {
              * back.  A PID, however, can appear more than once within a single
              * iterator snapshot (a /proc race), and its first occurrence has
              * already added it -- adding it again would double-count it, so it
-             * would be signalled and accounted for twice (BUG-073).  Only re-add
-             * when it is not already in the list.
+             * would be signalled and accounted for twice (BUG-073).  Only
+             * re-add when it is not already in the list.
              */
-            if (find_process_in_list_by_pid(proc_set->proc_list, proc->pid) == NULL) {
+            if (find_process_in_list_by_pid(proc_set->proc_list, proc->pid) ==
+                NULL) {
                 add_list_elem(proc_set->proc_list, proc);
             }
             update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
@@ -779,9 +784,10 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
          * not be swallowed by the once-only gate used for SIGSTOP, so it is
          * always reported with a recovery hint (BUG-049).
          */
-        fprintf(stderr,
-                "Warning: cannot resume PID %ld with SIGCONT: %s\n         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
-                (long)pid, strerror(err), (long)pid);
+        fprintf(
+            stderr,
+            "Warning: cannot resume PID %ld with SIGCONT: %s\n         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
+            (long)pid, strerror(err), (long)pid);
         return;
     }
 
@@ -793,9 +799,10 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
         }
         warned = 1;
     }
-    fprintf(stderr,
-            "Warning: cannot send signal %d to PID %ld: %s\n         (process stays tracked but cannot be limited)\n",
-            sig, (long)pid, strerror(err));
+    fprintf(
+        stderr,
+        "Warning: cannot send signal %d to PID %ld: %s\n         (process stays tracked but cannot be limited)\n",
+        sig, (long)pid, strerror(err));
 }
 
 /**

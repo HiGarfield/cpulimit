@@ -322,8 +322,8 @@ static int is_child_via_kvm(kvm_t *kvm_descriptor, pid_t child_pid,
 #ifdef CPULIMIT_TEST_BUILD
 /* Opt-in: only route through the test seam when the harness arms it, so the
    default path stays a direct call to the real getppid_via_kvm() (BUG-043). */
-#define GETPPID_OF(c)                                                  \
-    (seam_getppid_fabricate ? cpulimit_test_getppid_of(c)               \
+#define GETPPID_OF(c)                                                          \
+    (seam_getppid_fabricate ? cpulimit_test_getppid_of(c)                      \
                             : getppid_via_kvm(kvm_descriptor, c))
 #else
 #define GETPPID_OF(c) getppid_via_kvm(kvm_descriptor, c)

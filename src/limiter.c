@@ -217,9 +217,10 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
          */
         int child_exit_status =
             collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
-        fprintf(stderr,
-                "Warning: CPU limit could not be applied to process %ld; the command exited with status %d\n",
-                (long)child_pid, child_exit_status);
+        fprintf(
+            stderr,
+            "Warning: CPU limit could not be applied to process %ld; the command exited with status %d\n",
+            (long)child_pid, child_exit_status);
         return EXIT_FAILURE;
     }
     return collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
@@ -339,9 +340,9 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                  * This call blocks until the process terminates or quit
                  * flag is set.
                  */
-                limit_status = limit_process(found_pid, cfg->cpu_limit,
-                                             cfg->include_children,
-                                             cfg->verbose);
+                limit_status =
+                    limit_process(found_pid, cfg->cpu_limit,
+                                  cfg->include_children, cfg->verbose);
 
                 /*
                  * Always resume the target after limit_process() returns.
@@ -384,7 +385,8 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
          * - lazy_mode: Exit after first attempt (regardless of success)
          * - quit_flag: User requested termination via signal
          */
-        if (cfg->lazy_mode || is_quit_flag_set() || exit_status != EXIT_SUCCESS) {
+        if (cfg->lazy_mode || is_quit_flag_set() ||
+            exit_status != EXIT_SUCCESS) {
             break;
         }
 

@@ -325,8 +325,8 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
             /*
              * Ensure work_ratio stays in valid range, never exactly 0 or 1
              */
-            work_ratio = CLAMP(work_ratio, WORK_RATIO_EPSILON,
-                               1 - WORK_RATIO_EPSILON);
+            work_ratio =
+                CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON);
         }
 
         /* Get time slot duration (may vary based on system load) */
@@ -463,9 +463,10 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          * (BUG-050).  It may stay stopped forever, so report it and exit
          * non-zero rather than silently returning success.
          */
-        fprintf(stderr,
-                "Warning: %d process(es) left suspended at shutdown; run 'kill -CONT <pid>' for each to recover.\n",
-                resume_failed);
+        fprintf(
+            stderr,
+            "Warning: %d process(es) left suspended at shutdown; run 'kill -CONT <pid>' for each to recover.\n",
+            resume_failed);
         return LIMIT_PROCESS_ERROR;
     }
 

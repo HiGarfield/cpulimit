@@ -346,7 +346,8 @@ pid_t getppid_of(pid_t pid);
  * ancestor-chain breakage (BUG-043) can be reproduced deterministically.
  */
 pid_t cpulimit_test_getppid_of(pid_t pid);
-/** @brief Non-zero: is_child_of() should use the getppid_of() seam (BUG-043). */
+/** @brief Non-zero: is_child_of() should use the getppid_of() seam (BUG-043).
+ */
 extern int seam_getppid_fabricate;
 
 /**
@@ -360,7 +361,8 @@ extern int seam_getppid_fabricate;
  * deterministically instead of depending on a real PID being alive.
  */
 pid_t cpulimit_test_find_by_pid(pid_t pid);
-/** @brief Non-zero: find_process_by_pid() should use the seam probe (BUG-055/056). */
+/** @brief Non-zero: find_process_by_pid() should use the seam probe
+ * (BUG-055/056). */
 extern int seam_find_by_pid_override;
 #endif
 

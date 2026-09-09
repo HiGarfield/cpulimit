@@ -7517,12 +7517,12 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
  * @note The pre-check that detects an inaccessible shebang interpreter used to
  *       run only for explicit (slash-containing) paths, so a script reached
  *       through PATH reported 127 instead of 126 for the very same condition.
- *       This test places a bad-shebang script in a directory on PATH and invokes
- *       it by bare name; with the fix it resolves through PATH and returns 126,
- *       matching the explicit-path case.  Without the fix execvp() fails with
+ *       This test places a bad-shebang script in a directory on PATH and
+ * invokes it by bare name; with the fix it resolves through PATH and returns
+ * 126, matching the explicit-path case.  Without the fix execvp() fails with
  *       ENOENT for the (found) script and the parent reports 127, so this
- *       assertion fails.  Verified by mutation: reverting the PATH branch of the
- *       pre-check makes exit_code == 127.
+ *       assertion fails.  Verified by mutation: reverting the PATH branch of
+ * the pre-check makes exit_code == 127.
  */
 static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     pid_t pid, waited;
@@ -7537,7 +7537,8 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
 
     assert(mkdtemp(dir) != NULL);
     {
-        int len = snprintf(script_path, sizeof(script_path), "%s/badsh_cpulimit_xyz", dir);
+        int len = snprintf(script_path, sizeof(script_path),
+                           "%s/badsh_cpulimit_xyz", dir);
         assert(len > 0 && (size_t)len < sizeof(script_path));
     }
     fd = open(script_path, O_WRONLY | O_CREAT | O_TRUNC, 0755);
@@ -9244,18 +9245,20 @@ static int seam_sleep_fails = 0;
  * declarations in process_iterator.h, so they must keep external linkage.
  */
 /* NOLINTBEGIN(misc-use-internal-linkage) */
-/** @brief Non-zero: getppid_of() seam fabricates a fixed ancestor chain (BUG-043). */
+/** @brief Non-zero: getppid_of() seam fabricates a fixed ancestor chain
+ * (BUG-043). */
 int seam_getppid_fabricate = 0;
 
-/** @brief Non-zero: find_process_by_pid() probes from the iterator seam (BUG-055/056). */
+/** @brief Non-zero: find_process_by_pid() probes from the iterator seam
+ * (BUG-055/056). */
 int seam_find_by_pid_override = 0;
 /* NOLINTEND(misc-use-internal-linkage) */
 
 /**
  * @brief PIDs reported alive by cpulimit_test_find_by_pid() under override.
  * @note The iterator seam caps served snapshots (SEAM_MAX_SERVED_FRAMES), so
- *       find_process_by_name()'s final recheck (a second iterator use) can never
- *       reach a scripted frame.  The recheck is therefore driven by this
+ *       find_process_by_name()'s final recheck (a second iterator use) can
+ * never reach a scripted frame.  The recheck is therefore driven by this
  *       independent "alive set" instead of the scan frames.
  */
 static pid_t seam_alive[SEAM_MAX_FRAME_PROCS];
@@ -9441,8 +9444,8 @@ static void test_process_finder_find_by_pid_reports_eacces(void) {
  *        (BUG-013)
  * @note The kill() seam makes the permission probe kill(pid, 0) fail with
  *       EPERM, so find_process_by_pid() reports the target as "permission
- *       denied" (-pid).  The limiter must then terminate with EXIT_FAILURE and a
- *       clear message, never spin forever.  This locks in the already-correct
+ *       denied" (-pid).  The limiter must then terminate with EXIT_FAILURE and
+ * a clear message, never spin forever.  This locks in the already-correct
  *       behaviour (no source change required for BUG-013 itself).
  */
 static void test_limiter_run_pid_or_exe_mode_exits_on_permission_denied(void) {
@@ -9498,7 +9501,8 @@ static void test_limiter_run_pid_or_exe_mode_exits_on_permission_denied(void) {
     assert(exited);
     exit_code = WEXITSTATUS(status);
     assert(exit_code == EXIT_FAILURE);
-    /* The parent armed the kill seam; reset it so later tests are unaffected. */
+    /* The parent armed the kill seam; reset it so later tests are unaffected.
+     */
     seam_active = 0;
     seam_fail_call = 0;
     seam_fail_errno = 0;
@@ -9508,11 +9512,12 @@ static void test_limiter_run_pid_or_exe_mode_exits_on_permission_denied(void) {
  * @brief run_command_mode() must surface the command's real exit code on stderr
  *        when limiting never starts (LIMIT_PROCESS_ERROR) (BUG-018)
  * @note The init_process_iterator seam (seam_init_fails) makes limit_process()
- *       return LIMIT_PROCESS_ERROR.  The command child deliberately exits with a
- *       known non-zero code (42); before the fix cpulimit discarded that code
- *       and only returned 1, so the diagnostic line was absent from stderr.
+ *       return LIMIT_PROCESS_ERROR.  The command child deliberately exits with
+ * a known non-zero code (42); before the fix cpulimit discarded that code and
+ * only returned 1, so the diagnostic line was absent from stderr.
  */
-static void test_limiter_run_command_mode_reports_child_exit_on_limit_failure(void) {
+static void
+test_limiter_run_command_mode_reports_child_exit_on_limit_failure(void) {
     int pipe_fds[2];
     int ret, waited, exited, exit_code;
     pid_t pid;
@@ -9572,8 +9577,7 @@ static void test_limiter_run_command_mode_reports_child_exit_on_limit_failure(vo
 
     err_len = 0;
     while (1) {
-        ssize_t nread =
-            read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        ssize_t nread = read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
         if (nread > 0) {
             err_len += (size_t)nread;
             if (err_len >= 512 - 1) {
@@ -9677,8 +9681,7 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
     assert(err_buf != NULL);
     err_len = 0;
     while (1) {
-        ssize_t nread =
-            read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        ssize_t nread = read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
         if (nread > 0) {
             err_len += (size_t)nread;
             if (err_len >= 512 - 1) {
@@ -9782,8 +9785,7 @@ static void test_limit_process_reports_resume_failure(void) {
     assert(err_buf != NULL);
     err_len = 0;
     while (1) {
-        ssize_t nread =
-            read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        ssize_t nread = read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
         if (nread > 0) {
             err_len += (size_t)nread;
             if (err_len >= 512 - 1) {
@@ -9962,9 +9964,9 @@ static void test_cli_rejects_empty_command_name(void) {
  * @note `cpulimit -l 50 -e /` set full_path_cmp with the root directory as the
  *       name; find_process_by_name() then never matches and, in non-lazy mode,
  *       retries forever.  parse_arguments() now rejects the bare root path up
- *       front with EXIT_FAILURE and a clear message.  A normal name still parses.
- *       Verified by mutation: reverting the `optarg[0] == '/' && optarg[1] == '\0'`
- *       guard lets "-e /" slip through (so this rejection assertion fails).
+ *       front with EXIT_FAILURE and a clear message.  A normal name still
+ * parses. Verified by mutation: reverting the `optarg[0] == '/' && optarg[1] ==
+ * '\0'` guard lets "-e /" slip through (so this rejection assertion fails).
  */
 static void test_cli_rejects_root_match_name(void) {
     struct cpulimit_cfg cfg;
@@ -10131,16 +10133,16 @@ static void seam_push_frame(const struct seam_proc *procs, int count);
  *       The test scripts a target plus one descendant that reuses its PID
  *       between two update cycles: cpu_time rises (100 -> 200) while start_time
  *       changes (20 -> 21).  With the fix, after the second cycle the group CPU
- *       usage collapses to the target's alone (the descendant is -1 and skipped,
- *       so the sum is ~0); without the fix the descendant's 1.0 sample is summed
- *       in and the assert fails.  The (seam-controlled) clock is advanced 100ms
- *       per cycle so a real delta is computed.  Verified by mutation: reverting
+ *       usage collapses to the target's alone (the descendant is -1 and
+ * skipped, so the sum is ~0); without the fix the descendant's 1.0 sample is
+ * summed in and the assert fails.  The (seam-controlled) clock is advanced
+ * 100ms per cycle so a real delta is computed.  Verified by mutation: reverting
  *       the start_time branch makes the descendant's 1.0 be counted.
  */
 static void test_process_set_detects_pid_reuse_by_start_time(void) {
     struct process_set proc_set;
     int ret;
-    struct seam_proc (*frames)[2] =
+    struct seam_proc(*frames)[2] =
         (struct seam_proc(*)[2])malloc(sizeof(struct seam_proc[3][2]));
     assert(frames != NULL);
 
@@ -10214,7 +10216,8 @@ static void test_process_set_detects_pid_reuse_by_start_time(void) {
 }
 
 /**
- * @brief Multiple unrelated same-name matches must resolve deterministically (BUG-055)
+ * @brief Multiple unrelated same-name matches must resolve deterministically
+ * (BUG-055)
  * @note find_process_by_name() only replaced the current winner when the new
  *       candidate was a descendant of it, so when several matches are mutually
  *       unrelated the first one encountered won -- and the /proc enumeration
@@ -10230,9 +10233,12 @@ static void test_process_set_detects_pid_reuse_by_start_time(void) {
  */
 static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
     pid_t first, second;
-    struct seam_proc *frame_a = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
-    struct seam_proc *frame_b = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
-    struct seam_proc *recheck = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *frame_a =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *frame_b =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *recheck =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
     assert(frame_a != NULL && frame_b != NULL && recheck != NULL);
 
     /* Two unrelated processes named "busy". */
@@ -10297,7 +10303,8 @@ static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
 }
 
 /**
- * @brief -e must fall back when the preferred match vanishes before recheck (BUG-056)
+ * @brief -e must fall back when the preferred match vanishes before recheck
+ * (BUG-056)
  * @note find_process_by_name() picked the best match, then verified it with a
  *       single find_process_by_pid(): if that process had exited in the
  *       meantime the call returned 0 and the whole lookup reported "not
@@ -10307,13 +10314,15 @@ static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
  *       snapshot drops 42424, so the function must return 42425 or 42426
  *       (the smallest survivor), not 0.  Without the fallback it returns 0 and
  *       the assert fails.  Verified by mutation: reverting the fallback loop
- *       makes result == 0.  seam_repeat_last lets the extra find_process_by_pid()
- *       calls reuse the recheck snapshot.
+ *       makes result == 0.  seam_repeat_last lets the extra
+ * find_process_by_pid() calls reuse the recheck snapshot.
  */
 static void test_find_process_by_name_falls_back_when_winner_gone(void) {
     pid_t result;
-    struct seam_proc *scan = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 3);
-    struct seam_proc *recheck = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *scan =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 3);
+    struct seam_proc *recheck =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
     assert(scan != NULL && recheck != NULL);
 
     memset(scan, 0, sizeof(struct seam_proc) * 3);
@@ -10358,8 +10367,8 @@ static void test_find_process_by_name_falls_back_when_winner_gone(void) {
 /**
  * @brief A PID appearing twice in one scan must not be double-counted (BUG-073)
  * @note update_process_set() clears the group list at the top of each cycle and
- *       rebuilds it from the iterator snapshot.  When the same PID shows up more
- *       than once in a single snapshot (a /proc race), the first occurrence is
+ *       rebuilds it from the iterator snapshot.  When the same PID shows up
+ * more than once in a single snapshot (a /proc race), the first occurrence is
  *       added to the table and the list, and the second is found in the table
  *       and "re-added" to the list -- appending the same process twice, so it
  *       would be signalled and accounted for twice.  The fix only re-adds when
@@ -10372,8 +10381,10 @@ static void test_find_process_by_name_falls_back_when_winner_gone(void) {
 static void test_process_set_does_not_duplicate_pid(void) {
     struct process_set proc_set;
     int ret;
-    struct seam_proc *init_frame = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
-    struct seam_proc *cycle_frame = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *init_frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
+    struct seam_proc *cycle_frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
     assert(init_frame != NULL && cycle_frame != NULL);
 
     seam_reset();
@@ -10607,10 +10618,18 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
  */
 /* NOLINTBEGIN(misc-use-internal-linkage) */
 pid_t cpulimit_test_getppid_of(pid_t pid);
+
 pid_t cpulimit_test_getppid_of(pid_t pid) {
-    static const struct { pid_t pid; pid_t ppid; } chain[] = {
-        {300, 200}, {200, 100}, {100, 1}, {1, 0},
+    static const struct {
+        pid_t pid;
+        pid_t ppid;
+    } chain[] = {
+        {300, 200},
+        {200, 100},
+        {100, 1},
+        {1, 0},
     };
+
     if (seam_getppid_fabricate) {
         int i;
         if (seam_getppid_fail_pid != 0 && pid == seam_getppid_fail_pid &&
@@ -10646,12 +10665,13 @@ pid_t cpulimit_test_find_by_pid(pid_t pid) {
     }
     return 0;
 }
+
 /* NOLINTEND(misc-use-internal-linkage) */
 
 /** * @brief Test that is_child_of() retries a transient getppid_of() failure
  *        instead of reporting a false negative (BUG-043)
- * @note The getppid_of() seam fabricates the chain C(300)->B(200)->A(100)->1 and
- *       makes the lookup for B fail exactly once.  Without the retry fix
+ * @note The getppid_of() seam fabricates the chain C(300)->B(200)->A(100)->1
+ * and makes the lookup for B fail exactly once.  Without the retry fix
  *       is_child_of(300, 100) returns 0 (the -1 breaks the chain); with the fix
  *       it retries and returns 1.
  */
@@ -10933,7 +10953,8 @@ pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
  * of SEAM_MAX_SIGNALS entries is far past the per-frame stack budget.
  */
 static int seam_run_smoke_limit(void) {
-    struct seam_proc *visible = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    struct seam_proc *visible =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
     int cycle;
     assert(visible != NULL);
     /*
@@ -11001,8 +11022,10 @@ static int seam_snapshot_run(void) {
  * @return Number of kill() calls recorded; the log stays in seam_signals
  */
 static int seam_run_group_limit(int reuse_cycle, int fail_call) {
-    struct seam_proc *both = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
-    struct seam_proc *target_only = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
+    struct seam_proc *both =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *target_only =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
     int cycle;
 
     assert(both != NULL && target_only != NULL);
@@ -11218,9 +11241,10 @@ static void seam_assert_no_signal_after_failure(int count, const char *what) {
             if (seam_signals[idx].pid != seam_signals[outer].pid) {
                 continue;
             }
-            fprintf(stderr,
-                    "(%s: PID %ld signalled again after failure, same snapshot)\n",
-                    what, (long)seam_signals[outer].pid);
+            fprintf(
+                stderr,
+                "(%s: PID %ld signalled again after failure, same snapshot)\n",
+                what, (long)seam_signals[outer].pid);
             assert(seam_signals[idx].pid != seam_signals[outer].pid);
         }
     }
@@ -11583,7 +11607,8 @@ static int seam_read_child_log(int fd) {
  */
 static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
                                         int go_fd, int log_fd) {
-    struct seam_proc *frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
     int cycle;
     pid_t limiter_pid;
     assert(frame != NULL);
@@ -12370,7 +12395,8 @@ static void test_process_set_reports_failed_resume(void) {
  */
 static void test_process_set_resume_skips_recycled_pid(void) {
     struct process_set proc_set;
-    struct seam_proc *frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
     const pid_t child = 4242;
     const double base = 1000.0;     /* start time of the real process */
     const double recycled = 2000.0; /* start time of the replacement */
@@ -12403,9 +12429,11 @@ static void test_process_set_resume_skips_recycled_pid(void) {
     seam_push_frame(frame, 1);
     seam_repeat_last = 1;
 
-    cont_before = seam_count_signals(seam_signals, (int)seam_signal_count, child, SIGCONT);
+    cont_before = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     child, SIGCONT);
     resume_stopped_pids(&proc_set);
-    cont_after = seam_count_signals(seam_signals, (int)seam_signal_count, child, SIGCONT);
+    cont_after = seam_count_signals(seam_signals, (int)seam_signal_count, child,
+                                    SIGCONT);
 
     /* The recycled PID must NOT receive a spurious SIGCONT. */
     assert(cont_after == cont_before);
@@ -12417,12 +12445,14 @@ static void test_process_set_resume_skips_recycled_pid(void) {
 }
 
 /**
- * @brief BUG-017: find_process_by_name() must not abort on iterator-init failure
+ * @brief BUG-017: find_process_by_name() must not abort on iterator-init
+ * failure
  * @note On a fatal error (here the process iterator cannot be initialized)
  *       find_process_by_name() used to call exit(EXIT_FAILURE). It now returns
  *       0 ("not found") so the caller (the -e non-lazy loop) can degrade. This
  *       runs in a forked child: with the fix the child reaches _exit(0), while
- *       the unfixed code kills the child with exit(EXIT_FAILURE) and it exits 1.
+ *       the unfixed code kills the child with exit(EXIT_FAILURE) and it
+ * exits 1.
  */
 static void test_find_process_by_name_survives_iterator_init_failure(void) {
     pid_t pid, waited;
@@ -12452,7 +12482,6 @@ static void test_find_process_by_name_survives_iterator_init_failure(void) {
     exit_code = WEXITSTATUS(status);
     assert(exit_code == 0);
 }
-
 
 /**
  * @brief Test that a target whose PID was recycled is no longer tracked

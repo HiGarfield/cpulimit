@@ -169,8 +169,9 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * sync_write_fd), which also signals exec completion to the parent.
      *
      * The check runs for an explicit path AND for a bare name resolved through
-     * PATH, so both spellings of the same script report the same code (BUG-053):
-     * an inaccessible interpreter always yields 126, never a misleading 127.
+     * PATH, so both spellings of the same script report the same code
+     * (BUG-053): an inaccessible interpreter always yields 126, never a
+     * misleading 127.
      */
     {
         const char *check_path = cfg->command_args[0];
@@ -180,22 +181,25 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
          * PATH_MAX-sized array on the stack, which would blow the project's
          * -Wstack-usage=512 limit.  On allocation failure we simply skip the
          * PATH-resolved shebang pre-check (the explicit-path branch still runs,
-         * and a bare name falls through to execvp() and reports the usual code).
+         * and a bare name falls through to execvp() and reports the usual
+         * code).
          */
         if (resolved != NULL) {
             if (strchr(check_path, '/') != NULL) {
                 if (is_script_inaccessible_interpreter(check_path)) {
-                    fprintf(stderr,
-                            "%s: cannot execute: shebang interpreter is inaccessible\n",
-                            check_path);
+                    fprintf(
+                        stderr,
+                        "%s: cannot execute: shebang interpreter is inaccessible\n",
+                        check_path);
                     free(resolved);
                     _exit(EXIT_CMD_NOT_EXECUTABLE);
                 }
             } else if (resolve_command_path(check_path, resolved, PATH_MAX) &&
                        is_script_inaccessible_interpreter(resolved)) {
-                fprintf(stderr,
-                        "%s: cannot execute: shebang interpreter is inaccessible\n",
-                        check_path);
+                fprintf(
+                    stderr,
+                    "%s: cannot execute: shebang interpreter is inaccessible\n",
+                    check_path);
                 free(resolved);
                 _exit(EXIT_CMD_NOT_EXECUTABLE);
             }
