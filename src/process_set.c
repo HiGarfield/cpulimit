@@ -49,9 +49,8 @@
  * never NaN, so the pitfalls of memcmp() on a double do not apply here.
  */
 static int start_time_matches(double a, double b) {
-    /* NOLINTNEXTLINE(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c)
-     */
-    return memcmp(&a, &b, sizeof(double)) == 0;
+    return memcmp(&a, &b, sizeof(double)) == 0; /* NOLINT(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c)
+                                                 */
 }
 
 /**
