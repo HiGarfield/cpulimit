@@ -127,20 +127,47 @@ add_custom_target(format
 # leaks.  Created when tests are enabled; fails at build time if
 # valgrind is not installed.
 #
+# Valgrind interposes on the C library through the dynamic linker, so it
+# cannot analyse a statically linked binary: the binary's own allocator
+# stays invisible to it, every heap block reads as uninitialised, and
+# --error-exitcode then turns the exit status of every forked child into
+# a failure.  The cross builds (musl, uClibc, OpenWrt SDK) all link
+# -static, so they get a target that reports the skip instead.
+#
 # Usage:
 #   cmake --build <build-dir> --target valgrind
 
 if(CPULIMIT_BUILD_TESTS)
-    add_custom_target(valgrind
-        COMMAND
-            ${CMAKE_COMMAND}
-            "-DVALGRIND_EXECUTABLE=${VALGRIND_EXECUTABLE}"
-            "-DTEST_BINARY=$<TARGET_FILE:cpulimit_test>"
-            -P "${PROJECT_SOURCE_DIR}/cmake/RunValgrind.cmake"
-        COMMENT "Running dynamic analysis with valgrind..."
-        VERBATIM
-    )
-    add_dependencies(valgrind cpulimit_test)
+    set(CPULIMIT_VALGRIND_SUPPORTED TRUE)
+    if(CMAKE_CROSSCOMPILING)
+        set(CPULIMIT_VALGRIND_SUPPORTED FALSE)
+    endif()
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" _cpulimit_build_type)
+    if(CMAKE_EXE_LINKER_FLAGS MATCHES "(^| )-static( |$)" OR
+       CMAKE_EXE_LINKER_FLAGS_${_cpulimit_build_type} MATCHES "(^| )-static( |$)")
+        set(CPULIMIT_VALGRIND_SUPPORTED FALSE)
+    endif()
+
+    if(CPULIMIT_VALGRIND_SUPPORTED)
+        add_custom_target(valgrind
+            COMMAND
+                ${CMAKE_COMMAND}
+                "-DVALGRIND_EXECUTABLE=${VALGRIND_EXECUTABLE}"
+                "-DTEST_BINARY=$<TARGET_FILE:cpulimit_test>"
+                -P "${PROJECT_SOURCE_DIR}/cmake/RunValgrind.cmake"
+            COMMENT "Running dynamic analysis with valgrind..."
+            VERBATIM
+        )
+        add_dependencies(valgrind cpulimit_test)
+    else()
+        add_custom_target(valgrind
+            COMMAND
+                ${CMAKE_COMMAND} -E echo
+                "valgrind skipped: a statically linked test binary cannot be analysed"
+            COMMENT "Skipping dynamic analysis (static binary)..."
+            VERBATIM
+        )
+    endif()
 endif()
 
 # --- 12. Uninstall Target ---
