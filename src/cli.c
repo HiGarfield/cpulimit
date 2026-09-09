@@ -100,7 +100,10 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
      * inconsistent with the strict trailing-character rejection (BUG-035).
      */
     if (pid_str == NULL || isspace((unsigned char)pid_str[0])) {
-        fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
+        /* %s with a NULL argument is undefined, so the defensive NULL check
+         * above must not fall through to printing the pointer itself. */
+        fprintf(stderr, "Error: invalid PID: %s\n\n",
+                pid_str != NULL ? pid_str : "(null)");
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
@@ -154,7 +157,10 @@ static int parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
      * inconsistent with the strict trailing-character rejection (BUG-035).
      */
     if (limit_str == NULL || isspace((unsigned char)limit_str[0])) {
-        fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
+        /* %s with a NULL argument is undefined, so the defensive NULL check
+         * above must not fall through to printing the pointer itself. */
+        fprintf(stderr, "Error: invalid limit value: %s\n\n",
+                limit_str != NULL ? limit_str : "(null)");
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
