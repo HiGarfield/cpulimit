@@ -73,7 +73,7 @@ static int resolve_command_path(const char *name, char *out, size_t out_size) {
     const char *path_env;
     char *path_copy;
     char *saveptr = NULL;
-    char *dir;
+    const char *dir;
     int found = 0;
 
     if (strchr(name, '/') != NULL) {

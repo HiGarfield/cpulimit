@@ -298,8 +298,6 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
             exit_status = EXIT_FAILURE;
             break;
         } else {
-            /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never started */
-            int limit_status = LIMIT_PROCESS_OK;
             /*
              * -e resolves the target by name, so the PID it produced can be
              * recycled before we get here.  -p names the PID explicitly, so
@@ -331,6 +329,9 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                         "Process %ld is no longer '%s'; not limiting it\n",
                         (long)found_pid, cfg->exe_name);
             } else {
+                /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never
+                 * started */
+                int limit_status;
                 if (cfg->verbose) {
                     printf("Process %ld found\n", (long)found_pid);
                 }

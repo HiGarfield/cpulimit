@@ -44,8 +44,12 @@
  * for detecting PID reuse via start-time identity.  A plain `==' on doubles
  * trips -Wfloat-equal even though these values are exact sentinels, so compare
  * the raw bytes instead.  Returns 1 when the two doubles are bit-identical.
+ *
+ * The byte comparison is deliberate: these values are exact sentinels and
+ * never NaN, so the pitfalls of memcmp() on a double do not apply here.
  */
 static int start_time_matches(double a, double b) {
+    /* NOLINTNEXTLINE(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c) */
     return memcmp(&a, &b, sizeof(double)) == 0;
 }
 
@@ -768,8 +772,6 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  * enforced on that process, which the user has to be told about.
  */
 static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
-    static int warned = 0;
-
     if (sig == SIGCONT) {
         /*
          * A failed SIGCONT means a process this group suspended could not be
@@ -785,6 +787,8 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
     }
 
     if (!verbose) {
+        /* Static on purpose: the once-only gate spans every call. */
+        static int warned = 0;
         if (warned) {
             return;
         }

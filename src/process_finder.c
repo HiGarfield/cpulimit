@@ -223,7 +223,6 @@ int process_has_other_name(pid_t pid, const char *process_name) {
     struct process_filter filter;
     struct process *proc;
     const char *process_cmp_name;
-    const char *cmd_cmp_name;
     int full_path_cmp;
     int other_name = 0;
 
@@ -252,6 +251,7 @@ int process_has_other_name(pid_t pid, const char *process_name) {
         return 0;
     }
     if (get_next_process(&iter, proc) == 0) {
+        const char *cmd_cmp_name;
         cmd_cmp_name =
             full_path_cmp ? proc->command : get_file_basename(proc->command);
         if (strcmp(cmd_cmp_name, process_cmp_name) != 0) {
