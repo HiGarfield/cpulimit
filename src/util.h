@@ -92,6 +92,10 @@ void increase_priority(void);
     ((__UCLIBC_MAJOR__ < 1) ||                                                 \
      (__UCLIBC_MAJOR__ == 1 && __UCLIBC_MINOR__ == 0 &&                        \
       __UCLIBC_SUBLEVEL__ < 42))
+#define CPULIMIT_IMPL_GETLOADAVG
+#endif
+
+#if defined(CPULIMIT_IMPL_GETLOADAVG)
 /**
  * @brief Get system load averages (custom implementation for old uClibc)
  * @param loadavg Array to receive load average values
@@ -112,9 +116,8 @@ int getloadavg_impl(double *loadavg, int nelem);
  * the wrapper is still installed in the normal (non-test) build.
  */
 #ifndef getloadavg
-#define getloadavg(loadavg, nelem) (getloadavg_impl((loadavg), (nelem)))
+#define getloadavg(loadavg, nelem) getloadavg_impl((loadavg), (nelem))
 #endif
-#define CPULIMIT_IMPL_GETLOADAVG
 #endif
 
 /**
