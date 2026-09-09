@@ -106,7 +106,11 @@ pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
     pid_t candidates[PROC_FINDER_MAX_CANDIDATES];
-    int n_candidates = 0;
+    /* unsigned: as signed counters the fallback loop below needs the
+       assumption that i + 1 does not overflow to be folded, which
+       -Wstrict-overflow reports on older compilers. */
+    unsigned int n_candidates = 0;
+    unsigned int i;
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
@@ -204,15 +208,12 @@ pid_t find_process_by_name(const char *process_name) {
     if (find_process_by_pid(pid) != 0) {
         return pid;
     }
-    {
-        int i;
-        for (i = 0; i < n_candidates; i++) {
-            if (candidates[i] == pid) {
-                continue;
-            }
-            if (find_process_by_pid(candidates[i]) != 0) {
-                return candidates[i];
-            }
+    for (i = 0; i < n_candidates; i++) {
+        if (candidates[i] == pid) {
+            continue;
+        }
+        if (find_process_by_pid(candidates[i]) != 0) {
+            return candidates[i];
         }
     }
     return 0;
