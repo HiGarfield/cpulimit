@@ -5239,6 +5239,12 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
         child_argv[0] = mpb_path;
         child_argv[1] = proc_count;
         child_argv[2] = NULL;
+        /*
+         * The path comes from CPULIMIT_BUILD_DIR, which is set by the build
+         * and names this project's own helper binary; nothing untrusted
+         * reaches execv() here.
+         */
+        /* NOLINTNEXTLINE(clang-analyzer-optin.taint.GenericTaint) */
         execv(mpb_path, child_argv);
         _exit(1);
     }
@@ -9249,11 +9255,17 @@ static int seam_hook_sleep = 0;
 /** @brief Non-zero to make the sleep_timespec() seam report failure. */
 static int seam_sleep_fails = 0;
 
+/*
+ * Referenced from the sources linked into this test binary through the extern
+ * declarations in process_iterator.h, so they must keep external linkage.
+ */
+/* NOLINTBEGIN(misc-use-internal-linkage) */
 /** @brief Non-zero: getppid_of() seam fabricates a fixed ancestor chain (BUG-043). */
 int seam_getppid_fabricate = 0;
 
 /** @brief Non-zero: find_process_by_pid() probes from the iterator seam (BUG-055/056). */
 int seam_find_by_pid_override = 0;
+/* NOLINTEND(misc-use-internal-linkage) */
 
 /**
  * @brief PIDs reported alive by cpulimit_test_find_by_pid() under override.
@@ -9762,6 +9774,11 @@ static void test_limit_process_reports_resume_failure(void) {
          * seam fails deliveries whenever seam_fail_call is set, independent of
          * seam_active, so the shutdown SIGCONT still fails (BUG-050).
          */
+        /*
+         * raise() does return here: the handler only sets the quit flag, so
+         * the statements below are reached.
+         */
+        /* cppcheck-suppress unreachableCode */
         seam_reset();
         seam_kill_calls = 0;
         seam_fail_call = 1;
@@ -9825,7 +9842,7 @@ static void test_cli_accepts_pid_one(void) {
     char arg_l[] = "-l";
     char arg_50[] = "50";
     char arg_p[] = "-p";
-    char arg_1[] = "1";
+    char arg_one[] = "1";
     char arg_0[] = "0";
     char *args[6];
     char *args0[6];
@@ -9834,7 +9851,7 @@ static void test_cli_accepts_pid_one(void) {
     args[1] = arg_l;
     args[2] = arg_50;
     args[3] = arg_p;
-    args[4] = arg_1;
+    args[4] = arg_one;
     args[5] = NULL;
     args0[0] = arg0;
     args0[1] = arg_l;
@@ -9867,7 +9884,7 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_p[] = "-p";
-    char arg_1[] = "1";
+    char arg_one[] = "1";
     char arg_l[] = "-l";
     char arg_space50[] = " 50";
     char arg_50[] = "50";
@@ -9879,7 +9896,7 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
 
     lead_space_limit[0] = arg0;
     lead_space_limit[1] = arg_p;
-    lead_space_limit[2] = arg_1;
+    lead_space_limit[2] = arg_one;
     lead_space_limit[3] = arg_l;
     lead_space_limit[4] = arg_space50;
     lead_space_limit[5] = NULL;
@@ -9893,7 +9910,7 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     no_space[1] = arg_l;
     no_space[2] = arg_50;
     no_space[3] = arg_p;
-    no_space[4] = arg_1;
+    no_space[4] = arg_one;
     no_space[5] = NULL;
 
     /* "-l ' 50'" must be rejected.  Parsed in a child whose stderr is closed
@@ -10030,7 +10047,6 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     int ret;
     char *err_buf;
     size_t err_len;
-    ssize_t nread;
     int warn_count = 0;
     const char *p;
     const size_t BUFSZ = 262144;
@@ -10086,7 +10102,8 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     assert(err_buf != NULL);
     err_len = 0;
     while (1) {
-        nread = read(pipe_fds[0], err_buf + err_len, BUFSZ - 1 - err_len);
+        ssize_t nread =
+            read(pipe_fds[0], err_buf + err_len, BUFSZ - 1 - err_len);
         if (nread > 0) {
             err_len += (size_t)nread;
             continue;
@@ -10598,13 +10615,20 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
  * getppid_of().  This is what makes BUG-043's "ancestor chain breaks mid-walk"
  * scenario reproducible deterministically.
  */
+/*
+ * Replacements referenced by the sources compiled into this test binary.
+ * They have to keep external linkage: the sources that call them are renamed
+ * onto these names at compile time, which a single translation unit cannot
+ * show.
+ */
+/* NOLINTBEGIN(misc-use-internal-linkage) */
 pid_t cpulimit_test_getppid_of(pid_t pid);
 pid_t cpulimit_test_getppid_of(pid_t pid) {
     static const struct { pid_t pid; pid_t ppid; } chain[] = {
         {300, 200}, {200, 100}, {100, 1}, {1, 0},
     };
-    int i;
     if (seam_getppid_fabricate) {
+        int i;
         if (seam_getppid_fail_pid != 0 && pid == seam_getppid_fail_pid &&
             !seam_getppid_failed_once) {
             seam_getppid_failed_once = 1;
@@ -10638,6 +10662,7 @@ pid_t cpulimit_test_find_by_pid(pid_t pid) {
     }
     return 0;
 }
+/* NOLINTEND(misc-use-internal-linkage) */
 
 /** * @brief Test that is_child_of() retries a transient getppid_of() failure
  *        instead of reporting a false negative (BUG-043)
@@ -12103,7 +12128,7 @@ static void loop_exit_driver_child(pid_t victim) {
 }
 
 static void test_process_set_resumes_stopped_on_loop_exit(void) {
-    pid_t victim, driver, waited, reaped;
+    pid_t victim, driver, waited;
     int status, resumed, victim_status, i;
     const struct timespec poll = {0, 100000000L};
 
@@ -12126,6 +12151,7 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
     victim_status = 0;
     for (i = 0; i < 60 && !resumed; i++) {
         struct timespec remaining = poll;
+        pid_t reaped;
         reaped = waitpid(victim, &victim_status, WNOHANG);
         if (reaped == victim && WIFEXITED(victim_status) &&
             WEXITSTATUS(victim_status) == 0) {
@@ -12181,7 +12207,10 @@ static void test_process_set_excludes_self_from_group(void) {
                     find_process_in_list_by_pid(ps.proc_list, getpid()) != NULL;
                 close_process_set(&ps);
             }
-            _exit(in_group == 0 ? 0 : (in_group > 0 ? 1 : 2));
+            if (in_group == 0) {
+                _exit(0);
+            }
+            _exit(in_group > 0 ? 1 : 2);
         }
         waitpid(inspector, &inspector_status, 0);
         _exit(WIFEXITED(inspector_status) ? WEXITSTATUS(inspector_status) : 3);
@@ -12206,7 +12235,7 @@ static void test_process_set_excludes_self_from_group(void) {
 static void test_process_set_resumes_without_proc_list(void) {
     struct process_set *ps;
     struct timespec remaining;
-    pid_t victim, reaped;
+    pid_t victim;
     int status, resumed, victim_status, i;
     const struct timespec poll = {0, 100000000L};
 
@@ -12242,6 +12271,7 @@ static void test_process_set_resumes_without_proc_list(void) {
     resumed = 0;
     victim_status = 0;
     for (i = 0; i < 60 && !resumed; i++) {
+        pid_t reaped;
         reaped = waitpid(victim, &victim_status, WNOHANG);
         if (reaped == victim && WIFEXITED(victim_status) &&
             WEXITSTATUS(victim_status) == 0) {
@@ -12437,7 +12467,7 @@ static void test_process_set_rejects_recycled_target_pid(void) {
     struct process_set proc_set;
     pid_t idle_pid, waited;
     int ret, idle_status;
-    struct process *tracked;
+    const struct process *tracked;
     double original_start;
 
     fflush(stdout);
@@ -12492,6 +12522,50 @@ static void test_process_set_rejects_recycled_target_pid(void) {
     do {
         waited = waitpid(idle_pid, &idle_status, WNOHANG);
     } while (waited == -1 && errno == EINTR);
+}
+
+/**
+ * @brief Run the process-set module tests
+ * @note Grouped in a helper for the same reason as run_cli_tests(): the
+ *       driver is back over the readability-function-size threshold now that
+ *       this module has grown past thirty tests.
+ */
+static void run_process_set_module_tests(void) {
+    printf("\n=== PROCESS_SET MODULE TESTS ===\n");
+    RUN_TEST(test_process_set_cpu_usage);
+    RUN_TEST(test_process_set_rapid_updates);
+    RUN_TEST(test_process_set_init_all);
+    RUN_TEST(test_process_set_init_single);
+    RUN_TEST(test_process_set_init_invalid_pid);
+    RUN_TEST(test_process_set_init_null);
+    RUN_TEST(test_process_set_cpu_usage_empty_list);
+    RUN_TEST(test_process_set_cpu_usage_null);
+    RUN_TEST(test_process_set_close_null);
+    RUN_TEST(test_process_set_close_zeros_fields);
+    RUN_TEST(test_process_set_update_null);
+    RUN_TEST(test_process_set_update_uninitialized_struct);
+    RUN_TEST(test_process_set_cpu_usage_uninitialized_struct);
+    RUN_TEST(test_process_set_double_update);
+    RUN_TEST(test_process_set_update_return_value);
+    RUN_TEST(test_process_set_cpu_usage_with_usage);
+    RUN_TEST(test_process_set_race_target_exits_between_init_and_update);
+    RUN_TEST(test_process_set_race_rapid_child_spawn_exit);
+    RUN_TEST(test_process_set_purges_exited_descendants);
+    RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
+    RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
+    RUN_TEST(test_process_set_excludes_self_from_group);
+    RUN_TEST(test_process_set_resumes_without_proc_list);
+    RUN_TEST(test_process_set_reports_failed_resume);
+    RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
+    RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
+    RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
+    RUN_TEST(test_process_set_does_not_duplicate_pid);
+    RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
+    RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
+    RUN_TEST(test_process_set_resume_skips_recycled_pid);
+    RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
+    RUN_TEST(test_process_set_rejects_recycled_target_pid);
+    RUN_TEST(test_limit_process_reports_resume_failure);
 }
 
 int main(int argc, char *argv[]) {
@@ -12627,41 +12701,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_finder_find_by_name_ancestor_pref);
 
     /* Process group module tests */
-    printf("\n=== PROCESS_SET MODULE TESTS ===\n");
-    RUN_TEST(test_process_set_cpu_usage);
-    RUN_TEST(test_process_set_rapid_updates);
-    RUN_TEST(test_process_set_init_all);
-    RUN_TEST(test_process_set_init_single);
-    RUN_TEST(test_process_set_init_invalid_pid);
-    RUN_TEST(test_process_set_init_null);
-    RUN_TEST(test_process_set_cpu_usage_empty_list);
-    RUN_TEST(test_process_set_cpu_usage_null);
-    RUN_TEST(test_process_set_close_null);
-    RUN_TEST(test_process_set_close_zeros_fields);
-    RUN_TEST(test_process_set_update_null);
-    RUN_TEST(test_process_set_update_uninitialized_struct);
-    RUN_TEST(test_process_set_cpu_usage_uninitialized_struct);
-    RUN_TEST(test_process_set_double_update);
-    RUN_TEST(test_process_set_update_return_value);
-    RUN_TEST(test_process_set_cpu_usage_with_usage);
-    RUN_TEST(test_process_set_race_target_exits_between_init_and_update);
-    RUN_TEST(test_process_set_race_rapid_child_spawn_exit);
-    RUN_TEST(test_process_set_purges_exited_descendants);
-    RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
-    RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
-    RUN_TEST(test_process_set_excludes_self_from_group);
-    RUN_TEST(test_process_set_resumes_without_proc_list);
-    RUN_TEST(test_process_set_reports_failed_resume);
-    RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
-    RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
-    RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
-    RUN_TEST(test_process_set_does_not_duplicate_pid);
-    RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
-    RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
-    RUN_TEST(test_process_set_resume_skips_recycled_pid);
-    RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
-    RUN_TEST(test_process_set_rejects_recycled_target_pid);
-    RUN_TEST(test_limit_process_reports_resume_failure);
+    run_process_set_module_tests();
 
     /* Limit process module tests */
     printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
