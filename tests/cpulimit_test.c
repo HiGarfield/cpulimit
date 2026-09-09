@@ -7530,12 +7530,20 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     static const char shebang[] = "#!/nonexistent_interpreter_cpulimit_xyz\n";
     ssize_t nwritten, expected_len;
     struct cpulimit_cfg cfg;
-    char dir[] = "/tmp/cpulimit_test_shdir_XXXXXX";
+    char dir[64];
     char script_path[sizeof(dir) + 32];
     char name_buf[] = "badsh_cpulimit_xyz";
     char *args[2];
 
-    assert(mkdtemp(dir) != NULL);
+    /*
+     * mkdtemp() is POSIX.1-2008; mkdir() is POSIX.1-2001.  The directory
+     * name carries this process's PID, which is unique among concurrent
+     * runs, and an existing one (left by a crashed run) is reused.
+     */
+    len = snprintf(dir, sizeof(dir), "/tmp/cpulimit_test_shdir_%ld",
+                   (long)getpid());
+    assert(len > 0 && (size_t)len < sizeof(dir));
+    assert(mkdir(dir, 0700) == 0 || errno == EEXIST);
     len = snprintf(script_path, sizeof(script_path), "%s/badsh_cpulimit_xyz",
                    dir);
     assert(len > 0 && (size_t)len < sizeof(script_path));

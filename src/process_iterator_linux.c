@@ -410,6 +410,11 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
          * Optimization: skip non-directories if d_type is available.
          * DT_UNKNOWN must be checked because not all filesystems support
          * d_type.
+         *
+         * d_type and the DT_* constants are a Linux/BSD extension, not
+         * POSIX.1-2001; the equivalent POSIX call, stat() on every entry,
+         * would add one syscall per /proc entry to each scan.  This is the
+         * Linux backend, where reading /proc is already outside POSIX.
          */
         if (dir_entry->d_type != DT_DIR && dir_entry->d_type != DT_UNKNOWN) {
             continue;

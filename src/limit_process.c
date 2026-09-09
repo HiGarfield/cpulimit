@@ -170,6 +170,13 @@ struct dynamic_time_slot_ctx {
 static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
     struct timespec now;
     double load;
+    /*
+     * Standards note: getloadavg() is BSD/GNU -- neither C89 nor POSIX.1-2001
+     * has any interface reporting the load average -- so this file defines
+     * _GNU_SOURCE.  srandom()/random() are POSIX.1-2001 XSI: C89's rand()
+     * could produce the jitter, but the test harness renames random() to
+     * make it deterministic, so the XSI pair stays.
+     */
 
     /* First call: initialize timestamp and seed PRNG for jitter */
     if (!ctx->initialized) {

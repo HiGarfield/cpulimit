@@ -72,7 +72,6 @@
 static int resolve_command_path(const char *name, char *out, size_t out_size) {
     const char *path_env;
     char *path_copy;
-    char *saveptr = NULL;
     const char *dir;
     int found = 0;
 
@@ -83,12 +82,20 @@ static int resolve_command_path(const char *name, char *out, size_t out_size) {
     if (path_env == NULL) {
         path_env = "/usr/bin:/bin";
     }
-    path_copy = strdup(path_env);
+    /*
+     * strdup() is POSIX.1-2008: neither C89 nor POSIX.1-2001 has it, so
+     * the copy is made from malloc() and strcpy() instead.
+     */
+    path_copy = (char *)malloc(strlen(path_env) + 1);
     if (path_copy == NULL) {
         return 0;
     }
-    for (dir = strtok_r(path_copy, ":", &saveptr); dir != NULL;
-         dir = strtok_r(NULL, ":", &saveptr)) {
+    strcpy(path_copy, path_env);
+    /*
+     * strtok() (C89) rather than strtok_r() (POSIX.1-2001): the scan is
+     * single-threaded and works on this function's private copy of PATH.
+     */
+    for (dir = strtok(path_copy, ":"); dir != NULL; dir = strtok(NULL, ":")) {
         int len = snprintf(out, out_size, "%s/%s", dir, name);
         if (len < 0 || (size_t)len >= out_size) {
             continue;
