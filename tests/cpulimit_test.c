@@ -7526,7 +7526,7 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
  */
 static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     pid_t pid, waited;
-    int status, fd, fchmod_ret, exited, exit_code, close_ret;
+    int status, fd, fchmod_ret, exited, exit_code, close_ret, len;
     static const char shebang[] = "#!/nonexistent_interpreter_cpulimit_xyz\n";
     ssize_t nwritten, expected_len;
     struct cpulimit_cfg cfg;
@@ -7536,11 +7536,9 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     char *args[2];
 
     assert(mkdtemp(dir) != NULL);
-    {
-        int len = snprintf(script_path, sizeof(script_path),
-                           "%s/badsh_cpulimit_xyz", dir);
-        assert(len > 0 && (size_t)len < sizeof(script_path));
-    }
+    len = snprintf(script_path, sizeof(script_path), "%s/badsh_cpulimit_xyz",
+                   dir);
+    assert(len > 0 && (size_t)len < sizeof(script_path));
     fd = open(script_path, O_WRONLY | O_CREAT | O_TRUNC, 0755);
     assert(fd >= 0);
     nwritten = write(fd, shebang, sizeof(shebang) - 1);
@@ -10144,6 +10142,7 @@ static void seam_push_frame(const struct seam_proc *procs, int count);
 static void test_process_set_detects_pid_reuse_by_start_time(void) {
     struct process_set proc_set;
     int ret;
+    double usage;
     struct seam_proc(*frames)[2] =
         (struct seam_proc(*)[2])malloc(sizeof(struct seam_proc[3][2]));
     assert(frames != NULL);
@@ -10207,10 +10206,8 @@ static void test_process_set_detects_pid_reuse_by_start_time(void) {
      * fix the only valid member contributes ~0 and the recycled descendant is
      * excluded; without the fix the descendant's 1.0 sample is summed in.
      */
-    {
-        double usage = get_process_set_cpu_usage(&proc_set);
-        assert(usage >= -0.001 && usage < 0.01);
-    }
+    usage = get_process_set_cpu_usage(&proc_set);
+    assert(usage >= -0.001 && usage < 0.01);
 
     free(frames);
     close_process_set(&proc_set);
