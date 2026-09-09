@@ -2420,8 +2420,8 @@ static void test_process_iterator_is_child_of_deep(void) {
     grandparent_pid = getpid();
 
     if (pipe(pipe_fds) != 0) {
-        fprintf(stderr, "pipe() failed in "
-                        "test_process_iterator_is_child_of_deep\n");
+        fprintf(stderr,
+                "pipe() failed in test_process_iterator_is_child_of_deep\n");
         assert(0);
         return;
     }
@@ -11225,8 +11225,7 @@ static void seam_assert_no_signal_after_failure(int count, const char *what) {
                 continue;
             }
             fprintf(stderr,
-                    "(%s: PID %ld signalled again after failure, same "
-                    "snapshot)\n",
+                    "(%s: PID %ld signalled again after failure, same snapshot)\n",
                     what, (long)seam_signals[outer].pid);
             assert(seam_signals[idx].pid != seam_signals[outer].pid);
         }

@@ -218,8 +218,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
         int child_exit_status =
             collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
         fprintf(stderr,
-                "Warning: CPU limit could not be applied to process %ld; "
-                "the command exited with status %d\n",
+                "Warning: CPU limit could not be applied to process %ld; the command exited with status %d\n",
                 (long)child_pid, child_exit_status);
         return EXIT_FAILURE;
     }

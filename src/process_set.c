@@ -780,8 +780,7 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
          * always reported with a recovery hint (BUG-049).
          */
         fprintf(stderr,
-                "Warning: cannot resume PID %ld with SIGCONT: %s\n"
-                "         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
+                "Warning: cannot resume PID %ld with SIGCONT: %s\n         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
                 (long)pid, strerror(err), (long)pid);
         return;
     }
@@ -795,8 +794,7 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
         warned = 1;
     }
     fprintf(stderr,
-            "Warning: cannot send signal %d to PID %ld: %s\n"
-            "         (process stays tracked but cannot be limited)\n",
+            "Warning: cannot send signal %d to PID %ld: %s\n         (process stays tracked but cannot be limited)\n",
             sig, (long)pid, strerror(err));
 }
 

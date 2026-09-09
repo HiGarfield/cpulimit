@@ -152,8 +152,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * parse failure, and start_time stays unknown.
      */
     parsed = sscanf(p + 1,
-                    " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf"
-                    " %*s %*s %*s %*s %*s %*s %lf",
+                    " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf %*s %*s %*s %*s %*s %*s %lf",
                     &state, &ppid, &user_time, &sys_time, &start_time);
     if ((parsed != 4 && parsed != 5) ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||

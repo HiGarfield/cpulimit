@@ -464,8 +464,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          * non-zero rather than silently returning success.
          */
         fprintf(stderr,
-                "Warning: %d process(es) left suspended at shutdown; "
-                "run 'kill -CONT <pid>' for each to recover.\n",
+                "Warning: %d process(es) left suspended at shutdown; run 'kill -CONT <pid>' for each to recover.\n",
                 resume_failed);
         return LIMIT_PROCESS_ERROR;
     }
