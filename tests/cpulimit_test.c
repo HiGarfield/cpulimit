@@ -12001,10 +12001,9 @@ static void test_sleep_failure_is_reported_not_busy_waited(void) {
     pid_t victim, limiter, waited;
     int stderr_pipe[2];
     int status;
-    char *buf = (char *)malloc(2048);
+    char *buf;
     ssize_t n_read;
     int found = 0;
-    assert(buf != NULL);
 
     assert(pipe(stderr_pipe) == 0);
 
@@ -12040,6 +12039,13 @@ static void test_sleep_failure_is_reported_not_busy_waited(void) {
     assert(waited == limiter);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
 
+    /*
+     * Allocated only now: the limiter child above is a fork, not an exec,
+     * so a buffer created earlier is inherited by it and stays reachable
+     * when that child _exit()s.
+     */
+    buf = (char *)malloc(2048);
+    assert(buf != NULL);
     n_read = read(stderr_pipe[0], buf, 2048 - 1);
     close(stderr_pipe[0]);
     if (n_read > 0) {
