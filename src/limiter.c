@@ -253,8 +253,12 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
      * simply never starts would spin indefinitely.  Thirty attempts at
      * two seconds each is a minute of grace for a target that is slow to
      * appear, after which giving up is the only sane outcome.
+     *
+     * unsigned: as a signed counter the increment followed by the bound
+     * check below folds into "X + 1 >= C", which -Wstrict-overflow=5
+     * flags as an assumption that signed overflow cannot happen.
      */
-    int lookup_attempts = 0;
+    unsigned int lookup_attempts = 0;
 
     while (!is_quit_flag_set()) {
         pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
@@ -283,7 +287,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 lookup_attempts++;
                 if (lookup_attempts >= MAX_TARGET_LOOKUP_ATTEMPTS) {
                     fprintf(stderr,
-                            "Giving up after %d attempts: target not found\n",
+                            "Giving up after %u attempts: target not found\n",
                             lookup_attempts);
                     exit_status = EXIT_FAILURE;
                 }

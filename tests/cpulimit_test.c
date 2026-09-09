@@ -10033,7 +10033,9 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     int ret;
     char *err_buf;
     size_t err_len;
-    int warn_count = 0;
+    /* unsigned: with a signed counter the asserts below are folded into the
+       counting loop as "X + 1 >= C", which -Wstrict-overflow=5 flags. */
+    unsigned int warn_count = 0;
     const char *p;
     const size_t BUFSZ = 262144;
 
