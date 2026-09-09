@@ -20,8 +20,18 @@ all: $(TARGET)
 # both a filename list and per-platform source filtering, and it is also
 # why a new module needs no change here -- only
 # cmake/CpulimitOptions.cmake lists the sources explicitly.
-$(TARGET): $(wildcard *.c *.h)
-	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
+#
+# Each translation unit is compiled to its own .o and the objects are linked
+# in a separate step, so editing one module recompiles only that module
+# instead of the whole program.
+SRCS := $(wildcard *.c)
+OBJS := $(SRCS:.c=.o)
+
+$(TARGET): $(OBJS)
+	$(CC) $(ALL_CFLAGS) $(OBJS) $(ALL_LDFLAGS) -o $@
+
+%.o: %.c $(wildcard *.h)
+	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
 # Clean target
 clean:

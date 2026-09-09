@@ -22,10 +22,21 @@ LOAD_HELPER_SRC := \
 	$(wildcard $(SRC)/cpu_count.*) \
 	$(wildcard $(SRC)/file_io.*)
 
+# Objects for the shared subset. They are prefixed with load_ because the
+# same src/ files are also compiled into the seam objects below with
+# different -D flags and must not end up sharing a .o with them.
+LOAD_OBJS := $(patsubst $(SRC)/%.c,load_%.o,$(filter %.c,$(LOAD_HELPER_SRC)))
+
+$(LOAD_OBJS): load_%.o: $(SRC)/%.c
+	$(CC) $(ALL_CFLAGS) -c $< -o $@
+
 # Target rules: one static pattern rule builds both load helpers from
-# their own .c plus the shared subset above.
-busy multi_process_busy: %: %.c $(LOAD_HELPER_SRC)
-	$(CC) $(ALL_CFLAGS) $(filter %.c,$^) $(ALL_LDFLAGS) -o $@
+# their own .o plus the objects of the shared subset above.
+busy multi_process_busy: %: %.o $(LOAD_OBJS)
+	$(CC) $(ALL_CFLAGS) $^ $(ALL_LDFLAGS) -o $@
+
+%.o: %.c
+	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
 # Deterministic timing seam (test binary only)
 #
@@ -63,12 +74,14 @@ SEAM_TIME_ITER_SRC := $(SRC)/time_util.c \
 SEAM_LIMIT_SRC := $(SRC)/limit_process.c
 SEAM_UPDATE_SRC := $(SRC)/process_set.c
 
+SEAM_OBJS := $(SEAM_SRC:$(SRC)/%.c=%.o)
+
 # One rule for all of them: each file gets every rename except its own.
-$(SEAM_SRC:$(SRC)/%.c=%.o): %.o: $(SRC)/%.c
+$(SEAM_OBJS): %.o: $(SRC)/%.c
 	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) -c $< -o $@
 
-cpulimit_test: cpulimit_test.c $(SEAM_SRC:$(SRC)/%.c=%.o)
-	$(CC) $(ALL_CFLAGS) cpulimit_test.c $(SEAM_SRC:$(SRC)/%.c=%.o) $(ALL_LDFLAGS) -o $@
+cpulimit_test: cpulimit_test.o $(SEAM_OBJS)
+	$(CC) $(ALL_CFLAGS) $^ $(ALL_LDFLAGS) -o $@
 
 # Clean target
 clean:
