@@ -12171,7 +12171,7 @@ static void loop_exit_driver_child(pid_t victim) {
 static void test_process_set_resumes_stopped_on_loop_exit(void) {
     pid_t victim, driver, waited;
     int status, resumed, victim_status, i;
-    const struct timespec poll = {0, 100000000L};
+    const struct timespec poll_wait = {0, 100000000L};
 
     victim = fork();
     assert(victim >= 0);
@@ -12191,7 +12191,7 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
     resumed = 0;
     victim_status = 0;
     for (i = 0; i < 60 && !resumed; i++) {
-        struct timespec remaining = poll;
+        struct timespec remaining = poll_wait;
         pid_t reaped;
         reaped = waitpid(victim, &victim_status, WNOHANG);
         if (reaped == victim && WIFEXITED(victim_status) &&
@@ -12278,7 +12278,7 @@ static void test_process_set_resumes_without_proc_list(void) {
     struct timespec remaining;
     pid_t victim;
     int status, resumed, victim_status, i;
-    const struct timespec poll = {0, 100000000L};
+    const struct timespec poll_wait = {0, 100000000L};
 
     fflush(stdout);
     fflush(stderr);
@@ -12319,7 +12319,7 @@ static void test_process_set_resumes_without_proc_list(void) {
             resumed = 1;
             break;
         }
-        remaining = poll;
+        remaining = poll_wait;
         while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
             ;
         }
