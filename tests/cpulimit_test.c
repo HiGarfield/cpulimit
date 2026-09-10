@@ -10443,8 +10443,15 @@ static void seam_push_frame(const struct seam_proc *procs, int count) {
     if (seam_frame_count >= SEAM_MAX_FRAMES || count > SEAM_MAX_FRAME_PROCS) {
         return;
     }
+    /*
+     * memcpy() rather than a struct assignment: a seam_proc is one command
+     * buffer (4 KiB), and compilers that materialise the copy create a
+     * temporary that trips -Wlarger-than.  An empty snapshot (procs NULL,
+     * count 0) takes neither the copy nor the dereference.
+     */
     for (idx = 0; idx < count; idx++) {
-        seam_frames[seam_frame_count][idx] = procs[idx];
+        memcpy(&seam_frames[seam_frame_count][idx], &procs[idx],
+               sizeof(seam_frames[seam_frame_count][idx]));
     }
     seam_frame_len[seam_frame_count] = (size_t)count;
     seam_frame_count++;
