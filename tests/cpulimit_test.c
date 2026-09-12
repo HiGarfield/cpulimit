@@ -2348,7 +2348,7 @@ static pid_t find_unused_pid(void) {
 static void test_process_iterator_is_child_of(void) {
     pid_t child_pid, parent_pid;
     pid_t unused_pid;
-    int result, ret;
+    int result;
 
     unused_pid = find_unused_pid();
     parent_pid = getpid();
@@ -2365,7 +2365,7 @@ static void test_process_iterator_is_child_of(void) {
          * parent kills it, and also exits on its own if the parent
          * aborts (failed assertion) so no orphan is left behind.
          */
-        ret = sigfillset(&full_mask);
+        int ret = sigfillset(&full_mask);
         if (ret != 0) {
             _exit(1);
         }
