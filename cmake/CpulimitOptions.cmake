@@ -42,10 +42,20 @@ set(CPULIMIT_C_FLAGS
     -Wc++-compat
     -Wstrict-prototypes
     -Wold-style-definition
+    -Wold-style-declaration
     -Wmissing-prototypes
     -Wmissing-declarations
+    -Wmissing-parameter-type
     -Wredundant-decls
     -Wnested-externs
+    -Wvariadic-macros
+    -Wdeclaration-after-statement
+    -Wc90-c99-compat
+    -Wc99-c11-compat
+    -Wc11-c2x-compat
+    -Wpre-c11-compat
+    -Wc11-extensions
+    -Wc2x-extensions
 
     # Common programming errors
     -Winit-self
@@ -53,15 +63,38 @@ set(CPULIMIT_C_FLAGS
     -Wstrict-aliasing=2
     -Wcast-qual
     -Wwrite-strings
+    -Warray-compare
+    -Wbitwise-instead-of-logical
+    -Wxor-used-as-pow
+    -Wenum-int-mismatch
+    -Warith-conversion
+    -Wcast-function-type-strict
+    -Wuse-after-free=3
+    -Wdangling-pointer=2
+    -Wstrict-flex-arrays=3
+    -Wflex-array-member-not-at-end
+    -Wunterminated-string-initialization
+    -Wheader-guard
+    -Wkeyword-macro
+    -Wuseless-casts
+    -Wmultiple-parameter-fwd-decl-lists
+    -Wfree-labels
+    -Wtrampolines
+    -Wunsafe-loop-optimizations
+    -Wvector-operation-performance
 
     # Type conversion and precision
     -Wconversion
     -Wsign-conversion
     -Wdouble-promotion
     -Wfloat-equal
+    -Wfloat-conversion
 
     # Variables and scope
     -Wshadow
+    -Wshadow=local
+    -Wshadow-all
+    -Wmissing-variable-declarations
     -Wcast-align=strict
     -Wpointer-arith
     -Wtype-limits
@@ -70,9 +103,22 @@ set(CPULIMIT_C_FLAGS
     # Logic and expressions
     -Wlogical-op
     -Wnull-dereference
+    -Wassign-enum
+    -Wenum-conversion
+    -Wcomma
+    -Wtautological-constant-out-of-range-compare
+    -Wtautological-unsigned-zero-compare
+    -Wtautological-unsigned-enum-zero-compare
+    -Wtautological-type-limit-compare
+    -Wtautological-constant-compare
+    -Wtautological-bitwise-compare
+    -Wtautological-overlap-compare
+    -Wtautological-pointer-compare
+    -Wtautological-undefined-compare
 
     -Wrestrict
     -Wimplicit-fallthrough
+    -Wimplicit-fallthrough=5
 
     # Initialization and structures
     -Wmissing-field-initializers
@@ -130,6 +176,8 @@ set(CPULIMIT_C_FLAGS
     -Wformat-signedness
     -Wformat-contains-nul
     -Wformat-zero-length
+    -Wformat-nonliteral
+    -Wformat-type-confusion
     -Wmissing-format-attribute
 
     # Unused and optimization
@@ -158,6 +206,7 @@ set(CPULIMIT_C_FLAGS
     # Static analyzer
     -fanalyzer
     -Wanalyzer-null-dereference
+    -Wanalyzer-null-argument
     -Wanalyzer-double-free
     -Wanalyzer-use-after-free
     -Wanalyzer-malloc-leak
@@ -166,7 +215,41 @@ set(CPULIMIT_C_FLAGS
     -Wanalyzer-shift-count-overflow
     -Wanalyzer-out-of-bounds
     -Wanalyzer-unsafe-call-within-signal-handler
+    -Wanalyzer-write-to-const
+    -Wanalyzer-write-to-string-literal
+    -Wanalyzer-file-leak
+    -Wanalyzer-exposure-through-output-file
+
+    # Clang-only diagnostics, skipped where the compiler does not know them
+    -Wextra-semi
+    -Wnewline-eof
+    -Wreserved-identifier
+    -Wconditional-uninitialized
+    -Wshift-bool
+    -Walloc-size
+    -Wenum-compare-typo
+    -Wunique-object-duplication
+    -Winvalid-utf8
+    -Wbitfield-width
+    -Wimplicit-int-conversion
+    -Wshorten-64-to-32
+    -Wnonnull
+    -Wnullable-to-nonnull-conversion
+    -Wnullability-extension
+    -Wheader-hygiene
+    -Wloop-analysis
+    -Wunreachable-code-aggressive
+    -Wthread-safety-pointer
 )
+
+# --- 3b. Warnings as errors ---
+#
+# Off by default: the flags above are already strict, and a new compiler
+# release may add diagnostics that a user's toolchain cannot satisfy.  Turn
+# it on in CI or locally with -DCPULIMIT_WERROR=ON.
+if(CPULIMIT_WERROR)
+    list(APPEND CPULIMIT_C_FLAGS -Werror)
+endif()
 
 # --- 4. Common Source Files ---
 #

@@ -32,6 +32,7 @@ endif()
 
 # --- 5. Project Options ---
 option(CPULIMIT_BUILD_TESTS "Build test binaries" ON)
+option(CPULIMIT_WERROR "Turn the project warnings into errors" OFF)
 
 # --- 6. Build Utilities and Settings ---
 include(cmake/CheckedFlags.cmake)
