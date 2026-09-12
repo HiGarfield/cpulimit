@@ -30,27 +30,24 @@
 #include "process_iterator.h"
 #include "process_table.h"
 #include "time_util.h"
-#include "util.h"
 
 #include <errno.h>
+#include <float.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/param.h>
 #include <unistd.h>
 
-/*
- * Bit-exact double equality, used only for the UNKNOWN_START_TIME sentinel and
- * for detecting PID reuse via start-time identity.  A plain `==' on doubles
- * trips -Wfloat-equal even though these values are exact sentinels, so compare
- * the raw bytes instead.  Returns 1 when the two doubles are bit-identical.
- *
- * The byte comparison is deliberate: these values are exact sentinels and
- * never NaN, so the pitfalls of memcmp() on a double do not apply here.
+/**
+ * @brief Compare two double values for approximate equality within DBL_EPSILON
+ * @param a First double value
+ * @param b Second double value
+ * @return 1 if the values are approximately equal, 0 otherwise
  */
 static int start_time_matches(double a, double b) {
-    return memcmp(&a, &b, sizeof(double)) == 0; /* NOLINT(bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c)
-                                                 */
+    return a - b >= -DBL_EPSILON && a - b <= DBL_EPSILON;
 }
 
 /**
