@@ -7646,7 +7646,7 @@ static int running_under_valgrind(void) {
 static void test_limiter_run_command_mode_fifo(void) {
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
     pid_t pid, waited;
-    int status, fd, exited, exit_code, ret, attempt;
+    int status = 0, fd, exited, exit_code, ret, attempt;
     struct cpulimit_cfg cfg;
     char fifo_path[] = "/tmp/cpulimit_test_fifo_XXXXXX";
     char *args[2];
@@ -8465,7 +8465,7 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
  */
 static void test_limiter_run_pid_or_exe_mode_gives_up_without_target(void) {
     pid_t pid, waited;
-    int status, exited, exit_code, sec;
+    int status = 0, exited, exit_code, sec;
     struct cpulimit_cfg cfg;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
@@ -9471,7 +9471,7 @@ static void test_process_finder_find_by_pid_reports_eacces(void) {
  */
 static void test_limiter_run_pid_or_exe_mode_exits_on_permission_denied(void) {
     pid_t pid, waited;
-    int status, exited, exit_code, sec;
+    int status = 0, exited, exit_code, sec;
     struct cpulimit_cfg cfg;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
