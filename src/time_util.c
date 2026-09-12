@@ -167,11 +167,15 @@ int get_current_time(struct timespec *result_ts) {
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
  * durations that are unaffected by system time changes, otherwise falls back
- * to nanosleep(). The underlying call may return early (for example, with
- * errno set to EINTR if interrupted by a signal); this function does not
- * automatically resume sleeping in that case.
+ * to nanosleep(). If the underlying call returns early because it was
+ * interrupted by a signal (EINTR), this function automatically resumes the
+ * remaining sleep so the full duration is honored instead of spinning or
+ * running the duty cycle short. Only non-interrupt errors are reported to the
+ * caller.
  */
 int sleep_timespec(const struct timespec *duration) {
+    struct timespec request, remaining;
+    request = *duration;
 #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(_POSIX_CLOCK_SELECTION) && _POSIX_CLOCK_SELECTION > 0 &&           \
     defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC) && \
@@ -180,17 +184,33 @@ int sleep_timespec(const struct timespec *duration) {
      * Use monotonic clock sleep if available.
      * clock_nanosleep returns 0 on success or a positive error number
      * on failure. Convert to -1/errno convention for consistency with
-     * nanosleep and the documented return value contract.
+     * nanosleep and the documented return value contract. On EINTR it
+     * writes the unslept remainder to 'remaining', which we feed back in.
      */
-    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, duration, NULL);
-    if (ret != 0) {
+    for (;;) {
+        int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &request, &remaining);
+        if (ret == 0) {
+            return 0;
+        }
+        if (ret == EINTR) {
+            request = remaining;
+            continue;
+        }
         errno = ret;
         return -1;
     }
-    return 0;
 #else
-    /* Fall back to standard nanosleep */
-    return nanosleep(duration, NULL);
+    /* Fall back to standard nanosleep, resuming on EINTR. */
+    for (;;) {
+        if (nanosleep(&request, &remaining) == 0) {
+            return 0;
+        }
+        if (errno == EINTR) {
+            request = remaining;
+            continue;
+        }
+        return -1;
+    }
 #endif
 }
 
