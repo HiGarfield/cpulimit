@@ -31,25 +31,11 @@
 #include "time_util.h"
 #include "util.h"
 
-#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <sys/param.h>
 #include <unistd.h>
-
-/* BUG-045: sleep_timespec() can fail (e.g. EINTR); ignoring the return would
-   let the limiter spin at 100% CPU.  Check it and fall back to a short
-   blocking delay so the duty cycle still advances, and report it once. */
-static void sleep_with_fallback(const struct timespec *ts) {
-    if (sleep_timespec(ts) != 0) {
-        int saved = errno;
-        struct timespec fb = {0, 1000000L};
-        nanosleep(&fb, NULL);
-        fprintf(stderr, "cpulimit: sleep failed: %s (using fallback delay)\n",
-                strerror(saved));
-    }
-}
 
 /*
  * The test harness renames getloadavg() to cpulimit_test_getloadavg() via a
@@ -409,7 +395,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
                 }
             }
             /* Allow processes to run for work_time duration */
-            sleep_with_fallback(&work_time);
+            sleep_timespec(&work_time);
         }
 
         /* Check for termination request before sleep phase */
@@ -431,7 +417,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
                 }
             }
             /* Keep processes suspended for sleep_time duration */
-            sleep_with_fallback(&sleep_time);
+            sleep_timespec(&sleep_time);
         }
 
         /* Check for termination request after sleep phase */

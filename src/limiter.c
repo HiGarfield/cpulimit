@@ -41,7 +41,6 @@
 #include "exec_sync.h"
 #include "limit_process.h"
 #include "process_finder.h"
-#include "script_check.h"
 #include "signal_forward.h"
 #include "signal_handler.h"
 #include "time_util.h"
@@ -55,19 +54,6 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-
-/* BUG-045: sleep_timespec() can fail (e.g. EINTR); ignoring the return would
-   let the limiter spin at 100% CPU.  Check it and fall back to a short
-   blocking delay so the duty cycle still advances, and report it once. */
-static void sleep_with_fallback(const struct timespec *ts) {
-    if (sleep_timespec(ts) != 0) {
-        int saved = errno;
-        struct timespec fb = {0, 1000000L};
-        nanosleep(&fb, NULL);
-        fprintf(stderr, "cpulimit: sleep failed: %s (using fallback delay)\n",
-                strerror(saved));
-    }
-}
 
 /**
  * @brief Execute and monitor a user-specified command with CPU limiting
@@ -398,7 +384,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
          * In non-lazy mode, wait before retrying.
          * This prevents excessive CPU usage when target is not running.
          */
-        sleep_with_fallback(&wait_time);
+        sleep_timespec(&wait_time);
     }
     return exit_status;
 }
