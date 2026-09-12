@@ -137,6 +137,7 @@ static int set_signal_action(void (*handler)(int)) {
 
     struct sigaction *act = NULL;
     size_t i;
+    int ret;
 
     act = (struct sigaction *)calloc(1, sizeof(*act));
     if (act == NULL) {
@@ -147,7 +148,8 @@ static int set_signal_action(void (*handler)(int)) {
     /* Only enable SA_RESTART for our custom handler, not for SIG_DFL */
     act->sa_flags = (handler == SIG_DFL) ? 0 : SA_RESTART;
 
-    if (sigemptyset(&act->sa_mask) != 0) {
+    ret = sigemptyset(&act->sa_mask);
+    if (ret != 0) {
         goto error;
     }
 
@@ -191,6 +193,7 @@ error:
 void configure_signal_handler(void) {
     /* Initialize to NULL to make free(NULL) safe in error paths */
     sigset_t *block_mask = NULL, *old_mask = NULL;
+    int ret;
 
     block_mask = (sigset_t *)calloc(1, sizeof(*block_mask));
     if (block_mask == NULL) {
@@ -205,7 +208,8 @@ void configure_signal_handler(void) {
     }
 
     /* Block all signals at function entry to eliminate race conditions */
-    if (sigfillset(block_mask) != 0) {
+    ret = sigfillset(block_mask);
+    if (ret != 0) {
         perror("sigfillset");
         goto error;
     }

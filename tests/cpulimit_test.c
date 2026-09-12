@@ -1929,12 +1929,15 @@ static void test_signal_handler_reconfigure_delivers_pending(void) {
     assert(pid >= 0);
     if (pid == 0) {
         sigset_t block_set, old_set;
+        int ret;
 
         /* Block SIGTERM so that raise() makes it pending, not delivered */
-        if (sigemptyset(&block_set) != 0) {
+        ret = sigemptyset(&block_set);
+        if (ret != 0) {
             _exit(1);
         }
-        if (sigaddset(&block_set, SIGTERM) != 0) {
+        ret = sigaddset(&block_set, SIGTERM);
+        if (ret != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &block_set, &old_set) != 0) {
@@ -2072,7 +2075,12 @@ static void test_signal_handler_race_concurrent_signals(void) {
          * Block all signals before notifying parent, so both SIGTERM and
          * SIGINT will be pending when sigsuspend is called.
          */
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+        ret = sigfillset(&full_mask);
+        if (ret != 0) {
+            _exit(1);
+        }
+        ret = sigemptyset(&empty_mask);
+        if (ret != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
@@ -2245,7 +2253,12 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         close(ready_pipe[0]);
         configure_signal_handler();
 
-        if (sigfillset(&full_mask) != 0 || sigemptyset(&empty_mask) != 0) {
+        ret = sigfillset(&full_mask);
+        if (ret != 0) {
+            _exit(1);
+        }
+        ret = sigemptyset(&empty_mask);
+        if (ret != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
@@ -2335,7 +2348,7 @@ static pid_t find_unused_pid(void) {
 static void test_process_iterator_is_child_of(void) {
     pid_t child_pid, parent_pid;
     pid_t unused_pid;
-    int result;
+    int result, ret;
 
     unused_pid = find_unused_pid();
     parent_pid = getpid();
@@ -2352,7 +2365,8 @@ static void test_process_iterator_is_child_of(void) {
          * parent kills it, and also exits on its own if the parent
          * aborts (failed assertion) so no orphan is left behind.
          */
-        if (sigfillset(&full_mask) != 0) {
+        ret = sigfillset(&full_mask);
+        if (ret != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
@@ -2807,7 +2821,8 @@ static void test_process_iterator_multiple(void) {
          * parent kills it, and also exits on its own if the parent
          * aborts (failed assertion) so no orphan is left behind.
          */
-        if (sigfillset(&full_mask) != 0) {
+        ret = sigfillset(&full_mask);
+        if (ret != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
@@ -3179,7 +3194,8 @@ static void test_process_iterator_with_children(void) {
          * parent kills it, and also exits on its own if the parent
          * aborts (failed assertion) so no orphan is left behind.
          */
-        if (sigfillset(&full_mask) != 0) {
+        ret = sigfillset(&full_mask);
+        if (ret != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
@@ -5694,7 +5710,8 @@ static void test_process_set_update_return_value(void) {
     if (child_pid == 0) {
         /* Child pauses until killed */
         sigset_t full_mask;
-        if (sigfillset(&full_mask) != 0) {
+        ret = sigfillset(&full_mask);
+        if (ret != 0) {
             _exit(1);
         }
         if (sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
@@ -6506,6 +6523,7 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
         assert(target_pid >= 0);
         if (target_pid == 0) {
             struct sigaction sa;
+            int ret;
             /*
              * Install SIGCONT handler that exits immediately.
              * When limit_process sends SIGCONT to resume the stopped
@@ -6514,7 +6532,8 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
              */
             memset(&sa, 0, sizeof(sa));
             sa.sa_handler = sigcont_exit_handler;
-            if (sigemptyset(&sa.sa_mask) != 0) {
+            ret = sigemptyset(&sa.sa_mask);
+            if (ret != 0) {
                 _exit(1);
             }
             if (sigaction(SIGCONT, &sa, NULL) != 0) {
