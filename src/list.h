@@ -26,13 +26,10 @@
 extern "C" {
 #endif
 
+#include "process_iterator.h"
+
 #include <stddef.h>
 #include <sys/types.h>
-
-/**
- * Forward declaration; list nodes in this project carry struct process data.
- */
-struct process;
 
 /**
  * @struct list_node

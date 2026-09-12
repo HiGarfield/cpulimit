@@ -25,6 +25,7 @@
 
 #include "child_exec.h"
 
+#include "cli.h"
 #include "script_check.h"
 #include "signal_handler.h"
 

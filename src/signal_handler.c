@@ -29,7 +29,6 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 /**
  * @brief Global quit flag indicating a termination signal was received
