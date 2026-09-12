@@ -12028,80 +12028,94 @@ static void test_child_wait_resumes_on_clock_failure(void) {
 }
 
 /**
- * @brief Test that a failing sleep_timespec() is detected, not silently
- *        busy-waited (BUG-045)
- * @note The sleep seam is forced to fail on every call. Without the fix the
- *       return value is ignored: the limiter spins at 100% CPU until the
- *       target exits and emits no diagnostic. With the fix it falls back to a
- *       short blocking delay and prints a one-time warning, so the captured
- *       stderr must contain "sleep failed".
+ * @brief Test that sleep_timespec() sleeps accurately despite an interruption
+ * @note A signal interrupts the underlying clock_nanosleep()/nanosleep(). The
+ *       sleep must still honor the full requested duration: the unslept
+ *       remainder is resumed so the duty cycle is never cut short. The child
+ *       reports the elapsed time it measured and whether it really saw the
+ *       signal, so a run in which no interruption happened cannot pass
+ *       trivially.
  */
-/* Drive limit_process() on the victim.  Isolated so the analyzer's fd-state
- * tracking stays scoped to the child that captured stderr, instead of being
- * lost inside limit_process()'s internal (sleep-failing) control loop. */
-static void run_limiter_on_victim(pid_t victim) {
-    limit_process(victim, 0.5, 0, 0);
-}
 
-static void test_sleep_failure_is_reported_not_busy_waited(void) {
-    pid_t victim, limiter, waited;
-    int stderr_pipe[2];
-    int status;
-    char *buf;
-    ssize_t n_read;
-    int found = 0;
+static void test_sleep_timespec_accurate_after_eintr(void) {
+    int report_pipe[2];
+    pid_t child_pid, waited;
+    int status, ret;
+    int exited, exit_code;
+    double elapsed_ms, min_elapsed_ms;
+    ssize_t n_read, expected_bytes;
+    char ready_byte;
+    const double requested_ms = 400.0;
+    const double tolerance_ms = 80.0;
+    const struct timespec settle = {0, 100000000L};
 
-    assert(pipe(stderr_pipe) == 0);
+    ret = pipe(report_pipe);
+    assert(ret == 0);
 
     fflush(stdout);
     fflush(stderr);
-    victim = fork();
-    assert(victim >= 0);
-    if (victim == 0) {
-        struct timespec t = {1, 0};
-        nanosleep(&t, NULL);
-        _exit(EXIT_SUCCESS);
-    }
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        struct timespec before, after;
+        const struct timespec duration = {0, 400000000L};
+        double measured_ms;
 
-    limiter = fork();
-    assert(limiter >= 0);
-    if (limiter == 0) {
-        int ret;
-        alarm(60);
-        close(stderr_pipe[0]);
-        ret = dup2(stderr_pipe[1], STDERR_FILENO);
-        if (ret < 0) {
-            _exit(EXIT_FAILURE);
-        }
-        close(stderr_pipe[1]);
-        seam_reset();
-        seam_sleep_fails = 1; /* force every sleep to fail */
+        close(report_pipe[0]);
         configure_signal_handler();
-        run_limiter_on_victim(victim);
-        _exit(EXIT_SUCCESS);
-    }
-    close(stderr_pipe[1]);
-    waited = waitpid(limiter, &status, 0);
-    assert(waited == limiter);
-    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
 
-    /*
-     * Allocated only now: the limiter child above is a fork, not an exec,
-     * so a buffer created earlier is inherited by it and stays reachable
-     * when that child _exit()s.
-     */
-    buf = (char *)malloc(2048);
-    assert(buf != NULL);
-    n_read = read(stderr_pipe[0], buf, 2048 - 1);
-    close(stderr_pipe[0]);
-    if (n_read > 0) {
-        buf[n_read] = '\0';
-        if (strstr(buf, "sleep failed") != NULL) {
-            found = 1;
+        if (write(report_pipe[1], "R", 1) != 1) {
+            close(report_pipe[1]);
+            _exit(2);
         }
+        ret = get_current_time(&before);
+        if (ret != 0) {
+            close(report_pipe[1]);
+            _exit(3);
+        }
+        sleep_timespec(&duration);
+        ret = get_current_time(&after);
+        if (ret != 0) {
+            close(report_pipe[1]);
+            _exit(4);
+        }
+        measured_ms = timediff_in_ms(&after, &before);
+        if (write(report_pipe[1], &measured_ms, sizeof(measured_ms)) !=
+            (ssize_t)sizeof(measured_ms)) {
+            close(report_pipe[1]);
+            _exit(5);
+        }
+        close(report_pipe[1]);
+        /* An interruption that was never observed would prove nothing. */
+        _exit(is_quit_flag_set() ? EXIT_SUCCESS : 6);
     }
-    assert(found);
-    free(buf);
+
+    close(report_pipe[1]);
+    expected_bytes = (ssize_t)sizeof(elapsed_ms);
+    min_elapsed_ms = requested_ms - tolerance_ms;
+    do {
+        n_read = read(report_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1);
+    assert(ready_byte == 'R');
+
+    /* Let the child reach sleep_timespec(), then interrupt it midway. */
+    sleep_timespec(&settle);
+    kill(child_pid, SIGTERM);
+
+    n_read = read(report_pipe[0], &elapsed_ms, sizeof(elapsed_ms));
+    assert(n_read == expected_bytes);
+    close(report_pipe[0]);
+
+    waited = waitpid(child_pid, &status, 0);
+    assert(waited == child_pid);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+    assert(exited);
+    /* The signal must have been delivered while the child was sleeping. */
+    assert(exit_code == EXIT_SUCCESS);
+    /* The full duration must still have been honored. */
+    assert(elapsed_ms >= min_elapsed_ms);
 }
 
 /**
@@ -12833,7 +12847,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
     RUN_TEST(test_child_wait_sigkill_escalation);
     RUN_TEST(test_child_wait_resumes_on_clock_failure);
-    RUN_TEST(test_sleep_failure_is_reported_not_busy_waited);
+    RUN_TEST(test_sleep_timespec_accurate_after_eintr);
 
     /* Deterministic timing seam tests */
     printf("\n=== TIMING SEAM TESTS ===\n");
