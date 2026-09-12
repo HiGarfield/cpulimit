@@ -167,11 +167,12 @@ int get_current_time(struct timespec *result_ts) {
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
  * durations that are unaffected by system time changes, otherwise falls back
- * to nanosleep(). If the underlying call returns early because it was
- * interrupted by a signal (EINTR), this function automatically resumes the
- * remaining sleep so the full duration is honored instead of spinning or
- * running the duty cycle short. Only non-interrupt errors are reported to the
- * caller.
+ * to nanosleep().
+ *
+ * The sleep is accurate: if the underlying call returns early because a signal
+ * interrupted it (EINTR), this function resumes sleeping the remaining time so
+ * the full requested duration is honored and the duty cycle never runs short.
+ * Only non-interrupt errors are reported to the caller.
  */
 int sleep_timespec(const struct timespec *duration) {
     struct timespec request, remaining;
