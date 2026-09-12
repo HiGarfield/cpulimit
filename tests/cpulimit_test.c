@@ -6309,7 +6309,12 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
     const struct timespec settle_time = {1, 0};
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
     int heartbeat[2], info[2], ret;
-    pid_t target_pid, descendant_pid, limiter_pid;
+    /*
+     * descendant_pid is filled by the read() loop below, which clang's
+     * -Wconditional-uninitialized cannot prove complete even though the
+     * assert right after it does; the initial value is never observed.
+     */
+    pid_t target_pid, descendant_pid = 0, limiter_pid;
     size_t info_read;
     volatile int limiter_exited;
     unsigned int attempt;
