@@ -9251,6 +9251,16 @@ static int seam_sleep_fails = 0;
  * declarations in process_iterator.h, so they must keep external linkage.
  */
 /* NOLINTBEGIN(misc-use-internal-linkage) */
+/*
+ * This translation unit is compiled without CPULIMIT_TEST_BUILD, so the
+ * extern declarations that process_iterator.h guards with that macro are not
+ * visible here; without them these definitions would look undeclared.
+ */
+#ifndef CPULIMIT_TEST_BUILD
+extern int seam_getppid_fabricate;
+extern int seam_find_by_pid_override;
+#endif
+
 /** @brief Non-zero: getppid_of() seam fabricates a fixed ancestor chain
  * (BUG-043). */
 int seam_getppid_fabricate = 0;
