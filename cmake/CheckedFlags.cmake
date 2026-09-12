@@ -33,7 +33,7 @@ function(cpulimit_check_c_flag _flag _result)
         FAIL_REGEX "unknown .*option"
         FAIL_REGEX "unsupported .*option"
         FAIL_REGEX "unrecognized .*option"
-        FAIL_REGEX "command line option .* is valid for .* but not for C"
+        FAIL_REGEX "command[- ]line option .* is valid for .* but not for C"
         FAIL_REGEX "ignoring unknown option"
         FAIL_REGEX "[Ww]arning: [Oo]ption"
         FAIL_REGEX "not supported in this configuration; ignored"
