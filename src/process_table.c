@@ -36,16 +36,21 @@
  * @brief Initialize a process table with specified hash size
  * @param proc_table Pointer to the process table structure to initialize
  * @param hash_size Number of buckets to allocate in the hash table
+ * @return 0 on success, -1 on failure (proc_table is NULL or memory
+ *         allocation failed); never calls exit(), so callers that must
+ *         undo suspensions first get the chance to do so
  *
  * Allocates memory for the hash table bucket array and initializes all
  * buckets to NULL. The hash table uses separate chaining for collision
- * resolution. If memory allocation fails, the program exits with an error.
+ * resolution.
  *
- * @note The caller must call destroy_process_table() to free resources
+ * @note On success the caller must call destroy_process_table() to free
+ *       resources; after a -1 return there is nothing to destroy (buckets
+ *       is NULL), and the caller owns the process_table structure itself
  */
-void init_process_table(struct process_table *proc_table, size_t hash_size) {
+int init_process_table(struct process_table *proc_table, size_t hash_size) {
     if (proc_table == NULL) {
-        return;
+        return -1;
     }
     memset(proc_table, 0, sizeof(*proc_table));
     if (hash_size == 0) {
@@ -62,8 +67,9 @@ void init_process_table(struct process_table *proc_table, size_t hash_size) {
         (struct list **)calloc(proc_table->hash_size, sizeof(struct list *));
     if (proc_table->buckets == NULL) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
+    return 0;
 }
 
 /**

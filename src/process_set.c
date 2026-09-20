@@ -94,7 +94,17 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
         fprintf(stderr, "Memory allocation failed for the process table\n");
         return -1;
     }
-    init_process_table(proc_set->proc_table, PROCESS_TABLE_HASHSIZE);
+    if (init_process_table(proc_set->proc_table, PROCESS_TABLE_HASHSIZE) !=
+        0) {
+        /*
+         * Bucket allocation failed: drop the table structure itself and
+         * report the error, so the caller can still resume a suspended
+         * group instead of being killed by an exit() here.
+         */
+        free(proc_set->proc_table);
+        proc_set->proc_table = NULL;
+        return -1;
+    }
     proc_set->target_pid = target_pid;
     proc_set->include_children = include_children;
 
