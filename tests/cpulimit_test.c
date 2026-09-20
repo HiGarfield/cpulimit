@@ -1931,8 +1931,7 @@ static void test_signal_handler_mask_restored_after_configure(void) {
          * SIGKILL and SIGSTOP are deliberately absent: POSIX says they
          * cannot be blocked, so sigprocmask never reports them as members.
          */
-        const int sigs[] = {SIGINT, SIGTERM, SIGHUP, SIGPIPE, SIGQUIT,
-                            SIGUSR1};
+        const int sigs[] = {SIGINT, SIGTERM, SIGHUP, SIGPIPE, SIGQUIT, SIGUSR1};
         size_t i;
         int unblocked = 1;
 
@@ -10198,9 +10197,9 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
  * SIGSTOP lands and only the shutdown SIGCONT fails, with fail_call == 1
  * every delivery fails and the member is never suspended at all.
  */
-static void
-test_drive_limit_process_shutdown(int fail_call, int expect_error,
-                                  const char *needle, int needle_present) {
+static void test_drive_limit_process_shutdown(int fail_call, int expect_error,
+                                              const char *needle,
+                                              int needle_present) {
     int pipe_fds[2];
     int announce_fds[2];
     int go_fds[2];
@@ -10349,8 +10348,7 @@ static void test_limit_process_reports_resume_failure(void) {
  *       left suspended.
  */
 static void test_limit_process_all_signals_fail_returns_ok(void) {
-    test_drive_limit_process_shutdown(1, LIMIT_PROCESS_OK, "left suspended",
-                                      0);
+    test_drive_limit_process_shutdown(1, LIMIT_PROCESS_OK, "left suspended", 0);
 }
 
 /**
@@ -11038,9 +11036,9 @@ static void test_process_set_duplicate_pid_measured_once(void) {
     seam_clock_ms += 100.0; /* elapsed 100ms: real delta for cycle 3 */
     ret = update_process_set(&proc_set);
     assert(ret == 0);
-    usage_dup = find_process_in_list_by_pid(proc_set.proc_list,
-                                            (pid_t)SEAM_TARGET_PID)
-                    ->cpu_usage;
+    usage_dup =
+        find_process_in_list_by_pid(proc_set.proc_list, (pid_t)SEAM_TARGET_PID)
+            ->cpu_usage;
     close_process_set(&proc_set);
     seam_active = 0;
 
@@ -11058,9 +11056,9 @@ static void test_process_set_duplicate_pid_measured_once(void) {
     seam_clock_ms += 100.0;
     ret = update_process_set(&proc_set);
     assert(ret == 0);
-    usage_single = find_process_in_list_by_pid(proc_set.proc_list,
-                                               (pid_t)SEAM_TARGET_PID)
-                       ->cpu_usage;
+    usage_single =
+        find_process_in_list_by_pid(proc_set.proc_list, (pid_t)SEAM_TARGET_PID)
+            ->cpu_usage;
     close_process_set(&proc_set);
     seam_active = 0;
 

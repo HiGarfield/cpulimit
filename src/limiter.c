@@ -330,9 +330,10 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                      */
                     lookup_attempts++;
                     if (lookup_attempts >= MAX_TARGET_LOOKUP_ATTEMPTS) {
-                        fprintf(stderr,
-                                "Giving up after %u attempts: target not found\n",
-                                lookup_attempts);
+                        fprintf(
+                            stderr,
+                            "Giving up after %u attempts: target not found\n",
+                            lookup_attempts);
                         exit_status = EXIT_FAILURE;
                     }
                 }
