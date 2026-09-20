@@ -26,19 +26,6 @@
 extern "C" {
 #endif
 
-/*
- * struct process carries a struct timespec member, and struct timespec
- * requires _POSIX_C_SOURCE >= 199309L to be visible in strict C89 mode.
- * When a .c file defines _GNU_SOURCE before including this header, all
- * POSIX features are already enabled.  This guard keeps the header
- * self-contained when it is the first include (process_iterator_common.c)
- * or when analyzed standalone (e.g., by clang-tidy), matching the guard
- * in time_util.h and process_set.h.
- */
-#if !defined(_GNU_SOURCE) && !defined(_POSIX_C_SOURCE)
-#define _POSIX_C_SOURCE 200112L
-#endif
-
 #if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__APPLE__)
 #error "Platform not supported"
 #endif
