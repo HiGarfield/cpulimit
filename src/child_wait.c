@@ -88,6 +88,8 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
     int child_exit_status = EXIT_FAILURE;
     /* 1 if child PID was successfully reaped, 0 otherwise */
     int child_reaped = 0;
+    /* 1 once the SIGKILL escalation has been sent, so it happens once (S5) */
+    int kill_sent = 0;
     /* Timeout anchor; reset when forwarding signal */
     struct timespec start_time;
 
@@ -227,13 +229,24 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                  */
                 double elapsed_ms;
                 elapsed_ms = timediff_in_ms(&current_time, &start_time);
-                if (elapsed_ms > (double)CHILD_KILL_TIMEOUT_MS) {
+                if (elapsed_ms > (double)CHILD_KILL_TIMEOUT_MS && !kill_sent) {
+                    /*
+                     * Escalate exactly once.  Every poll past the
+                     * threshold used to send another SIGKILL to the
+                     * child's process group: for the whole window in
+                     * which the child has exited but is not reaped yet a
+                     * zombie still carries its PID and PGID, so the
+                     * repeats reached whatever else was living in that
+                     * group, and signal_command() printed its own
+                     * failure message again each time (S5).
+                     */
                     if (cfg->verbose) {
                         printf("Process %ld timed out, sending SIGKILL\n",
                                (long)child_pid);
                     }
                     /* SIGKILL cannot be caught or ignored */
                     signal_command(child_pid, SIGKILL);
+                    kill_sent = 1;
                 }
             }
             /* Brief sleep to avoid busy-waiting */

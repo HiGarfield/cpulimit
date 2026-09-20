@@ -67,6 +67,12 @@ extern "C" {
  * No escalation is armed before that: a command that is still running
  * because limit_process() stopped watching it is waited for, not killed.
  *
+ * Once the grace period is over the escalation fires once, not once per poll
+ * (S5).  A process group is signalled, and repeating it during the window in
+ * which the child has exited but has not been reaped yet -- a zombie still
+ * carries its PID and PGID -- would reach whatever else now lives in that
+ * group, and would repeat signal_command()'s own failure report each time.
+ *
  * @param child_pid PID of the child process to wait for
  * @param cfg Pointer to configuration structure (used for verbose output)
  * @param signal_forwarded Non-zero if the caller already forwarded the

@@ -13842,6 +13842,111 @@ static void test_child_wait_resumes_on_clock_failure(void) {
  *       Verified by mutation: dropping the reap makes the child zombie and
  *       the ECHILD assertion fail.
  */
+/**
+ * @brief The SIGKILL escalation must fire once, not once per poll (S5)
+ * @note Nothing latched the escalation, so every 50 ms poll after the timeout
+ *       sent SIGKILL again to the child's process group: stale deliveries for
+ *       the whole window in which the child has exited but is not reaped yet
+ *       (a zombie keeps its PID and PGID, and other members of that group are
+ *       not necessarily part of this run) plus a repeated copy of
+ *       signal_command()'s own failure line on stderr each time.
+ *
+ *       The clock and the sleeps are virtual, so the timeout is crossed after
+ *       ~100 cheap polls instead of five real seconds, and kill() is only
+ *       recorded.  The child watches that log and leaves shortly after the
+ *       first SIGKILL, which gives the loop plenty of further polls in which
+ *       to repeat itself if the latch is missing; one is what it must settle
+ *       for.  Verified by mutation: sending on every poll makes the count
+ *       much greater than one.
+ */
+static void test_child_wait_escalates_sigkill_once(void) {
+    pid_t child_pid, waited;
+    struct cpulimit_cfg cfg;
+    int log_pipe[2];
+    int status, result, escalations = 0, reaped_already;
+    size_t idx;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.cpu_limit = 0.5;
+
+    assert(pipe(log_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        struct seam_signal record;
+        struct timespec tick = {0, 5000000L}; /* 5 ms */
+        int saw_kill = 0, after_kill = 0, rounds = 0;
+        close(log_pipe[1]);
+        alarm(60);
+        /*
+         * Non-blocking reads, drained every round: the writer is the parent
+         * and it must never find the pipe full, because it would then stop
+         * inside the very loop this test is counting.
+         */
+        if (fcntl(log_pipe[0], F_SETFL, O_NONBLOCK) != 0) {
+            _exit(EXIT_FAILURE);
+        }
+        while (rounds < 100) {
+            for (;;) {
+                ssize_t got = read(log_pipe[0], &record, sizeof(record));
+                if (got != (ssize_t)sizeof(record)) {
+                    break;
+                }
+                if (record.sig == SIGKILL) {
+                    saw_kill = 1;
+                }
+            }
+            /*
+             * Outlive the escalation by ~50 ms, so a repeating one has
+             * somewhere to repeat into.
+             */
+            if (saw_kill) {
+                after_kill++;
+                if (after_kill >= 10) {
+                    break;
+                }
+            }
+            while (nanosleep(&tick, &tick) != 0 && errno == EINTR) {
+                ;
+            }
+            rounds++;
+        }
+        close(log_pipe[0]);
+        _exit(EXIT_SUCCESS);
+    }
+    close(log_pipe[0]);
+
+    seam_reset();
+    seam_active = 1;
+    seam_log_fd = log_pipe[1];
+    result = collect_child_exit_status(child_pid, &cfg, 1);
+    seam_log_fd = -1;
+    seam_active = 0;
+
+    for (idx = 0; idx < seam_signal_count; idx++) {
+        if (seam_signals[idx].pid == child_pid &&
+            seam_signals[idx].sig == SIGKILL) {
+            escalations++;
+        }
+    }
+    seam_reset();
+
+    waited = waitpid(child_pid, &status, WNOHANG);
+    reaped_already = errno == ECHILD;
+    close(log_pipe[1]);
+
+    /* Nothing was signalled for real, so the child left on its own. */
+    assert(result == 0);
+    /* Collected by collect_child_exit_status(), with nothing left behind. */
+    assert(waited < 0);
+    assert(reaped_already);
+    assert(escalations == 1);
+}
+
 static void test_child_wait_reaps_child_on_clock_failure(void) {
     pid_t target, waited;
     struct cpulimit_cfg cfg;
@@ -15143,6 +15248,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_child_wait_sigkill_escalation);
     RUN_TEST(test_child_wait_resumes_on_clock_failure);
     RUN_TEST(test_child_wait_reaps_child_on_clock_failure);
+    RUN_TEST(test_child_wait_escalates_sigkill_once);
     RUN_TEST(test_sleep_timespec_accurate_after_eintr);
 
     /* Deterministic timing seam tests */
