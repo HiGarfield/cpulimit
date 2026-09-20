@@ -10072,6 +10072,176 @@ static void test_limiter_lazy_stale_pid_reports_failure(void) {
 }
 
 /**
+ * @brief The lookup cap must count consecutive failures (N2)
+ * @note lookup_attempts used to be a lifetime counter that was never
+ *       reset, so a non-lazy run re-attaching to a periodically
+ *       restarting daemon gave up permanently once the cumulative number
+ *       of "not found" samples reached MAX_TARGET_LOOKUP_ATTEMPTS, even
+ *       while the target was running.  The script drives
+ *       MAX_TARGET_LOOKUP_ATTEMPTS-1 misses, one success, then
+ *       MAX_TARGET_LOOKUP_ATTEMPTS-1 misses again: with a consecutive
+ *       counter the second streak stays below the cap and the run keeps
+ *       retrying, which the test proves by parking the 29th (last) sleep
+ *       and shutting the run down cleanly with SIGTERM.  Without the
+ *       reset the second streak reaches the cap on its first miss, the
+ *       run exits with "Giving up" before the barrier, and the EOF on the
+ *       announce pipe fails the test.
+ */
+static void test_limiter_lookup_attempts_are_consecutive(void) {
+    int pipe_fds[2];
+    int announce_fds[2];
+    int go_fds[2];
+    int ret, waited, exited, misses;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+    char announce;
+    const char *p;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    ret = pipe(announce_fds);
+    assert(ret == 0);
+    ret = pipe(go_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct cpulimit_cfg cfg;
+        struct seam_proc *frame;
+        int run_status;
+        int i;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        close(announce_fds[0]);
+        close(go_fds[1]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+        assert(frame != NULL);
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.exe_name = "busy";
+        cfg.cpu_limit = 0.5;
+        cfg.lazy_mode = 0;
+        configure_signal_handler();
+        seam_reset();
+        /*
+         * 14 misses: the name scan finds no matching process.  Then one
+         * success: a matching scan frame, a matching recheck frame for
+         * process_has_other_name(), and two empty frames for
+         * limit_process()'s initial scan plus its one control cycle.
+         * Then 14 more misses -- one fewer than the cap, which is the
+         * whole point.
+         */
+        for (i = 0; i < 14; i++) {
+            memset(frame, 0, sizeof(struct seam_proc));
+            frame[0].pid = (pid_t)SEAM_TARGET_PID;
+            frame[0].ppid = (pid_t)1;
+            strcpy(frame[0].command, "other");
+            seam_push_frame(frame, 1);
+        }
+        memset(frame, 0, sizeof(struct seam_proc));
+        frame[0].pid = (pid_t)SEAM_TARGET_PID;
+        frame[0].ppid = (pid_t)1;
+        strcpy(frame[0].command, "busy");
+        seam_push_frame(frame, 1);
+        seam_push_frame(frame, 1);
+        seam_push_frame(NULL, 0);
+        seam_push_frame(NULL, 0);
+        for (i = 0; i < 14; i++) {
+            memset(frame, 0, sizeof(struct seam_proc));
+            frame[0].pid = (pid_t)SEAM_TARGET_PID;
+            frame[0].ppid = (pid_t)1;
+            strcpy(frame[0].command, "other");
+            seam_push_frame(frame, 1);
+        }
+        seam_active = 1;
+        seam_find_by_pid_override = 1;
+        seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+        seam_alive_count = 1;
+        /*
+         * Park on the 29th sleep call: 14 misses + the success cycle +
+         * the 14 misses above each end in one wait.  By the time it
+         * arrives, both failure streaks have been consumed and the run
+         * must still be retrying.
+         */
+        seam_hook_sleep = 1;
+        seam_sleep_call = 29;
+        seam_sleep_announce_fd = announce_fds[1];
+        seam_sleep_go_fd = go_fds[0];
+        run_status = run_pid_or_exe_mode(&cfg);
+        seam_active = 0;
+        seam_find_by_pid_override = 0;
+        seam_hook_sleep = 0;
+        seam_sleep_announce_fd = -1;
+        seam_sleep_go_fd = -1;
+        free(frame);
+        _exit(run_status == EXIT_SUCCESS ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    close(pipe_fds[1]);
+    close(announce_fds[1]);
+    close(go_fds[0]);
+
+    /* The parked limiter must announce the 29th wait; EOF means it died. */
+    alarm(30);
+    ret = (int)read(announce_fds[0], &announce, 1);
+    assert(ret == 1);
+    ret = kill(pid, SIGTERM);
+    assert(ret == 0);
+    ret = (int)write(go_fds[1], "G", 1);
+    assert(ret == 1);
+    alarm(0);
+    close(announce_fds[0]);
+    close(go_fds[1]);
+
+    err_buf = (char *)malloc(4096);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread =
+            read(pipe_fds[0], err_buf + err_len, 4096 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 4096 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    /* Both streaks ran to their end, so the cap was never reached. */
+    misses = 0;
+    for (p = strstr(err_buf, "cannot be found"); p != NULL;
+         p = strstr(p + 1, "cannot be found")) {
+        misses++;
+    }
+    assert(misses == 28);
+    assert(strstr(err_buf, "Giving up") == NULL);
+    free(err_buf);
+}
+
+/**
  * @brief run_command_mode() must surface the command's real exit code on stderr
  *        when limiting never starts (LIMIT_PROCESS_ERROR) (BUG-018)
  * @note The init_process_iterator seam (seam_init_fails) makes limit_process()
@@ -13692,6 +13862,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
     RUN_TEST(test_limiter_stale_pid_lookups_are_capped);
     RUN_TEST(test_limiter_lazy_stale_pid_reports_failure);
+    RUN_TEST(test_limiter_lookup_attempts_are_consecutive);
     RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_command_mode_signal_term);
     RUN_TEST(test_limiter_run_command_mode_signal_kill);

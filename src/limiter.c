@@ -240,6 +240,11 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
      * two seconds each is thirty seconds of grace for a target that is
      * slow to appear, after which giving up is the only sane outcome.
      *
+     * This counts CONSECUTIVE failures (N2): every successful resolution
+     * of the target resets it, so a daemon that restarts periodically is
+     * still re-attached after restarts instead of eventually exhausting
+     * a lifetime budget.
+     *
      * unsigned: as a signed counter the increment followed by the bound
      * check below folds into "X + 1 >= C", which -Wstrict-overflow=5
      * flags as an assumption that signed overflow cannot happen.
@@ -353,6 +358,16 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never
                  * started */
                 int limit_status;
+                /*
+                 * The lookup succeeded and the PID really is our target,
+                 * so the consecutive-failure streak ends here (N2).  The
+                 * cap below exists to stop retrying a target that never
+                 * appears, not to count failures over the whole lifetime
+                 * of the process: a daemon that restarts several times a
+                 * day must stay attached across restarts, which is what
+                 * non-lazy mode promises.
+                 */
+                lookup_attempts = 0;
                 if (cfg->verbose) {
                     printf("Process %ld found\n", (long)found_pid);
                 }
