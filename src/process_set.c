@@ -644,12 +644,20 @@ int update_process_set(struct process_set *proc_set) {
              * already added it -- adding it again would double-count it, so it
              * would be signalled and accounted for twice (BUG-073).  Only
              * re-add when it is not already in the list.
+             *
+             * The CPU accounting must equally run at most once per PID and
+             * cycle: the first occurrence already refreshed cpu_time, so a
+             * repeated snapshot would compute a bogus near-zero sample and
+             * drag the EMA -- and with it the group's whole usage estimate
+             * -- down (BUG-054).  Everything below is inside the same
+             * first-occurrence branch for that reason.
              */
             if (find_process_in_list_by_pid(proc_set->proc_list, proc->pid) ==
                 NULL) {
                 add_list_elem(proc_set->proc_list, proc);
+                update_existing_process_entry(proc, scan_proc, elapsed_ms,
+                                              ncpu);
             }
-            update_existing_process_entry(proc, scan_proc, elapsed_ms, ncpu);
         }
     }
     if (target_replaced) {

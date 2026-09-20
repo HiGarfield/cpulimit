@@ -10558,6 +10558,108 @@ static void test_process_set_does_not_duplicate_pid(void) {
 }
 
 /**
+ * @brief A PID repeated in one snapshot must be measured only once (BUG-054)
+ * @note Besides being added to the group list twice (BUG-073), a repeated
+ *       snapshot used to run update_existing_process_entry() a second time.
+ *       By then cpu_time had already been refreshed by the first
+ *       occurrence, so the second call computed a bogus near-zero sample
+ *       and the EMA dragged the member's (and the group's) usage estimate
+ *       down, relaxing the limit.  The fix runs the accounting only for
+ *       the first occurrence of the PID within a cycle.
+ *
+ *       The test drives two identical scripted runs -- one with the PID
+ *       reported twice in the middle snapshot, one with it reported once
+ *       -- over the same clock script and asserts the final cpu_usage is
+ *       exactly equal.  Verified by mutation: keeping the second
+ *       update_existing_process_entry() call outside the first-occurrence
+ *       branch makes the duplicated run end at 0.5032 instead of 0.54.
+ */
+static void test_process_set_duplicate_pid_measured_once(void) {
+    struct process_set proc_set;
+    int ret;
+    double usage_dup, usage_single;
+    struct seam_proc *init_frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
+    struct seam_proc *dup_frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *final_frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
+    assert(init_frame != NULL && dup_frame != NULL && final_frame != NULL);
+
+    /* Shared setup: target starts at cpu_time 100, then 150, then 250. */
+    memset(&init_frame[0], 0, sizeof(init_frame[0]));
+    init_frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    init_frame[0].ppid = (pid_t)1;
+    init_frame[0].cpu_time = 100.0;
+    init_frame[0].start_time = 10.0;
+
+    memset(&dup_frame[0], 0, sizeof(dup_frame[0]));
+    dup_frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    dup_frame[0].ppid = (pid_t)1;
+    dup_frame[0].cpu_time = 150.0;
+    dup_frame[0].start_time = 10.0;
+    dup_frame[1] = dup_frame[0]; /* same PID reported twice */
+
+    memset(&final_frame[0], 0, sizeof(final_frame[0]));
+    final_frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    final_frame[0].ppid = (pid_t)1;
+    final_frame[0].cpu_time = 250.0;
+    final_frame[0].start_time = 10.0;
+
+    /* Run A: the middle snapshot repeats the PID. */
+    seam_reset();
+    seam_push_frame(init_frame, 1);
+    seam_push_frame(dup_frame, 2);
+    seam_push_frame(final_frame, 1);
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
+    assert(ret == 0);
+    seam_clock_ms += 100.0; /* elapsed 100ms: real delta for cycle 2 */
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    seam_clock_ms += 100.0; /* elapsed 100ms: real delta for cycle 3 */
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    usage_dup = find_process_in_list_by_pid(proc_set.proc_list,
+                                            (pid_t)SEAM_TARGET_PID)
+                    ->cpu_usage;
+    close_process_set(&proc_set);
+    seam_active = 0;
+
+    /* Run B: the same script, but the middle snapshot is a single entry. */
+    seam_reset();
+    seam_push_frame(init_frame, 1);
+    seam_push_frame(dup_frame, 1);
+    seam_push_frame(final_frame, 1);
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
+    assert(ret == 0);
+    seam_clock_ms += 100.0;
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    seam_clock_ms += 100.0;
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    usage_single = find_process_in_list_by_pid(proc_set.proc_list,
+                                               (pid_t)SEAM_TARGET_PID)
+                       ->cpu_usage;
+    close_process_set(&proc_set);
+    seam_active = 0;
+
+    /*
+     * The duplicate snapshot must not have skewed the estimate.  Both runs
+     * feed the EMA the exact same sample sequence, so the results are
+     * compared bit for bit (a plain == would trip -Wfloat-equal).
+     */
+    assert(memcmp(&usage_dup, &usage_single, sizeof(double)) == 0);
+    assert(usage_dup > 0.0);
+
+    free(init_frame);
+    free(dup_frame);
+    free(final_frame);
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -12855,6 +12957,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_process_set_does_not_duplicate_pid);
+    RUN_TEST(test_process_set_duplicate_pid_measured_once);
     RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
     RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
