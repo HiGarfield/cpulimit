@@ -106,14 +106,24 @@ struct process_set {
     struct list *proc_list;
 
     /**
-     * PIDs that this group has suspended with SIGSTOP and has not resumed
-     * yet. Each element is a heap-allocated pid_t owned by the list.
+     * Processes this group has suspended with SIGSTOP and has not resumed
+     * yet. Each element is a heap-allocated stopped_pid_record
+     * { pid_t pid; double start_time; } owned by the list.
      *
      * The list outlives a single update cycle on purpose: proc_list is
      * rebuilt from scratch by update_process_set(), and a process that
      * stops matching the group while suspended (for example a descendant
      * that is re-parented away when its monitored ancestor exits) would
      * otherwise never receive the SIGCONT that undoes the SIGSTOP.
+     *
+     * start_time is the start time of the process at the moment it was
+     * suspended: before resuming a PID that has left the group,
+     * resume_stopped_pids() re-queries the start time and skips a PID
+     * that a different process now occupies, so a recycled PID never
+     * receives the resume meant for its predecessor. The list is emptied
+     * after every resume round, so a record skipped by that PID-reuse
+     * check is dropped as well -- the original process is gone either
+     * way.
      */
     struct list *stopped_pids;
 
