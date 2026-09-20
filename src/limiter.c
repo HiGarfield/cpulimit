@@ -318,6 +318,24 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 fprintf(stderr,
                         "Process %ld is no longer '%s'; not limiting it\n",
                         (long)found_pid, cfg->exe_name);
+                if (!cfg->lazy_mode) {
+                    /*
+                     * A stale target is the same kind of never-arriving
+                     * target as a "not found" one, so it is bound by the
+                     * same lookup cap: without counting these attempts a
+                     * run whose name resolution keeps going stale would
+                     * retry every two seconds forever, while the plain
+                     * not-found path gave up after MAX_TARGET_LOOKUP_
+                     * ATTEMPTS.
+                     */
+                    lookup_attempts++;
+                    if (lookup_attempts >= MAX_TARGET_LOOKUP_ATTEMPTS) {
+                        fprintf(stderr,
+                                "Giving up after %u attempts: target not found\n",
+                                lookup_attempts);
+                        exit_status = EXIT_FAILURE;
+                    }
+                }
             } else {
                 /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never
                  * started */

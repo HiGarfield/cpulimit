@@ -9751,6 +9751,135 @@ static void test_limiter_run_exe_mode_reports_permission_denied(void) {
 }
 
 /**
+ * @brief run_pid_or_exe_mode() must give up when the -e target keeps
+ *        resolving to a recycled PID instead of retrying forever
+ * @note The stale branch used to print "Process N is no longer 'name'"
+ *       and restart the search without ever counting an attempt, so a
+ *       non-lazy run whose lookups kept going stale retried every two
+ *       seconds forever, while the plain not-found path gave up after
+ *       MAX_TARGET_LOOKUP_ATTEMPTS.  The seam scripts, per round, a scan
+ *       frame matching "busy" and a single-PID frame for the same PID
+ *       whose command is "other", so every lookup is stale; the sleep
+ *       seam fails instantly so retries do not really wait.  After 15
+ *       stale rounds the run must report giving up and exit with
+ *       EXIT_FAILURE, and the not-found path must never have fired.
+ */
+static void test_limiter_stale_pid_lookups_are_capped(void) {
+    int pipe_fds[2];
+    int ret, waited, exited, i, stale_count;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+    const char *p;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct cpulimit_cfg cfg;
+        struct seam_proc *frame;
+        int run_status;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        frame = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+        if (frame == NULL) {
+            _exit(EXIT_FAILURE);
+        }
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.exe_name = "busy";
+        cfg.cpu_limit = 0.5;
+        cfg.lazy_mode = 0;
+        seam_reset();
+        /*
+         * One round consumes two snapshots: the name scan (the PID matches
+         * "busy") and the single-PID scan inside process_has_other_name()
+         * (the same PID now runs "other"), so every round is stale.  Push
+         * one entry per snapshot -- 2 * MAX_TARGET_LOOKUP_ATTEMPTS frames
+         * cover the capped run.
+         */
+        for (i = 0; i < 15; i++) {
+            memset(&frame[0], 0, sizeof(frame[0]));
+            frame[0].pid = (pid_t)SEAM_TARGET_PID;
+            frame[0].ppid = (pid_t)1;
+            strcpy(frame[0].command, "busy");
+            seam_push_frame(frame, 1);
+            memset(&frame[1], 0, sizeof(frame[1]));
+            frame[1].pid = (pid_t)SEAM_TARGET_PID;
+            frame[1].ppid = (pid_t)1;
+            strcpy(frame[1].command, "other");
+            seam_push_frame(frame + 1, 1);
+        }
+        seam_active = 1;
+        seam_find_by_pid_override = 1;
+        seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+        seam_alive_count = 1;
+        /* Fail instantly instead of sleeping two seconds per round. */
+        seam_sleep_fails = 1;
+        alarm(30);
+        run_status = run_pid_or_exe_mode(&cfg);
+        alarm(0);
+        seam_active = 0;
+        seam_find_by_pid_override = 0;
+        seam_sleep_fails = 0;
+        free(frame);
+        _exit(run_status == EXIT_FAILURE ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    close(pipe_fds[1]);
+
+    err_buf = (char *)malloc(1024);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread =
+            read(pipe_fds[0], err_buf + err_len, 1024 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 1024 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    /* A hung retry loop is killed by the alarm instead of exiting. */
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    /* Every round was a stale hit, capped at MAX_TARGET_LOOKUP_ATTEMPTS. */
+    stale_count = 0;
+    for (p = strstr(err_buf, "no longer 'busy'"); p != NULL;
+         p = strstr(p + 1, "no longer 'busy'")) {
+        stale_count++;
+    }
+    assert(stale_count == 15);
+    assert(strstr(err_buf, "Giving up after 15 attempts") != NULL);
+    /* The capped run must have ended on the stale path, not on not-found. */
+    assert(strstr(err_buf, "cannot be found") == NULL);
+    free(err_buf);
+}
+
+/**
  * @brief run_command_mode() must surface the command's real exit code on stderr
  *        when limiting never starts (LIMIT_PROCESS_ERROR) (BUG-018)
  * @note The init_process_iterator seam (seam_init_fails) makes limit_process()
@@ -13360,6 +13489,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_gives_up_without_target);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_exits_on_permission_denied);
     RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
+    RUN_TEST(test_limiter_stale_pid_lookups_are_capped);
     RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_command_mode_signal_term);
     RUN_TEST(test_limiter_run_command_mode_signal_kill);
