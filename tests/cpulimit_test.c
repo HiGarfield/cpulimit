@@ -14243,26 +14243,26 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
  *       this test fail on the exit status.
  */
 static void scan_failure_driver_child(int write_fd) {
-    struct seam_proc *visible =
-        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    struct seam_proc *visible;
     int ret;
-    assert(visible != NULL);
-
-    memset(visible, 0, sizeof(struct seam_proc));
-    visible[0].pid = (pid_t)SEAM_TARGET_PID;
-    visible[0].ppid = (pid_t)1;
-    visible[0].cpu_time = 1000.0;
 
     /*
      * dup2() happens in a forked child that leaves through _exit(): the
      * write end is never handed back to anybody, so there is no descriptor
-     * left for an analyser to complain about.
+     * left for an analyser to complain about. It also comes before the
+     * allocation, so no early return has to free anything.
      */
     fflush(stderr);
     if (dup2(write_fd, STDERR_FILENO) < 0) {
-        free(visible);
         _exit(EXIT_FAILURE);
     }
+
+    visible = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    assert(visible != NULL);
+    memset(visible, 0, sizeof(struct seam_proc));
+    visible[0].pid = (pid_t)SEAM_TARGET_PID;
+    visible[0].ppid = (pid_t)1;
+    visible[0].cpu_time = 1000.0;
 
     seam_reset();
     /* One snapshot per scan: the initial one, then the first cycle's. */
@@ -14337,21 +14337,20 @@ static void test_limit_process_reports_scan_failure(void) {
  */
 static void pid_mode_retry_driver_child(int write_fd) {
     struct cpulimit_cfg cfg;
-    struct seam_proc *visible =
-        (struct seam_proc *)malloc(sizeof(struct seam_proc));
-    assert(visible != NULL);
+    struct seam_proc *visible;
 
+    fflush(stderr);
+    if (dup2(write_fd, STDERR_FILENO) < 0) {
+        _exit(EXIT_FAILURE);
+    }
+    configure_signal_handler();
+
+    visible = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    assert(visible != NULL);
     memset(visible, 0, sizeof(struct seam_proc));
     visible[0].pid = (pid_t)SEAM_TARGET_PID;
     visible[0].ppid = (pid_t)1;
     visible[0].cpu_time = 1000.0;
-
-    fflush(stderr);
-    if (dup2(write_fd, STDERR_FILENO) < 0) {
-        free(visible);
-        _exit(EXIT_FAILURE);
-    }
-    configure_signal_handler();
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
