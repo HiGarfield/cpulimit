@@ -1003,6 +1003,14 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
              * closed by the next successful SIGCONT or the next scan.
              */
             proc->suspended_by_us = 1;
+            /*
+             * A successful delivery ends this signal's failure episode,
+             * exactly as the SIGCONT branch clears cont_warned: without
+             * this, one early SIGSTOP failure silenced every later one
+             * for the rest of the session, hiding a limit that stopped
+             * being enforceable (N4).
+             */
+            proc->stop_warned = 0;
         } else {
             /* SIGCONT delivered: clear the warnable state so a later
              * failure re-reports instead of going unnoticed.  The

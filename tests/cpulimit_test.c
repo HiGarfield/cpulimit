@@ -10941,6 +10941,127 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
 }
 
 /**
+ * @brief A successful SIGSTOP must clear the SIGSTOP warning gate (N4)
+ * @note stop_warned was set on the first SIGSTOP failure and never
+ *       cleared, while its documented contract says the matching success
+ *       path clears it so a later failure re-reports.  The member
+ *       therefore produced at most one SIGSTOP warning per session: a
+ *       transient EPERM early on silenced a second, later failure,
+ *       leaving a limit that had stopped being enforceable unreported.
+ *
+ *       The kill() seam injects failure / success / failure for three
+ *       SIGSTOP deliveries on one member.  Verbose mode is used so the
+ *       process-global once-only gate in warn_signal_failure() does not
+ *       mask the member-level gate under test; with the fix stderr holds
+ *       two "cannot send signal 19" warnings, without it only one.
+ */
+static void test_process_set_reports_stop_failure_after_recovery(void) {
+    int pipe_fds[2];
+    pid_t pid;
+    int status;
+    int ret;
+    char *err_buf;
+    size_t err_len;
+    /* unsigned: folding the counting loop's bound into a signed counter
+       trips -Wstrict-overflow=5. */
+    unsigned int warn_count = 0;
+    const char *p;
+    const size_t BUFSZ = 262144;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        pid_t target;
+        struct process_set proc_set;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        target = fork();
+        if (target < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (target == 0) {
+            while (1) {
+                pause();
+            }
+        }
+        if (init_process_set(&proc_set, target, 0) != 0) {
+            kill(target, SIGKILL);
+            waitpid(target, NULL, 0);
+            _exit(EXIT_FAILURE);
+        }
+        seam_reset();
+        seam_active = 1;
+        /* Delivery 1: fails with EPERM and reports once. */
+        seam_kill_calls = 0;
+        seam_fail_call = 1;
+        seam_fail_span = 1;
+        seam_fail_errno = EPERM;
+        process_set_send_signal(&proc_set, SIGSTOP, 1);
+        /* Delivery 2: succeeds, which must end the failure episode. */
+        seam_fail_call = 0;
+        seam_fail_span = 1;
+        seam_fail_errno = 0;
+        process_set_send_signal(&proc_set, SIGSTOP, 1);
+        /* Delivery 3: fails again and must be reported again. */
+        seam_kill_calls = 0;
+        seam_fail_call = 1;
+        seam_fail_span = 1;
+        seam_fail_errno = EPERM;
+        process_set_send_signal(&proc_set, SIGSTOP, 1);
+        /* Restore real signals before reaping the target. */
+        seam_active = 0;
+        seam_fail_call = 0;
+        seam_fail_errno = 0;
+        close_process_set(&proc_set);
+        kill(target, SIGKILL);
+        waitpid(target, NULL, 0);
+        _exit(EXIT_SUCCESS);
+    }
+    close(pipe_fds[1]);
+    err_buf = (char *)malloc(BUFSZ);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread =
+            read(pipe_fds[0], err_buf + err_len, BUFSZ - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
+    /*
+     * Both failures must be reported.  Count by the SIGSTOP-specific tail
+     * rather than the signal number, whose value is platform-dependent.
+     */
+    for (p = strstr(err_buf, "stays tracked but cannot be limited"); p != NULL;
+         p = strstr(p + 1, "stays tracked but cannot be limited")) {
+        warn_count++;
+    }
+    assert(warn_count == 2);
+    free(err_buf);
+}
+
+/**
  * @brief A recycled descendant PID must not be misattributed (BUG-004)
  * @note update_existing_process_entry() used to detect PID reuse only from a
  *       decrease in cpu_time.  A freshly recycled PID often has a *higher*
@@ -13754,6 +13875,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_reports_failed_resume);
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
+    RUN_TEST(test_process_set_reports_stop_failure_after_recovery);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_process_set_does_not_duplicate_pid);
     RUN_TEST(test_process_set_duplicate_pid_measured_once);
