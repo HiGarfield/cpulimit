@@ -11409,10 +11409,7 @@ static void test_process_set_reports_each_member_stop_failure(void) {
         seam_reset();
         seam_push_frame(frame, 2);
         seam_active = 1;
-        if (init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1) != 0) {
-            free(frame);
-            _exit(EXIT_FAILURE);
-        }
+        assert(init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1) == 0);
         /* Every SIGSTOP delivery fails with EPERM, for both members. */
         seam_kill_calls = 0;
         seam_fail_call = 1;
@@ -11476,7 +11473,7 @@ static void test_process_set_reports_each_member_stop_failure(void) {
  */
 static void test_process_set_unrecorded_suspend_not_flagged(void) {
     struct process_set proc_set;
-    struct process *tracked;
+    const struct process *tracked;
     struct seam_proc *frame =
         (struct seam_proc *)malloc(sizeof(struct seam_proc));
     int ret;
