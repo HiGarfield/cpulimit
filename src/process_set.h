@@ -236,18 +236,23 @@ void record_stopped_pid(struct process_set *proc_set, pid_t pid,
 /**
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
  * @param proc_set Pointer to the process set structure
+ * @return The number of recorded PIDs that could not be resumed for a
+ *         reason other than ESRCH: they were suspended by this group and
+ *         may have been left stopped, so the shutdown report must treat
+ *         them like a failed resume of a current member (R1)
  *
  * Sends SIGCONT to every recorded PID that has left the group and frees the
  * list.  Group members are resumed by the regular resume round, which walks
  * proc_list, so they are deliberately not signalled twice.  Used both for
  * the regular resume round and for the final cleanup, so that processes
  * which left the group while suspended are resumed as well instead of
- * staying suspended forever.
+ * staying suspended forever.  A failed resume of a recorded PID is always
+ * reported on stderr.
  *
  * @note Safe to call with NULL proc_set or a group whose suspended-PID
- *       list has not been allocated; the call is then a no-op
+ *       list has not been allocated; the call is then a no-op returning 0
  */
-void resume_stopped_pids(struct process_set *proc_set);
+int resume_stopped_pids(struct process_set *proc_set);
 
 /**
  * @brief Drop a PID from the suspension record without resuming it

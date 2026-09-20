@@ -295,6 +295,9 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
 /**
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
  * @param proc_set Pointer to the process set structure
+ * @return The number of recorded PIDs that could not be resumed for a
+ *         reason other than ESRCH (R1); a PID that no longer exists has
+ *         no suspension left to undo and does not count
  *
  * Sends SIGCONT to every recorded PID that has left the group and frees the
  * list.  Group members are resumed by the regular resume round, which walks
@@ -302,11 +305,17 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  * the regular resume round and for the final cleanup, so that processes
  * which left the group while suspended are resumed as well instead of
  * staying suspended forever.
+ *
+ * The count must reach the caller: a recorded PID was suspended by this
+ * group by definition, so a failed resume here can strand it just like a
+ * failed resume of a current member, and the shutdown report has to see
+ * both the same way (R1).
  */
-void resume_stopped_pids(struct process_set *proc_set) {
+int resume_stopped_pids(struct process_set *proc_set) {
     const struct list_node *node;
+    int failed = 0;
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
-        return;
+        return 0;
     }
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
          node = node->next) {
@@ -344,15 +353,20 @@ void resume_stopped_pids(struct process_set *proc_set) {
              * retry it. Say so instead of letting it stop silently.
              * A failure with ESRCH means the process is already gone, so
              * there is no suspension left to undo and nothing to report;
-             * every other errno keeps the always-report policy.
+             * every other errno keeps the always-report policy and counts
+             * as stranded so the caller can fail the shutdown (R1).
              */
             if (kill(pid, SIGCONT) != 0) {
                 int err = errno;
                 warn_signal_failure(SIGCONT, pid, err, 0, 1);
+                if (err != ESRCH) {
+                    failed++;
+                }
             }
         }
     }
     destroy_list(proc_set->stopped_pids);
+    return failed;
 }
 
 void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
@@ -905,13 +919,17 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  * stopped-PID list; SIGCONT additionally resumes processes that were
  * recorded earlier but have since left the group.
  *
- * @return The number of members whose signal delivery failed.  On the
- *         SIGCONT round only members this group had actually suspended
- *         count: a failed SIGCONT for a member never suspended (or already
+ * @return The number of processes whose signal delivery failed and that
+ *         the call may have left suspended.  On the SIGCONT round this
+ *         covers two groups of candidates: current members this group had
+ *         actually suspended, and PIDs that left the group while
+ *         suspended, which are resumed from the record first (R1).  A
+ *         failed SIGCONT for a member never suspended (or already
  *         resumed) cannot strand anything, so it is an ordinary failure
  *         that neither claims "left suspended" nor fails the shutdown
- *         report (BUG-051).  On every other round every failed delivery
- *         counts.
+ *         report (BUG-051); a deferred resume that fails with ESRCH does
+ *         not count either, because the process is gone.  On every other
+ *         round every failed delivery counts.
  *
  * @note Safe iteration: stores next node before potential deletion
  */
@@ -923,13 +941,20 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
     /*
      * Resume recorded PIDs before the guard below: those processes have
      * already left the group, so a group whose list is gone still owes
-     * them a SIGCONT, and this is their last chance at one.
+     * them a SIGCONT, and this is their last chance at one.  A failure
+     * there is counted in failed, exactly like a failed resume of a
+     * current member: both may strand a process this group suspended.
      */
     if (sig == SIGCONT) {
-        resume_stopped_pids(proc_set);
+        failed = resume_stopped_pids(proc_set);
     }
     if (proc_set == NULL || proc_set->proc_list == NULL) {
-        return 0;
+        /*
+         * Return what the deferred round reported instead of a bare 0:
+         * the group list may be gone while recorded suspensions remain
+         * (R1), and that failure must not be dropped here.
+         */
+        return failed;
     }
 
     node = first_list_node(proc_set->proc_list);

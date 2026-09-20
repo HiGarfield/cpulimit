@@ -10642,6 +10642,135 @@ static void test_limit_process_all_signals_fail_returns_ok(void) {
 }
 
 /**
+ * @brief Drive limit_process() through a suspension that left the group
+ * @param inject_errno errno the shutdown SIGCONT must fail with
+ * @param expect_error Return value limit_process() must produce
+ * @param expect_report Non-zero when "left suspended" must appear on stderr
+ *
+ * The iterator seam scripts three snapshots: the target (initial scan),
+ * the target again (first control cycle, whose sleep phase suspends it),
+ * then an empty group (second cycle ends the loop with the target still
+ * recorded as suspended).  The kill seam lets the SIGSTOP land and fails
+ * the shutdown SIGCONT; because the target is no longer in proc_list,
+ * that resume goes through resume_stopped_pids() -- the deferred path
+ * (R1) -- and its failure must reach the shutdown report exactly like a
+ * failed resume of a current member.
+ */
+static void test_drive_limit_process_left_group(int inject_errno,
+                                                int expect_error,
+                                                int expect_report) {
+    int pipe_fds[2];
+    int ret, waited, exited;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct seam_proc *frames;
+        int limit_ret;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        frames = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+        assert(frames != NULL);
+        memset(&frames[0], 0, sizeof(frames[0]));
+        frames[0].pid = (pid_t)SEAM_TARGET_PID;
+        frames[0].ppid = (pid_t)1;
+        frames[0].cpu_time = 0.0;
+        frames[0].start_time = 10.0;
+        memset(&frames[1], 0, sizeof(frames[1]));
+        frames[1].pid = (pid_t)SEAM_TARGET_PID;
+        frames[1].ppid = (pid_t)1;
+        frames[1].cpu_time = 10.0;
+        frames[1].start_time = 10.0;
+        seam_reset();
+        seam_push_frame(frames, 1);     /* initial scan */
+        seam_push_frame(frames + 1, 1); /* first control cycle */
+        seam_push_frame(NULL, 0);       /* second cycle: group empty */
+        seam_active = 1;
+        seam_kill_calls = 0;
+        seam_fail_call = 2; /* the SIGSTOP lands, the SIGCONT fails */
+        seam_fail_span = 100;
+        seam_fail_errno = inject_errno;
+        limit_ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
+        seam_active = 0;
+        seam_fail_call = 0;
+        seam_fail_errno = 0;
+        free(frames);
+        _exit(limit_ret == expect_error ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    close(pipe_fds[1]);
+
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread = read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 512 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    if (expect_report) {
+        assert(strstr(err_buf, "left suspended") != NULL);
+    } else {
+        assert(strstr(err_buf, "left suspended") == NULL);
+        assert(strstr(err_buf, "cannot resume") == NULL);
+    }
+    free(err_buf);
+}
+
+/**
+ * @brief A failed deferred resume must fail the shutdown (R1)
+ * @note resume_stopped_pids() handles PIDs that left the group while
+ *       suspended, and every one of them was suspended by this group.  Its
+ *       failure used to be printed but never counted, so the run returned
+ *       success while a process stayed stopped -- inconsistent with the
+ *       identical failure on a current member.
+ */
+static void test_limit_process_deferred_resume_failure(void) {
+    test_drive_limit_process_left_group(EPERM, LIMIT_PROCESS_ERROR, 1);
+}
+
+/**
+ * @brief A deferred resume that hits a dead PID stays a success (R1)
+ * @note Symmetric case: ESRCH means the process is gone, so nothing was
+ *       stranded; it must not count and must not fail the run.
+ */
+static void test_limit_process_deferred_resume_esrch_is_ok(void) {
+    test_drive_limit_process_left_group(ESRCH, LIMIT_PROCESS_OK, 0);
+}
+
+/**
  * @brief CLI must accept "-p 1" (limiting PID 1 / container init) (BUG-008)
  * @note The legacy guard rejected any PID <= 1, so cpulimit refused to limit
  *       PID 1 even in containers where init is the only target.  After relaxing
@@ -13735,6 +13864,7 @@ static void test_process_set_reports_failed_resume(void) {
     struct process_set ps;
     int fds[2];
     int saved_stderr;
+    int resume_failed;
     /*
      * Small on purpose: only "was anything written" matters, and a larger
      * buffer would push this function past the per-function stack budget.
@@ -13762,7 +13892,7 @@ static void test_process_set_reports_failed_resume(void) {
     seam_fail_span = 1;
     seam_fail_errno = EPERM;
 
-    process_set_send_signal(&ps, SIGCONT, 0);
+    resume_failed = process_set_send_signal(&ps, SIGCONT, 0);
 
     seam_fail_call = 0;
     seam_fail_errno = 0;
@@ -13784,6 +13914,13 @@ static void test_process_set_reports_failed_resume(void) {
     close_process_set(&ps);
 
     assert(err_len > 0);
+    /*
+     * The failed deferred resume must reach the caller (R1): before the
+     * fix resume_stopped_pids() returned void and this count stayed 0,
+     * so the shutdown path could not tell that a process had been left
+     * suspended.
+     */
+    assert(resume_failed == 1);
 }
 
 /**
@@ -14138,6 +14275,8 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
     RUN_TEST(test_limit_process_reports_resume_failure);
     RUN_TEST(test_limit_process_all_signals_fail_returns_ok);
+    RUN_TEST(test_limit_process_deferred_resume_failure);
+    RUN_TEST(test_limit_process_deferred_resume_esrch_is_ok);
 }
 
 int main(int argc, char *argv[]) {
