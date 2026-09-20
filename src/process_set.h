@@ -345,7 +345,15 @@ size_t process_set_member_count(const struct process_set *proc_set);
  * @brief Send a signal to every active member of the process set
  * @param proc_set Pointer to the process set structure
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose If non-zero, print errors when signal delivery fails
+ * @param verbose Retained for API compatibility; failure reporting is
+ *                throttled per member by the stop_warned / cont_warned
+ *                flags, so this flag no longer changes what is printed
+ * @return The number of processes whose delivery failed and that this
+ *         call may have left suspended.  On the SIGCONT round that covers
+ *         current members this group had suspended and PIDs that left the
+ *         group while suspended (resumed from the record), where a
+ *         deferred resume that meets ESRCH does not count; on every other
+ *         round every failed delivery counts.
  *
  * Iterates through all processes in the group and sends the specified
  * signal.  If signal delivery fails (e.g., process terminated), the

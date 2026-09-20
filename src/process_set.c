@@ -841,17 +841,25 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  * @param sig Signal whose delivery failed
  * @param pid Process the signal could not be delivered to
  * @param err errno value captured at the point of failure
- * @param verbose If non-zero, report every occurrence instead of only the
- *                first one
+ * @param verbose Retained for the callers' API; this function no longer
+ *                gates on it (R3), because throttling is owned entirely
+ *                by the per-member stop_warned / cont_warned flags
  * @param may_remain_stopped Non-zero when the failed signal is a SIGCONT
  *                           that would have undone a suspension this group
  *                           recorded, so the member may stay stopped forever
  *
  * A process that cannot be signalled is retried on every control cycle,
- * so reporting every failure would flood the terminal; without
- * --verbose only the first one is reported.  The diagnostic is printed
- * even when not verbose because it means the requested limit cannot be
- * enforced on that process, which the user has to be told about.
+ * so reporting every failure would flood the terminal; the caller limits
+ * reporting to one message per member and failure episode through its
+ * stop_warned / cont_warned flags.  The diagnostic is printed even when
+ * not verbose because it means the requested limit cannot be enforced on
+ * that process, which the user has to be told about.
+ *
+ * There used to be a process-global "once ever" gate here as well, but it
+ * contradicted the per-member contract: after the first failure no other
+ * member ever produced a warning, so several uncontrollable members looked
+ * like one.  It was removed (R3); every call that the per-member flags let
+ * through now reports.
  *
  * A failed SIGCONT is only a "may remain stopped" emergency when this
  * group had actually suspended the member (may_remain_stopped); for a
@@ -863,6 +871,12 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  */
 static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
                                 int may_remain_stopped) {
+    /*
+     * The verbose parameter is kept for the callers' signature, but the
+     * decision whether to report at all already happened in the caller's
+     * per-member gate; gating again here would silence concurrent members.
+     */
+    (void)verbose;
     if (sig == SIGCONT && err == ESRCH) {
         /*
          * The process does not exist any more, so nothing is suspended:
@@ -874,8 +888,7 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
         /*
          * A failed SIGCONT for a suspended member means that process could
          * not be resumed, so it may stay stopped forever.  That is critical
-         * and must not be swallowed by the once-only gate used for SIGSTOP,
-         * so it is always reported with a recovery hint (BUG-049).
+         * and is always reported with a recovery hint (BUG-049).
          */
         fprintf(
             stderr,
@@ -884,14 +897,6 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
         return;
     }
 
-    if (!verbose) {
-        /* Static on purpose: the once-only gate spans every call. */
-        static int warned = 0;
-        if (warned) {
-            return;
-        }
-        warned = 1;
-    }
     fprintf(
         stderr,
         "Warning: cannot send signal %d to PID %ld: %s\n         (process stays tracked but cannot be limited)\n",
@@ -902,8 +907,10 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  * @brief Send a signal to every active member of the process set
  * @param proc_set Pointer to the process set structure
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose If non-zero, print every signal delivery failure instead
- *                of only the first one
+ * @param verbose Retained for API compatibility and forwarded to
+ *                warn_signal_failure(); failure reporting is throttled
+ *                per member through the stop_warned / cont_warned flags,
+ *                so this flag no longer changes what is printed (R3)
  *
  * Iterates through all processes in the group and sends the specified
  * signal.  A process that no longer exists (ESRCH) is removed from the
@@ -911,8 +918,8 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  * that still exists but could not be signalled (EPERM/EACCES, a seccomp
  * filter, ...) is kept: dropping it would silently end the limit for a
  * process the user asked to limit, while its CPU time still counts
- * against the group budget.  Such a failure is always reported, verbose
- * or not.
+ * against the group budget.  Such a failure is always reported, and each
+ * member reports its own first failure.
  *
  * Successful SIGSTOP delivery is recorded so that the suspension can
  * always be undone, both in the member's suspended_by_us flag and in the

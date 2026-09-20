@@ -11356,6 +11356,111 @@ static void test_process_set_reports_stop_failure_after_recovery(void) {
 }
 
 /**
+ * @brief Every member must be able to report its own SIGSTOP failure (R3)
+ * @note warn_signal_failure() carried a process-global "once ever" static
+ *       gate on top of the per-member stop_warned / cont_warned flags, so
+ *       for the whole run only the very first SIGSTOP failure was printed:
+ *       three uncontrollable members looked like one, and the struct
+ *       process documentation promises they report independently.  Two
+ *       members are scripted; the kill() seam fails their SIGSTOPs with
+ *       EPERM in non-verbose mode.  Both must warn (the fix), and a
+ *       second round must add nothing (the per-member flag still throttles
+ *       repeats, so the anti-flood behavior is preserved).
+ */
+static void test_process_set_reports_each_member_stop_failure(void) {
+    int pipe_fds[2];
+    pid_t pid;
+    int status;
+    int ret;
+    char *err_buf;
+    size_t err_len;
+    /* unsigned: folding the counting loop's bound into a signed counter
+       trips -Wstrict-overflow=5. */
+    unsigned int warn_count = 0;
+    const char *p;
+    const size_t BUFSZ = 262144;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct process_set proc_set;
+        struct seam_proc *frame;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        frame = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+        assert(frame != NULL);
+        memset(&frame[0], 0, sizeof(frame[0]));
+        frame[0].pid = (pid_t)SEAM_TARGET_PID;
+        frame[0].ppid = (pid_t)1;
+        frame[0].start_time = 10.0;
+        memset(&frame[1], 0, sizeof(frame[1]));
+        frame[1].pid = (pid_t)42425;
+        frame[1].ppid = (pid_t)SEAM_TARGET_PID;
+        frame[1].start_time = 10.0;
+        seam_reset();
+        seam_push_frame(frame, 2);
+        seam_active = 1;
+        if (init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1) != 0) {
+            free(frame);
+            _exit(EXIT_FAILURE);
+        }
+        /* Every SIGSTOP delivery fails with EPERM, for both members. */
+        seam_kill_calls = 0;
+        seam_fail_call = 1;
+        seam_fail_span = 100;
+        seam_fail_errno = EPERM;
+        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        /* A second round must stay silent: one warning per member. */
+        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        seam_active = 0;
+        seam_fail_call = 0;
+        seam_fail_errno = 0;
+        close_process_set(&proc_set);
+        free(frame);
+        _exit(EXIT_SUCCESS);
+    }
+    close(pipe_fds[1]);
+    err_buf = (char *)malloc(BUFSZ);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread =
+            read(pipe_fds[0], err_buf + err_len, BUFSZ - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+    assert(waitpid(pid, &status, 0) == pid);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
+    /* One warning per member, and no more from the repeated round. */
+    for (p = strstr(err_buf, "stays tracked but cannot be limited"); p != NULL;
+         p = strstr(p + 1, "stays tracked but cannot be limited")) {
+        warn_count++;
+    }
+    assert(warn_count == 2);
+    free(err_buf);
+}
+
+/**
  * @brief A recycled descendant PID must not be misattributed (BUG-004)
  * @note update_existing_process_entry() used to detect PID reuse only from a
  *       decrease in cpu_time.  A freshly recycled PID often has a *higher*
@@ -14277,6 +14382,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_reports_stop_failure_after_recovery);
+    RUN_TEST(test_process_set_reports_each_member_stop_failure);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_process_set_does_not_duplicate_pid);
     RUN_TEST(test_process_set_duplicate_pid_measured_once);
