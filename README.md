@@ -58,21 +58,23 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 >   ever match.
 >
 > **Selecting among multiple matches** — when more than one running process
-> matches, cpulimit applies the following rule while iterating over all
+> matches, cpulimit applies the following rules while iterating over all
 > processes:
 >
 > - A newly found matching process replaces the current candidate **only
 >   if the current candidate is a descendant** of the new process.
-> - If neither process is an ancestor of the other, the current candidate
->   is kept (the earlier-encountered process wins).
+> - If neither process is an ancestor of the other, the match with the
+>   **smaller PID** replaces the current candidate, which makes the choice
+>   deterministic and independent of the platform's iteration order.
 >
 > This means that among all matching processes, **the topmost ancestor is
 > always selected**: if processes A → B → C all match (A is the root
 > ancestor), A wins regardless of iteration order. If two matching
 > processes are unrelated (neither is an ancestor of the other), the one
-> encountered first during system process iteration wins; that order is
-> platform-defined, so the result is **non-deterministic** among those
-> unrelated processes.
+> with the smaller PID wins. After the scan, the selected process is
+> rechecked for existence; if it has exited in the meantime, cpulimit
+> **falls back to another live candidate** instead of reporting the target
+> as not found.
 >
 > _Example:_ If a process `myapp` spawns a child process also named
 > `myapp`, `-e myapp` selects the parent process (the ancestor), not the
