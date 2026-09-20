@@ -10833,6 +10833,141 @@ static void test_cli_rejects_root_match_name(void) {
 }
 
 /**
+ * @brief Parse an argument vector in a child, capturing its stderr
+ * @param args Argument vector (NULL-terminated) to parse
+ * @param err_out Buffer receiving the child's stderr
+ * @param err_size Size of err_out
+ * @return EXIT_SUCCESS when parse_arguments() accepted the arguments,
+ *         EXIT_FAILURE when it rejected them
+ *
+ * The child's stderr is redirected into a pipe so a rejection's error
+ * text (followed by the usage dump) can be asserted on without polluting
+ * the test log.  Only the first err_size-1 bytes are kept; the diagnostic
+ * line always comes first.
+ */
+static int run_parse_capture_stderr(char **args, char *err_out,
+                                    size_t err_size) {
+    int pipe_fds[2];
+    int ret, status, exited;
+    pid_t pid, waited;
+    size_t err_len;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct cpulimit_cfg cfg;
+        int parse_ret;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "cpulimit";
+        parse_ret = parse_arguments(5, args, &cfg);
+        _exit(parse_ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    close(pipe_fds[1]);
+    err_len = 0;
+    while (err_len < err_size - 1) {
+        ssize_t nread =
+            read(pipe_fds[0], err_out + err_len, err_size - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_out[err_len] = '\0';
+    close(pipe_fds[0]);
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    return WEXITSTATUS(status);
+}
+
+/**
+ * @brief -e must reject names that can never match a process (N7)
+ * @note find_process_by_name() compares the basename for relative names
+ *       and bails out on an empty one, so "//", "bin/", "a/b/" and
+ *       "/tmp/" were structurally unmatchable yet accepted by the CLI:
+ *       non-lazy mode retried every two seconds until the lookup cap and
+ *       then reported "cannot be found", instead of one clear "invalid
+ *       match name".  Usable relative and absolute names must still
+ *       parse.
+ */
+static void test_cli_rejects_unmatchable_names(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_e[] = "-e";
+    char arg_slash2[] = "//";
+    char arg_dir[] = "bin/";
+    char arg_nested[] = "a/b/";
+    char arg_absdir[] = "/tmp/";
+    char arg_name[] = "myapp";
+    char arg_rel[] = "./dir/myapp";
+    char arg_abs[] = "/usr/bin/myapp";
+    char *args[6];
+    char err_buf[160];
+    int parse_ret;
+
+    args[0] = arg0;
+    args[1] = arg_l;
+    args[2] = arg_50;
+    args[3] = arg_e;
+    args[5] = NULL;
+
+    /* Every empty-basename spelling must be rejected with the message. */
+    args[4] = arg_slash2;
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_FAILURE);
+    assert(strstr(err_buf, "invalid match name") != NULL);
+
+    args[4] = arg_dir;
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_FAILURE);
+    assert(strstr(err_buf, "invalid match name") != NULL);
+
+    args[4] = arg_nested;
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_FAILURE);
+    assert(strstr(err_buf, "invalid match name") != NULL);
+
+    args[4] = arg_absdir;
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_FAILURE);
+    assert(strstr(err_buf, "invalid match name") != NULL);
+
+    /* Usable names still parse, without any diagnostic. */
+    args[4] = arg_name;
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_SUCCESS);
+    assert(strstr(err_buf, "invalid") == NULL);
+
+    args[4] = arg_rel;
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_SUCCESS);
+
+    args[4] = arg_abs;
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_SUCCESS);
+}
+
+/**
  * @brief A repeated SIGCONT failure must not flood stderr (BUG-058)
  * @note A member that can never be resumed (EPERM) is retried every control
  *       cycle, so reporting each failure would print 40+ lines per second in
@@ -13337,6 +13472,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_rejects_leading_whitespace_in_numbers);
     RUN_TEST(test_cli_rejects_empty_command_name);
     RUN_TEST(test_cli_rejects_root_match_name);
+    RUN_TEST(test_cli_rejects_unmatchable_names);
     RUN_TEST(test_cli_empty_exe);
     RUN_TEST(test_cli_no_target);
     RUN_TEST(test_cli_multiple_targets);

@@ -53,9 +53,11 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 >   Only the **basename** of the argument is compared against the
 >   **basename** of each process's `argv[0]`; directory components are
 >   ignored on both sides. As a result, `-e ./dir1/myapp` also matches
->   a process started as `./dir2/myapp` or `/usr/bin/myapp`. If the
->   basename of the argument is empty (e.g., `-e bin/`), no process will
->   ever match.
+>   a process started as `./dir2/myapp` or `/usr/bin/myapp`.
+>
+> An argument whose basename is empty — `-e /`, `-e //`, `-e bin/`,
+> `-e a/b/`, `-e /tmp/` — can never select a process and is rejected
+> immediately with `invalid match name`.
 >
 > **Selecting among multiple matches** — when more than one running process
 > matches, cpulimit applies the following rules while iterating over all

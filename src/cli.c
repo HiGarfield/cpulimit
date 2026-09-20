@@ -331,13 +331,18 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
                 return EXIT_FAILURE;
             }
             /*
-             * A bare "/" is the root directory, not an executable name; handing
-             * it to find_process_by_name() would never match and, in non-lazy
-             * mode, retry forever.  Reject it up front with a clear error
-             * (BUG-071).
+             * Reject match names that can never select a process (BUG-071,
+             * N7): find_process_by_name() compares against the basename for
+             * relative names and returns 0 immediately when that basename is
+             * empty, so "bin/", "a/b/", "//" and "/tmp/" are all
+             * structurally unmatchable.  A bare "/" is the same case (its
+             * basename is empty).  Handing any of them on would mean thirty
+             * seconds of "cannot be found, retrying..." in non-lazy mode and
+             * a misleading "cannot be found" in lazy mode; reject them up
+             * front with one clear error.
              */
-            if (optarg[0] == '/' && optarg[1] == '\0') {
-                fprintf(stderr, "Error: invalid match name '/'\n\n");
+            if (get_file_basename(optarg)[0] == '\0') {
+                fprintf(stderr, "Error: invalid match name '%s'\n\n", optarg);
                 print_usage(stderr, cfg);
                 return EXIT_FAILURE;
             }
