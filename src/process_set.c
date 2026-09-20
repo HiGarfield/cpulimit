@@ -686,7 +686,22 @@ int update_process_set(struct process_set *proc_set) {
              */
             if (find_process_in_list_by_pid(proc_set->proc_list, proc->pid) ==
                 NULL) {
-                add_list_elem(proc_set->proc_list, proc);
+                if (add_list_elem(proc_set->proc_list, proc) == NULL) {
+                    /*
+                     * The member could not be linked into this cycle's
+                     * view (N6).  Besides missing this cycle's SIGSTOP/
+                     * SIGCONT, a member absent from proc_list would be
+                     * treated as exited by
+                     * remove_stale_from_process_table() at the end of the
+                     * cycle and lose its CPU history.  Abort the cycle
+                     * like the other allocation failures.  Unlike the
+                     * new-member path above, the record must NOT be
+                     * freed here: it is still owned by proc_table, which
+                     * keeps it for the next cycle's baseline comparison.
+                     */
+                    alloc_failed = 1;
+                    break;
+                }
                 update_existing_process_entry(proc, scan_proc, &now, ncpu);
             }
         }

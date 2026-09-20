@@ -5878,6 +5878,17 @@ static void test_process_set_update_return_value(void) {
     assert(ret == 0);
     ret = update_process_set(&proc_set);
     assert(ret == 0);
+    /*
+     * The surviving member must be re-linked into this cycle's view: the
+     * list is cleared at the top of every update, and a node allocation
+     * failure during the re-link now aborts the cycle (N6) instead of
+     * silently dropping the member -- which would also make
+     * remove_stale_from_process_table() purge its CPU history.  That
+     * failure branch sets alloc_failed and breaks, mirroring the other
+     * allocation failures; it cannot be injected from the outside (the
+     * node malloc has no seam), so it is covered by code review and this
+     * positive contract assertion.
+     */
     list_count = proc_set.proc_list->count;
     assert(list_count == 1);
 
