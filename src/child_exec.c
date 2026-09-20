@@ -198,10 +198,9 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      */
     if (strchr(check_path, '/') != NULL) {
         if (is_script_inaccessible_interpreter(check_path)) {
-            fprintf(
-                stderr,
-                "%s: cannot execute: shebang interpreter is inaccessible\n",
-                check_path);
+            fprintf(stderr,
+                    "%s: cannot execute: shebang interpreter is inaccessible\n",
+                    check_path);
             free(resolved);
             _exit(EXIT_CMD_NOT_EXECUTABLE);
         }
