@@ -14282,8 +14282,7 @@ static void test_limit_process_reports_scan_failure(void) {
     pid_t driver, waited;
     int status, exited, exit_code, seen;
     size_t total = 0;
-    char *capture = (char *)malloc(4096);
-    assert(capture != NULL);
+    char *capture;
     assert(pipe(err_pipe) == 0);
 
     fflush(stdout);
@@ -14295,6 +14294,15 @@ static void test_limit_process_reports_scan_failure(void) {
         scan_failure_driver_child(err_pipe[1]);
     }
     close(err_pipe[1]);
+
+    /*
+     * Allocated only now: a buffer that exists before the fork is
+     * inherited by the child, which never frees it, so valgrind reports
+     * it as lost -- and with --error-exitcode that turns the child's exit
+     * status into the one this test asserts on.
+     */
+    capture = (char *)malloc(4096);
+    assert(capture != NULL);
 
     while (total < 4095) {
         ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
@@ -14377,8 +14385,7 @@ static void test_pid_mode_retries_after_scan_failure(void) {
     pid_t driver, waited;
     int status, exited, exit_code, seen;
     size_t total = 0;
-    char *capture = (char *)malloc(4096);
-    assert(capture != NULL);
+    char *capture;
     assert(pipe(err_pipe) == 0);
 
     fflush(stdout);
@@ -14390,6 +14397,10 @@ static void test_pid_mode_retries_after_scan_failure(void) {
         pid_mode_retry_driver_child(err_pipe[1]);
     }
     close(err_pipe[1]);
+
+    /* Only now, so the forked child inherits nothing to leak. */
+    capture = (char *)malloc(4096);
+    assert(capture != NULL);
 
     /*
      * Read until the diagnostic shows up: that is the moment the first
