@@ -253,18 +253,26 @@ struct stopped_pid_record {
  * @param pid PID that was successfully sent SIGSTOP
  * @param start_time Start time of pid at suspension, from
  * get_process_start_time()
+ * @return 0 when the suspension is recorded, -1 when it is not -- in
+ *         which case the process has already been resumed again and the
+ *         caller must not treat it as suspended by this group
  *
  * proc_list is rebuilt from scratch by update_process_set(), so a process
  * can cease to be a member of the group while it is still suspended: a
  * descendant, for instance, is re-parented away when its monitored ancestor
  * exits, and is_child_of() then no longer matches it.  Recording the PID
  * here keeps the suspension undoable after the process has left proc_list.
+ *
+ * When the record cannot be created, the suspension is undone immediately:
+ * an unrecorded suspension would never be resumed after the member leaves
+ * the group, leaving it stopped forever with no warning at all.  Both the
+ * record allocation and the list node allocation are checked (R4).
  */
-void record_stopped_pid(struct process_set *proc_set, pid_t pid,
-                        double start_time) {
+int record_stopped_pid(struct process_set *proc_set, pid_t pid,
+                       double start_time) {
     struct stopped_pid_record *rec;
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
-        return;
+        return -1;
     }
     rec = (struct stopped_pid_record *)malloc(sizeof(*rec));
     if (rec == NULL) {
@@ -275,11 +283,23 @@ void record_stopped_pid(struct process_set *proc_set, pid_t pid,
          * stays a group member, so limiting resumes from the next one.
          */
         kill(pid, SIGCONT);
-        return;
+        return -1;
     }
     rec->pid = pid;
     rec->start_time = start_time;
-    add_list_elem(proc_set->stopped_pids, rec);
+    if (add_list_elem(proc_set->stopped_pids, rec) == NULL) {
+        /*
+         * The list node could not be allocated either, so this suspension
+         * is just as unrecorded as the malloc failure above: release the
+         * orphaned record and undo the suspension now (R4).  Leaving it
+         * suspended would strand it silently once the member leaves the
+         * group, because nothing would be left to resume it.
+         */
+        free(rec);
+        kill(pid, SIGCONT);
+        return -1;
+    }
+    return 0;
 }
 
 /*
@@ -1062,16 +1082,16 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                 }
             }
         } else if (sig == SIGSTOP) {
-            /* Track the suspension so it can always be undone */
-            record_stopped_pid(proc_set, pid, proc->start_time);
             /*
-             * Mark the member as suspended by this group (BUG-051).  If
-             * record_stopped_pid() could not record the suspension (out of
-             * memory) it resumes the member itself, so the flag may read
-             * suspended while the member actually runs; that window is
-             * closed by the next successful SIGCONT or the next scan.
+             * Track the suspension so it can always be undone, and mark the
+             * member as suspended by this group only when the record really
+             * exists (BUG-051, R4): if record_stopped_pid() could not
+             * record it, that function has already resumed the member, so
+             * the flag must not claim a suspension that was taken back.
              */
-            proc->suspended_by_us = 1;
+            if (record_stopped_pid(proc_set, pid, proc->start_time) == 0) {
+                proc->suspended_by_us = 1;
+            }
             /*
              * A successful delivery ends this signal's failure episode,
              * exactly as the SIGCONT branch clears cont_warned: without

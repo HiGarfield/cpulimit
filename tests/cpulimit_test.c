@@ -11461,6 +11461,68 @@ static void test_process_set_reports_each_member_stop_failure(void) {
 }
 
 /**
+ * @brief An unrecorded suspension must not be flagged as ours (R4)
+ * @note record_stopped_pid() ignored add_list_elem()'s NULL return: the
+ *       record leaked and, worse, the suspension stayed unrecorded while
+ *       process_set_send_signal() unconditionally set suspended_by_us, so
+ *       once the member left the group nothing would ever resume it.  The
+ *       function now reports failure and the caller only flags a recorded
+ *       suspension.
+ *
+ *       The unavailable-list failure branch is driven here by releasing
+ *       the (empty) list structure, which keeps the ownership contract
+ *       intact; the node-allocation branch cannot be injected from the
+ *       outside and is covered by code review.
+ */
+static void test_process_set_unrecorded_suspend_not_flagged(void) {
+    struct process_set proc_set;
+    struct process *tracked;
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    int ret;
+    assert(frame != NULL);
+
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    frame[0].start_time = 10.0;
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
+    assert(ret == 0);
+    tracked =
+        find_in_process_table(proc_set.proc_table, (pid_t)SEAM_TARGET_PID);
+    assert(tracked != NULL);
+
+    /*
+     * Make the suspension record unavailable: the group can no longer
+     * record a suspension, so record_stopped_pid() must report failure
+     * and undo it.  Releasing the empty list structure keeps the
+     * ownership contract intact; close_process_set() tolerates the NULL
+     * field.
+     */
+    free(proc_set.stopped_pids);
+    proc_set.stopped_pids = NULL;
+
+    seam_kill_calls = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    process_set_send_signal(&proc_set, SIGSTOP, 0);
+
+    /*
+     * The SIGSTOP itself was delivered, but no suspension was recorded,
+     * so the member must not be flagged as suspended by this group.
+     */
+    assert(tracked->suspended_by_us == 0);
+
+    seam_active = 0;
+    assert(close_process_set(&proc_set) == 0);
+    free(frame);
+}
+
+/**
  * @brief A recycled descendant PID must not be misattributed (BUG-004)
  * @note update_existing_process_entry() used to detect PID reuse only from a
  *       decrease in cpu_time.  A freshly recycled PID often has a *higher*
@@ -14383,6 +14445,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_reports_stop_failure_after_recovery);
     RUN_TEST(test_process_set_reports_each_member_stop_failure);
+    RUN_TEST(test_process_set_unrecorded_suspend_not_flagged);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_process_set_does_not_duplicate_pid);
     RUN_TEST(test_process_set_duplicate_pid_measured_once);
