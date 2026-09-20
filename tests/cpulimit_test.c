@@ -9966,6 +9966,112 @@ static void test_limiter_stale_pid_lookups_are_capped(void) {
 }
 
 /**
+ * @brief -z with a stale -e target must not report success (N1)
+ * @note The stale branch only set EXIT_FAILURE in non-lazy mode, so
+ *       `cpulimit -z -l 50 -e app` whose resolved PID had already been
+ *       recycled printed "not limiting it" and exited 0: no signal was
+ *       ever sent, yet the run claimed success.  The scan is scripted
+ *       (frame 0 matches "busy", frame 1 shows the same PID running
+ *       "other") and the recheck is kept alive by the seam, so the single
+ *       lazy iteration must end with EXIT_FAILURE while still printing
+ *       the stale diagnostic.  The non-lazy counterpart stays pinned by
+ *       test_limiter_stale_pid_lookups_are_capped.
+ */
+static void test_limiter_lazy_stale_pid_reports_failure(void) {
+    int pipe_fds[2];
+    int ret, waited, exited;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct cpulimit_cfg cfg;
+        struct seam_proc *frame;
+        int run_status;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        frame = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+        assert(frame != NULL);
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.exe_name = "busy";
+        cfg.cpu_limit = 0.5;
+        cfg.lazy_mode = 1;
+        seam_reset();
+        /*
+         * Frame 0: the name scan matches "busy".  Frame 1: the recheck
+         * inside process_has_other_name() sees the same PID running
+         * "other", so the resolved target is stale.
+         */
+        memset(&frame[0], 0, sizeof(frame[0]));
+        frame[0].pid = (pid_t)SEAM_TARGET_PID;
+        frame[0].ppid = (pid_t)1;
+        strcpy(frame[0].command, "busy");
+        seam_push_frame(frame, 1);
+        memset(&frame[1], 0, sizeof(frame[1]));
+        frame[1].pid = (pid_t)SEAM_TARGET_PID;
+        frame[1].ppid = (pid_t)1;
+        strcpy(frame[1].command, "other");
+        seam_push_frame(frame + 1, 1);
+        seam_active = 1;
+        seam_find_by_pid_override = 1;
+        seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+        seam_alive_count = 1;
+        run_status = run_pid_or_exe_mode(&cfg);
+        seam_active = 0;
+        seam_find_by_pid_override = 0;
+        free(frame);
+        _exit(run_status == EXIT_FAILURE ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    close(pipe_fds[1]);
+
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread = read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 512 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    /* The stale hit must still be reported, and no retry may have run. */
+    assert(strstr(err_buf, "no longer 'busy'") != NULL);
+    assert(strstr(err_buf, "Giving up") == NULL);
+    free(err_buf);
+}
+
+/**
  * @brief run_command_mode() must surface the command's real exit code on stderr
  *        when limiting never starts (LIMIT_PROCESS_ERROR) (BUG-018)
  * @note The init_process_iterator seam (seam_init_fails) makes limit_process()
@@ -13585,6 +13691,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_exits_on_permission_denied);
     RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
     RUN_TEST(test_limiter_stale_pid_lookups_are_capped);
+    RUN_TEST(test_limiter_lazy_stale_pid_reports_failure);
     RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_command_mode_signal_term);
     RUN_TEST(test_limiter_run_command_mode_signal_kill);

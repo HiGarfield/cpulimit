@@ -318,7 +318,19 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 fprintf(stderr,
                         "Process %ld is no longer '%s'; not limiting it\n",
                         (long)found_pid, cfg->exe_name);
-                if (!cfg->lazy_mode) {
+                /*
+                 * Nothing was limited, so this attempt is a failure in
+                 * both modes (N1): a lazy run used to fall through to
+                 * EXIT_SUCCESS here, silently reporting success for a run
+                 * that never touched its target.  Only non-lazy mode
+                 * retries after a stale hit, so only it counts attempts
+                 * and gives up explicitly after
+                 * MAX_TARGET_LOOKUP_ATTEMPTS; lazy mode ends the
+                 * iteration below and fails right here.
+                 */
+                if (cfg->lazy_mode) {
+                    exit_status = EXIT_FAILURE;
+                } else {
                     /*
                      * A stale target is the same kind of never-arriving
                      * target as a "not found" one, so it is bound by the
