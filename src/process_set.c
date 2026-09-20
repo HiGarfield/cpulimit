@@ -788,10 +788,20 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  * A failed SIGCONT is only a "may remain stopped" emergency when this
  * group had actually suspended the member (may_remain_stopped); for a
  * member this group never suspended the signal failure is ordinary --
- * nothing is stuck, so no recovery hint is printed (BUG-051).
+ * nothing is stuck, so no recovery hint is printed (BUG-051).  A failed
+ * SIGCONT with ESRCH is not reported at all: the process is gone, so
+ * there is no suspension left to undo and no recovery to suggest
+ * (BUG-052).
  */
 static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
                                 int may_remain_stopped) {
+    if (sig == SIGCONT && err == ESRCH) {
+        /*
+         * The process does not exist any more, so nothing is suspended:
+         * stay silent instead of telling the user to resume a corpse.
+         */
+        return;
+    }
     if (sig == SIGCONT && may_remain_stopped) {
         /*
          * A failed SIGCONT for a suspended member means that process could

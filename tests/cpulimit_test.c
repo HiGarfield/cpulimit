@@ -12603,6 +12603,111 @@ static void test_process_set_resume_skips_recycled_pid(void) {
 }
 
 /**
+ * @brief BUG-052: resuming a recorded PID whose process has exited must be
+ *        silent
+ * @note resume_stopped_pids() gives PIDs that left the group while
+ *       suspended a last SIGCONT.  When that process has exited, kill()
+ *       fails with ESRCH: nothing is suspended any more, so warning "It
+ *       may remain stopped" would be pure fiction.  The test suspends a
+ *       real target, makes it exit, rescans the (now empty) group and
+ *       runs the resume round: stderr must stay clean and the call must
+ *       not report a failure.
+ */
+static void test_process_set_resume_silent_when_pid_gone(void) {
+    int pipe_fds[2];
+    int ret, waited, exited;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+    struct process_set proc_set;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        pid_t target;
+        int resume_failed;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        seam_reset();
+        /* A separate process to act as the suspended victim. */
+        target = fork();
+        if (target < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        if (target == 0) {
+            while (1) {
+                pause();
+            }
+        }
+        if (init_process_set(&proc_set, target, 0) != 0) {
+            kill(target, SIGKILL);
+            waitpid(target, NULL, 0);
+            _exit(EXIT_FAILURE);
+        }
+        /* A real, successful SIGSTOP records the suspension. */
+        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        /*
+         * Make the suspended target exit: the group no longer contains
+         * it, so the resume round below reaches it only through the
+         * stopped-PID record, and its kill() fails with ESRCH.
+         */
+        kill(target, SIGKILL);
+        waitpid(target, NULL, 0);
+        if (update_process_set(&proc_set) != 0) {
+            close_process_set(&proc_set);
+            _exit(EXIT_FAILURE);
+        }
+        resume_failed = process_set_send_signal(&proc_set, SIGCONT, 0);
+        close_process_set(&proc_set);
+        _exit(resume_failed == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    close(pipe_fds[1]);
+
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread = read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 512 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    /* The ESRCH resume must neither warn nor pollute the exit status. */
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert(strstr(err_buf, "remain stopped") == NULL);
+    assert(strstr(err_buf, "cannot resume") == NULL);
+    free(err_buf);
+}
+
+/**
  * @brief BUG-017: find_process_by_name() must not abort on iterator-init
  * failure
  * @note On a fatal error (here the process iterator cannot be initialized)
@@ -12753,6 +12858,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
     RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
+    RUN_TEST(test_process_set_resume_silent_when_pid_gone);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
     RUN_TEST(test_limit_process_reports_resume_failure);
