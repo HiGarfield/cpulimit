@@ -330,6 +330,15 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  * group by definition, so a failed resume here can strand it just like a
  * failed resume of a current member, and the shutdown report has to see
  * both the same way (R1).
+ *
+ * Destroying the list unconditionally is what makes the invariant below
+ * necessary.  Members that are still in proc_list are skipped here because
+ * the caller resumes them itself, but their records are dropped all the
+ * same, and their SIGCONT can still fail: process_set_send_signal() then
+ * re-records them, so the list is never emptied of a suspension that was
+ * not actually undone (S3).  Between resume_stopped_pids() and that re-
+ * record lies the window in which nothing guarantees the resume of a
+ * member that leaves the group -- exactly what S3 closes.
  */
 int resume_stopped_pids(struct process_set *proc_set) {
     const struct list_node *node;
@@ -1079,6 +1088,30 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                         proc->stop_warned = 1;
                     }
                     failed++;
+                    if (sig == SIGCONT && proc->suspended_by_us) {
+                        /*
+                         * Re-record the suspension this group still owes
+                         * an undo for.  The round opened by destroying
+                         * every record, so this member is stopped with no
+                         * record left: if it now leaves the group -- a
+                         * descendant re-parented away when its ancestor
+                         * exits is the usual case -- the table entry that
+                         * keeps it visible disappears too, and nothing
+                         * would ever resume it again (S3).  The list has
+                         * just been emptied of this PID, so recording it
+                         * again cannot duplicate an entry; the next
+                         * SIGCONT round retries whether it is still a
+                         * member by then or has already left.
+                         *
+                         * Only for a member whose suspension is on the
+                         * books: suspended_by_us is still set here because
+                         * only a successful SIGCONT clears it.  A failure
+                         * to allocate the record resumes the member right
+                         * away, so ignoring the result is safe.
+                         */
+                        (void)record_stopped_pid(proc_set, pid,
+                                                 proc->start_time);
+                    }
                 }
             }
         } else if (sig == SIGSTOP) {

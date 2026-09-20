@@ -14454,6 +14454,84 @@ static void test_process_set_reports_failed_resume(void) {
 }
 
 /**
+ * @brief A member whose SIGCONT failed must stay recorded as suspended (S3)
+ * @note resume_stopped_pids() skips members that are still in proc_list --
+ *       the caller resumes them itself -- but then destroys the whole record
+ *       list anyway. So when that member's own SIGCONT fails, it is left
+ *       stopped with no record left: once it leaves the group (a descendant
+ *       is dropped from proc_list when its ancestor exits) nothing can ever
+ *       resume it again, and neither the exit status nor stderr says so.
+ *       The fix re-records it, which costs nothing because the round has
+ *       just emptied the list of that PID.
+ *
+ *       The test suspends a scripted member, makes only its own SIGCONT fail
+ *       with EPERM, then empties the group and runs another SIGCONT round:
+ *       that round must find the record and deliver the missing SIGCONT.
+ *       Verified by mutation: dropping the re-record makes both asserts fail
+ *       (the resume count stays 0 and the round reports success).
+ */
+static void test_process_set_rerecords_member_failed_resume(void) {
+    struct process_set ps;
+    struct seam_proc *scan =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    int stop_failed, cont_failed, later_failed;
+    size_t from_call, idx, resumed = 0;
+
+    assert(scan != NULL);
+    memset(scan, 0, sizeof(struct seam_proc));
+    scan[0].pid = (pid_t)SEAM_TARGET_PID;
+    scan[0].ppid = (pid_t)1;
+    scan[0].cpu_time = 100.0;
+    scan[0].start_time = 10.0;
+
+    seam_reset();
+    /* Frame 0 serves the initial scan; the later update gets an empty one. */
+    seam_push_frame(scan, 1);
+    seam_active = 1;
+
+    assert(init_process_set(&ps, (pid_t)SEAM_TARGET_PID, 0) == 0);
+
+    /* One successful stop round: the suspension is on the books. */
+    stop_failed = process_set_send_signal(&ps, SIGSTOP, 0);
+    assert(stop_failed == 0);
+
+    /*
+     * Only the second kill() is made to fail: the first was the SIGSTOP,
+     * the second is the member's own SIGCONT in the following round.
+     */
+    seam_fail_call = 2;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+    cont_failed = process_set_send_signal(&ps, SIGCONT, 0);
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    assert(cont_failed != 0);
+
+    /* The member leaves the group while it is still stopped. */
+    seam_push_frame(NULL, 0);
+    seam_repeat_last = 1;
+    assert(update_process_set(&ps) == 0);
+    assert(process_set_is_empty(&ps));
+
+    from_call = seam_signal_count;
+    later_failed = process_set_send_signal(&ps, SIGCONT, 0);
+    for (idx = from_call; idx < seam_signal_count; idx++) {
+        if (seam_signals[idx].pid == (pid_t)SEAM_TARGET_PID &&
+            seam_signals[idx].sig == SIGCONT && !seam_signals[idx].failed) {
+            resumed = 1;
+        }
+    }
+
+    close_process_set(&ps);
+    seam_active = 0;
+    seam_repeat_last = 0;
+    free(scan);
+
+    assert(later_failed == 0);
+    assert(resumed == 1);
+}
+
+/**
  * @brief BUG-016: a recycled PID must not receive a deferred SIGCONT
  * @note record_stopped_pid() stores the suspended process's start time.
  *       When that PID has left the group, resume_stopped_pids() re-queries
@@ -14790,6 +14868,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
+    RUN_TEST(test_process_set_rerecords_member_failed_resume);
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_reports_stop_failure_after_recovery);
