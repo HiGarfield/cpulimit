@@ -75,8 +75,9 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 > processes are unrelated (neither is an ancestor of the other), the one
 > with the smaller PID wins. After the scan, the selected process is
 > rechecked for existence; if it has exited in the meantime, cpulimit
-> **falls back to another live candidate** instead of reporting the target
-> as not found.
+> **falls back to the best surviving candidate by the same rule**
+> (ancestor first, otherwise the smaller PID) instead of reporting the
+> target as not found.
 >
 > _Example:_ If a process `myapp` spawns a child process also named
 > `myapp`, `-e myapp` selects the parent process (the ancestor), not the
