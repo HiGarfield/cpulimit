@@ -11781,9 +11781,8 @@ static void test_process_set_new_member_uses_own_interval(void) {
     usage_target =
         find_process_in_list_by_pid(proc_set.proc_list, (pid_t)SEAM_TARGET_PID)
             ->cpu_usage;
-    usage_child =
-        find_process_in_list_by_pid(proc_set.proc_list, (pid_t)42425)
-            ->cpu_usage;
+    usage_child = find_process_in_list_by_pid(proc_set.proc_list, (pid_t)42425)
+                      ->cpu_usage;
     close_process_set(&proc_set);
 
     /* Bit-exact comparisons (a plain == would trip -Wfloat-equal). */

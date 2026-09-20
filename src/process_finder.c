@@ -253,8 +253,7 @@ pid_t find_process_by_name(const char *process_name) {
             continue;
         }
         candidate_is_ancestor = is_child_of(fallback, candidate);
-        unrelated =
-            !candidate_is_ancestor && !is_child_of(candidate, fallback);
+        unrelated = !candidate_is_ancestor && !is_child_of(candidate, fallback);
         if (candidate_is_ancestor || (unrelated && candidate < fallback)) {
             fallback = candidate;
             fallback_probe = probe;
