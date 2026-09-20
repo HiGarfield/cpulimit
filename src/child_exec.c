@@ -188,31 +188,33 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     /*
      * Heap-allocate the PATH resolution buffer instead of putting a
      * PATH_MAX-sized array on the stack, which would blow the project's
-     * -Wstack-usage=512 limit.  On allocation failure we simply skip the
-     * PATH-resolved shebang pre-check (the explicit-path branch still runs,
-     * and a bare name falls through to execvp() and reports the usual
-     * code).
+     * -Wstack-usage=512 limit.  Only the PATH-resolved branch needs it:
+     * the explicit-path branch works on check_path itself and therefore
+     * runs whether or not the allocation succeeded (R5).  A failed
+     * allocation costs just the PATH pre-check -- a bare name then falls
+     * through to execvp() and reports the usual code -- never the
+     * explicit-path check whose 126 classification must not depend on a
+     * 4 KiB allocation succeeding.
      */
-    if (resolved != NULL) {
-        if (strchr(check_path, '/') != NULL) {
-            if (is_script_inaccessible_interpreter(check_path)) {
-                fprintf(
-                    stderr,
-                    "%s: cannot execute: shebang interpreter is inaccessible\n",
-                    check_path);
-                free(resolved);
-                _exit(EXIT_CMD_NOT_EXECUTABLE);
-            }
-        } else if (resolve_command_path(check_path, resolved, PATH_MAX) &&
-                   is_script_inaccessible_interpreter(resolved)) {
-            fprintf(stderr,
-                    "%s: cannot execute: shebang interpreter is inaccessible\n",
-                    check_path);
+    if (strchr(check_path, '/') != NULL) {
+        if (is_script_inaccessible_interpreter(check_path)) {
+            fprintf(
+                stderr,
+                "%s: cannot execute: shebang interpreter is inaccessible\n",
+                check_path);
             free(resolved);
             _exit(EXIT_CMD_NOT_EXECUTABLE);
         }
+    } else if (resolved != NULL &&
+               resolve_command_path(check_path, resolved, PATH_MAX) &&
+               is_script_inaccessible_interpreter(resolved)) {
+        fprintf(stderr,
+                "%s: cannot execute: shebang interpreter is inaccessible\n",
+                check_path);
         free(resolved);
+        _exit(EXIT_CMD_NOT_EXECUTABLE);
     }
+    free(resolved);
     execvp(cfg->command_args[0], cfg->command_args);
 
     /*
