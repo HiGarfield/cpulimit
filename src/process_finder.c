@@ -90,10 +90,13 @@ pid_t find_process_by_pid(pid_t pid) {
  * - If process_name starts with '/': compares full absolute paths
  * - Otherwise: compares only the basename (executable name without directory)
  *
- * When multiple matches exist, selects the first process found, or if one is
- * an ancestor of another, prefers the ancestor. This heuristic helps ensure
- * that if a parent process spawns children with the same name, the parent is
- * chosen.
+ * When multiple matches exist, the topmost ancestor is preferred; among
+ * unrelated matches the smallest PID wins, which makes the choice
+ * independent of the platform's process iteration order.  This heuristic
+ * helps ensure that if a parent process spawns children with the same name,
+ * the parent is chosen.  If the chosen process vanishes before the
+ * existence recheck, the best surviving candidate is selected by the same
+ * rule.
  *
  * @note Returns 0 immediately for NULL or empty process_name
  * @note Iterates through all processes in the system, which may be slow on
@@ -105,7 +108,7 @@ pid_t find_process_by_pid(pid_t pid) {
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
-    pid_t probe;
+    pid_t probe, fallback, fallback_probe;
     pid_t candidates[PROC_FINDER_MAX_CANDIDATES];
     /* unsigned: as signed counters the fallback loop below needs the
        assumption that i + 1 does not overflow to be folded, which
@@ -180,8 +183,17 @@ pid_t find_process_by_name(const char *process_name) {
                 pid = proc->pid;
                 found = 1;
             }
-            /* Remember every match so a vanished winner can fall back to
-             * another live candidate (BUG-056). */
+            /*
+             * Remember every match so a vanished winner can fall back to
+             * another live candidate (BUG-056).  The array only caps the
+             * MEMORY of candidates: the primary selection above keeps
+             * running over every process, so with more than
+             * PROC_FINDER_MAX_CANDIDATES matches the winner is still
+             * chosen correctly and only a fallback could miss the ideal
+             * survivor.  Deliberately not raised: it bounds one fixed
+             * array on the stack, and 16 simultaneous name matches is
+             * already far beyond realistic use.
+             */
             if (n_candidates < PROC_FINDER_MAX_CANDIDATES) {
                 candidates[n_candidates++] = proc->pid;
             }
@@ -203,6 +215,13 @@ pid_t find_process_by_name(const char *process_name) {
      * giving up entirely: a still-running match is better than a spurious
      * "not found" that would make cpulimit throttle nothing (BUG-056).
      *
+     * The fallback adjudicates the surviving candidates with the same rule
+     * the scan above used -- an ancestor beats a descendant, and unrelated
+     * candidates are decided by the smaller PID (N3).  Picking the first
+     * survivor in candidates[] order would inherit the platform's process
+     * iteration order, which the primary selection deliberately does not
+     * depend on.
+     *
      * The probe's sign must survive: it reports -PID for a process that
      * exists but cannot be controlled (EPERM/EACCES), and the caller turns
      * that into a single "No permission to control process N" instead of
@@ -216,16 +235,32 @@ pid_t find_process_by_name(const char *process_name) {
     if (probe != 0) {
         return probe;
     }
+    fallback = 0;
+    fallback_probe = 0;
     for (i = 0; i < n_candidates; i++) {
-        if (candidates[i] == pid) {
+        pid_t candidate = candidates[i];
+        int candidate_is_ancestor, unrelated;
+        if (candidate == pid) {
             continue;
         }
-        probe = find_process_by_pid(candidates[i]);
-        if (probe != 0) {
-            return probe;
+        probe = find_process_by_pid(candidate);
+        if (probe == 0) {
+            continue;
+        }
+        if (fallback == 0) {
+            fallback = candidate;
+            fallback_probe = probe;
+            continue;
+        }
+        candidate_is_ancestor = is_child_of(fallback, candidate);
+        unrelated =
+            !candidate_is_ancestor && !is_child_of(candidate, fallback);
+        if (candidate_is_ancestor || (unrelated && candidate < fallback)) {
+            fallback = candidate;
+            fallback_probe = probe;
         }
     }
-    return 0;
+    return fallback_probe;
 }
 
 int process_has_other_name(pid_t pid, const char *process_name) {

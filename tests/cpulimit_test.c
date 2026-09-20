@@ -11185,6 +11185,79 @@ static void test_find_process_by_name_falls_back_when_winner_gone(void) {
 }
 
 /**
+ * @brief The candidate fallback must pick by PID, not scan order (N3)
+ * @note The primary selection is deterministic (an ancestor wins,
+ *       otherwise the smallest PID), but the fallback used to return the
+ *       first surviving candidate in candidates[] order -- the platform's
+ *       process enumeration order.  Three unrelated same-name matches are
+ *       scripted in two different orders; the smallest (42424) wins the
+ *       scan and then vanishes from the recheck, leaving 42425 as the
+ *       smallest survivor.  Both runs must return 42425; a scan-order
+ *       fallback returns 42426 in the first run and 42425 in the second,
+ *       so the two runs disagree.
+ */
+static void test_find_process_by_name_fallback_is_order_independent(void) {
+    pid_t first, second;
+    struct seam_proc *scan_a =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 3);
+    struct seam_proc *scan_b =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 3);
+    assert(scan_a != NULL && scan_b != NULL);
+
+    /* Order A: descending PIDs; the winner is enumerated last. */
+    memset(scan_a, 0, sizeof(struct seam_proc) * 3);
+    scan_a[0].pid = (pid_t)42426;
+    scan_a[0].ppid = (pid_t)1;
+    strcpy(scan_a[0].command, "busy");
+    scan_a[1].pid = (pid_t)42425;
+    scan_a[1].ppid = (pid_t)1;
+    strcpy(scan_a[1].command, "busy");
+    scan_a[2].pid = (pid_t)42424;
+    scan_a[2].ppid = (pid_t)1;
+    strcpy(scan_a[2].command, "busy");
+
+    /* Order B: a different enumeration order for the same three PIDs. */
+    memset(scan_b, 0, sizeof(struct seam_proc) * 3);
+    scan_b[0].pid = (pid_t)42425;
+    scan_b[0].ppid = (pid_t)1;
+    strcpy(scan_b[0].command, "busy");
+    scan_b[1].pid = (pid_t)42426;
+    scan_b[1].ppid = (pid_t)1;
+    strcpy(scan_b[1].command, "busy");
+    scan_b[2].pid = (pid_t)42424;
+    scan_b[2].ppid = (pid_t)1;
+    strcpy(scan_b[2].command, "busy");
+
+    seam_reset();
+    seam_push_frame(scan_a, 3);
+    seam_alive[0] = (pid_t)42425;
+    seam_alive[1] = (pid_t)42426;
+    seam_alive_count = 2; /* 42424, the scan winner, has exited */
+    seam_active = 1;
+    seam_find_by_pid_override = 1;
+    first = find_process_by_name("busy");
+
+    seam_reset();
+    seam_push_frame(scan_b, 3);
+    seam_alive[0] = (pid_t)42425;
+    seam_alive[1] = (pid_t)42426;
+    seam_alive_count = 2;
+    seam_active = 1;
+    seam_find_by_pid_override = 1;
+    second = find_process_by_name("busy");
+    seam_find_by_pid_override = 0;
+    seam_active = 0;
+
+    /* Both orders must fall back to the smallest surviving PID. */
+    assert(first == (pid_t)42425);
+    assert(second == (pid_t)42425);
+    assert(first == second);
+
+    free(scan_a);
+    free(scan_b);
+}
+
+/**
  * @brief A PID appearing twice in one scan must not be double-counted (BUG-073)
  * @note update_process_set() clears the group list at the top of each cycle and
  *       rebuilds it from the iterator snapshot.  When the same PID shows up
@@ -13686,6 +13759,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_duplicate_pid_measured_once);
     RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
     RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
+    RUN_TEST(test_find_process_by_name_fallback_is_order_independent);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_process_set_resume_silent_when_pid_gone);
     RUN_TEST(test_process_set_init_fails_cleanly_on_scan_error);
