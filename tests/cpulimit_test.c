@@ -12468,12 +12468,7 @@ pid_t cpulimit_test_getppid_of(pid_t pid) {
         pid_t pid;
         pid_t ppid;
     } chain[] = {
-        {300, 200},
-        {200, 100},
-        {100, 1},
-        {1, 0},
-        {50000, 60000},
-        {60000, 1},
+        {300, 200}, {200, 100}, {100, 1}, {1, 0}, {50000, 60000}, {60000, 1},
     };
 
     if (seam_getppid_fabricate) {
