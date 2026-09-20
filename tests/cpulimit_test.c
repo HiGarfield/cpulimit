@@ -9650,11 +9650,15 @@ test_limiter_run_command_mode_reports_child_exit_on_limit_failure(void) {
 
 /**
  * @brief process_set_send_signal() must strongly warn (with a recovery hint)
- *        when a SIGCONT (resume) fails (BUG-049)
- * @note The kill() seam makes the SIGCONT delivery fail with EPERM.  Before the
- *       fix warn_signal_failure() gated all non-verbose warnings to the first
- *       one and never mentioned recovery, so a process left stopped by cpulimit
- *       produced no actionable message.
+ *        when the SIGCONT resuming a member this group suspended fails
+ *        (BUG-049, BUG-051)
+ * @note The kill() seam makes the SIGCONT delivery fail with EPERM.  Before
+ *       the fix warn_signal_failure() gated all non-verbose warnings to the
+ *       first one and never mentioned recovery, so a process left stopped by
+ *       cpulimit produced no actionable message.  Since BUG-051 the
+ *       recovery hint is reserved for members this group actually
+ *       suspended, so the test suspends the member first; the SIGSTOP goes
+ *       through the seam before any failure is armed, so it succeeds.
  */
 static void test_process_set_send_signal_reports_sigcont_failure(void) {
     int pipe_fds[2];
@@ -9698,9 +9702,17 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
             waitpid(target, NULL, 0);
             _exit(EXIT_FAILURE);
         }
-        /* Make the resume signal fail so warn_signal_failure() is exercised. */
+        /*
+         * Suspend the member first (BUG-051): the recovery hint is only
+         * produced for a member this group actually suspended.  The kill()
+         * seam passes the SIGSTOP through because no failure is armed yet,
+         * so the member becomes suspended-by-us without really being
+         * stopped.
+         */
         seam_reset();
         seam_active = 1;
+        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        /* Make the resume signal fail so warn_signal_failure() is exercised. */
         seam_kill_calls = 0;
         seam_fail_call = 1;
         seam_fail_span = 100;
@@ -9751,22 +9763,41 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
 }
 
 /**
- * @brief limit_process() must report (and exit non-zero) when a process cannot
- *        be resumed at shutdown (BUG-050)
- * @note A kill() seam makes the final SIGCONT delivery fail with EPERM.  The
- *       quit flag is preset so the control loop is skipped and limit_process()
- *       goes straight to its cleanup resume, which must then fail and return
- *       LIMIT_PROCESS_ERROR instead of silently reporting success.
+ * @brief Drive limit_process() through one real control cycle, then shut it
+ *        down while the target is suspended
+ * @param fail_call 1-based kill() delivery the seam starts failing at
+ * @param expect_error Return value limit_process() must produce
+ * @param needle Substring to look for in the child's stderr
+ * @param needle_present Non-zero when needle must appear, zero when it
+ *                       must not
+ *
+ * The control loop runs for real: the sleep barrier (seam_hook_sleep)
+ * parks the limiter's second sleep call -- the sleep phase that follows
+ * the first SIGSTOP delivery -- until this driver has set the quit flag
+ * with SIGTERM and released the barrier.  seam_active stays 0 so the
+ * iterator and the clock are real and the target is found.  The kill()
+ * seam fails deliveries from fail_call on: with fail_call == 2 the first
+ * SIGSTOP lands and only the shutdown SIGCONT fails, with fail_call == 1
+ * every delivery fails and the member is never suspended at all.
  */
-static void test_limit_process_reports_resume_failure(void) {
+static void
+test_drive_limit_process_shutdown(int fail_call, int expect_error,
+                                  const char *needle, int needle_present) {
     int pipe_fds[2];
+    int announce_fds[2];
+    int go_fds[2];
     int ret, waited, exited;
     pid_t pid;
     int status;
     char *err_buf;
     size_t err_len;
+    char announce;
 
     ret = pipe(pipe_fds);
+    assert(ret == 0);
+    ret = pipe(announce_fds);
+    assert(ret == 0);
+    ret = pipe(go_fds);
     assert(ret == 0);
     fflush(stdout);
     fflush(stderr);
@@ -9777,6 +9808,8 @@ static void test_limit_process_reports_resume_failure(void) {
         int limit_ret;
         close(STDOUT_FILENO);
         close(pipe_fds[0]);
+        close(announce_fds[0]);
+        close(go_fds[1]);
         ret = dup2(pipe_fds[1], STDERR_FILENO);
         if (ret < 0) {
             _exit(EXIT_FAILURE);
@@ -9793,33 +9826,50 @@ static void test_limit_process_reports_resume_failure(void) {
             }
         }
         configure_signal_handler();
-        /* Preset the quit flag so limit_process() skips the control loop. */
-        raise(SIGTERM);
         /*
-         * Arm only the kill() failure injection.  seam_active stays 0 so the
-         * process iterator is the real one and the target is found; the kill
-         * seam fails deliveries whenever seam_fail_call is set, independent of
-         * seam_active, so the shutdown SIGCONT still fails (BUG-050).
+         * Park the second sleep call so the driver can shut the limiter
+         * down deterministically once the first SIGSTOP has been sent;
+         * fail the scripted deliveries from fail_call on.
          */
-        /*
-         * raise() does return here: the handler only sets the quit flag, so
-         * the statements below are reached.
-         */
-        /* cppcheck-suppress unreachableCode */
         seam_reset();
-        seam_kill_calls = 0;
-        seam_fail_call = 1;
+        seam_hook_sleep = 1;
+        seam_sleep_call = 2;
+        seam_sleep_announce_fd = announce_fds[1];
+        seam_sleep_go_fd = go_fds[0];
+        seam_fail_call = fail_call;
         seam_fail_span = 100;
         seam_fail_errno = EPERM;
         limit_ret = limit_process(target, 0.5, 0, 0);
         /* Re-enable real signals before reaping the target. */
         seam_fail_call = 0;
         seam_fail_errno = 0;
+        seam_hook_sleep = 0;
+        seam_sleep_announce_fd = -1;
+        seam_sleep_go_fd = -1;
         kill(target, SIGKILL);
         waitpid(target, NULL, 0);
-        _exit(limit_ret == LIMIT_PROCESS_ERROR ? EXIT_SUCCESS : EXIT_FAILURE);
+        _exit(limit_ret == expect_error ? EXIT_SUCCESS : EXIT_FAILURE);
     }
     close(pipe_fds[1]);
+    close(announce_fds[1]);
+    close(go_fds[0]);
+
+    /*
+     * Wait until the limiter is parked inside its sleep phase, past the
+     * first SIGSTOP delivery.  Bound the wait so a limiter that dies
+     * early fails the test instead of hanging it.
+     */
+    alarm(30);
+    ret = (int)read(announce_fds[0], &announce, 1);
+    assert(ret == 1);
+    /* Ask the limiter to shut down and release the sleep phase. */
+    ret = kill(pid, SIGTERM);
+    assert(ret == 0);
+    ret = (int)write(go_fds[1], "G", 1);
+    assert(ret == 1);
+    alarm(0);
+    close(announce_fds[0]);
+    close(go_fds[1]);
 
     err_buf = (char *)malloc(512);
     assert(err_buf != NULL);
@@ -9849,9 +9899,40 @@ static void test_limit_process_reports_resume_failure(void) {
     exited = WIFEXITED(status);
     assert(exited);
     assert(WEXITSTATUS(status) == EXIT_SUCCESS);
-    /* A suspended process we could not resume must be reported (BUG-050). */
-    assert(strstr(err_buf, "left suspended at shutdown") != NULL);
+    if (needle_present) {
+        assert(strstr(err_buf, needle) != NULL);
+    } else {
+        assert(strstr(err_buf, needle) == NULL);
+    }
     free(err_buf);
+}
+
+/**
+ * @brief limit_process() must report (and exit non-zero) when a process it
+ *        suspended cannot be resumed at shutdown (BUG-050, BUG-051)
+ * @note The control loop really runs once: the first SIGSTOP lands, then
+ *       the quit flag is set and the shutdown SIGCONT fails.  A member
+ *       this group suspended and cannot resume must produce the "left
+ *       suspended at shutdown" report and LIMIT_PROCESS_ERROR; a plain
+ *       signal failure must not (that is the symmetric test below).
+ */
+static void test_limit_process_reports_resume_failure(void) {
+    test_drive_limit_process_shutdown(2, LIMIT_PROCESS_ERROR,
+                                      "left suspended at shutdown", 1);
+}
+
+/**
+ * @brief limit_process() must succeed when nothing was ever suspended
+ * @note Symmetric counterpart of test_limit_process_reports_resume_failure
+ *       (BUG-051): every delivery fails, so the SIGSTOP never lands and
+ *       the member has been running the whole time.  The failed shutdown
+ *       SIGCONT is then an ordinary signal failure: limit_process() must
+ *       return LIMIT_PROCESS_OK and stderr must not claim any process was
+ *       left suspended.
+ */
+static void test_limit_process_all_signals_fail_returns_ok(void) {
+    test_drive_limit_process_shutdown(1, LIMIT_PROCESS_OK, "left suspended",
+                                      0);
 }
 
 /**
@@ -10109,8 +10190,17 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
             waitpid(target, NULL, 0);
             _exit(EXIT_FAILURE);
         }
-        /* Make every SIGCONT to the target fail with EPERM (BUG-058). */
+        /*
+         * Suspend the member first (BUG-051): the recovery hint counted
+         * below is only produced for a member this group actually
+         * suspended.  The kill() seam passes the SIGSTOP through because
+         * no failure is armed yet, so the member becomes suspended-by-us
+         * without really being stopped.
+         */
         seam_reset();
+        seam_active = 1;
+        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        /* Make every SIGCONT to the target fail with EPERM (BUG-058). */
         seam_kill_calls = 0;
         seam_fail_call = 1;
         seam_fail_span = 100000;
@@ -12666,6 +12756,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
     RUN_TEST(test_limit_process_reports_resume_failure);
+    RUN_TEST(test_limit_process_all_signals_fail_returns_ok);
 }
 
 int main(int argc, char *argv[]) {

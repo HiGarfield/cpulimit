@@ -277,8 +277,11 @@ void record_stopped_pid(struct process_set *proc_set, pid_t pid,
  * Declared here because resume_stopped_pids() has to report a failed resume
  * the same way process_set_send_signal() reports a failed signal inside the
  * group; that definition sits further down with its only other caller.
+ * Every PID in the stopped list was successfully suspended by this group,
+ * so a failed resume really may leave it stopped.
  */
-static void warn_signal_failure(int sig, pid_t pid, int err, int verbose);
+static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
+                                int may_remain_stopped);
 
 /**
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
@@ -330,10 +333,13 @@ void resume_stopped_pids(struct process_set *proc_set) {
              * Last chance for this process: the record is dropped below,
              * so a failure here leaves it suspended with nothing left to
              * retry it. Say so instead of letting it stop silently.
+             * A failure with ESRCH means the process is already gone, so
+             * there is no suspension left to undo and nothing to report;
+             * every other errno keeps the always-report policy.
              */
             if (kill(pid, SIGCONT) != 0) {
                 int err = errno;
-                warn_signal_failure(SIGCONT, pid, err, 0);
+                warn_signal_failure(SIGCONT, pid, err, 0, 1);
             }
         }
     }
@@ -421,7 +427,11 @@ static void update_existing_process_entry(struct process *proc,
          * misattributed to the old entry -- keeping an innocent process in
          * the throttled group (BUG-004).  The start time is the authoritative
          * identity, so use it as the second detection signal.  Reset all
-         * historical data.
+         * historical data.  The memcpy also clears suspended_by_us: the
+         * replacement process was never suspended by this group, and the
+         * iterator snapshots it is copied from always carry 0 there because
+         * the platform get_next_process() implementations zero the whole
+         * structure.
          */
         memcpy(proc, scan_proc, sizeof(*proc));
         /* Mark CPU usage as unknown for new process */
@@ -765,20 +775,29 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  * @param err errno value captured at the point of failure
  * @param verbose If non-zero, report every occurrence instead of only the
  *                first one
+ * @param may_remain_stopped Non-zero when the failed signal is a SIGCONT
+ *                           that would have undone a suspension this group
+ *                           recorded, so the member may stay stopped forever
  *
  * A process that cannot be signalled is retried on every control cycle,
  * so reporting every failure would flood the terminal; without
  * --verbose only the first one is reported.  The diagnostic is printed
  * even when not verbose because it means the requested limit cannot be
  * enforced on that process, which the user has to be told about.
+ *
+ * A failed SIGCONT is only a "may remain stopped" emergency when this
+ * group had actually suspended the member (may_remain_stopped); for a
+ * member this group never suspended the signal failure is ordinary --
+ * nothing is stuck, so no recovery hint is printed (BUG-051).
  */
-static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
-    if (sig == SIGCONT) {
+static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
+                                int may_remain_stopped) {
+    if (sig == SIGCONT && may_remain_stopped) {
         /*
-         * A failed SIGCONT means a process this group suspended could not be
-         * resumed, so it may stay stopped forever.  That is critical and must
-         * not be swallowed by the once-only gate used for SIGSTOP, so it is
-         * always reported with a recovery hint (BUG-049).
+         * A failed SIGCONT for a suspended member means that process could
+         * not be resumed, so it may stay stopped forever.  That is critical
+         * and must not be swallowed by the once-only gate used for SIGSTOP,
+         * so it is always reported with a recovery hint (BUG-049).
          */
         fprintf(
             stderr,
@@ -818,8 +837,17 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose) {
  * or not.
  *
  * Successful SIGSTOP delivery is recorded so that the suspension can
- * always be undone; SIGCONT additionally resumes processes that were
+ * always be undone, both in the member's suspended_by_us flag and in the
+ * stopped-PID list; SIGCONT additionally resumes processes that were
  * recorded earlier but have since left the group.
+ *
+ * @return The number of members whose signal delivery failed.  On the
+ *         SIGCONT round only members this group had actually suspended
+ *         count: a failed SIGCONT for a member never suspended (or already
+ *         resumed) cannot strand anything, so it is an ordinary failure
+ *         that neither claims "left suspended" nor fails the shutdown
+ *         report (BUG-051).  On every other round every failed delivery
+ *         counts.
  *
  * @note Safe iteration: stores next node before potential deletion
  */
@@ -908,25 +936,52 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                  * every failure would flood the terminal (BUG-058).  Report
                  * once per failure episode and only re-report once a
                  * successful delivery clears the flag.
+                 *
+                 * A failed SIGCONT only counts -- and only claims "may
+                 * remain stopped" -- for a member this group suspended and
+                 * cannot resume (BUG-051).  For a member never suspended
+                 * (its signals were never deliverable) the failed SIGCONT
+                 * is an ordinary failure: warn through the same once-per-
+                 * episode gate, but do not report the group as having left
+                 * anything suspended, because that member has been running
+                 * all along.
                  */
-                if ((sig == SIGCONT && !proc->cont_warned) ||
-                    (sig != SIGCONT && !proc->stop_warned)) {
-                    warn_signal_failure(sig, pid, saved_errno, verbose);
-                }
-                if (sig == SIGCONT) {
+                if (sig == SIGCONT && !proc->suspended_by_us) {
+                    if (!proc->cont_warned) {
+                        warn_signal_failure(sig, pid, saved_errno, verbose, 0);
+                    }
                     proc->cont_warned = 1;
                 } else {
-                    proc->stop_warned = 1;
+                    if ((sig == SIGCONT && !proc->cont_warned) ||
+                        (sig != SIGCONT && !proc->stop_warned)) {
+                        warn_signal_failure(sig, pid, saved_errno, verbose,
+                                            proc->suspended_by_us);
+                    }
+                    if (sig == SIGCONT) {
+                        proc->cont_warned = 1;
+                    } else {
+                        proc->stop_warned = 1;
+                    }
+                    failed++;
                 }
-                failed++;
             }
         } else if (sig == SIGSTOP) {
             /* Track the suspension so it can always be undone */
             record_stopped_pid(proc_set, pid, proc->start_time);
+            /*
+             * Mark the member as suspended by this group (BUG-051).  If
+             * record_stopped_pid() could not record the suspension (out of
+             * memory) it resumes the member itself, so the flag may read
+             * suspended while the member actually runs; that window is
+             * closed by the next successful SIGCONT or the next scan.
+             */
+            proc->suspended_by_us = 1;
         } else {
             /* SIGCONT delivered: clear the warnable state so a later
-             * failure re-reports instead of going unnoticed. */
+             * failure re-reports instead of going unnoticed.  The
+             * suspension this flag tracks is undone as well. */
             proc->cont_warned = 0;
+            proc->suspended_by_us = 0;
         }
         node = next_node;
     }

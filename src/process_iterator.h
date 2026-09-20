@@ -133,6 +133,27 @@ struct process {
      */
     int cont_warned;
     int stop_warned;
+
+    /**
+     * Suspension state owned by the limiting group (BUG-051).
+     *
+     * Non-zero while the most recent SIGSTOP this group delivered to the
+     * member was successful and has not yet been undone by a successful
+     * SIGCONT.  process_set_send_signal() sets it on a successful SIGSTOP
+     * and clears it on a successful SIGCONT, so a failed shutdown SIGCONT
+     * can be reported as "left suspended" only for members this group
+     * actually suspended; a member whose signals were never deliverable
+     * (EPERM/EACCES, seccomp, ...) has been running the whole time and
+     * must not be reported as stranded.
+     *
+     * The field is meaningful only for records stored in a process_set's
+     * proc_table; iterator snapshots carry it as 0 (the platform
+     * get_next_process() implementations zero the whole structure), which
+     * is what makes the PID-reuse reset in
+     * update_existing_process_entry() clear the flag together with the
+     * rest of the old process's state.
+     */
+    int suspended_by_us;
 };
 
 /**
