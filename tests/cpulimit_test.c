@@ -1901,6 +1901,81 @@ static void test_signal_handler_reconfigure_resets_state(void) {
 }
 
 /**
+ * @brief configure_signal_handler() must restore the caller's signal mask,
+ *        including when the caller had everything blocked (BUG-011)
+ * @note The function blocks all signals internally and restores the
+ *       previous mask at the end.  The error path used to exit without
+ *       that restore, leaving a signal-deaf process behind; it now
+ *       restores through the same old_mask before exiting, so this test
+ *       pins the restore semantics for both extremes: a caller with an
+ *       empty mask keeps an unblocked mask, and a caller that had every
+ *       signal blocked -- the state the error path used to destroy --
+ *       gets that state back.
+ *
+ *       The error path itself cannot be driven from outside (every
+ *       failure source -- calloc, sigfillset, sigprocmask, sigaction --
+ *       is uninjectable without a seam), so it is covered by code
+ *       review: the error label runs sigprocmask(SIG_SETMASK, old_mask)
+ *       whenever the block has been raised.
+ */
+static void test_signal_handler_mask_restored_after_configure(void) {
+    pid_t pid, waited;
+    int status, exited, exit_code;
+
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        sigset_t empty_mask, full_mask, after;
+        /*
+         * Handled signals plus SIGUSR1, probed on both extremes.
+         * SIGKILL and SIGSTOP are deliberately absent: POSIX says they
+         * cannot be blocked, so sigprocmask never reports them as members.
+         */
+        const int sigs[] = {SIGINT, SIGTERM, SIGHUP, SIGPIPE, SIGQUIT,
+                            SIGUSR1};
+        size_t i;
+        int unblocked = 1;
+
+        sigemptyset(&empty_mask);
+        sigfillset(&full_mask);
+
+        /* Case 1: an unblocked caller must keep an unblocked mask. */
+        sigprocmask(SIG_SETMASK, &empty_mask, NULL);
+        configure_signal_handler();
+        sigprocmask(SIG_SETMASK, NULL, &after);
+        for (i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
+            if (sigismember(&after, sigs[i]) == 1) {
+                unblocked = 0;
+            }
+        }
+        if (!unblocked) {
+            _exit(1);
+        }
+
+        /*
+         * Case 2: a caller that had everything blocked must get that
+         * state back -- exactly what the error path used to destroy.
+         */
+        sigprocmask(SIG_SETMASK, &full_mask, NULL);
+        configure_signal_handler();
+        sigprocmask(SIG_SETMASK, NULL, &after);
+        for (i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
+            if (sigismember(&after, sigs[i]) != 1) {
+                _exit(2);
+            }
+        }
+        _exit(0);
+    }
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
+}
+
+/**
  * @brief Test pending signal during reconfigure is delivered, not dropped
  * @note configure_signal_handler() blocks handled signals during the
  *       reset-and-install window. A signal that becomes pending during that
@@ -13397,6 +13472,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_initial_state);
     RUN_TEST(test_signal_handler_get_quit_signal);
     RUN_TEST(test_signal_handler_reconfigure_resets_state);
+    RUN_TEST(test_signal_handler_mask_restored_after_configure);
     RUN_TEST(test_signal_handler_reconfigure_delivers_pending);
     RUN_TEST(test_signal_handler_reset_to_default);
     RUN_TEST(test_signal_handler_race_concurrent_signals);

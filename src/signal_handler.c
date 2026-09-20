@@ -192,6 +192,15 @@ error:
 void configure_signal_handler(void) {
     /* Initialize to NULL to make free(NULL) safe in error paths */
     sigset_t *block_mask = NULL, *old_mask = NULL;
+    /*
+     * Non-zero once all signals are blocked: the error path must then
+     * restore the original mask before exiting, instead of dying with
+     * every signal blocked (BUG-011).  Exiting a signal-deaf process is
+     * harmless today, but the function header promises the mask is
+     * restored, and a future change of exit() to return would otherwise
+     * leave the promise broken.
+     */
+    int blocked = 0;
     int ret;
 
     block_mask = (sigset_t *)calloc(1, sizeof(*block_mask));
@@ -217,6 +226,7 @@ void configure_signal_handler(void) {
         perror("sigprocmask");
         goto error;
     }
+    blocked = 1;
 
     reset_signal_state();
 
@@ -239,6 +249,15 @@ void configure_signal_handler(void) {
 
 error:
     /* Centralized error handling */
+    if (blocked) {
+        /*
+         * Undo the all-signals block first.  Idempotent: the normal path
+         * jumping here after a failed restore simply restores once more.
+         */
+        if (sigprocmask(SIG_SETMASK, old_mask, NULL) != 0) {
+            perror("sigprocmask restore in error path");
+        }
+    }
     free(block_mask);
     free(old_mask);
     exit(EXIT_FAILURE);
