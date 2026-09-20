@@ -48,6 +48,31 @@
 #define CHILD_KILL_TIMEOUT_MS 5000
 
 /**
+ * @brief Reap the child before returning from an internal failure
+ * @param child_pid PID of the child to collect
+ *
+ * An error return has to leave no zombie behind, which is why this behaves
+ * like the polling loop below with respect to EINTR: retry until waitpid()
+ * collects the child or fails for a reason other than EINTR.  Used by the
+ * internal failure paths, which return EXIT_FAILURE to the caller instead of
+ * terminating the process underneath it (S4).
+ */
+static void reap_child_before_error_return(pid_t child_pid) {
+    for (;;) {
+        int status;
+        pid_t wpid = waitpid(child_pid, &status, 0);
+        if (wpid == child_pid) {
+            return;
+        }
+        if (wpid < 0 && errno == EINTR) {
+            continue;
+        }
+        /* ECHILD or a real error: there is nothing left to collect. */
+        return;
+    }
+}
+
+/**
  * @def CHILD_POLL_INTERVAL_NS
  * @brief Nanoseconds between waitpid() polls during child cleanup
  *
@@ -69,8 +94,16 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
     /* Record time for timeout monitoring during cleanup */
     if (get_current_time(&start_time) != 0) {
         perror("get_current_time");
+        /*
+         * Return instead of exiting: the caller still has its own
+         * diagnosis and exit status to produce, and terminating the
+         * process here skipped both (S4).  The child is resumed first so
+         * it does not stay stopped, then waited for so it does not stay
+         * a zombie either.
+         */
         kill(child_pid, SIGCONT);
-        exit(EXIT_FAILURE);
+        reap_child_before_error_return(child_pid);
+        return EXIT_FAILURE;
     }
 
     /*
@@ -135,8 +168,11 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
             struct timespec current_time;
             if (get_current_time(&current_time) != 0) {
                 perror("get_current_time");
+                /* Same reasoning as above: reap, then let the caller
+                 * decide how the run ends (S4). */
                 kill(child_pid, SIGCONT);
-                exit(EXIT_FAILURE);
+                reap_child_before_error_return(child_pid);
+                return EXIT_FAILURE;
             }
 
             /*
@@ -166,8 +202,11 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                  */
                 if (get_current_time(&start_time) != 0) {
                     perror("get_current_time");
+                    /* Same reasoning as above: reap, then let the caller
+                       decide how the run ends (S4). */
                     kill(child_pid, SIGCONT);
-                    exit(EXIT_FAILURE);
+                    reap_child_before_error_return(child_pid);
+                    return EXIT_FAILURE;
                 }
             } else if (signal_forwarded) {
                 /*

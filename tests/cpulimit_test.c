@@ -13800,24 +13800,85 @@ static void test_child_wait_resumes_on_clock_failure(void) {
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
+        int result;
         alarm(30);
         seam_reset();
         seam_active = 1;
         seam_clock_fails = 1;
         seam_log_fd = log_pipe[1];
-        (void)collect_child_exit_status(target, &cfg, 0);
-        _exit(EXIT_SUCCESS); /* unreachable: the function exits on failure */
+        /*
+         * Not "unreachable" any more: a clock failure returns EXIT_FAILURE
+         * to the caller instead of terminating the process underneath it,
+         * so the caller decides how the run ends and can still print its
+         * own diagnosis (S4).
+         */
+        result = collect_child_exit_status(target, &cfg, 0);
+        seam_active = 0;
+        seam_clock_fails = 0;
+        _exit(result);
     }
     close(log_pipe[1]);
     waited = waitpid(child_pid, &status, 0);
     assert(waited == child_pid);
-    /* The clock failure must drive an error exit. */
+    /* The clock failure must reach the caller as an error return. */
     assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
 
     count = seam_read_child_log(log_pipe[0]);
     close(log_pipe[0]);
     /* The child must have been sent a resume before the bail-out. */
     assert(seam_count_signals(seam_child_log, count, target, SIGCONT) >= 1);
+}
+
+/**
+ * @brief collect_child_exit_status() must reap the child it gives up on (S4)
+ * @note The three get_current_time() failure paths used to call exit() out of
+ *       this function, so neither run_command_mode() nor run_pid_or_exe_mode()
+ *       ever saw a return value: their own diagnosis and exit status were
+ *       skipped and their cleanup never ran.  They now return EXIT_FAILURE,
+ *       which is only safe because the child is waited for first -- returning
+ *       while leaving it unreaped would be a zombie, which AGENTS.md forbids.
+ *       A real child that outlives the failure by a moment proves the reap:
+ *       waitpid() afterwards must find nothing left to collect.
+ *       Verified by mutation: dropping the reap makes the child zombie and
+ *       the ECHILD assertion fail.
+ */
+static void test_child_wait_reaps_child_on_clock_failure(void) {
+    pid_t target, waited;
+    struct cpulimit_cfg cfg;
+    int status, result, orphan;
+    struct timespec remaining = {0, 100000000L}; /* 100 ms */
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.cpu_limit = 0.5;
+
+    fflush(stdout);
+    fflush(stderr);
+    target = fork();
+    assert(target >= 0);
+    if (target == 0) {
+        alarm(30);
+        /* Exit on its own shortly after the failure below is detected. */
+        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+            ;
+        }
+        _exit(EXIT_SUCCESS);
+    }
+
+    seam_reset();
+    seam_active = 1;
+    seam_clock_fails = 1;
+    result = collect_child_exit_status(target, &cfg, 0);
+    seam_clock_fails = 0;
+    seam_active = 0;
+    seam_reset();
+
+    waited = waitpid(target, &status, WNOHANG);
+    orphan = errno == ECHILD;
+
+    assert(result == EXIT_FAILURE);
+    assert(waited < 0);
+    assert(orphan);
 }
 
 /**
@@ -15081,6 +15142,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
     RUN_TEST(test_child_wait_sigkill_escalation);
     RUN_TEST(test_child_wait_resumes_on_clock_failure);
+    RUN_TEST(test_child_wait_reaps_child_on_clock_failure);
     RUN_TEST(test_sleep_timespec_accurate_after_eintr);
 
     /* Deterministic timing seam tests */

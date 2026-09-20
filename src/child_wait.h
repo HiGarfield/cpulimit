@@ -35,6 +35,11 @@ extern "C" {
  * @return The child's exit status if successfully reaped, EXIT_FAILURE
  *         otherwise
  *
+ * An internal failure does not end the process: if the clock cannot be read,
+ * the child is resumed so it does not stay stopped, waited for so it does not
+ * stay a zombie, and EXIT_FAILURE is returned to the caller, which still has
+ * its own diagnosis and exit status to produce (S4).
+ *
  * Polls for the child's termination. Once the quit signal has been
  * forwarded, a 5-second SIGKILL timeout is applied if the child does not
  * exit in time. Translates signal termination to shell-compatible exit
