@@ -9379,6 +9379,9 @@ static int seam_update_call_count = 0;
 /* Used by the iterator replacement below, which is defined further up. */
 static void seam_mark_snapshot(void);
 
+/* Forward declaration: defined further below, after SEAM_CHILD_PID. */
+static void seam_push_frame(const struct seam_proc *procs, int count);
+
 /* Hooks that park a call site on a barrier driven by the test. */
 /* NOLINTBEGIN(misc-use-internal-linkage) */
 int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
@@ -9479,6 +9482,43 @@ static void test_process_finder_find_by_pid_reports_eacces(void) {
 }
 
 /**
+ * @brief find_process_by_name() must report "permission denied" as a
+ *        negative PID, like find_process_by_pid() (BUG-061)
+ * @note The existence recheck used to treat find_process_by_pid()'s result
+ *       as a boolean and returned the plain PID, so a candidate that
+ *       exists but cannot be controlled was reported as a normal target.
+ *       The scan is scripted via the iterator seam and the recheck probe
+ *       is made to fail with EPERM through the kill() seam; the probe's
+ *       sign must survive the return.
+ */
+static void test_process_finder_find_by_name_reports_permission_denied(void) {
+    pid_t result;
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    assert(frame != NULL);
+
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    strcpy(frame[0].command, "busy");
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_active = 1;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+    result = find_process_by_name("busy");
+    seam_active = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+
+    /* The probe failed with EPERM: the negative PID must survive. */
+    assert(result == -(pid_t)SEAM_TARGET_PID);
+    free(frame);
+}
+
+/**
  * @brief run_pid_or_exe_mode must exit with failure on a target that exists but
  *        cannot be controlled (EPERM) instead of looping or breaking silently
  *        (BUG-013)
@@ -9546,6 +9586,104 @@ static void test_limiter_run_pid_or_exe_mode_exits_on_permission_denied(void) {
     seam_active = 0;
     seam_fail_call = 0;
     seam_fail_errno = 0;
+}
+
+/**
+ * @brief run_pid_or_exe_mode() must fail cleanly when the -e candidate
+ *        cannot be controlled (BUG-061)
+ * @note find_process_by_name() used to drop the negative sign of the
+ *       permission probe, so the limiter started a doomed limit run on an
+ *       uncontrollable PID and flooded stderr with per-signal EPERM
+ *       warnings instead of one clear line.  The scan is scripted and the
+ *       recheck probe fails with EPERM, so the -e loop must print "No
+ *       permission to control process" and return EXIT_FAILURE instead of
+ *       entering limit_process().
+ */
+static void test_limiter_run_exe_mode_reports_permission_denied(void) {
+    int pipe_fds[2];
+    int ret, waited, exited;
+    pid_t pid;
+    int status;
+    char *err_buf;
+    size_t err_len;
+
+    ret = pipe(pipe_fds);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        struct cpulimit_cfg cfg;
+        struct seam_proc *frame;
+        int run_status;
+        close(STDOUT_FILENO);
+        close(pipe_fds[0]);
+        ret = dup2(pipe_fds[1], STDERR_FILENO);
+        if (ret < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(pipe_fds[1]);
+        frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+        if (frame == NULL) {
+            _exit(EXIT_FAILURE);
+        }
+        memset(frame, 0, sizeof(struct seam_proc));
+        frame[0].pid = (pid_t)SEAM_TARGET_PID;
+        frame[0].ppid = (pid_t)1;
+        strcpy(frame[0].command, "busy");
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.exe_name = "busy";
+        cfg.cpu_limit = 0.5;
+        cfg.lazy_mode = 0;
+        seam_reset();
+        seam_push_frame(frame, 1);
+        seam_active = 1;
+        seam_fail_call = 1;
+        seam_fail_span = 1;
+        seam_fail_errno = EPERM;
+        run_status = run_pid_or_exe_mode(&cfg);
+        seam_active = 0;
+        seam_fail_call = 0;
+        seam_fail_errno = 0;
+        free(frame);
+        _exit(run_status == EXIT_FAILURE ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    close(pipe_fds[1]);
+
+    err_buf = (char *)malloc(512);
+    assert(err_buf != NULL);
+    err_len = 0;
+    while (1) {
+        ssize_t nread = read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
+        if (nread > 0) {
+            err_len += (size_t)nread;
+            if (err_len >= 512 - 1) {
+                break;
+            }
+            continue;
+        }
+        if (nread == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    err_buf[err_len] = '\0';
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    /* One clear diagnostic instead of a doomed limit run (BUG-061). */
+    assert(strstr(err_buf, "No permission to control process") != NULL);
+    assert(strstr(err_buf, "Warning: cannot send signal") == NULL);
+    free(err_buf);
 }
 
 /**
@@ -10247,9 +10385,6 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     assert(warn_count <= 2); /* identical repeats are throttled */
     free(err_buf);
 }
-
-/* Forward declaration: defined further below, after SEAM_CHILD_PID. */
-static void seam_push_frame(const struct seam_proc *procs, int count);
 
 /**
  * @brief A recycled descendant PID must not be misattributed (BUG-004)
@@ -13094,6 +13229,7 @@ int main(int argc, char *argv[]) {
     printf("\n=== PROCESS_FINDER MODULE TESTS ===\n");
     RUN_TEST(test_process_finder_find_by_pid);
     RUN_TEST(test_process_finder_find_by_pid_reports_eacces);
+    RUN_TEST(test_process_finder_find_by_name_reports_permission_denied);
     RUN_TEST(test_process_finder_find_by_name);
     RUN_TEST(test_process_finder_find_by_name_self);
     RUN_TEST(test_process_finder_find_by_name_symlink);
@@ -13128,6 +13264,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_gives_up_without_target);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_exits_on_permission_denied);
+    RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
     RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_command_mode_signal_term);
     RUN_TEST(test_limiter_run_command_mode_signal_kill);

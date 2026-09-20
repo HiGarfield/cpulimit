@@ -105,6 +105,7 @@ pid_t find_process_by_pid(pid_t pid) {
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
+    pid_t probe;
     pid_t candidates[PROC_FINDER_MAX_CANDIDATES];
     /* unsigned: as signed counters the fallback loop below needs the
        assumption that i + 1 does not overflow to be folded, which
@@ -201,19 +202,27 @@ pid_t find_process_by_name(const char *process_name) {
      * scan and this recheck, fall back to another live candidate instead of
      * giving up entirely: a still-running match is better than a spurious
      * "not found" that would make cpulimit throttle nothing (BUG-056).
+     *
+     * The probe's sign must survive: it reports -PID for a process that
+     * exists but cannot be controlled (EPERM/EACCES), and the caller turns
+     * that into a single "No permission to control process N" instead of
+     * limping through a limit run it cannot enforce (BUG-061).  Return the
+     * probe result itself rather than using it as a boolean.
      */
     if (n_candidates == 0) {
         return 0;
     }
-    if (find_process_by_pid(pid) != 0) {
-        return pid;
+    probe = find_process_by_pid(pid);
+    if (probe != 0) {
+        return probe;
     }
     for (i = 0; i < n_candidates; i++) {
         if (candidates[i] == pid) {
             continue;
         }
-        if (find_process_by_pid(candidates[i]) != 0) {
-            return candidates[i];
+        probe = find_process_by_pid(candidates[i]);
+        if (probe != 0) {
+            return probe;
         }
     }
     return 0;
