@@ -91,16 +91,21 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  * @brief Insert a process into the hash table
  * @param proc_table Pointer to the process table
  * @param proc Pointer to the process structure to insert
+ * @return 0 on success (including the no-op cases below), -1 on memory
+ *         allocation failure (for a new bucket list or for the list node
+ *         holding the record); never exits
  *
  * Adds the process to the appropriate bucket based on its PID hash.
  * If the bucket doesn't exist, creates a new linked list for it.
- * Exits with an error if memory allocation fails.
  *
  * @note If a process with the same PID is already present in the table, the
  *       existing entry is left unchanged and the new process is not inserted
- *       (duplicate PIDs are ignored).
+ *       (duplicate PIDs are ignored); the call still returns 0.
  * @note Safe to call when proc_table is NULL or the table has been destroyed
- *       (proc_table->buckets is NULL): the call is a no-op in both cases.
+ *       (proc_table->buckets is NULL): the call is a no-op returning 0.
+ * @note On memory allocation failure returns -1 instead of terminating the
+ *       process, so the limiting loop can resume the group and clean up;
+ *       the record is then still untouched and owned by the caller.
  */
 int add_to_process_table(struct process_table *proc_table,
                          struct process *proc);

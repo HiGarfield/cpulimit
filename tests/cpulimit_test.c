@@ -4191,6 +4191,47 @@ static void test_process_table_init_reports_alloc_failure(void) {
 }
 
 /**
+ * @brief add_to_process_table() must keep its 0/-1 contract (BUG-063)
+ * @note add_list_elem()'s result used to be ignored: if the list node
+ *       allocation failed, the record ended up in neither the bucket list
+ *       nor (had the caller continued) proc_list, breaking the
+ *       "proc_list borrows table records" ownership contract and leaking
+ *       the record.  The fix returns -1 with the record untouched.
+ *
+ *       The node malloc is a single fixed-size allocation with no seam to
+ *       make it fail deterministically, so the -1 branch itself is
+ *       covered by code review; the caller in update_process_set()
+ *       already frees the record on any non-zero return.  This test pins
+ *       the observable half of the contract: append success, duplicate
+ *       PID, NULL table and destroyed table all return 0 and never take
+ *       ownership twice.
+ */
+static void test_process_table_add_contract(void) {
+    struct process_table proc_table;
+    struct process *proc;
+
+    assert(init_process_table(&proc_table, 16) == 0);
+    proc = (struct process *)malloc(sizeof(struct process));
+    assert(proc != NULL);
+    memset(proc, 0, sizeof(struct process));
+    proc->pid = (pid_t)777000;
+
+    /* A fresh append succeeds and owns nothing beyond the node. */
+    assert(add_to_process_table(&proc_table, proc) == 0);
+    assert(find_in_process_table(&proc_table, (pid_t)777000) == proc);
+
+    /* The same PID again: a 0-return no-op, no second node. */
+    assert(add_to_process_table(&proc_table, proc) == 0);
+    assert(proc_table.buckets[777000 % 16]->count == 1);
+
+    /* destroy_process_table() frees the record with the table. */
+    destroy_process_table(&proc_table);
+
+    /* Destroyed table (and NULL record): still a 0-return no-op. */
+    assert(add_to_process_table(&proc_table, NULL) == 0);
+}
+
+/**
  * @brief Test process buckets add and find operations
  * @note Tests add_to_process_table and find_in_process_table
  */
@@ -13263,6 +13304,7 @@ int main(int argc, char *argv[]) {
     printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
     RUN_TEST(test_process_table_init_destroy);
     RUN_TEST(test_process_table_init_reports_alloc_failure);
+    RUN_TEST(test_process_table_add_contract);
     RUN_TEST(test_process_table_add_find);
     RUN_TEST(test_process_table_del);
     RUN_TEST(test_process_table_remove_stale);

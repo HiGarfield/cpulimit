@@ -117,8 +117,9 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  * @brief Insert a process into the hash table
  * @param proc_table Pointer to the process table
  * @param proc Pointer to the process structure to insert
- * @return 0 on success (including no-op cases), -1 only on memory allocation
- *         failure for a new bucket list
+ * @return 0 on success (including no-op cases), -1 on memory allocation
+ *         failure -- for a new bucket list or for the list node that
+ *         should hold the record
  *
  * Adds the process to the appropriate bucket based on its PID hash.
  * If the bucket doesn't exist, creates a new linked list for it.
@@ -130,6 +131,7 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  *       (proc_table->buckets is NULL): the call is a no-op returning 0.
  * @note On memory allocation failure returns -1 instead of terminating the
  *       process, so the limiting loop can resume the group and clean up.
+ *       The record is then still untouched and owned by the caller.
  */
 int add_to_process_table(struct process_table *proc_table,
                          struct process *proc) {
@@ -151,7 +153,17 @@ int add_to_process_table(struct process_table *proc_table,
     /* Verify process doesn't already exist before adding */
     if (find_process_in_list_by_pid(proc_table->buckets[bucket_idx],
                                     proc->pid) == NULL) {
-        add_list_elem(proc_table->buckets[bucket_idx], proc);
+        if (add_list_elem(proc_table->buckets[bucket_idx], proc) == NULL) {
+            /*
+             * The node for the record could not be allocated, so the
+             * record is in neither the bucket list nor (if the caller
+             * went on) proc_list -- breaking the "proc_list borrows
+             * table records" ownership contract and leaking it.  Report
+             * the failure and leave the record to the caller, which
+             * frees it and aborts the scan cycle.
+             */
+            return -1;
+        }
     }
     return 0;
 }
