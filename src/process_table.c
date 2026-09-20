@@ -36,13 +36,20 @@
  * @brief Initialize a process table with specified hash size
  * @param proc_table Pointer to the process table structure to initialize
  * @param hash_size Number of buckets to allocate in the hash table
- * @return 0 on success, -1 on failure (proc_table is NULL or memory
+ * @return 0 on success, -1 on failure (proc_table is NULL, hash_size too
+ *         large for the bucket array to be representable, or memory
  *         allocation failed); never calls exit(), so callers that must
  *         undo suspensions first get the chance to do so
  *
  * Allocates memory for the hash table bucket array and initializes all
  * buckets to NULL. The hash table uses separate chaining for collision
  * resolution.
+ *
+ * A hash_size whose bucket array size would overflow size_t is rejected
+ * before calloc() is called at all (R2): the product must never be handed
+ * to the allocator, where it is undefined for the standard library and
+ * aborts outright under hardened allocators and AddressSanitizer instead
+ * of returning NULL.
  *
  * @note On success the caller must call destroy_process_table() to free
  *       resources; after a -1 return there is nothing to destroy (buckets
@@ -60,6 +67,17 @@ int init_process_table(struct process_table *proc_table, size_t hash_size) {
          * accidentally request size 0.
          */
         hash_size = 1;
+    }
+    /*
+     * Reject overflowing bucket arrays up front.  calloc(nmemb, size)
+     * multiplies internally, and an overflowing product is undefined for
+     * the standard library: ASan aborts the process and some hardened
+     * allocators do the same, so the "return -1, never die" contract this
+     * function promises would hold only on plain malloc.
+     */
+    if (hash_size > (size_t)-1 / sizeof(struct list *)) {
+        fprintf(stderr, "Memory allocation failed for the process table\n");
+        return -1;
     }
     proc_table->hash_size = hash_size;
     /* Allocate bucket array; calloc initializes all pointers to NULL */

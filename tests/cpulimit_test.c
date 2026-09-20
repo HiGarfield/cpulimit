@@ -4243,25 +4243,41 @@ static void test_process_table_init_destroy(void) {
 
 /**
  * @brief init_process_table() must report allocation failure instead of
- *        exiting (BUG-062)
+ *        exiting (BUG-062) and must reject overflowing bucket sizes
+ *        before calloc() (R2)
  * @note The bucket calloc used to call exit(EXIT_FAILURE) directly, which
  *       bypassed init_process_set()'s "return -1, never exit()" contract
- *       and could strand a suspended group on out-of-memory.  Requesting
- *       SIZE_MAX buckets makes calloc fail deterministically (the size
- *       cannot possibly be backed by memory); the process must survive,
- *       receive -1, and a failed table must stay destroyable.
+ *       and could strand a suspended group on out-of-memory.  A size whose
+ *       bucket array overflows size_t is now rejected before the
+ *       allocator is called: handing the overflowing product to calloc()
+ *       is undefined and aborts under AddressSanitizer and hardened
+ *       allocators, so the "return -1, never die" contract would hold only
+ *       on plain malloc.  The process must survive, receive -1 for the
+ *       overflow boundary, and a failed table must stay destroyable.
  */
 static void test_process_table_init_reports_alloc_failure(void) {
     struct process_table table;
     int ret;
 
-    ret = init_process_table(&table, (size_t)-1);
+    /* The largest size that still overflows the bucket array (R2). */
+    ret = init_process_table(&table, (size_t)-1 / sizeof(struct list *) + 1);
     assert(ret == -1);
     /* A failed table has no buckets and must be destroyable safely. */
     destroy_process_table(&table);
 
+    /* SIZE_MAX also overflows and is rejected the same way. */
+    ret = init_process_table(&table, (size_t)-1);
+    assert(ret == -1);
+    destroy_process_table(&table);
+
     ret = init_process_table(NULL, 16);
     assert(ret == -1);
+
+    /* A sane size still succeeds. */
+    ret = init_process_table(&table, 16);
+    assert(ret == 0);
+    assert(table.buckets != NULL);
+    destroy_process_table(&table);
 }
 
 /**
