@@ -4283,7 +4283,8 @@ static void test_process_table_init_reports_alloc_failure(void) {
  */
 static void test_process_table_add_contract(void) {
     struct process_table proc_table;
-    struct process *proc;
+    struct process *proc, *proc2;
+    int ret;
 
     assert(init_process_table(&proc_table, 16) == 0);
     proc = (struct process *)malloc(sizeof(struct process));
@@ -4292,17 +4293,31 @@ static void test_process_table_add_contract(void) {
     proc->pid = (pid_t)777000;
 
     /* A fresh append succeeds and owns nothing beyond the node. */
-    assert(add_to_process_table(&proc_table, proc) == 0);
+    ret = add_to_process_table(&proc_table, proc);
+    assert(ret == 0);
     assert(find_in_process_table(&proc_table, (pid_t)777000) == proc);
 
-    /* The same PID again: a 0-return no-op, no second node. */
-    assert(add_to_process_table(&proc_table, proc) == 0);
+    /*
+     * The same PID again: a 0-return no-op.  A separate record is offered
+     * so the duplicate is not the stored one; the call must leave it
+     * untouched -- the caller still owns it and frees it below.
+     */
+    proc2 = (struct process *)malloc(sizeof(struct process));
+    assert(proc2 != NULL);
+    memset(proc2, 0, sizeof(struct process));
+    proc2->pid = (pid_t)777000;
+    ret = add_to_process_table(&proc_table, proc2);
+    assert(ret == 0);
+    assert(find_in_process_table(&proc_table, (pid_t)777000) == proc);
     assert(proc_table.buckets[777000 % 16]->count == 1);
+    free(proc2);
 
-    /* destroy_process_table() frees the record with the table. */
-    destroy_process_table(&proc_table);
+    /* delete_from_process_table() frees the record with its node. */
+    ret = delete_from_process_table(&proc_table, (pid_t)777000);
+    assert(ret == 0);
 
     /* Destroyed table (and NULL record): still a 0-return no-op. */
+    destroy_process_table(&proc_table);
     assert(add_to_process_table(&proc_table, NULL) == 0);
 }
 
@@ -9764,9 +9779,7 @@ static void test_limiter_run_exe_mode_reports_permission_denied(void) {
         }
         close(pipe_fds[1]);
         frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
-        if (frame == NULL) {
-            _exit(EXIT_FAILURE);
-        }
+        assert(frame != NULL);
         memset(frame, 0, sizeof(struct seam_proc));
         frame[0].pid = (pid_t)SEAM_TARGET_PID;
         frame[0].ppid = (pid_t)1;
@@ -9841,7 +9854,7 @@ static void test_limiter_run_exe_mode_reports_permission_denied(void) {
  */
 static void test_limiter_stale_pid_lookups_are_capped(void) {
     int pipe_fds[2];
-    int ret, waited, exited, i, stale_count;
+    int ret, waited, exited, stale_count;
     pid_t pid;
     int status;
     char *err_buf;
@@ -9858,6 +9871,7 @@ static void test_limiter_stale_pid_lookups_are_capped(void) {
         struct cpulimit_cfg cfg;
         struct seam_proc *frame;
         int run_status;
+        int i;
         close(STDOUT_FILENO);
         close(pipe_fds[0]);
         ret = dup2(pipe_fds[1], STDERR_FILENO);
@@ -9866,9 +9880,7 @@ static void test_limiter_stale_pid_lookups_are_capped(void) {
         }
         close(pipe_fds[1]);
         frame = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
-        if (frame == NULL) {
-            _exit(EXIT_FAILURE);
-        }
+        assert(frame != NULL);
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "test";
         cfg.exe_name = "busy";
@@ -10981,6 +10993,9 @@ static void test_process_set_duplicate_pid_measured_once(void) {
     struct process_set proc_set;
     int ret;
     double usage_dup, usage_single;
+    unsigned char dup_bytes[sizeof(double)];
+    unsigned char single_bytes[sizeof(double)];
+    int bits_same;
     struct seam_proc *init_frame =
         (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
     struct seam_proc *dup_frame =
@@ -11052,9 +11067,15 @@ static void test_process_set_duplicate_pid_measured_once(void) {
     /*
      * The duplicate snapshot must not have skewed the estimate.  Both runs
      * feed the EMA the exact same sample sequence, so the results are
-     * compared bit for bit (a plain == would trip -Wfloat-equal).
+     * compared bit for bit: the doubles are memcpy'ed into byte arrays,
+     * which is well defined and avoids -Wfloat-equal as well as
+     * clang-tidy's suspicious-memory-comparison on memcmp of a
+     * floating-point object.
      */
-    assert(memcmp(&usage_dup, &usage_single, sizeof(double)) == 0);
+    memcpy(dup_bytes, &usage_dup, sizeof(double));
+    memcpy(single_bytes, &usage_single, sizeof(double));
+    bits_same = memcmp(dup_bytes, single_bytes, sizeof(double)) == 0;
+    assert(bits_same);
     assert(usage_dup > 0.0);
 
     free(init_frame);
