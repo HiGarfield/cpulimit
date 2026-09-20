@@ -46,6 +46,25 @@ extern "C" {
 #define LIMIT_PROCESS_ERROR (-1)
 
 /**
+ * @def LIMIT_PROCESS_SCAN_FAILED
+ * @brief limit_process() had to stop limiting because a process scan failed
+ *        while the control loop was running
+ *
+ * The group was built and limiting did run, but the per-cycle process-group
+ * scan later failed, so the control loop stopped and limit_process()
+ * resumed every suspended member before returning.  Nothing is being
+ * limited from that point on and nothing is stranded, so this is neither
+ * LIMIT_PROCESS_OK (the run did not limit anything to completion) nor
+ * LIMIT_PROCESS_ERROR (nothing has to be repaired by the caller).
+ *
+ * limit_process() reports the reason on stderr itself.  A caller that can
+ * re-resolve its target -- non-lazy -p/-e mode -- may simply try again;
+ * command mode has no second chance and must tell the user that the limit
+ * was not applied.
+ */
+#define LIMIT_PROCESS_SCAN_FAILED 1
+
+/**
  * @brief Enforce CPU usage limit on a process or process set
  * @param pid Process ID of the target process to limit
  * @param cpu_limit CPU usage limit expressed in CPU cores (core
@@ -72,11 +91,16 @@ extern "C" {
  *       returns true
  * @note Always resumes suspended processes (sends SIGCONT) before returning
  *
- * @return LIMIT_PROCESS_OK once limiting has finished, LIMIT_PROCESS_ERROR
- *         if the process group could not be initialised.  On error nothing
- *         has been stopped, so the caller is free to resume/reap its own
- *         child; the previous behaviour of exiting the whole process here
- *         left a command-mode child running unthrottled and unreaped.
+ * @return LIMIT_PROCESS_OK once limiting has finished (target terminated or
+ *         a quit signal arrived, with everything resumed),
+ *         LIMIT_PROCESS_SCAN_FAILED if the control loop stopped because a
+ *         per-cycle process-group scan failed (everything was resumed, but
+ *         nothing is limited any more), LIMIT_PROCESS_ERROR if the process
+ *         group could not be initialised or a member could not be resumed at
+ *         shutdown.  On LIMIT_PROCESS_ERROR nothing may still be stopped, so
+ *         the caller is free to resume/reap its own child; the previous
+ *         behaviour of exiting the whole process here left a command-mode
+ *         child running unthrottled and unreaped.
  */
 int limit_process(pid_t pid, double cpu_limit, int include_children,
                   int verbose);

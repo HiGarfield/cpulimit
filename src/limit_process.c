@@ -239,6 +239,8 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     struct dynamic_time_slot_ctx time_slot_ctx = {BASE_TIME_SLOT_US, 0, {0, 0}};
     int cycle_counter = 0, ncpu = get_ncpu();
     int resume_failed;
+    /* Non-zero once a scan failed and the loop below had to stop early. */
+    int scan_failed = 0;
     /* Fraction of time processes should be running */
     double work_ratio;
     /* Current state: 1 if processes are stopped, 0 if running */
@@ -285,6 +287,20 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
 
         /* Refresh process list and update CPU usage measurements */
         if (update_process_set(&proc_set) != 0) {
+            /*
+             * Limiting started and then had to stop.  The cleanup below
+             * resumes whatever is still suspended, so the caller sees a
+             * well-defined state -- but nothing is throttled from here on,
+             * and saying nothing would let a command-mode run report the
+             * command's own exit status as a successfully limited run
+             * (S2).  The initial scan failure has its own report above;
+             * this one happens after limiting already ran.
+             */
+            fprintf(stderr,
+                    "Process group scan failed; CPU limiting stopped for PID "
+                    "%ld, the target is no longer limited\n",
+                    (long)pid);
+            scan_failed = 1;
             break;
         }
 
@@ -461,6 +477,17 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
             "Warning: %d process(es) left suspended at shutdown; run 'kill -CONT <pid>' for each to recover.\n",
             resume_failed);
         return LIMIT_PROCESS_ERROR;
+    }
+
+    /*
+     * Everything was resumed, so no repair is left for the caller -- but
+     * limiting did stop early, which is not the success LIMIT_PROCESS_OK
+     * describes.  Say so and let the caller that has no second chance
+     * (command mode) report it, while one that can re-resolve its target
+     * simply tries again.
+     */
+    if (scan_failed) {
+        return LIMIT_PROCESS_SCAN_FAILED;
     }
 
     return LIMIT_PROCESS_OK;

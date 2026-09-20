@@ -14062,6 +14062,203 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
 }
 
 /**
+ * @brief limit_process() must report that limiting stopped on a bad scan (S2)
+ * @note A failed update_process_set() inside the control loop only broke out
+ *       of it.  The cleanup then resumed the group and limit_process()
+ *       returned LIMIT_PROCESS_OK, so command mode printed nothing and passed
+ *       the command's own exit status up: a run that looks successful and
+ *       stopped limiting seconds after it started.  The fix prints a
+ *       diagnostic and returns LIMIT_PROCESS_SCAN_FAILED, which callers can
+ *       tell from a real success.  The second scan is forced to fail through
+ *       the seam and the child's stderr is captured, so both halves are
+ *       asserted: the return value drives the child's exit status and the
+ *       message is read back from the pipe.
+ *       Verified by mutation: returning LIMIT_PROCESS_OK after printing makes
+ *       this test fail on the exit status.
+ */
+static void scan_failure_driver_child(int write_fd) {
+    struct seam_proc *visible =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    int ret;
+    assert(visible != NULL);
+
+    memset(visible, 0, sizeof(struct seam_proc));
+    visible[0].pid = (pid_t)SEAM_TARGET_PID;
+    visible[0].ppid = (pid_t)1;
+    visible[0].cpu_time = 1000.0;
+
+    /*
+     * dup2() happens in a forked child that leaves through _exit(): the
+     * write end is never handed back to anybody, so there is no descriptor
+     * left for an analyser to complain about.
+     */
+    fflush(stderr);
+    if (dup2(write_fd, STDERR_FILENO) < 0) {
+        free(visible);
+        _exit(EXIT_FAILURE);
+    }
+
+    seam_reset();
+    /* One snapshot per scan: the initial one, then the first cycle's. */
+    seam_push_frame(visible, 1);
+    seam_push_frame(visible, 1);
+    seam_repeat_last = 1;
+    seam_active = 1;
+    seam_fail_update_after = 1; /* the first cycle works, the second fails */
+    ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
+    seam_active = 0;
+    free(visible);
+    _exit(ret == LIMIT_PROCESS_SCAN_FAILED ? EXIT_SUCCESS : EXIT_FAILURE);
+}
+
+static void test_limit_process_reports_scan_failure(void) {
+    int err_pipe[2];
+    pid_t driver, waited;
+    int status, exited, exit_code, seen;
+    size_t total = 0;
+    char *capture = (char *)malloc(4096);
+    assert(capture != NULL);
+    assert(pipe(err_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        close(err_pipe[0]);
+        scan_failure_driver_child(err_pipe[1]);
+    }
+    close(err_pipe[1]);
+
+    while (total < 4095) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    capture[total] = '\0';
+    close(err_pipe[0]);
+
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+    seen = strstr(capture, "CPU limiting stopped") != NULL;
+    free(capture);
+
+    assert(exited);
+    assert(exit_code == EXIT_SUCCESS);
+    assert(seen);
+}
+
+/**
+ * @brief Non-lazy mode must keep re-attaching after a bad scan, not fail (S2)
+ * @note LIMIT_PROCESS_SCAN_FAILED deliberately is not a failure for -p/-e:
+ *       the scan can fail while the target itself is fine, and non-lazy mode
+ *       exists precisely to attach again.  The driver runs
+ *       run_pid_or_exe_mode() over a target whose first cycle succeeds and
+ *       whose second scan fails; the captured stderr tells the parent that
+ *       this happened, and the parent then asks the child to quit.  Leaving
+ *       with EXIT_SUCCESS proves the failed scan neither ended the loop nor
+ *       set EXIT_FAILURE: a hard failure would have returned at once with
+ *       EXIT_FAILURE.  Verified by mutation: dropping LIMIT_PROCESS_SCAN_
+ *       FAILED from the condition in run_pid_or_exe_mode() makes the exit
+ *       status EXIT_FAILURE.
+ */
+static void pid_mode_retry_driver_child(int write_fd) {
+    struct cpulimit_cfg cfg;
+    struct seam_proc *visible =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    assert(visible != NULL);
+
+    memset(visible, 0, sizeof(struct seam_proc));
+    visible[0].pid = (pid_t)SEAM_TARGET_PID;
+    visible[0].ppid = (pid_t)1;
+    visible[0].cpu_time = 1000.0;
+
+    fflush(stderr);
+    if (dup2(write_fd, STDERR_FILENO) < 0) {
+        free(visible);
+        _exit(EXIT_FAILURE);
+    }
+    configure_signal_handler();
+
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.target_pid = SEAM_TARGET_PID;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 0;
+
+    seam_reset();
+    seam_push_frame(visible, 1);
+    seam_push_frame(visible, 1);
+    seam_repeat_last = 1;
+    seam_active = 1;
+    seam_find_by_pid_override = 1;
+    seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+    seam_alive_count = 1;
+    seam_fail_update_after = 1; /* the first cycle works, every scan after */
+
+    free(visible);
+    _exit(run_pid_or_exe_mode(&cfg));
+}
+
+static void test_pid_mode_retries_after_scan_failure(void) {
+    int err_pipe[2];
+    pid_t driver, waited;
+    int status, exited, exit_code, seen;
+    size_t total = 0;
+    char *capture = (char *)malloc(4096);
+    assert(capture != NULL);
+    assert(pipe(err_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        close(err_pipe[0]);
+        pid_mode_retry_driver_child(err_pipe[1]);
+    }
+    close(err_pipe[1]);
+
+    /*
+     * Read until the diagnostic shows up: that is the moment the first
+     * limit_process() has returned, so the signal below cannot arrive before
+     * the interesting decision was taken.
+     */
+    seen = 0;
+    while (total < 4095 && !seen) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+        capture[total] = '\0';
+        seen = strstr(capture, "CPU limiting stopped") != NULL;
+    }
+    close(err_pipe[0]);
+    free(capture);
+    assert(seen);
+
+    kill(driver, SIGTERM);
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+
+    assert(exited);
+    assert(exit_code == EXIT_SUCCESS);
+}
+
+/**
  * @brief Test that the tracked group never contains cpulimit itself
  * @note With --include-children the target may be an ancestor of this very
  *       process, and is_child_of() then reports this process as a group
@@ -14588,6 +14785,8 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_purges_exited_descendants);
     RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
     RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
+    RUN_TEST(test_limit_process_reports_scan_failure);
+    RUN_TEST(test_pid_mode_retries_after_scan_failure);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);

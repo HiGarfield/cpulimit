@@ -403,7 +403,16 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                             (long)found_pid, strerror(err));
                 }
 
-                if (limit_status != LIMIT_PROCESS_OK) {
+                /*
+                 * LIMIT_PROCESS_SCAN_FAILED is deliberately not a failure
+                 * here: limiting ran and then stopped on a bad scan, so the
+                 * target may well still be around and non-lazy mode must
+                 * re-resolve it, which is exactly what falling through
+                 * does.  limit_process() has already said why on stderr
+                 * (S2).
+                 */
+                if (limit_status != LIMIT_PROCESS_OK &&
+                    limit_status != LIMIT_PROCESS_SCAN_FAILED) {
                     /*
                      * Limiting never engaged for this target.  Stop instead
                      * of retrying: the failure is in setting the group up,
