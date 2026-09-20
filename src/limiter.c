@@ -236,9 +236,9 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
      * Bound the "target not found" retries in non-lazy mode.  Without a
      * cap the loop below printed "retrying..." forever and never exited,
      * so a name that can never match (e.g. "-e /") or a process that
-     * simply never starts would spin indefinitely.  Thirty attempts at
-     * two seconds each is a minute of grace for a target that is slow to
-     * appear, after which giving up is the only sane outcome.
+     * simply never starts would spin indefinitely.  Fifteen attempts at
+     * two seconds each is thirty seconds of grace for a target that is
+     * slow to appear, after which giving up is the only sane outcome.
      *
      * unsigned: as a signed counter the increment followed by the bound
      * check below folds into "X + 1 >= C", which -Wstrict-overflow=5
