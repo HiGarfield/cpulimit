@@ -6170,11 +6170,14 @@ static void test_process_set_entry_resets_on_reuse_and_backward_clock(void) {
     assert(tracked->cpu_usage < 0);
 
     /*
-     * Backward clock: push the baseline into the future so the elapsed
-     * time of this cycle comes out negative.
+     * Backward clock: push the member's CPU baseline timestamp into the
+     * future so the elapsed time of this cycle comes out negative.  The
+     * sample interval is measured from cpu_time_ts (N5), not from the
+     * process set's last_update, so the baseline to corrupt is the
+     * per-member one.
      */
     tracked->cpu_usage = 0.5;
-    proc_set.last_update.tv_sec += (time_t)3600;
+    tracked->cpu_time_ts.tv_sec += (time_t)3600;
     ret = update_process_set(&proc_set);
     assert(ret == 0);
     assert(tracked->cpu_usage < 0);
@@ -11552,6 +11555,105 @@ static void test_process_set_duplicate_pid_measured_once(void) {
 }
 
 /**
+ * @brief A member discovered mid-cycle must be sampled over its own
+ *        interval (N5)
+ * @note proc->cpu_time is baselined when the member is first seen, but
+ *       the divisor used to be the elapsed time since the process set's
+ *       last_update -- an earlier moment.  For a member discovered late
+ *       in a cycle (typically a new descendant under -i) the denominator
+ *       was therefore too large, the CPU estimate too low, and the
+ *       derived work ratio too optimistic, silently relaxing the limit.
+ *
+ *       The script places a descendant at t=5ms and samples it at
+ *       t=100ms: its baseline interval is exactly 95ms, so a 47.5ms
+ *       CPU-time delta must yield 0.5 (47.5/95), not 0.475 (47.5/100).
+ *       The target, present the whole time, must keep the same value it
+ *       had before the fix (100ms delta over 100ms = 1.0).
+ */
+static void test_process_set_new_member_uses_own_interval(void) {
+    struct process_set proc_set;
+    int ret;
+    double usage_target, usage_child;
+    unsigned char target_bytes[sizeof(double)];
+    unsigned char child_bytes[sizeof(double)];
+    unsigned char expected_bytes[sizeof(double)];
+    double expected_target = 1.0, expected_child = 0.5;
+    struct seam_proc *frame0 =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
+    struct seam_proc *frame1 =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *frame2 =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    assert(frame0 != NULL && frame1 != NULL && frame2 != NULL);
+
+    /* t=0: only the target, CPU time 0. */
+    memset(&frame0[0], 0, sizeof(frame0[0]));
+    frame0[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame0[0].ppid = (pid_t)1;
+    frame0[0].cpu_time = 0.0;
+    frame0[0].start_time = 10.0;
+
+    /* t=5ms: a descendant appears; the target's baseline is held. */
+    memset(&frame1[0], 0, sizeof(frame1[0]));
+    frame1[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame1[0].ppid = (pid_t)1;
+    frame1[0].cpu_time = 0.0;
+    frame1[0].start_time = 10.0;
+    memset(&frame1[1], 0, sizeof(frame1[1]));
+    frame1[1].pid = (pid_t)42425;
+    frame1[1].ppid = (pid_t)SEAM_TARGET_PID;
+    frame1[1].cpu_time = 50.0;
+    frame1[1].start_time = 10.0;
+
+    /* t=100ms: target +100ms CPU, descendant +47.5ms CPU. */
+    memset(&frame2[0], 0, sizeof(frame2[0]));
+    frame2[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame2[0].ppid = (pid_t)1;
+    frame2[0].cpu_time = 100.0;
+    frame2[0].start_time = 10.0;
+    memset(&frame2[1], 0, sizeof(frame2[1]));
+    frame2[1].pid = (pid_t)42425;
+    frame2[1].ppid = (pid_t)SEAM_TARGET_PID;
+    frame2[1].cpu_time = 97.5;
+    frame2[1].start_time = 10.0;
+
+    seam_reset();
+    seam_push_frame(frame0, 1);
+    seam_push_frame(frame1, 2);
+    seam_push_frame(frame2, 2);
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
+    assert(ret == 0);
+    seam_clock_ms = 5.0; /* short cycle: the new member is baselined */
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    seam_clock_ms = 100.0; /* the descendant has 95ms of history */
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    seam_active = 0;
+
+    usage_target =
+        find_process_in_list_by_pid(proc_set.proc_list, (pid_t)SEAM_TARGET_PID)
+            ->cpu_usage;
+    usage_child =
+        find_process_in_list_by_pid(proc_set.proc_list, (pid_t)42425)
+            ->cpu_usage;
+    close_process_set(&proc_set);
+
+    /* Bit-exact comparisons (a plain == would trip -Wfloat-equal). */
+    memcpy(target_bytes, &usage_target, sizeof(double));
+    memcpy(expected_bytes, &expected_target, sizeof(double));
+    assert(memcmp(target_bytes, expected_bytes, sizeof(double)) == 0);
+    memcpy(child_bytes, &usage_child, sizeof(double));
+    memcpy(expected_bytes, &expected_child, sizeof(double));
+    assert(memcmp(child_bytes, expected_bytes, sizeof(double)) == 0);
+
+    free(frame0);
+    free(frame1);
+    free(frame2);
+}
+
+/**
  * @brief Append one snapshot to the seam script
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
@@ -13879,6 +13981,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_process_set_does_not_duplicate_pid);
     RUN_TEST(test_process_set_duplicate_pid_measured_once);
+    RUN_TEST(test_process_set_new_member_uses_own_interval);
     RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
     RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
     RUN_TEST(test_find_process_by_name_fallback_is_order_independent);

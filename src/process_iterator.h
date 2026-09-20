@@ -26,11 +26,25 @@
 extern "C" {
 #endif
 
+/*
+ * struct process carries a struct timespec member, and struct timespec
+ * requires _POSIX_C_SOURCE >= 199309L to be visible in strict C89 mode.
+ * When a .c file defines _GNU_SOURCE before including this header, all
+ * POSIX features are already enabled.  This guard keeps the header
+ * self-contained when it is the first include (process_iterator_common.c)
+ * or when analyzed standalone (e.g., by clang-tidy), matching the guard
+ * in time_util.h and process_set.h.
+ */
+#if !defined(_GNU_SOURCE) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
+
 #if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__APPLE__)
 #error "Platform not supported"
 #endif
 
 #include <sys/types.h>
+#include <time.h>
 #if defined(__linux__)
 #include <dirent.h>
 #include <limits.h>
@@ -105,6 +119,28 @@ struct process {
      * Includes both user and system time.
      */
     double cpu_time;
+
+    /**
+     * Moment at which cpu_time was recorded as a baseline, using the same
+     * monotonic source as the process_set's last_update.
+     *
+     * A CPU sample is a delta of cpu_time divided by the wall-clock
+     * interval that delta actually spans.  A member discovered in the
+     * middle of a cycle has its baseline taken later than last_update
+     * (usually the moment it first appeared in a scan), so the divisor
+     * must be measured from THIS timestamp rather than from last_update;
+     * otherwise a late-discovered member (typically a new descendant
+     * with -i) is systematically under-measured, which relaxes the
+     * group's limit.  For a member tracked across the whole cycle both
+     * timestamps advance together and the intervals are identical.
+     *
+     * The field is meaningful only for records stored in a process_set's
+     * proc_table: iterator snapshots carry {0, 0} because the platform
+     * get_next_process() implementations zero the whole structure, so
+     * every path that writes a new cpu_time baseline must set this
+     * timestamp explicitly.
+     */
+    struct timespec cpu_time_ts;
 
     /**
      * Estimated current CPU usage as a multiplier of one CPU core.

@@ -405,8 +405,16 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
  * @brief Update the CPU usage of an existing tracked process entry
  * @param proc      The stored process entry to update (modified in place)
  * @param scan_proc Fresh snapshot of the same process from the iterator
- * @param elapsed_ms Milliseconds elapsed since the last update cycle
+ * @param now       Current timestamp of this update cycle
  * @param ncpu      Number of available CPU cores (used to cap the sample)
+ *
+ * The sampling interval is measured from proc->cpu_time_ts, the moment
+ * the stored cpu_time baseline was recorded, not from the process set's
+ * last_update: a member discovered mid-cycle has a later baseline, and
+ * dividing its delta by the longer global interval would understate its
+ * usage (N5).  For a member present since the previous cycle the two
+ * intervals coincide, because both baselines advance on every valid
+ * update.
  *
  * Handles four mutually exclusive cases:
  * - PID reuse (scan_proc->cpu_time < proc->cpu_time, or the start time
@@ -421,7 +429,9 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
  */
 static void update_existing_process_entry(struct process *proc,
                                           const struct process *scan_proc,
-                                          double elapsed_ms, int ncpu) {
+                                          const struct timespec *now,
+                                          int ncpu) {
+    double elapsed_ms;
     double sample;
     if (scan_proc->cpu_time < proc->cpu_time ||
         (!start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
@@ -440,11 +450,13 @@ static void update_existing_process_entry(struct process *proc,
          * replacement process was never suspended by this group, and the
          * iterator snapshots it is copied from always carry 0 there because
          * the platform get_next_process() implementations zero the whole
-         * structure.
+         * structure.  The CPU baseline timestamp is re-stamped below
+         * because a snapshot always carries {0, 0}.
          */
         memcpy(proc, scan_proc, sizeof(*proc));
         /* Mark CPU usage as unknown for new process */
         proc->cpu_usage = -1;
+        proc->cpu_time_ts = *now;
         return;
     }
     /*
@@ -452,6 +464,7 @@ static void update_existing_process_entry(struct process *proc,
      * current value; it is independent of timing accuracy.
      */
     proc->ppid = scan_proc->ppid;
+    elapsed_ms = timediff_in_ms(now, &proc->cpu_time_ts);
     if (elapsed_ms < 0) {
         /*
          * Time moved backwards (system clock adjustment, NTP
@@ -459,14 +472,15 @@ static void update_existing_process_entry(struct process *proc,
          * cycle.
          */
         proc->cpu_time = scan_proc->cpu_time;
+        proc->cpu_time_ts = *now;
         proc->cpu_usage = -1;
         return;
     }
     if (elapsed_ms < CPU_MIN_DELTA_MS) {
         /*
          * Time delta too small for accurate CPU measurement; keep
-         * cpu_time unchanged so the next valid update accumulates
-         * the full delta over the interval.
+         * cpu_time and its timestamp unchanged so the next valid update
+         * accumulates the full delta over the interval.
          */
         return;
     }
@@ -492,6 +506,7 @@ static void update_existing_process_entry(struct process *proc,
     }
     /* Update stored CPU time for next delta calculation */
     proc->cpu_time = scan_proc->cpu_time;
+    proc->cpu_time_ts = *now;
 }
 
 /**
@@ -628,6 +643,14 @@ int update_process_set(struct process_set *proc_set) {
             }
             /* Mark CPU usage as unknown until we have a time delta */
             proc->cpu_usage = -1;
+            /*
+             * Stamp the CPU baseline with the moment it was taken (N5):
+             * the snapshot carries {0, 0} because the iterator zeroes the
+             * whole structure, so this must be set explicitly.  A member
+             * discovered later in the cycle gets a later baseline, and
+             * its next sample is divided by exactly that interval.
+             */
+            proc->cpu_time_ts = now;
             if (add_to_process_table(proc_set->proc_table, proc) != 0) {
                 free(proc);
                 alloc_failed = 1;
@@ -664,8 +687,7 @@ int update_process_set(struct process_set *proc_set) {
             if (find_process_in_list_by_pid(proc_set->proc_list, proc->pid) ==
                 NULL) {
                 add_list_elem(proc_set->proc_list, proc);
-                update_existing_process_entry(proc, scan_proc, elapsed_ms,
-                                              ncpu);
+                update_existing_process_entry(proc, scan_proc, &now, ncpu);
             }
         }
     }
