@@ -79,9 +79,18 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 > (ancestor first, otherwise the smaller PID) instead of reporting the
 > target as not found.
 >
+> **Controllability outranks both rules.** A match cpulimit cannot signal
+> — one that belongs to another user, is filtered out by seccomp, or lives
+> in another PID namespace — loses to any match it *can* control, even when
+> it would otherwise win as the ancestor or as the smaller PID. cpulimit
+> reports `No permission to control process <pid>` and exits nonzero only
+> when **every** surviving match is uncontrollable; as long as one match can
+> be limited, that one is used.
+>
 > _Example:_ If a process `myapp` spawns a child process also named
 > `myapp`, `-e myapp` selects the parent process (the ancestor), not the
-> child.
+> child — unless signalling that parent fails with `EPERM`, in which case
+> `-e myapp` limits the child instead of refusing to start.
 
 ## Examples
 

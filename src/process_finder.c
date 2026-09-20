@@ -98,6 +98,11 @@ pid_t find_process_by_pid(pid_t pid) {
  * existence recheck, the best surviving candidate is selected by the same
  * rule.
  *
+ * Controllability outranks both criteria: a match that exists but cannot be
+ * signalled is a dead end, so the best candidate cpulimit can actually
+ * limit is preferred over one it cannot.  A negative PID is returned only
+ * when every surviving match is uncontrollable.
+ *
  * @note Returns 0 immediately for NULL or empty process_name
  * @note Iterates through all processes in the system, which may be slow on
  *       systems with many processes. For known PIDs, use find_process_by_pid().
@@ -108,7 +113,7 @@ pid_t find_process_by_pid(pid_t pid) {
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
-    pid_t probe, fallback, fallback_probe;
+    pid_t probe, best_pid, best_probe;
     pid_t candidates[PROC_FINDER_MAX_CANDIDATES];
     /* unsigned: as signed counters the fallback loop below needs the
        assumption that i + 1 does not overflow to be folded, which
@@ -222,24 +227,43 @@ pid_t find_process_by_name(const char *process_name) {
      * iteration order, which the primary selection deliberately does not
      * depend on.
      *
-     * The probe's sign must survive: it reports -PID for a process that
-     * exists but cannot be controlled (EPERM/EACCES), and the caller turns
-     * that into a single "No permission to control process N" instead of
-     * limping through a limit run it cannot enforce (BUG-061).  Return the
-     * probe result itself rather than using it as a boolean.
+     * That rule alone is blind to controllability, though: the probe returns
+     * -PID for a process that exists but cannot be controlled
+     * (EPERM/EACCES), and an uncontrollable candidate used to beat a
+     * perfectly controllable one merely by having a smaller PID, which gave
+     * up a run that could have limited something (S1).  The surviving
+     * candidates are therefore ranked by three tiers, highest first:
+     *
+     *   1. controllable (probe > 0) beats uncontrollable (probe < 0);
+     *   2. within one tier, an ancestor beats a descendant;
+     *   3. otherwise the smaller PID wins (N3).
+     *
+     * The probe's sign still has to reach the caller: -PID is what makes it
+     * emit a single "No permission to control process N" instead of limping
+     * through a limit run it cannot enforce (BUG-061).  It is now returned
+     * only after every surviving candidate has been probed and none of them
+     * turned out to be controllable.
      */
     if (n_candidates == 0) {
         return 0;
     }
     probe = find_process_by_pid(pid);
-    if (probe != 0) {
+    if (probe > 0) {
         return probe;
     }
-    fallback = 0;
-    fallback_probe = 0;
+    best_pid = 0;
+    best_probe = 0;
+    if (probe < 0) {
+        /*
+         * The preferred match is alive but out of reach: remember it as a
+         * second-choice result so a controllable candidate still beats it.
+         */
+        best_pid = pid;
+        best_probe = probe;
+    }
     for (i = 0; i < n_candidates; i++) {
         pid_t candidate = candidates[i];
-        int candidate_is_ancestor, unrelated;
+        int better;
         if (candidate == pid) {
             continue;
         }
@@ -247,19 +271,26 @@ pid_t find_process_by_name(const char *process_name) {
         if (probe == 0) {
             continue;
         }
-        if (fallback == 0) {
-            fallback = candidate;
-            fallback_probe = probe;
+        if (best_pid == 0) {
+            best_pid = candidate;
+            best_probe = probe;
             continue;
         }
-        candidate_is_ancestor = is_child_of(fallback, candidate);
-        unrelated = !candidate_is_ancestor && !is_child_of(candidate, fallback);
-        if (candidate_is_ancestor || (unrelated && candidate < fallback)) {
-            fallback = candidate;
-            fallback_probe = probe;
+        if ((probe > 0) != (best_probe > 0)) {
+            better = probe > 0;
+        } else {
+            int candidate_is_ancestor = is_child_of(best_pid, candidate);
+            int unrelated =
+                !candidate_is_ancestor && !is_child_of(candidate, best_pid);
+            better =
+                candidate_is_ancestor || (unrelated && candidate < best_pid);
+        }
+        if (better) {
+            best_pid = candidate;
+            best_probe = probe;
         }
     }
-    return fallback_probe;
+    return best_probe;
 }
 
 int process_has_other_name(pid_t pid, const char *process_name) {

@@ -11837,6 +11837,155 @@ static void test_find_process_by_name_fallback_is_order_independent(void) {
 }
 
 /**
+ * @brief -e must fall through to a match it can actually control (S1)
+ * @note find_process_by_pid() reports -PID for a process that exists but
+ *       cannot be signalled (EPERM/EACCES), and find_process_by_name() used
+ *       to treat any non-zero probe as a hit: the chosen candidate was
+ *       returned even when it was out of reach, so `cpulimit -e myapp` gave
+ *       up although another equally valid match could have been limited.
+ *       Controllability now outranks both ancestry and the smaller-PID
+ *       tie-break.  Two unrelated matches are scripted and the smaller one
+ *       is made to fail its probe with EPERM, so the function must return
+ *       the other one (42425); then an uncontrollable ancestor (60000) is
+ *       scripted against its controllable child (50000), where ancestry
+ *       would normally win and must not.  The kill() seam scripts the probe
+ *       results by call index: the first probe is always the primary match.
+ *       Without the ranking, result is negative in both cases.
+ *       Verified by mutation: restoring the `probe != 0` early return makes
+ *       both asserts fail.
+ */
+static void test_find_process_by_name_prefers_controllable_match(void) {
+    pid_t unrelated_result, ancestor_result;
+    struct seam_proc *unrelated =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *family =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    assert(unrelated != NULL && family != NULL);
+
+    /* Two mutually unrelated matches, both alive. */
+    memset(unrelated, 0, sizeof(struct seam_proc) * 2);
+    unrelated[0].pid = (pid_t)SEAM_TARGET_PID; /* smallest; probe fails */
+    unrelated[0].ppid = (pid_t)1;
+    strcpy(unrelated[0].command, "busy");
+    unrelated[1].pid = (pid_t)42425;
+    unrelated[1].ppid = (pid_t)1;
+    strcpy(unrelated[1].command, "busy");
+
+    seam_reset();
+    seam_push_frame(unrelated, 2);
+    seam_active = 1;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+    unrelated_result = find_process_by_name("busy");
+    seam_active = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+
+    /* An ancestor (60000) that cannot be signalled, child 50000 can be. */
+    memset(family, 0, sizeof(struct seam_proc) * 2);
+    family[0].pid = (pid_t)60000;
+    family[0].ppid = (pid_t)1;
+    strcpy(family[0].command, "busy");
+    family[1].pid = (pid_t)50000;
+    family[1].ppid = (pid_t)60000;
+    strcpy(family[1].command, "busy");
+
+    seam_reset();
+    seam_push_frame(family, 2);
+    seam_getppid_fabricate = 1;
+    seam_active = 1;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+    ancestor_result = find_process_by_name("busy");
+    seam_active = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    seam_getppid_fabricate = 0;
+
+    assert(unrelated_result == (pid_t)42425);
+    assert(ancestor_result == (pid_t)50000);
+
+    free(unrelated);
+    free(family);
+}
+
+/**
+ * @brief The two lower-ranked tiers must survive the new tier (S1)
+ * @note Adding controllability on top must not disturb what the fallback
+ *       already did.  Two cases: when every surviving match is
+ *       uncontrollable the result must still be negative and must still be
+ *       the smallest PID, so the caller reports "No permission" once for a
+ *       specific process; and when the primary match has exited, an ancestor
+ *       survivor (60000) must still beat another survivor that descends from
+ *       it (50000) even though the descendant has the smaller PID.  The
+ *       primary match is scripted as gone by making its single probe fail
+ *       with ESRCH, which find_process_by_pid() reports as 0.
+ *       Verified by mutation: collapsing the adjudication to
+ *       `candidate < best_pid` returns 50000, not 60000.
+ */
+static void test_find_process_by_name_ranking_keeps_lower_tiers(void) {
+    pid_t all_denied, ancestor_wins;
+    struct seam_proc *denied =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
+    struct seam_proc *survivors =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc) * 3);
+    assert(denied != NULL && survivors != NULL);
+
+    /* Both matches exist, neither can be signalled. */
+    memset(denied, 0, sizeof(struct seam_proc) * 2);
+    denied[0].pid = (pid_t)SEAM_TARGET_PID;
+    denied[0].ppid = (pid_t)1;
+    strcpy(denied[0].command, "busy");
+    denied[1].pid = (pid_t)42425;
+    denied[1].ppid = (pid_t)1;
+    strcpy(denied[1].command, "busy");
+
+    seam_reset();
+    seam_push_frame(denied, 2);
+    seam_active = 1;
+    seam_fail_call = 1;
+    seam_fail_span = 2; /* both probes fail */
+    seam_fail_errno = EPERM;
+    all_denied = find_process_by_name("busy");
+    seam_active = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+
+    /* 42424 is the primary match and has exited by the time it is probed. */
+    memset(survivors, 0, sizeof(struct seam_proc) * 3);
+    survivors[0].pid = (pid_t)SEAM_TARGET_PID;
+    survivors[0].ppid = (pid_t)1;
+    strcpy(survivors[0].command, "busy");
+    survivors[1].pid = (pid_t)60000;
+    survivors[1].ppid = (pid_t)1;
+    strcpy(survivors[1].command, "busy");
+    survivors[2].pid = (pid_t)50000; /* child of 60000, but the smaller PID */
+    survivors[2].ppid = (pid_t)60000;
+    strcpy(survivors[2].command, "busy");
+
+    seam_reset();
+    seam_push_frame(survivors, 3);
+    seam_getppid_fabricate = 1;
+    seam_active = 1;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = ESRCH; /* the primary is gone, not denied */
+    ancestor_wins = find_process_by_name("busy");
+    seam_active = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    seam_getppid_fabricate = 0;
+
+    assert(all_denied == -(pid_t)SEAM_TARGET_PID);
+    assert(ancestor_wins == (pid_t)60000);
+
+    free(denied);
+    free(survivors);
+}
+
+/**
  * @brief A PID appearing twice in one scan must not be double-counted (BUG-073)
  * @note update_process_set() clears the group list at the top of each cycle and
  *       rebuilds it from the iterator snapshot.  When the same PID shows up
@@ -12308,6 +12457,13 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
 pid_t cpulimit_test_getppid_of(pid_t pid);
 
 pid_t cpulimit_test_getppid_of(pid_t pid) {
+    /*
+     * The chain that is_child_of() walks under seam_getppid_fabricate.
+     * The first four rows are BUG-043's C(300) -> B(200) -> A(100) -> init.
+     * The last two service the name-lookup ranking tests (S1), where the
+     * ancestor deliberately carries the LARGER PID so that "ancestor wins"
+     * and "smaller PID wins" can be told apart.
+     */
     static const struct {
         pid_t pid;
         pid_t ppid;
@@ -12316,6 +12472,8 @@ pid_t cpulimit_test_getppid_of(pid_t pid) {
         {200, 100},
         {100, 1},
         {1, 0},
+        {50000, 60000},
+        {60000, 1},
     };
 
     if (seam_getppid_fabricate) {
@@ -14450,6 +14608,8 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_find_process_by_name_tie_breaks_by_smallest_pid);
     RUN_TEST(test_find_process_by_name_falls_back_when_winner_gone);
     RUN_TEST(test_find_process_by_name_fallback_is_order_independent);
+    RUN_TEST(test_find_process_by_name_prefers_controllable_match);
+    RUN_TEST(test_find_process_by_name_ranking_keeps_lower_tiers);
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_process_set_resume_silent_when_pid_gone);
     RUN_TEST(test_process_set_init_fails_cleanly_on_scan_error);
