@@ -14101,35 +14101,36 @@ static void test_child_wait_reaps_child_on_clock_failure(void) {
     pid_t target, waited;
     struct cpulimit_cfg cfg;
     int status, result, orphan;
-    int sync_pipe[2];
-    char byte;
+    siginfo_t child_info;
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "test";
     cfg.cpu_limit = 0.5;
-
-    assert(pipe(sync_pipe) == 0);
 
     fflush(stdout);
     fflush(stderr);
     target = fork();
     assert(target >= 0);
     if (target == 0) {
-        close(sync_pipe[0]);
-        close(sync_pipe[1]);
         _exit(EXIT_SUCCESS);
     }
 
     /*
-     * Wait for the child to be gone before the failure is armed: EOF needs
-     * every write end closed, which happens as the child exits.  The child
-     * is then a zombie, and a non-blocking reap still collects it.
+     * Wait for the child to really have exited before the failure is armed:
+     * the reap on that path is deliberately non-blocking (T2), so it can
+     * only collect a child that is already gone.  WNOWAIT reports the exit
+     * without consuming it, which leaves the child reapable for
+     * collect_child_exit_status() -- and it is a real state change, unlike
+     * EOF on a pipe, which only says the child closed its end and happens a
+     * moment before the exit itself (long enough to lose this race under
+     * valgrind).
      */
-    close(sync_pipe[1]);
-    while (read(sync_pipe[0], &byte, 1) < 0 && errno == EINTR) {
+    memset(&child_info, 0, sizeof(child_info));
+    while (waitid(P_PID, (id_t)target, &child_info, WEXITED | WNOWAIT) != 0 &&
+           errno == EINTR) {
         ;
     }
-    close(sync_pipe[0]);
+    assert((pid_t)child_info.si_pid == target);
 
     seam_reset();
     seam_active = 1;
