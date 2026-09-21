@@ -19,15 +19,15 @@
  * <https://www.gnu.org/licenses/>.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #ifndef CPULIMIT_TIME_UTIL_H
 #define CPULIMIT_TIME_UTIL_H
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
 #endif
 
 #include <time.h>

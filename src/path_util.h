@@ -19,6 +19,10 @@
  * <https://www.gnu.org/licenses/>.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #ifndef CPULIMIT_PATH_UTIL_H
 #define CPULIMIT_PATH_UTIL_H
 

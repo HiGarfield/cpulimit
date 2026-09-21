@@ -19,15 +19,15 @@
  * <https://www.gnu.org/licenses/>.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #ifndef CPULIMIT_PROCESS_SET_H
 #define CPULIMIT_PROCESS_SET_H
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
 #endif
 
 #include <sys/types.h>

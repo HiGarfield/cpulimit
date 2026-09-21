@@ -19,6 +19,10 @@
  * <https://www.gnu.org/licenses/>.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #ifndef CPULIMIT_PROCESS_ITERATOR_H
 #define CPULIMIT_PROCESS_ITERATOR_H
 
@@ -28,10 +32,6 @@ extern "C" {
 
 #if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__APPLE__)
 #error "Platform not supported"
-#endif
-
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
 #endif
 
 #include <sys/types.h>
