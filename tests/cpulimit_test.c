@@ -14248,16 +14248,12 @@ static void scan_failure_driver_child(int write_fd) {
     int ret;
 
     /*
-     * dup2() happens in a forked child that leaves through _exit(): the
-     * write end is never handed back to anybody, so there is no descriptor
-     * left for an analyser to complain about. It also comes before the
-     * allocation, so no early return has to free anything.
+     * Do all setup (including the malloc and its assert) before the stderr
+     * redirect.  assert() can invoke a non-returning handler on failure,
+     * so an assert placed after dup2() would leave the redirected
+     * descriptor open on that path and the analyser would flag a leak;
+     * before dup2() there is no descriptor to leak yet.
      */
-    fflush(stderr);
-    if (dup2(write_fd, STDERR_FILENO) < 0) {
-        _exit(EXIT_FAILURE);
-    }
-
     visible = (struct seam_proc *)malloc(sizeof(struct seam_proc));
     assert(visible != NULL);
     memset(visible, 0, sizeof(struct seam_proc));
@@ -14272,9 +14268,28 @@ static void scan_failure_driver_child(int write_fd) {
     seam_repeat_last = 1;
     seam_active = 1;
     seam_fail_update_after = 1; /* the first cycle works, the second fails */
+
+    /*
+     * Redirect stderr to the pipe so the child's diagnostics reach the
+     * parent's capture buffer.  The dup2'd descriptor is closed explicitly
+     * before the child leaves via _exit(); the process also releases every
+     * descriptor on exit.  The redirect happens after all setup (including
+     * the malloc/assert above) so an early abort there cannot leak a still-
+     * open redirected descriptor.
+     */
+    fflush(stderr);
+    if (dup2(write_fd, STDERR_FILENO) < 0) {
+        _exit(EXIT_FAILURE);
+    }
+    /* fd 2 now carries the pipe; drop the redundant original reference. */
+    if (write_fd != STDERR_FILENO) {
+        close(write_fd);
+    }
+
     ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
     seam_active = 0;
     free(visible);
+    close(STDERR_FILENO);
     _exit(ret == LIMIT_PROCESS_SCAN_FAILED ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
@@ -14347,13 +14362,14 @@ static void test_limit_process_reports_scan_failure(void) {
 static void pid_mode_retry_driver_child(int write_fd) {
     struct cpulimit_cfg cfg;
     struct seam_proc *visible;
+    int rc;
 
-    fflush(stderr);
-    if (dup2(write_fd, STDERR_FILENO) < 0) {
-        _exit(EXIT_FAILURE);
-    }
-    configure_signal_handler();
-
+    /*
+     * Do all setup (malloc, assert, cfg, signal handlers, seam) before the
+     * stderr redirect.  assert() can invoke a non-returning handler on
+     * failure, so an assert placed after dup2() would leave the redirected
+     * descriptor open on that path and the analyser would flag a leak.
+     */
     visible = (struct seam_proc *)malloc(sizeof(struct seam_proc));
     assert(visible != NULL);
     memset(visible, 0, sizeof(struct seam_proc));
@@ -14377,8 +14393,29 @@ static void pid_mode_retry_driver_child(int write_fd) {
     seam_alive_count = 1;
     seam_fail_update_after = 1; /* the first cycle works, every scan after */
 
+    configure_signal_handler();
+
+    /*
+     * Redirect stderr to the pipe so the child's diagnostics reach the
+     * parent's capture buffer.  The dup2'd descriptor is closed explicitly
+     * before the child leaves via _exit(); the process also releases every
+     * descriptor on exit.  The redirect happens after all setup (including
+     * the malloc/assert above) so an early abort there cannot leak a still-
+     * open redirected descriptor.
+     */
+    fflush(stderr);
+    if (dup2(write_fd, STDERR_FILENO) < 0) {
+        _exit(EXIT_FAILURE);
+    }
+    /* fd 2 now carries the pipe; drop the redundant original reference. */
+    if (write_fd != STDERR_FILENO) {
+        close(write_fd);
+    }
+
+    rc = run_pid_or_exe_mode(&cfg);
     free(visible);
-    _exit(run_pid_or_exe_mode(&cfg));
+    close(STDERR_FILENO);
+    _exit(rc);
 }
 
 static void test_pid_mode_retries_after_scan_failure(void) {
