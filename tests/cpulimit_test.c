@@ -14246,6 +14246,7 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
 static void scan_failure_driver_child(int write_fd) {
     struct seam_proc *visible;
     int ret;
+    int err_fd;
 
     /*
      * Do all setup (including the malloc and its assert) before the stderr
@@ -14278,7 +14279,8 @@ static void scan_failure_driver_child(int write_fd) {
      * open redirected descriptor.
      */
     fflush(stderr);
-    if (dup2(write_fd, STDERR_FILENO) < 0) {
+    err_fd = dup2(write_fd, STDERR_FILENO);
+    if (err_fd < 0) {
         _exit(EXIT_FAILURE);
     }
     /* fd 2 now carries the pipe; drop the redundant original reference. */
@@ -14289,7 +14291,7 @@ static void scan_failure_driver_child(int write_fd) {
     ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
     seam_active = 0;
     free(visible);
-    close(STDERR_FILENO);
+    close(err_fd);
     _exit(ret == LIMIT_PROCESS_SCAN_FAILED ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
@@ -14363,6 +14365,7 @@ static void pid_mode_retry_driver_child(int write_fd) {
     struct cpulimit_cfg cfg;
     struct seam_proc *visible;
     int rc;
+    int err_fd;
 
     /*
      * Do all setup (malloc, assert, cfg, signal handlers, seam) before the
@@ -14404,7 +14407,8 @@ static void pid_mode_retry_driver_child(int write_fd) {
      * open redirected descriptor.
      */
     fflush(stderr);
-    if (dup2(write_fd, STDERR_FILENO) < 0) {
+    err_fd = dup2(write_fd, STDERR_FILENO);
+    if (err_fd < 0) {
         _exit(EXIT_FAILURE);
     }
     /* fd 2 now carries the pipe; drop the redundant original reference. */
@@ -14414,7 +14418,7 @@ static void pid_mode_retry_driver_child(int write_fd) {
 
     rc = run_pid_or_exe_mode(&cfg);
     free(visible);
-    close(STDERR_FILENO);
+    close(err_fd);
     _exit(rc);
 }
 
