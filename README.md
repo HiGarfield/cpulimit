@@ -131,7 +131,12 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 If the process scan fails while the control loop is running, limiting stops
 and the target is no longer limited from that point on. Command mode and lazy
 mode (`-p`, or `-e` together with `-z`) have no second chance and exit with
-code 1; non-lazy `-e` mode instead re-resolves the target and keeps retrying.
+code 1. Non-lazy mode (`-e` without `-z`) re-resolves the target and retries,
+but only up to 15 consecutive failed scans -- about 30 seconds -- after which it
+gives up and exits with code 1 as well. The streak is counted from the last run
+that limited to completion, so a scan that only fails occasionally keeps its
+full budget. A target that simply cannot be found is a different case: waiting
+for a process that may still start is what non-lazy mode is for.
 
 ## Get the Latest Source Code
 

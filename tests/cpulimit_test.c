@@ -9279,6 +9279,9 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
 /** @brief Number of processes a single scripted snapshot can hold. */
 #define SEAM_MAX_FRAME_PROCS 8
 
+/** @brief Number of scripted limit_process() outcomes a test can queue. */
+#define SEAM_STATUS_SCRIPT_MAX 32
+
 /** @brief Number of kill() calls the seam records. */
 #define SEAM_MAX_SIGNALS 512
 
@@ -9429,6 +9432,25 @@ static int seam_hook_limit_process = 0;
  * take for a given outcome without having to script a whole control loop.
  */
 static int seam_limit_process_status = LIMIT_PROCESS_OK;
+
+/**
+ * @brief Outcomes the hooked limit_process() reports, one per call
+ *
+ * A script rather than a single value so a test can drive a caller through
+ * "fail, fail, succeed, fail" and check that a streak is measured from the
+ * last success (N2) instead of over the whole run.  Once the script runs
+ * out its last entry repeats.
+ */
+static int seam_limit_status_script[SEAM_STATUS_SCRIPT_MAX];
+
+/** @brief Entries of @ref seam_limit_status_script that are armed; 0 = off. */
+static int seam_limit_status_script_len = 0;
+
+/** @brief Next entry of @ref seam_limit_status_script to serve. */
+static int seam_limit_status_script_next = 0;
+
+/** @brief Number of limit_process() calls the hook has served. */
+static int seam_limit_process_calls = 0;
 
 /** @brief Non-zero to park the first waitpid() call on a barrier. */
 static int seam_hook_waitpid = 0;
@@ -9664,6 +9686,9 @@ static void seam_reset(void) {
     seam_update_call_count = 0;
     seam_hook_limit_process = 0;
     seam_limit_process_status = LIMIT_PROCESS_OK;
+    seam_limit_status_script_len = 0;
+    seam_limit_status_script_next = 0;
+    seam_limit_process_calls = 0;
     seam_hook_waitpid = 0;
     seam_limit_announce_fd = -1;
     seam_limit_go_fd = -1;
@@ -12870,6 +12895,16 @@ int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
             ;
         }
     }
+    seam_limit_process_calls++;
+    if (seam_limit_status_script_len > 0) {
+        if (seam_limit_status_script_next < seam_limit_status_script_len) {
+            int status =
+                seam_limit_status_script[seam_limit_status_script_next];
+            seam_limit_status_script_next++;
+            return status;
+        }
+        return seam_limit_status_script[seam_limit_status_script_len - 1];
+    }
     return seam_limit_process_status;
 }
 
@@ -14619,17 +14654,24 @@ static void test_limit_process_reports_scan_failure(void) {
 
 /**
  * @brief Non-lazy mode must keep re-attaching after a bad scan, not fail (S2)
- * @note LIMIT_PROCESS_SCAN_FAILED deliberately is not a failure for -p/-e:
- *       the scan can fail while the target itself is fine, and non-lazy mode
- *       exists precisely to attach again.  The driver runs
+ * @note LIMIT_PROCESS_SCAN_FAILED deliberately is not an immediate failure for
+ *       -p/-e: the scan can fail while the target itself is fine, and non-lazy
+ *       mode exists precisely to attach again.  The driver runs
  *       run_pid_or_exe_mode() over a target whose first cycle succeeds and
- *       whose second scan fails; the captured stderr tells the parent that
- *       this happened, and the parent then asks the child to quit.  Leaving
- *       with EXIT_SUCCESS proves the failed scan neither ended the loop nor
- *       set EXIT_FAILURE: a hard failure would have returned at once with
- *       EXIT_FAILURE.  Verified by mutation: dropping LIMIT_PROCESS_SCAN_
- *       FAILED from the condition in run_pid_or_exe_mode() makes the exit
- *       status EXIT_FAILURE.
+ *       whose second scan fails, so every cycle ends the same way.
+ *
+ *       The retry is bounded, though (U1): a scan that keeps failing is an
+ *       environment that cannot be scanned, not a target that will come back,
+ *       so the run gives up after MAX_TARGET_LOOKUP_ATTEMPTS and returns
+ *       EXIT_FAILURE.  What this test pins down is the middle ground --
+ *       several cycles of "CPU limiting stopped" prove it really re-attached
+ *       instead of stopping at the first bad scan, and the give-up line plus
+ *       EXIT_FAILURE prove it does terminate.
+ *
+ *       No signal is sent, so the child decides when it is over and reading to
+ *       EOF is what bounds the wait.  Verified by mutation: dropping
+ *       LIMIT_PROCESS_SCAN_FAILED from the condition makes it stop after a
+ *       single diagnostic; removing the bound makes it never exit.
  */
 static void pid_mode_retry_driver_child(int write_fd) {
     struct cpulimit_cfg cfg;
@@ -14697,7 +14739,9 @@ static void test_pid_mode_retries_after_scan_failure(void) {
     pid_t driver, waited;
     int status, exited, exit_code, seen;
     size_t total = 0;
+    int attempts = 0;
     char *capture;
+    const char *walk;
     assert(pipe(err_pipe) == 0);
 
     fflush(stdout);
@@ -14715,12 +14759,11 @@ static void test_pid_mode_retries_after_scan_failure(void) {
     assert(capture != NULL);
 
     /*
-     * Read until the diagnostic shows up: that is the moment the first
-     * limit_process() has returned, so the signal below cannot arrive before
-     * the interesting decision was taken.
+     * No signal is sent: the run has to finish on its own, and reading to
+     * EOF is what bounds the wait -- the child decides when it is over.
      */
     seen = 0;
-    while (total < 4095 && !seen) {
+    while (total < 4095) {
         ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
         if (n_read < 0 && errno == EINTR) {
             continue;
@@ -14730,20 +14773,180 @@ static void test_pid_mode_retries_after_scan_failure(void) {
         }
         total += (size_t)n_read;
         capture[total] = '\0';
-        seen = strstr(capture, "CPU limiting stopped") != NULL;
+        seen = strstr(capture, "Giving up after") != NULL;
+    }
+    capture[total] = '\0';
+
+    /*
+     * Count the per-cycle diagnostics: more than one proves the loop
+     * re-resolved the target and retried instead of stopping at the first
+     * bad scan, which is the whole difference from lazy mode.
+     */
+    attempts = 0;
+    walk = capture;
+    for (;;) {
+        const char *hit = strstr(walk, "CPU limiting stopped");
+        if (hit == NULL) {
+            break;
+        }
+        attempts++;
+        walk = hit + 1;
     }
     close(err_pipe[0]);
     free(capture);
-    assert(seen);
 
-    kill(driver, SIGTERM);
     waited = waitpid(driver, &status, 0);
     assert(waited == driver);
     exited = WIFEXITED(status);
     exit_code = WEXITSTATUS(status);
 
     assert(exited);
-    assert(exit_code == EXIT_SUCCESS);
+    assert(attempts > 1);
+    assert(seen);
+    assert(exit_code == EXIT_FAILURE);
+}
+
+/**
+ * @brief Drive non-lazy mode through a scripted run of scan failures
+ * @param write_fd Write end of the pipe the child's stderr is redirected to
+ *
+ * Script: ten scan failures, one run that limits to completion, ten more
+ * failures, and then the last entry repeats forever.  The child reports how
+ * many limit_process() calls it served, which is how the parent tells a
+ * reset streak from a lifetime one.
+ */
+static void scan_streak_driver_child(int write_fd) {
+    struct cpulimit_cfg cfg;
+    int rc, err_fd, i;
+    const int first_failures = 10;
+    const int second_failures = 10;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.target_pid = SEAM_TARGET_PID;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 0;
+
+    /*
+     * Setup before the redirect: assert() can invoke a non-returning
+     * handler, and the hook only reports a status, so no control loop is
+     * scripted here.
+     */
+    seam_reset();
+    seam_find_by_pid_override = 1;
+    seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+    seam_alive_count = 1;
+    seam_active = 1;
+    seam_hook_limit_process = 1;
+    for (i = 0; i < first_failures; i++) {
+        seam_limit_status_script[i] = LIMIT_PROCESS_SCAN_FAILED;
+    }
+    seam_limit_status_script[first_failures] = LIMIT_PROCESS_OK;
+    for (i = 0; i < second_failures; i++) {
+        seam_limit_status_script[first_failures + 1 + i] =
+            LIMIT_PROCESS_SCAN_FAILED;
+    }
+    seam_limit_status_script_len = first_failures + 1 + second_failures;
+
+    fflush(stdout);
+    fflush(stderr);
+    err_fd = dup2(write_fd, STDERR_FILENO);
+    if (err_fd < 0) {
+        _exit(EXIT_FAILURE);
+    }
+    /* fd 2 now carries the pipe; drop the redundant original reference. */
+    if (write_fd != STDERR_FILENO) {
+        close(write_fd);
+    }
+
+    rc = run_pid_or_exe_mode(&cfg);
+    fprintf(stderr, "CALLS=%d\n", seam_limit_process_calls);
+    close(err_fd);
+    _exit(rc);
+}
+
+/**
+ * @brief A completed run resets the scan-failure streak (N2, U1)
+ * @note The cap on scan failures must bound a CONSECUTIVE streak, the same
+ *       way the not-found cap does: a target whose scanning fails now and
+ *       then is not the same as one that can never be scanned.  Counting a
+ *       lifetime budget instead would eventually abandon a target that is
+ *       only occasionally unscannable, which is exactly what N2 forbids.
+ *
+ *       The script is ten failures, one success, ten more failures.  With
+ *       the streak measured from the success the run needs another full
+ *       MAX_TARGET_LOOKUP_ATTEMPTS (15) failures after it, so it serves 26
+ *       calls before giving up; a lifetime count would have given up at 16,
+ *       during the second batch.  The child reports its call count and the
+ *       parent asserts on it, with a timeout so a run that never gives up
+ *       fails instead of hanging the suite.
+ *       Verified by mutation: dropping the reset makes the count 16.
+ */
+static void test_pid_mode_scan_failure_streak_resets(void) {
+    int err_pipe[2];
+    pid_t driver, waited;
+    int status, exited, exit_code, sec;
+    size_t total = 0;
+    char *capture;
+    const char *marker;
+    int calls = 0;
+    assert(pipe(err_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        close(err_pipe[0]);
+        scan_streak_driver_child(err_pipe[1]);
+    }
+    close(err_pipe[1]);
+
+    capture = (char *)malloc(4096);
+    assert(capture != NULL);
+    while (total < 4095) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    capture[total] = '\0';
+    close(err_pipe[0]);
+
+    /* Timeout protection: a run that never gives up must not wedge us. */
+    waited = 0;
+    for (sec = 0; sec < 10; sec++) {
+        waited = waitpid(driver, &status, WNOHANG);
+        if (waited == driver || (waited < 0 && errno != EINTR)) {
+            break;
+        }
+        sleep(1);
+    }
+    if (waited != driver) {
+        kill(driver, SIGKILL);
+        waitpid(driver, &status, 0);
+        free(capture);
+        assert(0 && "run_pid_or_exe_mode did not give up on the failed scans");
+    }
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+    calls = -1;
+    marker = strstr(capture, "CALLS=");
+    if (marker != NULL) {
+        if (sscanf(marker + 6, "%d", &calls) != 1) {
+            calls = -1;
+        }
+    }
+    free(capture);
+
+    assert(exited);
+    assert(exit_code == EXIT_FAILURE);
+    /* 10 + 1 + 15, not 10 + 1 + 5: the success reset the streak. */
+    assert(calls == 26);
 }
 
 /**
@@ -15757,6 +15960,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
     RUN_TEST(test_limit_process_reports_scan_failure);
     RUN_TEST(test_pid_mode_retries_after_scan_failure);
+    RUN_TEST(test_pid_mode_scan_failure_streak_resets);
     RUN_TEST(test_lazy_mode_fails_after_scan_failure);
     RUN_TEST(test_command_mode_reports_stopped_limiting);
     RUN_TEST(test_pid_mode_skips_resume_when_pid_reused);

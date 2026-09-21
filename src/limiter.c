@@ -265,6 +265,17 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
      * flags as an assumption that signed overflow cannot happen.
      */
     unsigned int lookup_attempts = 0;
+    /*
+     * Consecutive scan failures inside the control loop, non-lazy mode.
+     * Deliberately not lookup_attempts: that one is reset every time the
+     * target resolves, which happens on every retry here, so reusing it
+     * could never reach the cap and a scan that keeps failing would be
+     * retried forever (U1).  This counts the same kind of consecutive
+     * streak (N2) and is reset only when a run actually limits to
+     * completion, so a target whose scanning fails only occasionally
+     * keeps its full budget instead of exhausting it.
+     */
+    unsigned int scan_failures = 0;
 
     while (!is_quit_flag_set()) {
         pid_t found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
@@ -468,6 +479,15 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 }
 
                 /*
+                 * A run that limited to completion ends the streak (N2),
+                 * the same way a resolved target ends the not-found streak
+                 * above.
+                 */
+                if (limit_status == LIMIT_PROCESS_OK) {
+                    scan_failures = 0;
+                }
+
+                /*
                  * Whether a bad scan that stopped the control loop counts
                  * as a failure depends on whether there is a second
                  * chance: non-lazy mode re-resolves the target on every
@@ -478,9 +498,34 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                  * same outcome command mode already reports as a failure.
                  * limit_process() has already said why on stderr (S2).
                  */
-                if (limit_status != LIMIT_PROCESS_OK &&
-                    (limit_status != LIMIT_PROCESS_SCAN_FAILED ||
-                     cfg->lazy_mode)) {
+                if (limit_status == LIMIT_PROCESS_SCAN_FAILED &&
+                    !cfg->lazy_mode) {
+                    /*
+                     * The retry is bounded, and the bound exists for the
+                     * same reason as the not-found one (BUG-014): a scan
+                     * that keeps failing is not a target that will come
+                     * back, it is an environment that cannot be scanned
+                     * at all (no procfs, sustained allocation pressure).
+                     * Left unbounded it would re-walk the whole process
+                     * table every two seconds, print a diagnostic each
+                     * time and never exit (U1).  Fifteen attempts is
+                     * thirty seconds of grace for a transient failure.
+                     *
+                     * A target that simply is not there is a different
+                     * case and is handled above: that wait stays open
+                     * ended, because a daemon that starts late is exactly
+                     * what non-lazy mode promises to wait for.
+                     */
+                    scan_failures++;
+                    if (scan_failures >= MAX_TARGET_LOOKUP_ATTEMPTS) {
+                        fprintf(
+                            stderr,
+                            "Giving up after %u failed scan(s): the target is no longer limited\n",
+                            scan_failures);
+                        exit_status = EXIT_FAILURE;
+                        break;
+                    }
+                } else if (limit_status != LIMIT_PROCESS_OK) {
                     /*
                      * Limiting never engaged for this target, or it ran
                      * and then stopped with no second chance left.  Stop
