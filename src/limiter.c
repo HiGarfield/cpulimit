@@ -404,20 +404,25 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 }
 
                 /*
-                 * LIMIT_PROCESS_SCAN_FAILED is deliberately not a failure
-                 * here: limiting ran and then stopped on a bad scan, so the
-                 * target may well still be around and non-lazy mode must
-                 * re-resolve it, which is exactly what falling through
-                 * does.  limit_process() has already said why on stderr
-                 * (S2).
+                 * Whether a bad scan that stopped the control loop counts
+                 * as a failure depends on whether there is a second
+                 * chance: non-lazy mode re-resolves the target on every
+                 * iteration, so for it falling through is exactly the
+                 * retry that is wanted.  Lazy mode ends after one attempt,
+                 * so a limit that stopped there is final: the target is
+                 * no longer limited and nothing will re-attach to it, the
+                 * same outcome command mode already reports as a failure.
+                 * limit_process() has already said why on stderr (S2).
                  */
                 if (limit_status != LIMIT_PROCESS_OK &&
-                    limit_status != LIMIT_PROCESS_SCAN_FAILED) {
+                    (limit_status != LIMIT_PROCESS_SCAN_FAILED ||
+                     cfg->lazy_mode)) {
                     /*
-                     * Limiting never engaged for this target.  Stop instead
-                     * of retrying: the failure is in setting the group up,
-                     * so the next attempt would fail the same way and the
-                     * loop would just spin on it.
+                     * Limiting never engaged for this target, or it ran
+                     * and then stopped with no second chance left.  Stop
+                     * instead of retrying: the failure is in setting the
+                     * group up, so the next attempt would fail the same
+                     * way and the loop would just spin on it.
                      */
                     exit_status = EXIT_FAILURE;
                     break;

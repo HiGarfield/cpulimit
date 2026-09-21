@@ -62,9 +62,12 @@ extern "C" {
  * LIMIT_PROCESS_ERROR (nothing has to be repaired by the caller).
  *
  * limit_process() reports the reason on stderr itself.  A caller that can
- * re-resolve its target -- non-lazy -p/-e mode -- may simply try again;
- * command mode has no second chance and must tell the user that the limit
- * was not applied.
+ * re-resolve its target -- non-lazy -p/-e mode -- may simply try again.
+ * Every other caller has no second chance and must report a failure:
+ * command mode, and lazy mode (-p, or -e together with -z), whose whole
+ * point is to stop as soon as the target is gone instead of re-attaching
+ * to it.  For those a limit that stopped mid-run is final: the target is
+ * no longer limited and nothing will pick it up again.
  */
 #define LIMIT_PROCESS_SCAN_FAILED 1
 

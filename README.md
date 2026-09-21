@@ -128,6 +128,11 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 | 127       | Command not found (command mode only)                       |
 | 128+N     | Command terminated by signal N (command mode only)          |
 
+If the process scan fails while the control loop is running, limiting stops
+and the target is no longer limited from that point on. Command mode and lazy
+mode (`-p`, or `-e` together with `-z`) have no second chance and exit with
+code 1; non-lazy `-e` mode instead re-resolves the target and keeps retrying.
+
 ## Get the Latest Source Code
 
 Source code is available at <https://github.com/HiGarfield/cpulimit>.
