@@ -375,9 +375,8 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 int limit_status;
                 /* Set when this PID is shown to no longer be our target. */
                 int pid_reused = 0;
-                /* Start time before and after limit_process(), -p mode. */
+                /* Start time as it was before limit_process(), -p mode. */
                 double target_start_time = UNKNOWN_START_TIME;
-                double current_start = UNKNOWN_START_TIME;
                 /*
                  * The lookup succeeded and the PID really is our target,
                  * so the consecutive-failure streak ends here (N2).  The
@@ -442,7 +441,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                  * precisely what this fallback exists to prevent.
                  */
                 if (pid_mode) {
-                    current_start = get_process_start_time(found_pid);
+                    double current_start = get_process_start_time(found_pid);
                     /*
                      * Relational comparisons only: -Wfloat-equal rejects
                      * ==/!= on doubles, and a real start time is positive
