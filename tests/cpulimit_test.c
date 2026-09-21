@@ -9579,6 +9579,15 @@ static int seam_clock_call_count = 0;
 static int seam_init_fails = 0;
 
 /**
+ * @brief When set (and seam active), close_process_iterator() fails
+ *
+ * find_process_by_name() used to shortcut past its recheck and its
+ * controllability probe on that failure, so the seam has to be able to
+ * produce it.
+ */
+static int seam_close_fails = 0;
+
+/**
  * @brief After this many successful update_process_set() calls, force the
  *        next one to fail (-1). 0 disables the injection.
  *
@@ -9650,6 +9659,7 @@ static void seam_reset(void) {
     seam_clock_fail_on_call = 0;
     seam_clock_call_count = 0;
     seam_init_fails = 0;
+    seam_close_fails = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
     seam_hook_limit_process = 0;
@@ -9735,6 +9745,93 @@ static void test_process_finder_find_by_name_reports_permission_denied(void) {
 
     /* The probe failed with EPERM: the negative PID must survive. */
     assert(result == -(pid_t)SEAM_TARGET_PID);
+    free(frame);
+}
+
+/**
+ * @brief A failed iterator close must not skip the permission probe (T5)
+ * @note find_process_by_name() used to return the plain PID as soon as
+ *       close_process_iterator() failed, which skipped the existence recheck
+ *       (BUG-056), the controllability probe (S1) and the -PID contract
+ *       (BUG-061) all at once.  A match that exists but cannot be controlled
+ *       was then reported as a usable positive PID, so the limiter entered a
+ *       run it could not enforce, warned about EPERM once per member per
+ *       cycle and still exited 0 -- exactly what BUG-061 removed.  The scan
+ *       is scripted and the probe fails with EPERM as in the BUG-061 test;
+ *       the difference is that the iterator now also fails to close.
+ *       Verified by mutation: restoring the shortcut makes the result the
+ *       positive PID.
+ */
+static void test_find_by_name_probes_even_if_iterator_close_fails(void) {
+    pid_t result;
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    assert(frame != NULL);
+
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    strcpy(frame[0].command, "busy");
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_active = 1;
+    seam_close_fails = 1;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+    result = find_process_by_name("busy");
+    seam_active = 0;
+    seam_close_fails = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+
+    /* Uncontrollable: -PID, not the positive PID the shortcut returned. */
+    assert(result == -(pid_t)SEAM_TARGET_PID);
+    free(frame);
+}
+
+/**
+ * @brief A failed iterator close must not skip the candidate fallback (T5)
+ * @note The same shortcut dropped the fallback that lets a controllable match
+ *       beat the preferred one (S1).  Two matches are scripted, the preferred
+ *       one probes as EPERM and the other is controllable, so the
+ *       controllable candidate has to win here as well: failing to close the
+ *       iterator says nothing about which candidate is actually usable.
+ *       Verified by mutation: restoring the shortcut returns the preferred
+ *       PID instead of the controllable one.
+ */
+static void test_find_by_name_prefers_controllable_if_close_fails(void) {
+    pid_t result;
+    const pid_t other = (pid_t)(SEAM_TARGET_PID + 1);
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(2 * sizeof(struct seam_proc));
+    assert(frame != NULL);
+
+    memset(frame, 0, 2 * sizeof(struct seam_proc));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    strcpy(frame[0].command, "busy");
+    frame[1].pid = other;
+    frame[1].ppid = (pid_t)1;
+    strcpy(frame[1].command, "busy");
+
+    seam_reset();
+    seam_push_frame(frame, 2);
+    seam_active = 1;
+    seam_close_fails = 1;
+    /* Only the first probe, the one for the preferred match, fails. */
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+    result = find_process_by_name("busy");
+    seam_active = 0;
+    seam_close_fails = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+
+    /* The controllable candidate wins: positive and not the preferred one. */
+    assert(result == other);
     free(frame);
 }
 
@@ -12679,6 +12776,9 @@ int cpulimit_test_close_process_iterator(struct process_iterator *iter) {
         return close_process_iterator(iter);
     }
     (void)iter;
+    if (seam_close_fails) {
+        return -1;
+    }
     if (seam_frame_current != (size_t)-1 &&
         seam_frame_current < seam_frame_count) {
         seam_frame_next = seam_frame_current + 1;
@@ -15820,6 +15920,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_finder_find_by_pid);
     RUN_TEST(test_process_finder_find_by_pid_reports_eacces);
     RUN_TEST(test_process_finder_find_by_name_reports_permission_denied);
+    RUN_TEST(test_find_by_name_probes_even_if_iterator_close_fails);
+    RUN_TEST(test_find_by_name_prefers_controllable_if_close_fails);
     RUN_TEST(test_process_finder_find_by_name);
     RUN_TEST(test_process_finder_find_by_name_self);
     RUN_TEST(test_process_finder_find_by_name_symlink);

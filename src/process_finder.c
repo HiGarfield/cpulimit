@@ -109,6 +109,10 @@ pid_t find_process_by_pid(pid_t pid) {
  * @note On critical errors (e.g., memory allocation or iterator
  *       initialization failure) returns 0, letting the caller treat the
  *       target as "not found" and decide, instead of aborting the run.
+ * @note A failure to close the iterator is reported but does not change the
+ *       selection: the scan itself did complete, so the existence recheck,
+ *       the controllability probe and the candidate fallback below all still
+ *       run, and an uncontrollable match is still returned as -PID (T5).
  */
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
@@ -206,12 +210,17 @@ pid_t find_process_by_name(const char *process_name) {
     }
     free(proc);
     if (close_process_iterator(&iter) != 0) {
-        fprintf(stderr, "Failed to close process iterator\n");
         /*
-         * The scan itself completed, so degrade gracefully and report
-         * whatever was found instead of aborting the whole run.
+         * The scan itself completed and this diagnostic is all the operator
+         * can act on, so the selection below continues exactly as it does
+         * on the normal path.  Returning a PID here would skip the
+         * existence recheck (BUG-056), the controllability probe (S1) and
+         * the -PID contract (BUG-061), and would hand the caller a positive
+         * PID for a process cpulimit cannot control at all: a limit run
+         * that cannot be enforced, an EPERM warning per member per cycle,
+         * and a zero exit status (T5).
          */
-        return found ? pid : 0;
+        fprintf(stderr, "Failed to close process iterator\n");
     }
 
     /*
