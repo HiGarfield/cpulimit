@@ -9441,6 +9441,17 @@ static int seam_waitpid_go_fd = -1;
 static int seam_waitpid_calls = 0;
 
 /**
+ * @brief Number of waitpid() calls through the seam that passed WNOHANG
+ *
+ * A reap that must not block has to ask for the non-blocking form, so
+ * counting the two forms separately is how a test proves it did.
+ */
+static int seam_waitpid_wnohang_calls = 0;
+
+/** @brief Number of waitpid() calls through the seam that could block. */
+static int seam_waitpid_blocking_calls = 0;
+
+/**
  * @brief Where each recorded kill() call is reported; -1 for nowhere
  *
  * A test that drives the limiter in a forked process cannot read that
@@ -9544,6 +9555,18 @@ static int seam_fail_errno = 0;
 /** @brief Non-zero to make the get_current_time() seam report failure. */
 static int seam_clock_fails = 0;
 
+/**
+ * @brief Fail the Nth get_current_time() call only; 0 disables
+ *
+ * The first call is the one at the top of collect_child_exit_status(), so
+ * failing only a later one drives the failure paths inside its polling
+ * loop instead of the one before it.
+ */
+static int seam_clock_fail_on_call = 0;
+
+/** @brief Number of get_current_time() calls made through the seam. */
+static int seam_clock_call_count = 0;
+
 /** @brief When set (and seam active), init_process_iterator() fails. */
 static int seam_init_fails = 0;
 
@@ -9616,6 +9639,8 @@ static void seam_reset(void) {
     seam_fail_span = 1;
     seam_fail_errno = 0;
     seam_clock_fails = 0;
+    seam_clock_fail_on_call = 0;
+    seam_clock_call_count = 0;
     seam_init_fails = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
@@ -9626,6 +9651,8 @@ static void seam_reset(void) {
     seam_waitpid_announce_fd = -1;
     seam_waitpid_go_fd = -1;
     seam_waitpid_calls = 0;
+    seam_waitpid_wnohang_calls = 0;
+    seam_waitpid_blocking_calls = 0;
     seam_log_fd = -1;
     seam_hook_sleep = 0;
     seam_sleep_call = 0;
@@ -12370,7 +12397,10 @@ static void seam_assert_no_double_stop(const struct seam_signal *log,
 /* cppcheck-suppress-begin unusedFunction */
 int cpulimit_test_get_current_time(struct timespec *result_ts) {
     double whole_seconds;
-    if (seam_clock_fails) {
+    seam_clock_call_count++;
+    if (seam_clock_fails ||
+        (seam_clock_fail_on_call > 0 &&
+         seam_clock_call_count == seam_clock_fail_on_call)) {
         errno = EIO;
         return -1;
     }
@@ -12767,6 +12797,11 @@ int cpulimit_test_update_process_set(struct process_set *proc_set) {
  */
 pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
     char go;
+    if (options & WNOHANG) {
+        seam_waitpid_wnohang_calls++;
+    } else {
+        seam_waitpid_blocking_calls++;
+    }
     if (!seam_hook_waitpid) {
         return waitpid(pid, status, options);
     }
@@ -13831,19 +13866,6 @@ static void test_child_wait_resumes_on_clock_failure(void) {
 }
 
 /**
- * @brief collect_child_exit_status() must reap the child it gives up on (S4)
- * @note The three get_current_time() failure paths used to call exit() out of
- *       this function, so neither run_command_mode() nor run_pid_or_exe_mode()
- *       ever saw a return value: their own diagnosis and exit status were
- *       skipped and their cleanup never ran.  They now return EXIT_FAILURE,
- *       which is only safe because the child is waited for first -- returning
- *       while leaving it unreaped would be a zombie, which AGENTS.md forbids.
- *       A real child that outlives the failure by a moment proves the reap:
- *       waitpid() afterwards must find nothing left to collect.
- *       Verified by mutation: dropping the reap makes the child zombie and
- *       the ECHILD assertion fail.
- */
-/**
  * @brief The SIGKILL escalation must fire once, not once per poll (S5)
  * @note Nothing latched the escalation, so every 50 ms poll after the timeout
  *       sent SIGKILL again to the child's process group: stale deliveries for
@@ -13948,28 +13970,57 @@ static void test_child_wait_escalates_sigkill_once(void) {
     assert(escalations == 1);
 }
 
+/**
+ * @brief collect_child_exit_status() must reap the child it gives up on (S4)
+ * @note The three get_current_time() failure paths used to call exit() out of
+ *       this function, so neither run_command_mode() nor run_pid_or_exe_mode()
+ *       ever saw a return value: their own diagnosis and exit status were
+ *       skipped and their cleanup never ran.  They now return EXIT_FAILURE,
+ *       which is only safe because the child is collected first -- returning
+ *       while leaving it unreaped would be a zombie, which AGENTS.md forbids.
+ *
+ *       The reap is deliberately non-blocking until something has asked the
+ *       child to stop (T2), so it can only collect a child that has already
+ *       gone.  The rendezvous below therefore lets the child exit first, and
+ *       the reap still has to collect it: waitpid() afterwards must find
+ *       nothing left.  A child that is left running instead is the subject
+ *       of test_child_wait_reap_does_not_block_before_quit().
+ *       Verified by mutation: dropping the reap makes the child zombie and
+ *       the ECHILD assertion fail.
+ */
 static void test_child_wait_reaps_child_on_clock_failure(void) {
     pid_t target, waited;
     struct cpulimit_cfg cfg;
     int status, result, orphan;
-    struct timespec remaining = {0, 100000000L}; /* 100 ms */
+    int sync_pipe[2];
+    char byte;
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "test";
     cfg.cpu_limit = 0.5;
+
+    assert(pipe(sync_pipe) == 0);
 
     fflush(stdout);
     fflush(stderr);
     target = fork();
     assert(target >= 0);
     if (target == 0) {
-        alarm(30);
-        /* Exit on its own shortly after the failure below is detected. */
-        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
-            ;
-        }
+        close(sync_pipe[0]);
+        close(sync_pipe[1]);
         _exit(EXIT_SUCCESS);
     }
+
+    /*
+     * Wait for the child to be gone before the failure is armed: EOF needs
+     * every write end closed, which happens as the child exits.  The child
+     * is then a zombie, and a non-blocking reap still collects it.
+     */
+    close(sync_pipe[1]);
+    while (read(sync_pipe[0], &byte, 1) < 0 && errno == EINTR) {
+        ;
+    }
+    close(sync_pipe[0]);
 
     seam_reset();
     seam_active = 1;
@@ -13985,6 +14036,115 @@ static void test_child_wait_reaps_child_on_clock_failure(void) {
     assert(result == EXIT_FAILURE);
     assert(waited < 0);
     assert(orphan);
+}
+
+/**
+ * @brief The bail-out reap must not block before anything asked for it (T2)
+ * @note collect_child_exit_status() gives up on its very first
+ *       get_current_time() failure, at a point where nothing has asked the
+ *       child to stop.  Waiting for it there would turn a nearly unreachable
+ *       error branch into a hang: "cpulimit -l 50 -- sleep 100000" would
+ *       simply wait for the sleep to end.  The child below is still running,
+ *       which is exactly the case a blocking wait would get stuck on, so the
+ *       reap has to take the single non-blocking answer and leave the child
+ *       to the caller.  Counting the two waitpid() forms is what proves it,
+ *       and needs no timing assumption.
+ *       Verified by mutation: blocking there makes the call wait for the
+ *       child's own long sleep instead of returning.
+ */
+static void test_child_wait_reap_does_not_block_before_quit(void) {
+    pid_t target, waited;
+    struct cpulimit_cfg cfg;
+    int status, result;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.cpu_limit = 0.5;
+
+    fflush(stdout);
+    fflush(stderr);
+    target = fork();
+    assert(target >= 0);
+    if (target == 0) {
+        alarm(30);
+        /* Outlive the failure below by a wide margin. */
+        (void)sleep(30);
+        _exit(EXIT_SUCCESS);
+    }
+
+    seam_reset();
+    seam_clock_fails = 1;
+    result = collect_child_exit_status(target, &cfg, 0);
+    seam_clock_fails = 0;
+
+    assert(result == EXIT_FAILURE);
+    /*
+     * Nothing asked the child to stop, so not a single blocking wait is
+     * allowed: the one reap has to be the non-blocking kind.
+     */
+    assert(seam_waitpid_blocking_calls == 0);
+    assert(seam_waitpid_wnohang_calls == 1);
+
+    seam_reset();
+    kill(target, SIGKILL);
+    waited = waitpid(target, &status, 0);
+    assert(waited == target);
+}
+
+/**
+ * @brief The bail-out reap must not block inside the polling loop either (T2)
+ * @note The second failure path sits in the polling loop, on a child that has
+ *       not changed state yet and has still not been told to stop: the quit
+ *       signal is only forwarded further down, and the caller need not have
+ *       forwarded it either (signal_forwarded is 0 here).  Blocking there has
+ *       the same consequence as at the top of the function, so the reap has
+ *       to stay non-blocking.  The clock seam is made to fail on the second
+ *       call only, which is what steers the run into this path instead of the
+ *       one at the top of the function.
+ *       Verified by mutation: blocking there makes the call wait for the
+ *       child's own long sleep instead of returning.
+ */
+static void test_child_wait_reap_does_not_block_in_poll(void) {
+    pid_t target, waited;
+    struct cpulimit_cfg cfg;
+    int status, result;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.cpu_limit = 0.5;
+
+    fflush(stdout);
+    fflush(stderr);
+    target = fork();
+    assert(target >= 0);
+    if (target == 0) {
+        alarm(30);
+        /* Outlive the failure below by a wide margin. */
+        (void)sleep(30);
+        _exit(EXIT_SUCCESS);
+    }
+
+    seam_reset();
+    /*
+     * The first call is the one at the top of the function; failing only the
+     * second one reaches the failure inside the polling loop.
+     */
+    seam_clock_fail_on_call = 2;
+    result = collect_child_exit_status(target, &cfg, 0);
+    seam_clock_fail_on_call = 0;
+
+    assert(result == EXIT_FAILURE);
+    /*
+     * One poll plus the reap, both non-blocking: no blocking wait at all,
+     * because nothing has asked the child to stop.
+     */
+    assert(seam_waitpid_blocking_calls == 0);
+    assert(seam_waitpid_wnohang_calls == 2);
+
+    seam_reset();
+    kill(target, SIGKILL);
+    waited = waitpid(target, &status, 0);
+    assert(waited == target);
 }
 
 /**
@@ -15425,6 +15585,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_child_wait_sigkill_escalation);
     RUN_TEST(test_child_wait_resumes_on_clock_failure);
     RUN_TEST(test_child_wait_reaps_child_on_clock_failure);
+    RUN_TEST(test_child_wait_reap_does_not_block_before_quit);
+    RUN_TEST(test_child_wait_reap_does_not_block_in_poll);
     RUN_TEST(test_child_wait_escalates_sigkill_once);
     RUN_TEST(test_sleep_timespec_accurate_after_eintr);
 

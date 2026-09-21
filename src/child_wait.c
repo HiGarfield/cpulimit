@@ -50,18 +50,41 @@
 /**
  * @brief Reap the child before returning from an internal failure
  * @param child_pid PID of the child to collect
+ * @param termination_requested Non-zero if the child has already been asked
+ *        to terminate
  *
- * An error return has to leave no zombie behind, which is why this behaves
- * like the polling loop below with respect to EINTR: retry until waitpid()
- * collects the child or fails for a reason other than EINTR.  Used by the
- * internal failure paths, which return EXIT_FAILURE to the caller instead of
- * terminating the process underneath it (S4).
+ * An error return has to leave no zombie behind, but whether waiting for the
+ * child is safe depends on whether anything has asked it to stop: only then
+ * is the wait bounded, which is why this behaves like the polling loop below
+ * with respect to EINTR on that path -- retry until waitpid() collects the
+ * child or fails for a reason other than EINTR.
+ *
+ * Until a quit signal has been forwarded the child may keep running for as
+ * long as it likes, so blocking here would turn a nearly unreachable error
+ * branch into a hang: "cpulimit -l 50 -- sleep 100000" would wait for the
+ * sleep to end.  Those paths take the single non-blocking answer instead and
+ * leave the child to the caller, which is returning anyway; the child is
+ * then reparented to init and reaped there rather than staying a zombie of
+ * this process.
+ *
+ * Used by the internal failure paths, which return EXIT_FAILURE to the
+ * caller instead of terminating the process underneath it (S4).
  */
-static void reap_child_before_error_return(pid_t child_pid) {
+static void reap_child_before_error_return(pid_t child_pid,
+                                          int termination_requested) {
     for (;;) {
         int status;
-        pid_t wpid = waitpid(child_pid, &status, 0);
+        pid_t wpid = waitpid(child_pid, &status,
+                             termination_requested ? 0 : WNOHANG);
         if (wpid == child_pid) {
+            return;
+        }
+        if (wpid == 0) {
+            /*
+             * The child is still running and nothing has asked it to
+             * stop, so there is nothing to collect and waiting would be
+             * unbounded.
+             */
             return;
         }
         if (wpid < 0 && errno == EINTR) {
@@ -100,11 +123,12 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
          * Return instead of exiting: the caller still has its own
          * diagnosis and exit status to produce, and terminating the
          * process here skipped both (S4).  The child is resumed first so
-         * it does not stay stopped, then waited for so it does not stay
-         * a zombie either.
+         * it does not stay stopped, then reaped without waiting: nothing
+         * has asked it to terminate yet, so blocking here would last as
+         * long as the child itself runs (T2).
          */
         kill(child_pid, SIGCONT);
-        reap_child_before_error_return(child_pid);
+        reap_child_before_error_return(child_pid, 0);
         return EXIT_FAILURE;
     }
 
@@ -171,9 +195,11 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
             if (get_current_time(&current_time) != 0) {
                 perror("get_current_time");
                 /* Same reasoning as above: reap, then let the caller
-                 * decide how the run ends (S4). */
+                 * decide how the run ends (S4).  signal_forwarded says
+                 * whether the child has already been told to stop, and
+                 * only then is waiting for it bounded (T2). */
                 kill(child_pid, SIGCONT);
-                reap_child_before_error_return(child_pid);
+                reap_child_before_error_return(child_pid, signal_forwarded);
                 return EXIT_FAILURE;
             }
 
@@ -205,9 +231,11 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                 if (get_current_time(&start_time) != 0) {
                     perror("get_current_time");
                     /* Same reasoning as above: reap, then let the caller
-                       decide how the run ends (S4). */
+                       decide how the run ends (S4).  The quit signal has
+                       just been forwarded, so the child is on its way out
+                       and waiting for it is bounded (T2). */
                     kill(child_pid, SIGCONT);
-                    reap_child_before_error_return(child_pid);
+                    reap_child_before_error_return(child_pid, 1);
                     return EXIT_FAILURE;
                 }
             } else if (signal_forwarded) {
