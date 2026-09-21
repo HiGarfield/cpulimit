@@ -1925,21 +1925,21 @@ static void test_signal_handler_mask_restored_after_configure(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        sigset_t empty_mask, full_mask, after;
+        sigset_t m1, after;
         /*
          * Handled signals plus SIGUSR1, probed on both extremes.
          * SIGKILL and SIGSTOP are deliberately absent: POSIX says they
          * cannot be blocked, so sigprocmask never reports them as members.
+         * m1 is reused for the empty and the full mask so the two cases
+         * between them need only two sigset_t on the (small) stack.
          */
         const int sigs[] = {SIGINT, SIGTERM, SIGHUP, SIGPIPE, SIGQUIT, SIGUSR1};
         size_t i;
         int unblocked = 1;
 
-        sigemptyset(&empty_mask);
-        sigfillset(&full_mask);
-
         /* Case 1: an unblocked caller must keep an unblocked mask. */
-        sigprocmask(SIG_SETMASK, &empty_mask, NULL);
+        sigemptyset(&m1);
+        sigprocmask(SIG_SETMASK, &m1, NULL);
         configure_signal_handler();
         sigprocmask(SIG_SETMASK, NULL, &after);
         for (i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
@@ -1955,7 +1955,8 @@ static void test_signal_handler_mask_restored_after_configure(void) {
          * Case 2: a caller that had everything blocked must get that
          * state back -- exactly what the error path used to destroy.
          */
-        sigprocmask(SIG_SETMASK, &full_mask, NULL);
+        sigfillset(&m1);
+        sigprocmask(SIG_SETMASK, &m1, NULL);
         configure_signal_handler();
         sigprocmask(SIG_SETMASK, NULL, &after);
         for (i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
