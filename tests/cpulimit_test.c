@@ -14882,6 +14882,174 @@ static void test_command_mode_reports_stopped_limiting(void) {
 }
 
 /**
+ * @brief Run one lazy run_pid_or_exe_mode() iteration, counting its resumes
+ * @param cfg Configuration to run with
+ * @param frames One process per frame, served in order by the iterator seam
+ * @param frame_count Number of frames
+ * @param run_result Optional out parameter for the function's return value
+ * @return Number of SIGCONT calls recorded for the target
+ *
+ * lazy_mode keeps this to a single iteration and the hooked limit_process()
+ * only reports success, so the iterator frames are consumed solely by the
+ * target lookup and by the checks around the closing resume -- which is what
+ * makes the count below mean "the resume was sent" and nothing else.
+ */
+static int seam_count_closing_sigcont(const struct cpulimit_cfg *cfg,
+                                      const struct seam_proc *frames,
+                                      int frame_count, int *run_result) {
+    int i, count, result;
+
+    seam_reset();
+    for (i = 0; i < frame_count; i++) {
+        seam_push_frame(&frames[i], 1);
+    }
+    seam_active = 1;
+    seam_find_by_pid_override = 1;
+    seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+    seam_alive_count = 1;
+    seam_hook_limit_process = 1;
+    seam_limit_process_status = LIMIT_PROCESS_OK;
+
+    result = run_pid_or_exe_mode(cfg);
+    if (run_result != NULL) {
+        *run_result = result;
+    }
+
+    count = seam_count_signals(seam_signals, (int)seam_signal_count,
+                               (pid_t)SEAM_TARGET_PID, SIGCONT);
+    seam_reset();
+    return count;
+}
+
+/**
+ * @brief -p must not resume a PID recycled while limiting was running (T4)
+ * @note limit_process() blocks for a long time, and the closing SIGCONT went
+ *       to whatever that PID had become by then.  SIGCONT resumes a stopped
+ *       process, so the damage is waking a process somebody else is holding
+ *       stopped: job control, a debugger, another cpulimit instance.  The
+ *       target's start time is now recorded before limiting and compared
+ *       afterwards, so a recycled PID is recognised and left alone.  The
+ *       iterator seam serves a different start time for the second read and
+ *       the kill() seam counts the resumes.
+ *       Verified by mutation: sending the resume unconditionally makes the
+ *       count 1.
+ */
+static void test_pid_mode_skips_resume_when_pid_reused(void) {
+    struct cpulimit_cfg cfg;
+    struct seam_proc *frames;
+    int result, sigconts;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.target_pid = SEAM_TARGET_PID;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    /* Heap: one seam_proc carries a command buffer of its own. */
+    frames = (struct seam_proc *)malloc(2 * sizeof(*frames));
+    assert(frames != NULL);
+    memset(frames, 0, 2 * sizeof(*frames));
+    frames[0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[0].ppid = (pid_t)1;
+    frames[0].start_time = 100.0;
+    frames[1].pid = (pid_t)SEAM_TARGET_PID;
+    frames[1].ppid = (pid_t)1;
+    frames[1].start_time = 200.0;
+
+    sigconts = seam_count_closing_sigcont(&cfg, frames, 2, &result);
+    free(frames);
+
+    assert(result == EXIT_SUCCESS);
+    assert(sigconts == 0);
+}
+
+/**
+ * @brief An unknown start time must not suppress the closing resume (T4)
+ * @note The recycle check may only skip the resume when it can prove the PID
+ *       changed hands.  A platform that cannot report start times cannot
+ *       prove anything, and the reason the unconditional resume exists at all
+ *       is that a stopped target may be invisible to the iterator (macOS
+ *       10.7) or left untraversed when update_process_set() fails: skipping
+ *       it there strands a stopped process.  So the fallback must survive.
+ *       This is also the control for the test above -- the same scripted run
+ *       does resume when nothing proves a recycle.
+ */
+static void test_pid_mode_resumes_when_start_time_unknown(void) {
+    struct cpulimit_cfg cfg;
+    struct seam_proc *frames;
+    int result, sigconts;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.target_pid = SEAM_TARGET_PID;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    frames = (struct seam_proc *)malloc(2 * sizeof(*frames));
+    assert(frames != NULL);
+    memset(frames, 0, 2 * sizeof(*frames));
+    frames[0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[0].ppid = (pid_t)1;
+    frames[0].start_time = UNKNOWN_START_TIME;
+    frames[1].pid = (pid_t)SEAM_TARGET_PID;
+    frames[1].ppid = (pid_t)1;
+    frames[1].start_time = UNKNOWN_START_TIME;
+
+    sigconts = seam_count_closing_sigcont(&cfg, frames, 2, &result);
+    free(frames);
+
+    assert(result == EXIT_SUCCESS);
+    assert(sigconts == 1);
+}
+
+/**
+ * @brief -e must not resume a PID that no longer runs the target (T4)
+ * @note -e has a name to compare, so the recycle check reuses the same
+ *       process_has_other_name() the stale check already applies before
+ *       limiting.  Three frames are consumed: the name lookup, that stale
+ *       check, and this one after limit_process() returns.  The last one
+ *       reports a different command and the resume has to be skipped; with
+ *       the command left alone the very same run does resume, which is what
+ *       keeps this from passing vacuously.
+ */
+static void test_exe_mode_skips_resume_when_name_changed(void) {
+    struct cpulimit_cfg cfg;
+    struct seam_proc *frames;
+    const char exe_name[] = "target";
+    int result, changed, same;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.exe_name = exe_name;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    frames = (struct seam_proc *)malloc(3 * sizeof(*frames));
+    assert(frames != NULL);
+    memset(frames, 0, 3 * sizeof(*frames));
+    frames[0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[0].ppid = (pid_t)1;
+    frames[0].start_time = 100.0;
+    memcpy(frames[0].command, "target", strlen("target") + 1);
+    /* The stale check before limiting sees the intact name. */
+    frames[1] = frames[0];
+    frames[2] = frames[0];
+    memcpy(frames[2].command, "other", strlen("other") + 1);
+
+    changed = seam_count_closing_sigcont(&cfg, frames, 3, &result);
+    assert(result == EXIT_SUCCESS);
+    assert(changed == 0);
+
+    /* Control: the same run with the name intact still resumes. */
+    memcpy(frames[2].command, "target", strlen("target") + 1);
+    same = seam_count_closing_sigcont(&cfg, frames, 3, &result);
+    free(frames);
+
+    assert(result == EXIT_SUCCESS);
+    assert(same == 1);
+}
+
+/**
  * @brief Test that the tracked group never contains cpulimit itself
  * @note With --include-children the target may be an ancestor of this very
  *       process, and is_child_of() then reports this process as a group
@@ -15490,6 +15658,9 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_pid_mode_retries_after_scan_failure);
     RUN_TEST(test_lazy_mode_fails_after_scan_failure);
     RUN_TEST(test_command_mode_reports_stopped_limiting);
+    RUN_TEST(test_pid_mode_skips_resume_when_pid_reused);
+    RUN_TEST(test_pid_mode_resumes_when_start_time_unknown);
+    RUN_TEST(test_exe_mode_skips_resume_when_name_changed);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);

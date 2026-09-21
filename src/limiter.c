@@ -41,6 +41,7 @@
 #include "exec_sync.h"
 #include "limit_process.h"
 #include "process_finder.h"
+#include "process_iterator.h"
 #include "signal_forward.h"
 #include "signal_handler.h"
 #include "time_util.h"
@@ -372,6 +373,11 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never
                  * started */
                 int limit_status;
+                /* Set when this PID is shown to no longer be our target. */
+                int pid_reused = 0;
+                /* Start time before and after limit_process(), -p mode. */
+                double target_start_time = UNKNOWN_START_TIME;
+                double current_start = UNKNOWN_START_TIME;
                 /*
                  * The lookup succeeded and the PID really is our target,
                  * so the consecutive-failure streak ends here (N2).  The
@@ -384,6 +390,16 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 lookup_attempts = 0;
                 if (cfg->verbose) {
                     printf("Process %ld found\n", (long)found_pid);
+                }
+                if (pid_mode) {
+                    /*
+                     * Recorded before limiting so the closing SIGCONT below
+                     * can tell this process from whatever the PID may have
+                     * been recycled into while limit_process() was running
+                     * (T4).  Only -p needs it: -e compares the executable
+                     * name instead, which costs no extra read.
+                     */
+                    target_start_time = get_process_start_time(found_pid);
                 }
                 /*
                  * Apply CPU limiting to the target process.
@@ -410,8 +426,43 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                  *
                  * This mirrors the symmetric guard already present in
                  * run_command_mode() after its limit_process() call.
+                 *
+                 * It is only unconditional while this PID is still the
+                 * target.  limit_process() blocks for a long time, and by
+                 * the time it returns the PID may have been recycled, so
+                 * an unconditional SIGCONT can resume a process that
+                 * somebody else is holding stopped on purpose: job
+                 * control, a debugger, another cpulimit instance.  The
+                 * signal is therefore skipped only when the PID can be
+                 * shown to have changed hands (T4) -- in -e mode when it no
+                 * longer carries the requested name, in -p mode when its
+                 * start time differs from the one recorded above.  A start
+                 * time the platform cannot report means nobody can tell, so
+                 * the signal is sent anyway: stranding a stopped target is
+                 * precisely what this fallback exists to prevent.
                  */
-                if (kill(found_pid, SIGCONT) != 0 && errno != ESRCH) {
+                if (pid_mode) {
+                    current_start = get_process_start_time(found_pid);
+                    /*
+                     * Relational comparisons only: -Wfloat-equal rejects
+                     * ==/!= on doubles, and a real start time is positive
+                     * while UNKNOWN_START_TIME is not.
+                     */
+                    pid_reused = (target_start_time > 0.0 &&
+                                  current_start > 0.0 &&
+                                  (current_start < target_start_time ||
+                                   current_start > target_start_time));
+                } else {
+                    pid_reused =
+                        process_has_other_name(found_pid, cfg->exe_name);
+                }
+                if (pid_reused) {
+                    if (cfg->verbose) {
+                        printf(
+                            "Process %ld is no longer the target; not resuming it\n",
+                            (long)found_pid);
+                    }
+                } else if (kill(found_pid, SIGCONT) != 0 && errno != ESRCH) {
                     int err = errno;
                     fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n",
                             (long)found_pid, strerror(err));
