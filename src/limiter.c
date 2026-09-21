@@ -196,17 +196,31 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
      */
     if (limit_status != LIMIT_PROCESS_OK) {
         /*
-         * Limiting never engaged (e.g. allocator/clock/iterator failure inside
-         * limit_process()).  The command child ran unthrottled; surface its
-         * real exit status so the operator can diagnose the outcome (BUG-018)
-         * instead of only seeing cpulimit's own EXIT_FAILURE.
+         * The command child was not limited to completion either way; surface
+         * its real exit status so the operator can diagnose the outcome
+         * (BUG-018) instead of only seeing cpulimit's own EXIT_FAILURE.
+         *
+         * The two reasons are different and must not be reported as one.
+         * LIMIT_PROCESS_ERROR means the group was never built and nothing
+         * was limited at all.  LIMIT_PROCESS_SCAN_FAILED means limiting did
+         * run and only stopped when a scan failed, so the command merely ran
+         * unthrottled from that point on: saying the limit "could not be
+         * applied" sends anyone debugging it after permissions or target
+         * resolution instead of the failed scan (T3).
          */
         int child_exit_status =
             collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
-        fprintf(
-            stderr,
-            "Warning: CPU limit could not be applied to process %ld; the command exited with status %d\n",
-            (long)child_pid, child_exit_status);
+        if (limit_status == LIMIT_PROCESS_SCAN_FAILED) {
+            fprintf(
+                stderr,
+                "Warning: CPU limiting stopped early for process %ld; the command ran unthrottled from that point and exited with status %d\n",
+                (long)child_pid, child_exit_status);
+        } else {
+            fprintf(
+                stderr,
+                "Warning: CPU limit could not be applied to process %ld; the command exited with status %d\n",
+                (long)child_pid, child_exit_status);
+        }
         return EXIT_FAILURE;
     }
     return collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);

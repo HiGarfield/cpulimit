@@ -9422,6 +9422,14 @@ static int seam_kill_calls = 0;
  */
 static int seam_hook_limit_process = 0;
 
+/**
+ * @brief Status the hooked limit_process() reports instead of doing work
+ *
+ * Lets a test drive the callers of limit_process() down the branch they
+ * take for a given outcome without having to script a whole control loop.
+ */
+static int seam_limit_process_status = LIMIT_PROCESS_OK;
+
 /** @brief Non-zero to park the first waitpid() call on a barrier. */
 static int seam_hook_waitpid = 0;
 
@@ -9645,6 +9653,7 @@ static void seam_reset(void) {
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
     seam_hook_limit_process = 0;
+    seam_limit_process_status = LIMIT_PROCESS_OK;
     seam_hook_waitpid = 0;
     seam_limit_announce_fd = -1;
     seam_limit_go_fd = -1;
@@ -12761,7 +12770,7 @@ int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
             ;
         }
     }
-    return LIMIT_PROCESS_OK;
+    return seam_limit_process_status;
 }
 
 /**
@@ -14761,6 +14770,118 @@ static void test_lazy_mode_fails_after_scan_failure(void) {
 }
 
 /**
+ * @brief Command mode must not claim the limit was never applied (T3)
+ * @note LIMIT_PROCESS_SCAN_FAILED means limiting did run and only stopped
+ *       when a scan failed, so "CPU limit could not be applied" is simply
+ *       wrong: it sends anyone debugging the run after permissions or
+ *       target resolution instead of the failed scan, and hides the fact
+ *       that the first cycles really were throttled.  The driver runs
+ *       run_command_mode() with limit_process() reporting a scan failure
+ *       and captures stderr, so both halves can be asserted: the wording
+ *       has to describe a limit that stopped, and the old wording has to
+ *       be gone.  The command's own exit status is still reported and the
+ *       run is still EXIT_FAILURE.
+ *       Verified by mutation: printing the old wording for every non-OK
+ *       status makes the "could not be applied" assertion fail.
+ */
+static void command_scan_failure_driver_child(int write_fd) {
+    struct cpulimit_cfg cfg;
+    char cmd[] = "true";
+    char *args[2];
+    int rc;
+    int err_fd;
+
+    args[0] = cmd;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    /*
+     * The hook only has to report a status, so no control loop is
+     * scripted: this drives the caller's own branch, which is what is
+     * under test here.
+     */
+    seam_reset();
+    seam_hook_limit_process = 1;
+    seam_limit_process_status = LIMIT_PROCESS_SCAN_FAILED;
+
+    /*
+     * Redirect stderr to the pipe so the child's diagnostics reach the
+     * parent's capture buffer.  The dup2'd descriptor is closed explicitly
+     * before the child leaves via _exit().
+     */
+    fflush(stdout);
+    fflush(stderr);
+    err_fd = dup2(write_fd, STDERR_FILENO);
+    if (err_fd < 0) {
+        _exit(EXIT_FAILURE);
+    }
+    /* fd 2 now carries the pipe; drop the redundant original reference. */
+    if (write_fd != STDERR_FILENO) {
+        close(write_fd);
+    }
+
+    rc = run_command_mode(&cfg);
+    close(err_fd);
+    _exit(rc);
+}
+
+static void test_command_mode_reports_stopped_limiting(void) {
+    int err_pipe[2];
+    pid_t driver, waited;
+    int status, exited, exit_code, stopped, misleading;
+    size_t total = 0;
+    char *capture;
+    assert(pipe(err_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        close(err_pipe[0]);
+        command_scan_failure_driver_child(err_pipe[1]);
+    }
+    close(err_pipe[1]);
+
+    /* Only now, so the forked child inherits nothing to leak. */
+    capture = (char *)malloc(4096);
+    assert(capture != NULL);
+
+    /* Read to EOF: the child is short-lived and its message is the point. */
+    while (total < 4095) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    capture[total] = '\0';
+    close(err_pipe[0]);
+
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+
+    stopped = strstr(capture, "stopped early") != NULL;
+    misleading = strstr(capture, "could not be applied") != NULL;
+    free(capture);
+
+    assert(exited);
+    assert(exit_code == EXIT_FAILURE);
+    assert(stopped);
+    assert(!misleading);
+}
+
+/**
  * @brief Test that the tracked group never contains cpulimit itself
  * @note With --include-children the target may be an ancestor of this very
  *       process, and is_child_of() then reports this process as a group
@@ -15368,6 +15489,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_limit_process_reports_scan_failure);
     RUN_TEST(test_pid_mode_retries_after_scan_failure);
     RUN_TEST(test_lazy_mode_fails_after_scan_failure);
+    RUN_TEST(test_command_mode_reports_stopped_limiting);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
