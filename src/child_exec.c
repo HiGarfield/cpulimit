@@ -118,6 +118,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      */
     int saved_errno;
     const char *check_path;
+    const char *script_path;
     char *resolved;
 
     /*
@@ -196,17 +197,24 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * explicit-path check whose 126 classification must not depend on a
      * 4 KiB allocation succeeding.
      */
+    /*
+     * Decide which path to pre-check, then check it once.  An explicit path
+     * is checked as given so that its 126 classification never depends on
+     * whether the allocation above succeeded; a bare name has to be resolved
+     * through PATH first, and one that resolves nowhere has nothing to
+     * check and falls through to execvp().  The message names what the user
+     * typed either way (BUG-053).
+     */
     if (strchr(check_path, '/') != NULL) {
-        if (is_script_inaccessible_interpreter(check_path)) {
-            fprintf(stderr,
-                    "%s: cannot execute: shebang interpreter is inaccessible\n",
-                    check_path);
-            free(resolved);
-            _exit(EXIT_CMD_NOT_EXECUTABLE);
-        }
+        script_path = check_path;
     } else if (resolved != NULL &&
-               resolve_command_path(check_path, resolved, PATH_MAX) &&
-               is_script_inaccessible_interpreter(resolved)) {
+               resolve_command_path(check_path, resolved, PATH_MAX)) {
+        script_path = resolved;
+    } else {
+        script_path = NULL;
+    }
+    if (script_path != NULL &&
+        is_script_inaccessible_interpreter(script_path)) {
         fprintf(stderr,
                 "%s: cannot execute: shebang interpreter is inaccessible\n",
                 check_path);
