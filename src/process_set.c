@@ -1003,6 +1003,59 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  *
  * @note Safe iteration: stores next node before potential deletion
  */
+/**
+ * @def SIGNAL_FAILURE_BENIGN
+ * @brief classify_signal_failure() result: the member has been running all
+ *        along, so the failed signal stranded nothing
+ */
+#define SIGNAL_FAILURE_BENIGN 0
+
+/**
+ * @def SIGNAL_FAILURE_SEVERE
+ * @brief classify_signal_failure() result: the failure counts and may have
+ *        left the member stopped
+ */
+#define SIGNAL_FAILURE_SEVERE 1
+
+/**
+ * @brief Decide what kind of failure one undelivered signal is
+ * @param sig The signal whose delivery failed
+ * @param proc The member the signal was meant for
+ * @param gate Out: the member flag that gates this kind of failure, so the
+ *        caller can report once per episode without knowing which of the
+ *        four warning flags applies here
+ * @param may_remain_stopped Out: non-zero when this failure can have left
+ *        the member stopped
+ * @return SIGNAL_FAILURE_BENIGN or SIGNAL_FAILURE_SEVERE
+ *
+ * A failed SIGCONT for a member this group never suspended is benign: that
+ * member was never stopped by us and has been running all along, so nothing
+ * is stranded and the failure does not count towards the caller's result.
+ * Every other failure is severe - it counts, and it may carry the recovery
+ * hint that names the PID to resume by hand.
+ *
+ * Each kind gates on its own flag instead of sharing one, because the benign
+ * and severe episodes of the same member vary independently: a member whose
+ * SIGCONT failed before this group ever suspended it has already consumed the
+ * benign gate, and reusing that gate for its severe episode would swallow the
+ * one message that says which PID to recover (U2).
+ */
+static int classify_signal_failure(int sig, struct process *proc, int **gate,
+                                   int *may_remain_stopped) {
+    if (sig == SIGCONT && !proc->suspended_by_us) {
+        *gate = &proc->cont_warned;
+        *may_remain_stopped = 0;
+        return SIGNAL_FAILURE_BENIGN;
+    }
+    if (sig == SIGCONT) {
+        *gate = &proc->resume_warned;
+    } else {
+        *gate = &proc->stop_warned;
+    }
+    *may_remain_stopped = proc->suspended_by_us;
+    return SIGNAL_FAILURE_SEVERE;
+}
+
 int process_set_send_signal(struct process_set *proc_set, int sig,
                             int verbose) {
     struct list_node *node;
@@ -1056,6 +1109,10 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
              * Save errno before any other calls that may clobber it.
              */
             int saved_errno = errno;
+            /* Chosen by classify_signal_failure() below. */
+            int *gate;
+            int may_remain_stopped;
+            int kind;
             if (saved_errno == ESRCH) {
                 /*
                  * The process is gone. Drop the suspension record with
@@ -1105,35 +1162,23 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                  * anything suspended, because that member has been running
                  * all along.
                  */
-                if (sig == SIGCONT && !proc->suspended_by_us) {
-                    /*
-                     * Benign episode: gate on cont_warned, which a later
-                     * successful SIGCONT clears.
-                     */
-                    if (!proc->cont_warned) {
-                        warn_signal_failure(sig, pid, saved_errno, verbose, 0);
-                    }
-                    proc->cont_warned = 1;
-                } else {
-                    /*
-                     * Severe episode: gate on resume_warned, not on
-                     * cont_warned (U2).  The two vary independently -- a
-                     * member that failed a SIGCONT before this group ever
-                     * suspended it has already set cont_warned, and gating
-                     * this message on that flag meant the recovery hint,
-                     * the one thing that says which PID to 'kill -CONT',
-                     * was never printed for it.
-                     */
-                    if ((sig == SIGCONT && !proc->resume_warned) ||
-                        (sig != SIGCONT && !proc->stop_warned)) {
-                        warn_signal_failure(sig, pid, saved_errno, verbose,
-                                            proc->suspended_by_us);
-                    }
-                    if (sig == SIGCONT) {
-                        proc->resume_warned = 1;
-                    } else {
-                        proc->stop_warned = 1;
-                    }
+                kind = classify_signal_failure(sig, proc, &gate,
+                                               &may_remain_stopped);
+                /*
+                 * Report once per failure episode: gate is whichever flag
+                 * the classifier picked for this kind of failure, and a
+                 * later successful delivery clears it.
+                 */
+                if (!*gate) {
+                    warn_signal_failure(sig, pid, saved_errno, verbose,
+                                        may_remain_stopped);
+                }
+                *gate = 1;
+                /*
+                 * Only a severe failure counts towards what this call
+                 * reports, and only it can have left a member stranded.
+                 */
+                if (kind == SIGNAL_FAILURE_SEVERE) {
                     failed++;
                     if (sig == SIGCONT && proc->suspended_by_us) {
                         /*
