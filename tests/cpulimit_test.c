@@ -14956,7 +14956,7 @@ static void scan_streak_driver_child(int write_fd) {
 static void test_pid_mode_scan_failure_streak_resets(void) {
     int err_pipe[2];
     pid_t driver, waited;
-    int status, exited, exit_code, sec;
+    int status = 0, exited, exit_code, sec;
     size_t total = 0;
     char *capture;
     const char *marker;
