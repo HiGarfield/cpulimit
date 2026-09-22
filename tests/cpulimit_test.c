@@ -16085,6 +16085,10 @@ int cpulimit_test_record_stopped_pid_dedup(void);
  * stopped_pids de-duplication test, which is defined later (next to main()). */
 static void test_stopped_pids_record_does_not_duplicate(void);
 
+/* Forward declaration so the RUN_TEST registration below can reference the
+ * combined scan-failure test, which is defined later (next to main()). */
+static void test_limit_process_scan_failed_and_stranded(void);
+
 /* Forward declaration so the RUN_TEST registration below can reference the reap
  * test, which is defined later (next to main()). */
 static void test_reap_before_error_return_does_not_block(void);
@@ -16123,6 +16127,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_exe_mode_skips_resume_when_pid_reused);
     RUN_TEST(test_reap_before_error_return_does_not_block);
     RUN_TEST(test_stopped_pids_record_does_not_duplicate);
+    RUN_TEST(test_limit_process_scan_failed_and_stranded);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
@@ -16326,6 +16331,53 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
  */
 static void test_stopped_pids_record_does_not_duplicate(void) {
     assert(cpulimit_test_record_stopped_pid_dedup() == 0);
+}
+
+/**
+ * @brief limit_process() must report a failed scan and a stranded member as
+ *        both rather than as a run that never limited (V4)
+ * @note When a run both stopped on a failed scan and then failed to resume a
+ *       member, returning LIMIT_PROCESS_ERROR made command mode describe it as
+ *       "CPU limit could not be applied" -- the wording reserved for a group
+ *       that was never built -- even though limiting demonstrably ran.  V4
+ *       adds LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED for exactly that
+ *       combination.  Drive the real limit_process() with a CPU-burning child:
+ *       let a few cycles run so the group really gets suspended, make the next
+ *       scan fail, and make every SIGCONT fail, then assert the combined
+ *       status.  Verified by mutation: returning LIMIT_PROCESS_ERROR whenever
+ *       a member could not be resumed makes this assertion fail.
+ */
+static void test_limit_process_scan_failed_and_stranded(void) {
+    pid_t child;
+    int rc, status;
+
+    child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        test_burn_until_killed();
+    }
+
+    seam_reset();
+    /*
+     * seam_active stays 0 so the real iterator finds the child; only the
+     * two failures below are injected.  The scan fails after enough cycles
+     * have run for the loop to have suspended the group, which is what
+     * makes the later failed resume a stranded process rather than a benign
+     * one.
+     */
+    seam_fail_update_after = 5;
+    /* Every SIGCONT fails with EPERM, so the closing resume cannot succeed. */
+    seam_fail_call = 1;
+    seam_fail_span = 1000000;
+    seam_fail_errno = EPERM;
+    seam_fail_sig = SIGCONT;
+
+    rc = limit_process(child, 0.01, 0, 0);
+    assert(rc == LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED);
+
+    kill(child, SIGKILL);
+    waitpid(child, &status, 0);
+    seam_reset();
 }
 
 static void test_reap_before_error_return_does_not_block(void) {

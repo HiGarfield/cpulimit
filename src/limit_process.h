@@ -44,8 +44,14 @@ extern "C" {
  * @brief limit_process() could not start limiting
  *
  * The process group could not be set up (allocation, clock or process-scan
- * failure).  Nothing was stopped, so there is nothing to resume; the
- * caller decides what to do and must not treat the target as limited.
+ * failure), or limiting ran to its end and then failed to resume a suspended
+ * member.  Nothing was stopped, so there is nothing to resume; the caller
+ * decides what to do and must not treat the target as limited.
+ *
+ * Only when the scan failure is NOT also present: a run that both stopped on
+ * a failed scan and left a member suspended returns
+ * LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED instead, so the caller can describe
+ * both facts instead of only the stranded one.
  */
 #define LIMIT_PROCESS_ERROR (-1)
 
@@ -61,6 +67,9 @@ extern "C" {
  * LIMIT_PROCESS_OK (the run did not limit anything to completion) nor
  * LIMIT_PROCESS_ERROR (nothing has to be repaired by the caller).
  *
+ * Only when every member was resumed: if one could not be, the run returns
+ * LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED instead, because it is both.
+ *
  * limit_process() reports the reason on stderr itself.  A caller that can
  * re-resolve its target -- non-lazy -p/-e mode -- may simply try again.
  * Every other caller has no second chance and must report a failure:
@@ -70,6 +79,24 @@ extern "C" {
  * no longer limited and nothing will pick it up again.
  */
 #define LIMIT_PROCESS_SCAN_FAILED 1
+
+/**
+ * @def LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED
+ * @brief limit_process() had to stop limiting on a failed scan AND could not
+ *        resume every member afterwards
+ *
+ * Both of the above hold at once: the control loop stopped on a failed scan,
+ * so nothing is limited any more, and at least one member is still stopped
+ * and needs 'kill -CONT <pid>' by hand.
+ *
+ * Reporting this as LIMIT_PROCESS_ERROR would describe a run that did limit
+ * for a while as one that never applied the limit at all, which sends anyone
+ * debugging it after permissions or target resolution instead of the failed
+ * scan.  limit_process() has already named every stranded PID on stderr by
+ * the time it returns this, so a caller only has to add that limiting stopped
+ * early.
+ */
+#define LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED 2
 
 /**
  * @brief Enforce CPU usage limit on a process or process set
@@ -102,12 +129,18 @@ extern "C" {
  *         a quit signal arrived, with everything resumed),
  *         LIMIT_PROCESS_SCAN_FAILED if the control loop stopped because a
  *         per-cycle process-group scan failed (everything was resumed, but
- *         nothing is limited any more), LIMIT_PROCESS_ERROR if the process
- *         group could not be initialised or a member could not be resumed at
- *         shutdown.  On LIMIT_PROCESS_ERROR nothing may still be stopped, so
+ *         nothing is limited any more), LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED
+ *         if that happened and a member could then not be resumed either, and
+ *         LIMIT_PROCESS_ERROR if the process group could not be initialised or
+ *         a member could not be resumed at shutdown with no scan failure
+ *         behind it.  On LIMIT_PROCESS_ERROR nothing may still be stopped, so
  *         the caller is free to resume/reap its own child; the previous
  *         behaviour of exiting the whole process here left a command-mode
  *         child running unthrottled and unreaped.
+ *
+ *         Whenever a member cannot be resumed, limit_process() has already
+ *         named every stranded PID on stderr with the command to recover it
+ *         before returning, so no caller has to repeat that.
  */
 int limit_process(pid_t pid, double cpu_limit, int include_children,
                   int verbose);
