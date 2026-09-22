@@ -118,6 +118,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      */
     int saved_errno;
     const char *check_path;
+    const char *script_path;
     char *resolved;
 
     /*
@@ -183,6 +184,16 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * (BUG-053): an inaccessible interpreter always yields 126, never a
      * misleading 127.
      */
+    /*
+     * cli.c assigns command_args only when a command was given, and rejects
+     * an empty one, so command_args[0] is never NULL here. State that
+     * explicitly: the analyser cannot carry the guarantee across translation
+     * units and would otherwise read execvp() as being handed a NULL file
+     * name.
+     */
+    if (cfg->command_args == NULL || cfg->command_args[0] == NULL) {
+        goto error_out;
+    }
     check_path = cfg->command_args[0];
     resolved = (char *)malloc(PATH_MAX);
     /*
@@ -196,17 +207,24 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * explicit-path check whose 126 classification must not depend on a
      * 4 KiB allocation succeeding.
      */
+    /*
+     * Decide which path to pre-check, then check it once.  An explicit path
+     * is checked as given so that its 126 classification never depends on
+     * whether the allocation above succeeded; a bare name has to be resolved
+     * through PATH first, and one that resolves nowhere has nothing to
+     * check and falls through to execvp().  The message names what the user
+     * typed either way (BUG-053).
+     */
     if (strchr(check_path, '/') != NULL) {
-        if (is_script_inaccessible_interpreter(check_path)) {
-            fprintf(stderr,
-                    "%s: cannot execute: shebang interpreter is inaccessible\n",
-                    check_path);
-            free(resolved);
-            _exit(EXIT_CMD_NOT_EXECUTABLE);
-        }
+        script_path = check_path;
     } else if (resolved != NULL &&
-               resolve_command_path(check_path, resolved, PATH_MAX) &&
-               is_script_inaccessible_interpreter(resolved)) {
+               resolve_command_path(check_path, resolved, PATH_MAX)) {
+        script_path = resolved;
+    } else {
+        script_path = NULL;
+    }
+    if (script_path != NULL &&
+        is_script_inaccessible_interpreter(script_path)) {
         fprintf(stderr,
                 "%s: cannot execute: shebang interpreter is inaccessible\n",
                 check_path);
@@ -214,7 +232,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         _exit(EXIT_CMD_NOT_EXECUTABLE);
     }
     free(resolved);
-    execvp(cfg->command_args[0], cfg->command_args);
+    execvp(check_path, cfg->command_args);
 
     /*
      * Execution reaches here only if execvp() failed.
