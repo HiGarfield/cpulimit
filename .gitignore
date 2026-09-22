@@ -2,3 +2,4 @@ build
 build_*
 build-*
 .codebuddy
+tools/hook.so
