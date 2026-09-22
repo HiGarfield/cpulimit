@@ -310,6 +310,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
  * only in the test build so the production object stays free of test code.
  */
 int cpulimit_test_exercise_reap(pid_t child_pid);
+
 int cpulimit_test_exercise_reap(pid_t child_pid) {
     kill(child_pid, SIGCONT);
     reap_child_before_error_return(child_pid);

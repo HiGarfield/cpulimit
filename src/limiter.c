@@ -463,8 +463,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                  * UNKNOWN_START_TIME is not.  The name is deliberately
                  * ignored (V1).
                  */
-                pid_reused = (target_start_time > 0.0 &&
-                              current_start > 0.0 &&
+                pid_reused = (target_start_time > 0.0 && current_start > 0.0 &&
                               (current_start < target_start_time ||
                                current_start > target_start_time));
                 if (pid_reused) {
@@ -473,9 +472,10 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                      * the target forever, far worse than the harmless
                      * SIGCONT we avoided (V1).
                      */
-                    fprintf(stderr,
-                            "Process %ld is no longer the target; not resuming it\n",
-                            (long)found_pid);
+                    fprintf(
+                        stderr,
+                        "Process %ld is no longer the target; not resuming it\n",
+                        (long)found_pid);
                 } else if (kill(found_pid, SIGCONT) != 0 && errno != ESRCH) {
                     int err = errno;
                     fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n",

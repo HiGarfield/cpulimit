@@ -5570,7 +5570,6 @@ static void test_process_set_rapid_updates(void) {
     kill_and_wait(child_pid, SIGKILL);
 }
 
-
 /**
  * @brief Test process set initialization with all processes
  * @note Verifies that a process set initialized with PID 0 (all processes)
@@ -9555,10 +9554,10 @@ static size_t seam_child_log_len = 0;
 /*
  * Start times scripted for the get_process_start_time() seam.  Kept on its own
  * queue instead of riding the process-iterator frames because V1 made that read
- * unconditional in -e mode; letting it consume an iterator frame would shift the
- * frame accounting of every iterator-driven test.  A test that does not seed the
- * queue leaves it empty, so a read falls back to UNKNOWN_START_TIME -- the safe
- * "cannot tell" value that never suppresses a resume.
+ * unconditional in -e mode; letting it consume an iterator frame would shift
+ * the frame accounting of every iterator-driven test.  A test that does not
+ * seed the queue leaves it empty, so a read falls back to UNKNOWN_START_TIME --
+ * the safe "cannot tell" value that never suppresses a resume.
  */
 #define SEAM_START_TIME_QUEUE_MAX 8
 /** @brief Scripted start times for the get_process_start_time() seam. */
@@ -12607,8 +12606,8 @@ int cpulimit_test_get_current_time(struct timespec *result_ts) {
  * implementation.  While active it drains a dedicated queue rather than the
  * process-iterator seam, so the extra bookkeeping read V1 added in -e mode does
  * not steal a snapshot frame from iterator-driven tests.  An empty queue yields
- * UNKNOWN_START_TIME, the safe "cannot compare" fallback that never suppresses a
- * closing resume.
+ * UNKNOWN_START_TIME, the safe "cannot compare" fallback that never suppresses
+ * a closing resume.
  */
 double cpulimit_test_get_process_start_time(pid_t pid) {
     if (!seam_active) {
@@ -15273,8 +15272,7 @@ static void test_command_mode_reports_stopped_limiting(void) {
 static int seam_count_closing_sigcont(const struct cpulimit_cfg *cfg,
                                       const struct seam_proc *frames,
                                       int frame_count, int *run_result,
-                                      double start_before,
-                                      double start_after) {
+                                      double start_before, double start_after) {
     int i, count, result;
 
     seam_reset();
@@ -15337,7 +15335,8 @@ static void test_pid_mode_skips_resume_when_pid_reused(void) {
     frames[1].ppid = (pid_t)1;
     frames[1].start_time = 200.0;
 
-    sigconts = seam_count_closing_sigcont(&cfg, frames, 2, &result, 100.0, 200.0);
+    sigconts =
+        seam_count_closing_sigcont(&cfg, frames, 2, &result, 100.0, 200.0);
     free(frames);
 
     assert(result == EXIT_SUCCESS);
@@ -15376,8 +15375,8 @@ static void test_pid_mode_resumes_when_start_time_unknown(void) {
     frames[1].ppid = (pid_t)1;
     frames[1].start_time = UNKNOWN_START_TIME;
 
-    sigconts = seam_count_closing_sigcont(&cfg, frames, 2, &result,
-                                          UNKNOWN_START_TIME, UNKNOWN_START_TIME);
+    sigconts = seam_count_closing_sigcont(
+        &cfg, frames, 2, &result, UNKNOWN_START_TIME, UNKNOWN_START_TIME);
     free(frames);
 
     assert(result == EXIT_SUCCESS);
@@ -15394,7 +15393,7 @@ static void test_pid_mode_resumes_when_start_time_unknown(void) {
  *       signal BUG-004 already uses in -p.  Every frame here shares start time
  *       100.0 while the last frame's command is changed ("other") to simulate
  *       the exec; because the start time is unchanged the resume must happen.
- *       Verified by mutation: reverting to the name comparison makes the count 0.
+ *       Verified by mutation: reverting to the name comparison makes it 0.
  */
 static void test_exe_mode_resumes_when_only_name_changed(void) {
     struct cpulimit_cfg cfg;
@@ -15422,7 +15421,8 @@ static void test_exe_mode_resumes_when_only_name_changed(void) {
     /* The re-exec simulation: command changed, start time did not. */
     memcpy(frames[2].command, "other", strlen("other") + 1);
 
-    changed = seam_count_closing_sigcont(&cfg, frames, 3, &result, 100.0, 100.0);
+    changed =
+        seam_count_closing_sigcont(&cfg, frames, 3, &result, 100.0, 100.0);
     free(frames);
 
     assert(result == EXIT_SUCCESS);
@@ -15436,10 +15436,10 @@ static void test_exe_mode_resumes_when_only_name_changed(void) {
  *       read after limit_process() differs from the one recorded before it, the
  *       PID changed hands and resuming it would wake a process somebody else is
  *       holding stopped.  Only a changed start time triggers this (the queue is
- *       seeded with 100.0 then 200.0); a name change alone no longer does, which
- *       is what the test above exercises.  Seeding the queue makes the decision
+ *       seeded with 100.0 then 200.0); a name change alone no longer does,
+ *       which the test above exercises.  Seeding the queue makes the decision
  *       deterministic instead of depending on iterator-frame ordering.
- *       Verified by mutation: making the two start times equal makes the count 1.
+ *       Verified by mutation: making the two start times equal makes it 1.
  */
 static void test_exe_mode_skips_resume_when_pid_reused(void) {
     struct cpulimit_cfg cfg;
@@ -15468,7 +15468,8 @@ static void test_exe_mode_skips_resume_when_pid_reused(void) {
     /* The re-exec/recycle simulation: command changed, start time also did. */
     memcpy(frames[2].command, "other", strlen("other") + 1);
 
-    skipped = seam_count_closing_sigcont(&cfg, frames, 3, &result, 100.0, 200.0);
+    skipped =
+        seam_count_closing_sigcont(&cfg, frames, 3, &result, 100.0, 200.0);
     free(frames);
 
     assert(result == EXIT_SUCCESS);
@@ -16297,6 +16298,7 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
     assert(benign == 2);
     assert(severe == 2);
 }
+
 /**
  * @brief reap_child_before_error_return() must not block on a child ignoring
  *        the termination signal (V2)
@@ -16347,7 +16349,8 @@ static void test_reap_before_error_return_does_not_block(void) {
 
     /* Non-blocking: returned in well under the child's sleep. */
     assert((double)(after.tv_sec - before.tv_sec) +
-           (double)(after.tv_nsec - before.tv_nsec) / 1000000000.0 < 5.0);
+               (double)(after.tv_nsec - before.tv_nsec) / 1000000000.0 <
+           5.0);
 
     /* Clean up the still-running child (reparented to init under the fix). */
     kill(child, SIGKILL);
