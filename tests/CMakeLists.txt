@@ -70,6 +70,9 @@ set(CPULIMIT_TEST_SEAM_LIMIT
 set(CPULIMIT_TEST_SEAM_UPDATE
     update_process_set=cpulimit_test_update_process_set)
 
+set(CPULIMIT_TEST_SEAM_STARTTIME
+    get_process_start_time=cpulimit_test_get_process_start_time)
+
 set(CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS
     ${PROJECT_SOURCE_DIR}/src/time_util.c
     ${PROJECT_SOURCE_DIR}/src/process_iterator_linux.c
@@ -82,26 +85,39 @@ set(CPULIMIT_TEST_SEAM_LIMIT_DEFINERS
 set(CPULIMIT_TEST_SEAM_UPDATE_DEFINERS
     ${PROJECT_SOURCE_DIR}/src/process_set.c)
 
+# get_process_start_time() is defined in process_iterator_common.c, so that
+# file keeps the real implementation; every other translation unit that calls
+# it (run_pid_or_exe_mode, resume_stopped_pids, the find helpers) gets the seam.
+# The seam reads start times from a dedicated queue, decoupled from the process
+# iterator seam, so the extra bookkeeping read V1 added in -e mode does not shift
+# the scan-frame accounting of unrelated iterator-driven tests.
+set(CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS
+    ${PROJECT_SOURCE_DIR}/src/process_iterator_common.c)
+
 # The groups have to be disjoint: a source file property is replaced, not
 # merged, so a file listed twice would end up with the last set only.
 set(CPULIMIT_TEST_SEAM_PLAIN_SOURCES ${CPULIMIT_SRC_COMMON})
 list(REMOVE_ITEM CPULIMIT_TEST_SEAM_PLAIN_SOURCES
      ${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS}
      ${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS}
-     ${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS})
+     ${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS}
+     ${CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS})
 
 set_source_files_properties(${CPULIMIT_TEST_SEAM_PLAIN_SOURCES} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_UPDATE}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_STARTTIME}")
+set_source_files_properties(${CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS} PROPERTIES
+    COMPILE_DEFINITIONS
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")
 
 # --- cpulimit_test ---
 add_executable(cpulimit_test

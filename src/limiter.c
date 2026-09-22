@@ -386,8 +386,9 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 int limit_status;
                 /* Set when this PID is shown to no longer be our target. */
                 int pid_reused = 0;
-                /* Start time as it was before limit_process(), -p mode. */
-                double target_start_time = UNKNOWN_START_TIME;
+                /* Start time before limit_process(); both -p and -e use it to
+                 * detect PID recycling (T4 / V1). */
+                double target_start_time = UNKNOWN_START_TIME, current_start;
                 /*
                  * The lookup succeeded and the PID really is our target,
                  * so the consecutive-failure streak ends here (N2).  The
@@ -401,16 +402,17 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 if (cfg->verbose) {
                     printf("Process %ld found\n", (long)found_pid);
                 }
-                if (pid_mode) {
-                    /*
-                     * Recorded before limiting so the closing SIGCONT below
-                     * can tell this process from whatever the PID may have
-                     * been recycled into while limit_process() was running
-                     * (T4).  Only -p needs it: -e compares the executable
-                     * name instead, which costs no extra read.
-                     */
-                    target_start_time = get_process_start_time(found_pid);
-                }
+                /*
+                 * Recorded before limiting so the closing SIGCONT below can
+                 * tell this process from whatever the PID may have been
+                 * recycled into while limit_process() was running (T4).  Both
+                 * -p and -e use the start time because it is the
+                 * authoritative identity (BUG-004); an exec() changes the
+                 * name but not the process, so the -e branch must not fall
+                 * back to comparing names or a re-exec'd target would be
+                 * stranded (V1).
+                 */
+                target_start_time = get_process_start_time(found_pid);
                 /*
                  * Apply CPU limiting to the target process.
                  * This call blocks until the process terminates or quit
@@ -444,34 +446,36 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                  * somebody else is holding stopped on purpose: job
                  * control, a debugger, another cpulimit instance.  The
                  * signal is therefore skipped only when the PID can be
-                 * shown to have changed hands (T4) -- in -e mode when it no
-                 * longer carries the requested name, in -p mode when its
-                 * start time differs from the one recorded above.  A start
-                 * time the platform cannot report means nobody can tell, so
-                 * the signal is sent anyway: stranding a stopped target is
-                 * precisely what this fallback exists to prevent.
+                 * shown to have changed hands (T4): whichever mode, when its
+                 * start time differs from the one recorded above.  The start
+                 * time is the authoritative identity (BUG-004); the
+                 * executable name is not an identity signal, because an
+                 * exec() changes argv[0] without changing the process, so a
+                 * re-exec'd target must not be mistaken for a hand-off (V1).
+                 * A start time the platform cannot report means nobody can
+                 * tell, so the signal is sent anyway: stranding a stopped
+                 * target is precisely what this fallback exists to prevent.
                  */
-                if (pid_mode) {
-                    double current_start = get_process_start_time(found_pid);
-                    /*
-                     * Relational comparisons only: -Wfloat-equal rejects
-                     * ==/!= on doubles, and a real start time is positive
-                     * while UNKNOWN_START_TIME is not.
-                     */
-                    pid_reused = (target_start_time > 0.0 &&
-                                  current_start > 0.0 &&
-                                  (current_start < target_start_time ||
-                                   current_start > target_start_time));
-                } else {
-                    pid_reused =
-                        process_has_other_name(found_pid, cfg->exe_name);
-                }
+                current_start = get_process_start_time(found_pid);
+                /*
+                 * Relational comparisons only: -Wfloat-equal rejects ==/!=
+                 * on doubles, and a real start time is positive while
+                 * UNKNOWN_START_TIME is not.  The name is deliberately
+                 * ignored (V1).
+                 */
+                pid_reused = (target_start_time > 0.0 &&
+                              current_start > 0.0 &&
+                              (current_start < target_start_time ||
+                               current_start > target_start_time));
                 if (pid_reused) {
-                    if (cfg->verbose) {
-                        printf(
+                    /*
+                     * Unconditional now: a silently skipped resume strands
+                     * the target forever, far worse than the harmless
+                     * SIGCONT we avoided (V1).
+                     */
+                    fprintf(stderr,
                             "Process %ld is no longer the target; not resuming it\n",
                             (long)found_pid);
-                    }
                 } else if (kill(found_pid, SIGCONT) != 0 && errno != ESRCH) {
                     int err = errno;
                     fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n",

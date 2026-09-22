@@ -9552,6 +9552,22 @@ static struct seam_signal *seam_child_log;
 /** @brief Number of entries in seam_child_log. */
 static size_t seam_child_log_len = 0;
 
+/*
+ * Start times scripted for the get_process_start_time() seam.  Kept on its own
+ * queue instead of riding the process-iterator frames because V1 made that read
+ * unconditional in -e mode; letting it consume an iterator frame would shift the
+ * frame accounting of every iterator-driven test.  A test that does not seed the
+ * queue leaves it empty, so a read falls back to UNKNOWN_START_TIME -- the safe
+ * "cannot tell" value that never suppresses a resume.
+ */
+#define SEAM_START_TIME_QUEUE_MAX 8
+/** @brief Scripted start times for the get_process_start_time() seam. */
+static double seam_start_time_queue[SEAM_START_TIME_QUEUE_MAX];
+/** @brief Number of armed entries in @ref seam_start_time_queue. */
+static int seam_start_time_count = 0;
+/** @brief Next entry of @ref seam_start_time_queue to serve. */
+static int seam_start_time_idx = 0;
+
 /**
  * @brief Allocate all seam storage areas
  *
@@ -9664,6 +9680,7 @@ int cpulimit_test_close_process_iterator(struct process_iterator *iter);
 int cpulimit_test_update_process_set(struct process_set *proc_set);
 long cpulimit_test_random(void);
 int cpulimit_test_getloadavg(double *loadavg, int nelem);
+double cpulimit_test_get_process_start_time(pid_t pid);
 
 /* NOLINTEND(misc-use-internal-linkage) */
 
@@ -9720,9 +9737,29 @@ static void seam_reset(void) {
     seam_sleep_announce_fd = -1;
     seam_sleep_go_fd = -1;
     seam_child_log_len = 0;
+    seam_start_time_idx = 0;
+    seam_start_time_count = 0;
     memset(seam_frames, 0, SEAM_MAX_FRAMES * sizeof(*seam_frames));
     memset(seam_frame_len, 0, sizeof(seam_frame_len));
     memset(seam_signals, 0, SEAM_MAX_SIGNALS * sizeof(*seam_signals));
+}
+
+/**
+ * @brief Seed the get_process_start_time() seam queue
+ * @param before Start time recorded before limiting (target_start_time)
+ * @param after  Start time read after limiting (the closing comparison)
+ *
+ * The closing-resume tests drive run_pid_or_exe_mode()'s two
+ * get_process_start_time() reads (one before limit_process(), one at cleanup)
+ * through this queue so the decision does not depend on the order in which the
+ * iterator seam serves its frames.  Two entries are all a single run needs; an
+ * empty queue makes every read fall back to UNKNOWN_START_TIME.
+ */
+static void seam_set_start_times(double before, double after) {
+    seam_start_time_idx = 0;
+    seam_start_time_count = 2;
+    seam_start_time_queue[0] = before;
+    seam_start_time_queue[1] = after;
 }
 
 /**
@@ -12562,6 +12599,28 @@ int cpulimit_test_get_current_time(struct timespec *result_ts) {
 }
 
 /**
+ * @brief Replacement for get_process_start_time()
+ * @param pid Process whose start time is wanted
+ * @return Start time in seconds, or UNKNOWN_START_TIME on failure / unknown
+ *
+ * While the seam is inactive this is a straight passthrough to the real
+ * implementation.  While active it drains a dedicated queue rather than the
+ * process-iterator seam, so the extra bookkeeping read V1 added in -e mode does
+ * not steal a snapshot frame from iterator-driven tests.  An empty queue yields
+ * UNKNOWN_START_TIME, the safe "cannot compare" fallback that never suppresses a
+ * closing resume.
+ */
+double cpulimit_test_get_process_start_time(pid_t pid) {
+    if (!seam_active) {
+        return get_process_start_time(pid);
+    }
+    if (seam_start_time_idx < seam_start_time_count) {
+        return seam_start_time_queue[seam_start_time_idx++];
+    }
+    return UNKNOWN_START_TIME;
+}
+
+/**
  * @brief Replacement for sleep_timespec()
  * @param duration Time to sleep
  * @return 0 on success, -1 on failure
@@ -15213,7 +15272,9 @@ static void test_command_mode_reports_stopped_limiting(void) {
  */
 static int seam_count_closing_sigcont(const struct cpulimit_cfg *cfg,
                                       const struct seam_proc *frames,
-                                      int frame_count, int *run_result) {
+                                      int frame_count, int *run_result,
+                                      double start_before,
+                                      double start_after) {
     int i, count, result;
 
     seam_reset();
@@ -15226,6 +15287,9 @@ static int seam_count_closing_sigcont(const struct cpulimit_cfg *cfg,
     seam_alive_count = 1;
     seam_hook_limit_process = 1;
     seam_limit_process_status = LIMIT_PROCESS_OK;
+    /* Drive the closing-resume start-time comparison off the dedicated queue,
+     * independent of the iterator frames (V1). */
+    seam_set_start_times(start_before, start_after);
 
     result = run_pid_or_exe_mode(cfg);
     if (run_result != NULL) {
@@ -15273,7 +15337,7 @@ static void test_pid_mode_skips_resume_when_pid_reused(void) {
     frames[1].ppid = (pid_t)1;
     frames[1].start_time = 200.0;
 
-    sigconts = seam_count_closing_sigcont(&cfg, frames, 2, &result);
+    sigconts = seam_count_closing_sigcont(&cfg, frames, 2, &result, 100.0, 200.0);
     free(frames);
 
     assert(result == EXIT_SUCCESS);
@@ -15312,7 +15376,8 @@ static void test_pid_mode_resumes_when_start_time_unknown(void) {
     frames[1].ppid = (pid_t)1;
     frames[1].start_time = UNKNOWN_START_TIME;
 
-    sigconts = seam_count_closing_sigcont(&cfg, frames, 2, &result);
+    sigconts = seam_count_closing_sigcont(&cfg, frames, 2, &result,
+                                          UNKNOWN_START_TIME, UNKNOWN_START_TIME);
     free(frames);
 
     assert(result == EXIT_SUCCESS);
@@ -15320,20 +15385,22 @@ static void test_pid_mode_resumes_when_start_time_unknown(void) {
 }
 
 /**
- * @brief -e must not resume a PID that no longer runs the target (T4)
- * @note -e has a name to compare, so the recycle check reuses the same
- *       process_has_other_name() the stale check already applies before
- *       limiting.  Three frames are consumed: the name lookup, that stale
- *       check, and this one after limit_process() returns.  The last one
- *       reports a different command and the resume has to be skipped; with
- *       the command left alone the very same run does resume, which is what
- *       keeps this from passing vacuously.
+ * @brief -e must still resume a target that only changed its name (V1)
+ * @note Before V1 the -e branch skipped the closing resume when the process
+ *       no longer carried the requested name.  But a name is not an identity
+ *       signal: an exec() rewrites argv[0] without changing the process, so a
+ *       re-exec'd target was wrongly left stopped forever -- the bug V1 fixes.
+ *       Both modes now judge identity by the start time, the authoritative
+ *       signal BUG-004 already uses in -p.  Every frame here shares start time
+ *       100.0 while the last frame's command is changed ("other") to simulate
+ *       the exec; because the start time is unchanged the resume must happen.
+ *       Verified by mutation: reverting to the name comparison makes the count 0.
  */
-static void test_exe_mode_skips_resume_when_name_changed(void) {
+static void test_exe_mode_resumes_when_only_name_changed(void) {
     struct cpulimit_cfg cfg;
     struct seam_proc *frames;
     const char exe_name[] = "target";
-    int result, changed, same;
+    int result, changed;
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "test";
@@ -15344,26 +15411,69 @@ static void test_exe_mode_skips_resume_when_name_changed(void) {
     frames = (struct seam_proc *)malloc(3 * sizeof(*frames));
     assert(frames != NULL);
     memset(frames, 0, 3 * sizeof(*frames));
+    /* All frames share the same start time: identity is preserved. */
     frames[0].pid = (pid_t)SEAM_TARGET_PID;
     frames[0].ppid = (pid_t)1;
     frames[0].start_time = 100.0;
     memcpy(frames[0].command, "target", strlen("target") + 1);
-    /* The stale check before limiting sees the intact name. */
+    /* Name lookup and the stale check before limiting see the intact name. */
     frames[1] = frames[0];
     frames[2] = frames[0];
+    /* The re-exec simulation: command changed, start time did not. */
     memcpy(frames[2].command, "other", strlen("other") + 1);
 
-    changed = seam_count_closing_sigcont(&cfg, frames, 3, &result);
-    assert(result == EXIT_SUCCESS);
-    assert(changed == 0);
-
-    /* Control: the same run with the name intact still resumes. */
-    memcpy(frames[2].command, "target", strlen("target") + 1);
-    same = seam_count_closing_sigcont(&cfg, frames, 3, &result);
+    changed = seam_count_closing_sigcont(&cfg, frames, 3, &result, 100.0, 100.0);
     free(frames);
 
     assert(result == EXIT_SUCCESS);
-    assert(same == 1);
+    /* Name changed but start time identical: the resume must NOT be skipped. */
+    assert(changed == 1);
+}
+
+/**
+ * @brief -e must skip the closing resume only when the PID was recycled (V1)
+ * @note V1 keeps the -p behaviour for the genuine recycle: when the start time
+ *       read after limit_process() differs from the one recorded before it, the
+ *       PID changed hands and resuming it would wake a process somebody else is
+ *       holding stopped.  Only a changed start time triggers this (the queue is
+ *       seeded with 100.0 then 200.0); a name change alone no longer does, which
+ *       is what the test above exercises.  Seeding the queue makes the decision
+ *       deterministic instead of depending on iterator-frame ordering.
+ *       Verified by mutation: making the two start times equal makes the count 1.
+ */
+static void test_exe_mode_skips_resume_when_pid_reused(void) {
+    struct cpulimit_cfg cfg;
+    struct seam_proc *frames;
+    const char exe_name[] = "target";
+    int result, skipped;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.exe_name = exe_name;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    /* The frames only drive the iterator seam (name lookup + stale check); the
+     * closing start-time comparison is seeded on the dedicated queue below. */
+    frames = (struct seam_proc *)malloc(3 * sizeof(*frames));
+    assert(frames != NULL);
+    memset(frames, 0, 3 * sizeof(*frames));
+    frames[0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[0].ppid = (pid_t)1;
+    frames[0].start_time = 100.0;
+    memcpy(frames[0].command, "target", strlen("target") + 1);
+    /* Name lookup and the stale check before limiting see the intact name. */
+    frames[1] = frames[0];
+    frames[2] = frames[0];
+    /* The re-exec/recycle simulation: command changed, start time also did. */
+    memcpy(frames[2].command, "other", strlen("other") + 1);
+
+    skipped = seam_count_closing_sigcont(&cfg, frames, 3, &result, 100.0, 200.0);
+    free(frames);
+
+    assert(result == EXIT_SUCCESS);
+    /* Start time changed between the two reads: the PID was recycled, skip. */
+    assert(skipped == 0);
 }
 
 /**
@@ -15684,6 +15794,18 @@ static void test_process_set_resume_skips_recycled_pid(void) {
 
     cont_before = seam_count_signals(seam_signals, (int)seam_signal_count,
                                      child, SIGCONT);
+
+    /*
+     * resume_stopped_pids() re-queries the PID's start time through the
+     * get_process_start_time() seam (V1 moved that read onto a dedicated
+     * queue, decoupled from the iterator seam).  Seed it with the
+     * replacement's start time so the recycle is detected and the resume
+     * skipped.
+     */
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = recycled;
+
     resume_stopped_pids(&proc_set);
     cont_after = seam_count_signals(seam_signals, (int)seam_signal_count, child,
                                     SIGCONT);
@@ -15978,7 +16100,8 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_command_mode_reports_stopped_limiting);
     RUN_TEST(test_pid_mode_skips_resume_when_pid_reused);
     RUN_TEST(test_pid_mode_resumes_when_start_time_unknown);
-    RUN_TEST(test_exe_mode_skips_resume_when_name_changed);
+    RUN_TEST(test_exe_mode_resumes_when_only_name_changed);
+    RUN_TEST(test_exe_mode_skips_resume_when_pid_reused);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
