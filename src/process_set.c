@@ -263,6 +263,14 @@ struct stopped_pid_record {
  * exits, and is_child_of() then no longer matches it.  Recording the PID
  * here keeps the suspension undoable after the process has left proc_list.
  *
+ * A PID already present is updated in place rather than appended: the SIGSTOP
+ * round records every member, and a member whose SIGCONT failed in the
+ * previous round (S3) still carries its record, so without this the second
+ * recording would double it up.  Only the latest start time matters for the
+ * recycle check, so folding the two into one entry costs nothing and keeps
+ * the list free of duplicates that resume_stopped_pids() would otherwise
+ * walk twice (S3).
+ *
  * When the record cannot be created, the suspension is undone immediately:
  * an unrecorded suspension would never be resumed after the member leaves
  * the group, leaving it stopped forever with no warning at all.  Both the
@@ -271,8 +279,24 @@ struct stopped_pid_record {
 int record_stopped_pid(struct process_set *proc_set, pid_t pid,
                        double start_time) {
     struct stopped_pid_record *rec;
+    struct list_node *node;
+
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
         return -1;
+    }
+    /*
+     * Fold a re-recording into the existing entry instead of appending a
+     * duplicate: the SIGSTOP round records every member, and a member whose
+     * SIGCONT failed in the previous round (S3) still carries its record,
+     * so without this the second recording would double it up (S3).
+     */
+    for (node = first_list_node(proc_set->stopped_pids); node != NULL;
+         node = node->next) {
+        rec = (struct stopped_pid_record *)node->data;
+        if (rec != NULL && rec->pid == pid) {
+            rec->start_time = start_time;
+            return 0;
+        }
     }
     rec = (struct stopped_pid_record *)malloc(sizeof(*rec));
     if (rec == NULL) {
@@ -1120,11 +1144,13 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                          * descendant re-parented away when its ancestor
                          * exits is the usual case -- the table entry that
                          * keeps it visible disappears too, and nothing
-                         * would ever resume it again (S3).  The list has
-                         * just been emptied of this PID, so recording it
-                         * again cannot duplicate an entry; the next
-                         * SIGCONT round retries whether it is still a
-                         * member by then or has already left.
+                         * would ever resume it again (S3).  Recording it
+                         * again cannot duplicate an entry: even when a
+                         * stale entry survives into the next SIGSTOP round,
+                         * record_stopped_pid() folds the second recording
+                         * into the first (S3), so the list stays free of
+                         * duplicates; the next SIGCONT round retries whether
+                         * it is still a member by then or has already left.
                          *
                          * Only for a member whose suspension is on the
                          * books: suspended_by_us is still set here because
@@ -1168,3 +1194,51 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
     }
     return failed;
 }
+
+#ifdef CPULIMIT_TEST_BUILD
+/*
+ * Test accessor for record_stopped_pid()'s de-duplication (V3).  A process_set
+ * that only carries a stopped_pids list is built locally, the same PID is
+ * recorded twice, and the surviving entries are counted.  With the fix a
+ * re-recording folds into the existing entry, so the count is 1 and its start
+ * time is the latest one; the production path relies on exactly that so the
+ * SIGSTOP round cannot double a member re-recorded after a failed SIGCONT.
+ * Defined only in the test build so the production object stays free of test
+ * code.
+ */
+int cpulimit_test_record_stopped_pid_dedup(void) {
+    struct process_set proc_set;
+    struct list_node *node;
+    const struct stopped_pid_record *rec;
+    int count;
+    double seen_start;
+
+    memset(&proc_set, 0, sizeof(proc_set));
+    proc_set.stopped_pids = (struct list *)malloc(sizeof(struct list));
+    if (proc_set.stopped_pids == NULL) {
+        return -1;
+    }
+    init_list(proc_set.stopped_pids);
+
+    (void)record_stopped_pid(&proc_set, (pid_t)4242, 100.0);
+    (void)record_stopped_pid(&proc_set, (pid_t)4242, 200.0);
+
+    count = 0;
+    seen_start = -1.0;
+    for (node = first_list_node(proc_set.stopped_pids); node != NULL;
+         node = node->next) {
+        rec = (const struct stopped_pid_record *)node->data;
+        if (rec != NULL && rec->pid == (pid_t)4242) {
+            count++;
+            seen_start = rec->start_time;
+        }
+    }
+
+    /* destroy_list() frees each node's record as well. */
+    destroy_list(proc_set.stopped_pids);
+    free(proc_set.stopped_pids);
+    /* start_time_matches() avoids a bare float == (it is exact here, but the
+     * compiler still warns about -Wfloat-equal). */
+    return (count == 1 && start_time_matches(seen_start, 200.0)) ? 0 : -1;
+}
+#endif

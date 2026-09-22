@@ -356,6 +356,19 @@ size_t process_set_member_count(const struct process_set *proc_set);
  */
 int process_set_send_signal(struct process_set *proc_set, int sig, int verbose);
 
+#ifdef CPULIMIT_TEST_BUILD
+/**
+ * @brief Test accessor exercising record_stopped_pid()'s de-duplication
+ * @return 0 when recording the same PID twice yields exactly one entry whose
+ *         start time reflects the second (latest) recording, -1 otherwise
+ *
+ * Defined only in the test build so the production object stays free of test
+ * code (V3).  The production callers rely on record_stopped_pid() folding a
+ * re-recording into the existing entry rather than appending a duplicate.
+ */
+int cpulimit_test_record_stopped_pid_dedup(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

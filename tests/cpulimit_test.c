@@ -16074,6 +16074,16 @@ static void test_process_set_rejects_recycled_target_pid(void) {
  * test build so the production object stays free of test code. */
 int cpulimit_test_exercise_reap(pid_t child_pid);
 
+/* Test accessor for record_stopped_pid()'s de-duplication in process_set.c;
+ * defined only in the test build so the production object stays free of test
+ * code.  Declared here (not just in the header guard) because the test TU is
+ * compiled without CPULIMIT_TEST_BUILD and needs the prototype to call it. */
+int cpulimit_test_record_stopped_pid_dedup(void);
+
+/* Forward declaration so the RUN_TEST registration below can reference the
+ * stopped_pids de-duplication test, which is defined later (next to main()). */
+static void test_stopped_pids_record_does_not_duplicate(void);
+
 /* Forward declaration so the RUN_TEST registration below can reference the reap
  * test, which is defined later (next to main()). */
 static void test_reap_before_error_return_does_not_block(void);
@@ -16111,6 +16121,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_exe_mode_resumes_when_only_name_changed);
     RUN_TEST(test_exe_mode_skips_resume_when_pid_reused);
     RUN_TEST(test_reap_before_error_return_does_not_block);
+    RUN_TEST(test_stopped_pids_record_does_not_duplicate);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
@@ -16299,6 +16310,22 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
  *       would fail.  The still-running child is killed afterwards; under the
  *       fix it is only reparented to init when this process exits.
  */
+/**
+ * @brief record_stopped_pid() must de-duplicate a re-recorded PID (V3)
+ * @note V3 made record_stopped_pid() fold a second recording of the same PID
+ *       into the existing entry instead of appending a duplicate.  Without it,
+ *       the SIGSTOP round re-records a member whose SIGCONT failed in the
+ *       prior round (S3) and leaves two entries for one suspension, which
+ *       resume_stopped_pids() would then walk twice.  Drive the recorder
+ *       directly through its test accessor and assert exactly one entry
+ *       survives with the latest start time.  Verified by mutation: removing
+ *       the fold makes the accessor report two entries and this assertion
+ *       fail.
+ */
+static void test_stopped_pids_record_does_not_duplicate(void) {
+    assert(cpulimit_test_record_stopped_pid_dedup() == 0);
+}
+
 static void test_reap_before_error_return_does_not_block(void) {
     pid_t child;
     struct timespec before, after;
