@@ -480,6 +480,17 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
             stderr,
             "Warning: %d process(es) left suspended at shutdown; run 'kill -CONT <pid>' for each to recover.\n",
             resume_failed);
+        /*
+         * When a scan failure is behind this too, returning
+         * LIMIT_PROCESS_ERROR would make the caller describe a run that did
+         * limit for a while as one that never applied the limit at all --
+         * the wording T3 introduced to separate exactly these two outcomes,
+         * reached again by a different route.  Say both, and let the caller
+         * add the part it alone knows (V4).
+         */
+        if (scan_failed) {
+            return LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED;
+        }
         return LIMIT_PROCESS_ERROR;
     }
 

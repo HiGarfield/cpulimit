@@ -208,10 +208,17 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
          * unthrottled from that point on: saying the limit "could not be
          * applied" sends anyone debugging it after permissions or target
          * resolution instead of the failed scan (T3).
+         *
+         * LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED is both at once, so it takes
+         * the scan wording: limiting did run and stopped early, which is the
+         * part the command's own status cannot show.  The stranded members
+         * are not mentioned here because limit_process() has already named
+         * each one with the 'kill -CONT <pid>' that recovers it (V4).
          */
         int child_exit_status =
             collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
-        if (limit_status == LIMIT_PROCESS_SCAN_FAILED) {
+        if (limit_status == LIMIT_PROCESS_SCAN_FAILED ||
+            limit_status == LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED) {
             fprintf(
                 stderr,
                 "Warning: CPU limiting stopped early for process %ld; the command ran unthrottled from that point and exited with status %d\n",
