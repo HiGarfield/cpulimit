@@ -228,6 +228,62 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
 }
 
 /**
+ * @def STREAK_LOOKUP
+ * @brief Failure streak passed to bump_retry_streak() when searching for the
+ *        target did not produce a usable PID
+ */
+#define STREAK_LOOKUP 0
+
+/**
+ * @def STREAK_SCAN
+ * @brief Failure streak passed to bump_retry_streak() when scanning the
+ *        process group failed while the control loop was running
+ */
+#define STREAK_SCAN 1
+
+/**
+ * @brief Count one consecutive failure and report when its cap is reached
+ * @param count Pointer to the consecutive failure streak for this kind
+ * @param kind STREAK_LOOKUP or STREAK_SCAN; selects the diagnostic printed
+ * @param exit_status Pointer to the running exit status; set to EXIT_FAILURE
+ *        when the cap is reached
+ * @return 1 when the cap has just been reached and the caller should stop,
+ *         0 while there is still budget for another attempt
+ *
+ * Every retry in the search loop is capped for the same reason: a target
+ * that never appears, a name that keeps resolving to a recycled PID, and a
+ * process table that cannot be scanned at all are conditions that waiting
+ * cannot fix, so the loop has to end eventually instead of printing two
+ * diagnostic lines every two seconds for as long as cpulimit runs. The
+ * streak counts consecutive failures rather than lifetime ones, so a daemon
+ * that restarts periodically keeps being re-attached instead of exhausting
+ * a budget that was only ever meant to bound one wait.
+ *
+ * Whether reaching the cap ends the loop stays the caller's decision, which
+ * is what lets the three call sites keep the control flow they had: the two
+ * target-lookup paths fall through to the loop's own exit check below, while
+ * a failing scan breaks out at once because nothing in this iteration can
+ * still be retried.
+ */
+static int bump_retry_streak(unsigned int *count, int kind,
+                             int *exit_status) {
+    (*count)++;
+    if (*count < MAX_TARGET_LOOKUP_ATTEMPTS) {
+        return 0;
+    }
+    if (kind == STREAK_SCAN) {
+        fprintf(stderr,
+                "Giving up after %u failed scan(s): the target is no longer limited\n",
+                *count);
+    } else {
+        fprintf(stderr, "Giving up after %u attempts: target not found\n",
+                *count);
+    }
+    *exit_status = EXIT_FAILURE;
+    return 1;
+}
+
+/**
  * @brief Search for and limit an existing process by PID or executable name
  * @param cfg Pointer to configuration structure containing target specification
  *
@@ -299,15 +355,12 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                  * BUG-014: non-lazy mode used to retry without bound.
                  * Give up after a fixed number of attempts so the run
                  * terminates with a non-zero status instead of looping
-                 * forever and growing stderr without limit.
+                 * forever and growing stderr without limit.  Reaching the
+                 * cap leaves the loop through the exit check below, which
+                 * sees the resulting EXIT_FAILURE.
                  */
-                lookup_attempts++;
-                if (lookup_attempts >= MAX_TARGET_LOOKUP_ATTEMPTS) {
-                    fprintf(stderr,
-                            "Giving up after %u attempts: target not found\n",
-                            lookup_attempts);
-                    exit_status = EXIT_FAILURE;
-                }
+                (void)bump_retry_streak(&lookup_attempts, STREAK_LOOKUP,
+                                        &exit_status);
             }
         } else if (found_pid < 0) {
             /*
@@ -364,21 +417,14 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 } else {
                     /*
                      * A stale target is the same kind of never-arriving
-                     * target as a "not found" one, so it is bound by the
-                     * same lookup cap: without counting these attempts a
-                     * run whose name resolution keeps going stale would
-                     * retry every two seconds forever, while the plain
-                     * not-found path gave up after MAX_TARGET_LOOKUP_
-                     * ATTEMPTS.
+                     * target as a "not found" one, so it shares that cap and
+                     * that counter: without counting these attempts a run
+                     * whose name resolution keeps going stale would retry
+                     * every two seconds forever.  Reaching the cap leaves
+                     * the loop through the exit check below.
                      */
-                    lookup_attempts++;
-                    if (lookup_attempts >= MAX_TARGET_LOOKUP_ATTEMPTS) {
-                        fprintf(
-                            stderr,
-                            "Giving up after %u attempts: target not found\n",
-                            lookup_attempts);
-                        exit_status = EXIT_FAILURE;
-                    }
+                    (void)bump_retry_streak(&lookup_attempts, STREAK_LOOKUP,
+                                            &exit_status);
                 }
             } else {
                 /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never
@@ -520,13 +566,8 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                      * ended, because a daemon that starts late is exactly
                      * what non-lazy mode promises to wait for.
                      */
-                    scan_failures++;
-                    if (scan_failures >= MAX_TARGET_LOOKUP_ATTEMPTS) {
-                        fprintf(
-                            stderr,
-                            "Giving up after %u failed scan(s): the target is no longer limited\n",
-                            scan_failures);
-                        exit_status = EXIT_FAILURE;
+                    if (bump_retry_streak(&scan_failures, STREAK_SCAN,
+                                          &exit_status)) {
                         break;
                     }
                 } else if (limit_status != LIMIT_PROCESS_OK) {
