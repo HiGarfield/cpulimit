@@ -16070,6 +16070,14 @@ static void test_process_set_rejects_recycled_target_pid(void) {
  *       driver is back over the readability-function-size threshold now that
  *       this module has grown past thirty tests.
  */
+/* Test accessor for the static reap helper in child_wait.c; defined only in the
+ * test build so the production object stays free of test code. */
+int cpulimit_test_exercise_reap(pid_t child_pid);
+
+/* Forward declaration so the RUN_TEST registration below can reference the reap
+ * test, which is defined later (next to main()). */
+static void test_reap_before_error_return_does_not_block(void);
+
 static void run_process_set_module_tests(void) {
     printf("\n=== PROCESS_SET MODULE TESTS ===\n");
     RUN_TEST(test_process_set_cpu_usage);
@@ -16102,6 +16110,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_pid_mode_resumes_when_start_time_unknown);
     RUN_TEST(test_exe_mode_resumes_when_only_name_changed);
     RUN_TEST(test_exe_mode_skips_resume_when_pid_reused);
+    RUN_TEST(test_reap_before_error_return_does_not_block);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
@@ -16277,6 +16286,47 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
     assert(benign == 2);
     assert(severe == 2);
 }
+/**
+ * @brief reap_child_before_error_return() must not block on a child ignoring
+ *        the termination signal (V2)
+ * @note V2 made the single reap helper non-blocking (WNOHANG), so an internal
+ *       error branch can no longer hang on a child that ignores SIGTERM -- the
+ *       forwarded signal is ineffective and this path skips the polling loop's
+ *       SIGKILL escalation.  Fork a child that ignores SIGTERM and sleeps,
+ *       drive the reap, and assert it returns well before the child would
+ *       exit.  Restoring the old blocking waitpid() makes the call wait for the
+ *       child, so the elapsed time would approach the sleep and the assertion
+ *       would fail.  The still-running child is killed afterwards; under the
+ *       fix it is only reparented to init when this process exits.
+ */
+static void test_reap_before_error_return_does_not_block(void) {
+    pid_t child;
+    struct timespec before, after;
+    int status;
+
+    child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        /* Ignore the termination signal and sleep long; the reap must not
+         * wait for this to finish. */
+        signal(SIGTERM, SIG_IGN);
+        sleep(30);
+        _exit(0);
+    }
+
+    assert(get_current_time(&before) == 0);
+    cpulimit_test_exercise_reap(child);
+    assert(get_current_time(&after) == 0);
+
+    /* Non-blocking: returned in well under the child's sleep. */
+    assert((double)(after.tv_sec - before.tv_sec) +
+           (double)(after.tv_nsec - before.tv_nsec) / 1000000000.0 < 5.0);
+
+    /* Clean up the still-running child (reparented to init under the fix). */
+    kill(child, SIGKILL);
+    waitpid(child, &status, 0);
+}
+
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];
