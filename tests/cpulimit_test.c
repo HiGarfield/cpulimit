@@ -5570,6 +5570,7 @@ static void test_process_set_rapid_updates(void) {
     kill_and_wait(child_pid, SIGKILL);
 }
 
+
 /**
  * @brief Test process set initialization with all processes
  * @note Verifies that a process set initialized with PID 0 (all processes)
@@ -9582,6 +9583,16 @@ static int seam_fail_span = 1;
 /** @brief errno the failing kill() call must report. */
 static int seam_fail_errno = 0;
 
+/**
+ * @brief Restrict the failing kill() calls to one signal
+ *
+ * 0 means every signal in the span fails, matching the original behaviour.
+ * SIGCONT is the one U2 has to exercise in isolation: SIGSTOP must still
+ * succeed so the group actually suspends the member, which is what turns a
+ * later SIGCONT failure into a "may remain stopped" emergency.
+ */
+static int seam_fail_sig = 0;
+
 /** @brief Non-zero to make the get_current_time() seam report failure. */
 static int seam_clock_fails = 0;
 
@@ -9677,6 +9688,7 @@ static void seam_reset(void) {
     seam_fail_call = 0;
     seam_fail_span = 1;
     seam_fail_errno = 0;
+    seam_fail_sig = 0;
     seam_clock_fails = 0;
     seam_clock_fail_on_call = 0;
     seam_clock_call_count = 0;
@@ -12703,7 +12715,8 @@ int cpulimit_test_kill(pid_t pid, int sig) {
      */
     seam_kill_calls++;
     failed = (seam_fail_call != 0 && seam_kill_calls >= seam_fail_call &&
-              seam_kill_calls < seam_fail_call + seam_fail_span);
+              seam_kill_calls < seam_fail_call + seam_fail_span &&
+              (seam_fail_sig == 0 || sig == seam_fail_sig));
     if (seam_signal_count < SEAM_MAX_SIGNALS) {
         seam_signals[seam_signal_count].pid = pid;
         seam_signals[seam_signal_count].sig = sig;
@@ -15995,6 +16008,152 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_limit_process_deferred_resume_esrch_is_ok);
 }
 
+/**
+ * @brief Drive the benign-then-severe resume gate and capture its warnings
+ * @param write_fd Write end of the pipe the child's stderr is redirected to
+ *
+ * Two members are built through the iterator seam so the run is fully
+ * scripted, SIGCONT is made to fail with EPERM while SIGSTOP still succeeds,
+ * and the control phases are replayed by hand: a SIGCONT while nothing is
+ * suspended (benign), a SIGSTOP that suspends them, and a second SIGCONT once
+ * they are suspended (severe).  The warnings land on the pipe for the parent.
+ */
+static void resume_gate_driver_child(int write_fd) {
+    struct process_set proc_set;
+    struct seam_proc *frame;
+    int result, err_fd;
+
+    frame = (struct seam_proc *)malloc(2 * sizeof(*frame));
+    assert(frame != NULL);
+    memset(frame, 0, 2 * sizeof(*frame));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    frame[1].pid = (pid_t)(SEAM_TARGET_PID + 1);
+    frame[1].ppid = (pid_t)1;
+
+    /* Script the group and fail only SIGCONT (EPERM), never SIGSTOP. */
+    seam_reset();
+    seam_push_frame(frame, 2);
+    seam_active = 1;
+    seam_fail_sig = SIGCONT;
+    seam_fail_errno = EPERM;
+    seam_fail_call = 1;
+    seam_fail_span = 8;
+
+    fflush(stdout);
+    fflush(stderr);
+    err_fd = dup2(write_fd, STDERR_FILENO);
+    if (err_fd < 0) {
+        _exit(EXIT_FAILURE);
+    }
+    if (write_fd != STDERR_FILENO) {
+        close(write_fd);
+    }
+
+    result = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
+    if (result == 0) {
+        /* Work phase, members not yet suspended: benign failures. */
+        process_set_send_signal(&proc_set, SIGCONT, 0);
+        /* Sleep phase: suspends them, so SIGSTOP must succeed. */
+        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        /* Work phase again, now suspended: severe failures, reported once. */
+        process_set_send_signal(&proc_set, SIGCONT, 0);
+        /* A further round in the same severe episode must not re-report. */
+        process_set_send_signal(&proc_set, SIGCONT, 0);
+        close_process_set(&proc_set);
+    }
+    free(frame);
+    close(err_fd);
+    _exit(result == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
+}
+
+/**
+ * @brief The resume warning must report severity, not just one gate (U2)
+ * @note A member can fail a SIGCONT before this group ever suspends it (a
+ *       benign, "it has been running all along" failure) and then fail again
+ *       after suspension -- the emergency one.  Gating both on the same flag
+ *       (cont_warned) meant the second, actionable message -- the PID to
+ *       'kill -CONT' -- was never printed, so two members both left suspended
+ *       showed up as one generic "N processes" line with no PIDs.  The driver
+ *       scripts exactly that: each of two members takes one benign then one
+ *       severe failure, and the parent counts the distinct warnings.  A fourth
+ *       SIGCONT round in the same severe episode must not add a third, which
+ *       is the anti-spam property: four distinct warnings, no more.
+ *       Verified by mutation: gating the severe message on cont_warned makes
+ *       its count drop to 0.
+ */
+static void test_resume_warning_gate_counts_severity_levels(void) {
+    int err_pipe[2];
+    pid_t driver, waited;
+    int status, exited, exit_code;
+    size_t total = 0;
+    int benign = 0, severe = 0;
+    char *capture;
+    const char *walk;
+    assert(pipe(err_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        close(err_pipe[0]);
+        resume_gate_driver_child(err_pipe[1]);
+    }
+    close(err_pipe[1]);
+
+    /* Only now, so the forked child inherits nothing to leak. */
+    capture = (char *)malloc(4096);
+    assert(capture != NULL);
+
+    /* Read to EOF: the child is short-lived and its warnings are the point. */
+    while (total < 4095) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    capture[total] = '\0';
+    close(err_pipe[0]);
+
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+
+    benign = 0;
+    severe = 0;
+    walk = capture;
+    for (;;) {
+        const char *hit =
+            strstr(walk, "process stays tracked but cannot be limited");
+        if (hit == NULL) {
+            break;
+        }
+        benign++;
+        walk = hit + 1;
+    }
+    walk = capture;
+    for (;;) {
+        const char *hit = strstr(walk, "may remain stopped");
+        if (hit == NULL) {
+            break;
+        }
+        severe++;
+        walk = hit + 1;
+    }
+    free(capture);
+
+    assert(exited);
+    assert(exit_code == EXIT_SUCCESS);
+    /* Two members, benign then severe, each reported exactly once. */
+    assert(benign == 2);
+    assert(severe == 2);
+}
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];
@@ -16201,6 +16360,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_seam_undeliverable_forward_is_not_retried);
     RUN_TEST(test_seam_quit_while_parked_in_sleep);
     RUN_TEST(test_seam_quit_while_pid_mode_retries);
+    RUN_TEST(test_resume_warning_gate_counts_severity_levels);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;

@@ -470,7 +470,11 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
         /*
          * At least one suspended process could not be resumed at shutdown
          * (BUG-050).  It may stay stopped forever, so report it and exit
-         * non-zero rather than silently returning success.
+         * non-zero rather than silently returning success.  The resume
+         * round above already printed a per-PID "cannot resume PID N ... may
+         * remain stopped; run 'kill -CONT N'" line for every process it
+         * could not resume (U2) -- those lines carry the PID the operator
+         * must act on, so this summary only repeats the count.
          */
         fprintf(
             stderr,

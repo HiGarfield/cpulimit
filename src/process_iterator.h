@@ -157,9 +157,28 @@ struct process {
      * failure episode; the matching success path clears them so a later
      * failure re-reports.  They are intentionally per-member rather than a
      * single global so concurrent members report independently.
+     *
+     * cont_warned gates the benign episode: a SIGCONT that failed while the
+     * member was never suspended by this group, so it has been running all
+     * along and the failure only means it cannot be limited.
      */
     int cont_warned;
     int stop_warned;
+
+    /**
+     * Throttle state for the severe resume episode (U2).
+     *
+     * Separate from cont_warned because the two episodes are independent:
+     * whether a failed SIGCONT deserves the "may remain stopped" emergency
+     * depends on suspended_by_us, not on the signal, and a member can live
+     * through both.  A member that fails a SIGCONT before this group ever
+     * suspends it takes the benign branch and sets cont_warned; gating the
+     * later, severe failure on that same flag swallowed the one message the
+     * user needs -- the PID to run 'kill -CONT' on -- so the severe episode
+     * gets its own flag, cleared by a successful SIGCONT just like the
+     * suspension it reports on.
+     */
+    int resume_warned;
 
     /**
      * Suspension state owned by the limiting group (BUG-051).

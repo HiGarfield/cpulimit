@@ -872,7 +872,8 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  * @param err errno value captured at the point of failure
  * @param verbose Retained for the callers' API; this function no longer
  *                gates on it (R3), because throttling is owned entirely
- *                by the per-member stop_warned / cont_warned flags
+ *                by the per-member stop_warned / cont_warned / resume_warned
+ *                flags
  * @param may_remain_stopped Non-zero when the failed signal is a SIGCONT
  *                           that would have undone a suspension this group
  *                           recorded, so the member may stay stopped forever
@@ -880,9 +881,18 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  * A process that cannot be signalled is retried on every control cycle,
  * so reporting every failure would flood the terminal; the caller limits
  * reporting to one message per member and failure episode through its
- * stop_warned / cont_warned flags.  The diagnostic is printed even when
- * not verbose because it means the requested limit cannot be enforced on
- * that process, which the user has to be told about.
+ * per-member flags.  There are two distinct episodes a member can live
+ * through, which must not share a gate (U2): the benign one is a failed
+ * SIGCONT while this group never suspended it -- it has been running all
+ * along, so nothing is stuck and cont_warned covers it -- and the severe
+ * one is a failed SIGCONT while this group did suspend it, which is the
+ * only case where the recovery hint "run kill -CONT <pid>" is the thing
+ * the user needs; resume_warned covers that.  stop_warned covers a failed
+ * SIGSTOP.  A member can fail a SIGCONT before it is ever suspended (set
+ * cont_warned) and then fail again after suspension, so gating the severe
+ * message on cont_warned would swallow it (U2).  The diagnostic is printed
+ * even when not verbose because it means the requested limit cannot be
+ * enforced on that process, which the user has to be told about.
  *
  * There used to be a process-global "once ever" gate here as well, but it
  * contradicted the per-member contract: after the first failure no other
@@ -1072,18 +1082,31 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                  * all along.
                  */
                 if (sig == SIGCONT && !proc->suspended_by_us) {
+                    /*
+                     * Benign episode: gate on cont_warned, which a later
+                     * successful SIGCONT clears.
+                     */
                     if (!proc->cont_warned) {
                         warn_signal_failure(sig, pid, saved_errno, verbose, 0);
                     }
                     proc->cont_warned = 1;
                 } else {
-                    if ((sig == SIGCONT && !proc->cont_warned) ||
+                    /*
+                     * Severe episode: gate on resume_warned, not on
+                     * cont_warned (U2).  The two vary independently -- a
+                     * member that failed a SIGCONT before this group ever
+                     * suspended it has already set cont_warned, and gating
+                     * this message on that flag meant the recovery hint,
+                     * the one thing that says which PID to 'kill -CONT',
+                     * was never printed for it.
+                     */
+                    if ((sig == SIGCONT && !proc->resume_warned) ||
                         (sig != SIGCONT && !proc->stop_warned)) {
                         warn_signal_failure(sig, pid, saved_errno, verbose,
                                             proc->suspended_by_us);
                     }
                     if (sig == SIGCONT) {
-                        proc->cont_warned = 1;
+                        proc->resume_warned = 1;
                     } else {
                         proc->stop_warned = 1;
                     }
@@ -1138,6 +1161,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
              * failure re-reports instead of going unnoticed.  The
              * suspension this flag tracks is undone as well. */
             proc->cont_warned = 0;
+            proc->resume_warned = 0;
             proc->suspended_by_us = 0;
         }
         node = next_node;
