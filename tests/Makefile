@@ -48,7 +48,7 @@ busy multi_process_busy: %: %.o $(LOAD_OBJS)
 # A file that DEFINES a renamed entry point must not have that rename
 # applied, or its own definition would be renamed too and collide with the
 # test's replacement. Every source therefore receives all renames except
-# the ones it defines; the two lists below are the definers.
+# the ones it defines; the lists below are the definers.
 #
 # CPULIMIT_TEST_BUILD renames nothing: it opts the platform is_child_of()
 # implementations into the getppid_of() test seam (BUG-043).  Without it the
@@ -62,6 +62,7 @@ SEAM_TIME_ITER_FLAGS := -Dget_current_time=cpulimit_test_get_current_time \
 	-Dclose_process_iterator=cpulimit_test_close_process_iterator
 SEAM_LIMIT_FLAGS := -Dlimit_process=cpulimit_test_limit_process
 SEAM_UPDATE_FLAGS := -Dupdate_process_set=cpulimit_test_update_process_set
+SEAM_STARTTIME_FLAGS := -Dget_process_start_time=cpulimit_test_get_process_start_time
 
 # Everything under src/ except the entry point.
 SEAM_SRC := $(filter-out $(SRC)/main.c,$(wildcard $(SRC)/*.c))
@@ -73,12 +74,13 @@ SEAM_TIME_ITER_SRC := $(SRC)/time_util.c \
 	$(filter-out $(SRC)/process_iterator_common.c,$(wildcard $(SRC)/process_iterator_*.c))
 SEAM_LIMIT_SRC := $(SRC)/limit_process.c
 SEAM_UPDATE_SRC := $(SRC)/process_set.c
+SEAM_STARTTIME_SRC := $(SRC)/process_iterator_common.c
 
 SEAM_OBJS := $(SEAM_SRC:$(SRC)/%.c=%.o)
 
 # One rule for all of them: each file gets every rename except its own.
 $(SEAM_OBJS): %.o: $(SRC)/%.c
-	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) -c $< -o $@
+	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) $(if $(filter $<,$(SEAM_STARTTIME_SRC)),,$(SEAM_STARTTIME_FLAGS)) -c $< -o $@
 
 cpulimit_test: cpulimit_test.o $(SEAM_OBJS)
 	$(CC) $(ALL_CFLAGS) $^ $(ALL_LDFLAGS) -o $@
