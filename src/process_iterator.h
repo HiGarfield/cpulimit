@@ -406,30 +406,34 @@ pid_t getppid_of(pid_t pid);
 
 #ifdef CPULIMIT_TEST_BUILD
 /**
- * @brief Test seam backing getppid_of() inside is_child_of().
+ * @brief Test seam backing getppid_of() inside is_child_of()
+ * @param pid Process whose parent PID is wanted
+ * @return The fabricated parent PID, or the real one when the seam is unarmed
  *
- * When the test harness is built, is_child_of() routes its parent-PID lookups
- * through this function (only when seam_getppid_fabricate is set) so
- * ancestor-chain breakage can be reproduced deterministically.
+ * is_child_of() routes its parent-PID lookups through this function when
+ * seam_getppid_fabricate is set, so ancestor-chain breakage can be reproduced
+ * deterministically.  Compiled only into the test build.
  */
 pid_t cpulimit_test_getppid_of(pid_t pid);
-/** @brief Non-zero: is_child_of() should use the getppid_of() seam.
- */
+
+/** @brief Non-zero: is_child_of() should use the getppid_of() seam. */
 extern int seam_getppid_fabricate;
 
 /**
- * @brief Test seam backing find_process_by_pid()'s existence probe.
+ * @brief Test seam backing find_process_by_pid()'s existence probe
+ * @param pid Process whose liveness is being checked
+ * @return The PID while the seam reports it alive, 0 once it is gone
  *
- * When the harness arms seam_find_by_pid_override, find_process_by_pid() routes
- * its liveness check through this function instead of sending a real
- * kill(pid, 0).  The backing reads the currently selected iterator seam frame,
- * so a candidate that the scripted snapshot dropped is reported as gone -- this
- * lets name-based lookup tests drive the final recheck
- * deterministically instead of depending on a real PID being alive.
+ * find_process_by_pid() routes its liveness check through this function when
+ * seam_find_by_pid_override is set, instead of sending a real kill(pid, 0).
+ * The seam reads the currently selected iterator frame, so a candidate the
+ * scripted snapshot dropped reports as gone, which lets name-based lookup
+ * tests drive the final recheck deterministically.  Compiled only into the
+ * test build.
  */
 pid_t cpulimit_test_find_by_pid(pid_t pid);
-/** @brief Non-zero: find_process_by_pid() should use the seam probe
- * instead of a real PID being alive. */
+
+/** @brief Non-zero: find_process_by_pid() should use the seam probe. */
 extern int seam_find_by_pid_override;
 #endif
 

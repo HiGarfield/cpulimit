@@ -101,52 +101,40 @@ extern "C" {
 /**
  * @brief Enforce CPU usage limit on a process or process set
  * @param pid Process ID of the target process to limit
- * @param cpu_limit CPU usage limit expressed in CPU cores (core
- *              equivalents), in the range (0, N_CPU]. Example: on a 4-core
- *              system, cpu_limit=0.5 means 50% of one core (12.5% of total
- *              capacity), and cpu_limit=2.0 means two full cores (50% of
- *              total capacity).
+ * @param cpu_limit CPU usage limit in core equivalents, in the range
+ *              (0, N_CPU]: on a 4-core system, 0.5 means half of one core and
+ *              2.0 means two full cores
  * @param include_children If non-zero, limit applies to target and all
  *                         descendants; if zero, limit applies only to target
  *                         process
  * @param verbose If non-zero, print periodic statistics about CPU usage and
  *                control; if zero, operate silently
+ * @param prior_scan_failures How many consecutive scan failures the caller
+ *        has already recorded for this run.  A caller that retries passes
+ *        its streak so the per-cycle scan diagnostic is printed only on the
+ *        first failure of the streak instead of once per retry; a caller
+ *        that runs once passes 0.  It does not change what is returned.
  *
- * This function implements the core CPU limiting algorithm using
- * SIGSTOP/SIGCONT:
+ * Implements the core CPU limiting algorithm using SIGSTOP/SIGCONT:
  * 1. Monitors the process set's actual CPU usage
  * 2. Calculates appropriate work/sleep intervals to achieve the target limit
  * 3. Alternately sends SIGCONT (allow execution) and SIGSTOP (suspend
- * execution)
+ *    execution)
  * 4. Dynamically adjusts timing based on measured CPU usage
- * 5. Continues until the target terminates or quit signal received
+ * 5. Continues until the target terminates or a quit signal is received
  *
- * @note This function blocks until target terminates or is_quit_flag_set()
- *       returns true
- * @note Always resumes suspended processes (sends SIGCONT) before returning
+ * @note This function blocks until the target terminates or
+ *       is_quit_flag_set() returns true
+ * @note Every suspended process is resumed (SIGCONT) before returning; any
+ *       that could not be is named on stderr with the command to recover it,
+ *       so no caller has to repeat that
  *
- * @return LIMIT_PROCESS_OK once limiting has finished (target terminated or
- *         a quit signal arrived, with everything resumed),
- *         LIMIT_PROCESS_SCAN_FAILED if the control loop stopped because a
- *         per-cycle process-group scan failed (everything was resumed, but
- *         nothing is limited any more), LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED
- *         if that happened and a member could then not be resumed either, and
- *         LIMIT_PROCESS_ERROR if the process group could not be initialised or
- *         a member could not be resumed at shutdown with no scan failure
- *         behind it.  On LIMIT_PROCESS_ERROR nothing may still be stopped, so
- *         the caller is free to resume/reap its own child; the previous
- *         behaviour of exiting the whole process here left a command-mode
- *         child running unthrottled and unreaped.
- *
- *         Whenever a member cannot be resumed, limit_process() has already
- *         named every stranded PID on stderr with the command to recover it
- *         before returning, so no caller has to repeat that.
- *
- * @param prior_scan_failures How many consecutive scan failures the caller has
- *        already recorded for this run.  A caller that retries passes its
- *        streak so the per-cycle scan diagnostic is printed only on the first
- *        failure of the streak instead of once per retry; a caller that runs
- *        once passes 0.  It does not change what is returned.
+ * @return LIMIT_PROCESS_OK when limiting finished with everything resumed,
+ *         LIMIT_PROCESS_SCAN_FAILED or LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED
+ *         when the control loop stopped on a failed process-group scan, and
+ *         LIMIT_PROCESS_ERROR when the group could not be initialised or a
+ *         member could not be resumed.  Each macro documents what its value
+ *         means for the caller.
  */
 int limit_process(pid_t pid, double cpu_limit, int include_children,
                   int verbose, unsigned int prior_scan_failures);

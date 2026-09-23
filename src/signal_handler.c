@@ -166,39 +166,13 @@ error:
     return -1;
 }
 
-/**
- * @brief Set up signal handlers for graceful program termination
- *
- * Registers a unified signal handler for SIGINT (Ctrl+C), SIGQUIT (Ctrl+\),
- * SIGTERM, SIGHUP, and SIGPIPE signals. When any of these signals are
- * received, the handler sets a quit flag that can be checked via
- * is_quit_flag_set(). For terminal-originated signals (SIGINT, SIGQUIT),
- * also sets a flag indicating TTY termination. The handler uses SA_RESTART
- * to automatically restart interrupted system calls.
- *
- * All signals are blocked before any state is touched: sigfillset() and
- * sigprocmask() run ahead of reset_signal_state() and the sigaction loop,
- * so no termination signal can be delivered in between. The internal
- * signal-latch state (quit_flag, tty_quit_flag, quit_signal_num) is then
- * cleared, new handlers are installed, and the original mask is restored.
- * Any signal that becomes pending during the blocked window is delivered
- * through the new handlers once the mask is restored.
- *
- * The two scratch sigset_t objects are heap allocated, so the allocation
- * happens before the mask is raised rather than after it.
- *
- * @note Exits with error if signal mask or handler registration fails
- */
 void configure_signal_handler(void) {
     /* Initialize to NULL to make free(NULL) safe in error paths */
     sigset_t *block_mask = NULL, *old_mask = NULL;
     /*
-     * Non-zero once all signals are blocked: the error path must then
-     * restore the original mask before exiting, instead of dying with
-     * every signal blocked.  Exiting a signal-deaf process is
-     * harmless today, but the function header promises the mask is
-     * restored, and a future change of exit() to return would otherwise
-     * leave the promise broken.
+     * Non-zero once all signals are blocked: every error path after that
+     * point must restore the original mask before leaving, because the
+     * documented contract is that the mask is unchanged on return.
      */
     int blocked = 0;
     int ret;

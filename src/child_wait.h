@@ -35,52 +35,34 @@ extern "C" {
 #include <sys/types.h>
 
 /**
- * @brief Wait for the child process to exit and collect its exit status
- * @return The child's exit status if successfully reaped, EXIT_FAILURE
- *         otherwise
- *
- * An internal failure does not end the process: if the clock cannot be read,
- * the child is resumed so it does not stay stopped, waited for so it does not
- * stay a zombie, and EXIT_FAILURE is returned to the caller, which still has
- * its own diagnosis and exit status to produce.
- *
- * Polls for the child's termination. Once the quit signal has been
- * forwarded, a 5-second SIGKILL timeout is applied if the child does not
- * exit in time. Translates signal termination to shell-compatible exit
- * codes (128 + signal number).
- *
- * Handles the race where a quit signal is delivered after
- * run_command_mode()'s is_quit_flag_set() check: if quit_flag becomes set
- * during polling, the exact received signal is forwarded to the child
- * process group so it exits with the correct status (128 + signal number)
- * rather than waiting for the SIGKILL timeout.  A SIGCONT is always sent
- * first so that a stopped child (e.g. on macOS 10.7 where stopped processes
- * are invisible to the process iterator) is resumed before the forwarded
- * signal is delivered.
- *
- * The signal is delivered exactly once.  When run_command_mode() has
- * already forwarded it (the common case, since the quit flag is normally
- * set before this function is reached) this function must not send a
- * second one: two SIGINTs from a single Ctrl+C would cut short the
- * handler a program installs to shut itself down cleanly, and no shell
- * behaves that way.
- *
- * start_time is reset to the moment the signal is forwarded from inside
- * this function, giving the child the full CHILD_KILL_TIMEOUT_MS from the
- * point it first receives the forwarded signal (not from function entry).
- * No escalation is armed before that: a command that is still running
- * because limit_process() stopped watching it is waited for, not killed.
- *
- * Once the grace period is over the escalation fires once, not once per poll
- *.  A process group is signalled, and repeating it during the window in
- * which the child has exited but has not been reaped yet -- a zombie still
- * carries its PID and PGID -- would reach whatever else now lives in that
- * group, and would repeat signal_command()'s own failure report each time.
- *
+ * @brief Wait for the child to exit and collect its exit status
  * @param child_pid PID of the child process to wait for
  * @param cfg Pointer to configuration structure (used for verbose output)
- * @param signal_forwarded Non-zero if the caller already forwarded the
- *                         quit signal to the child process group
+ * @param signal_forwarded Non-zero if the caller already forwarded the quit
+ *                         signal to the child process group
+ * @return The child's exit status if it was reaped, EXIT_FAILURE otherwise
+ *
+ * Polls until the child exits, translating death by signal into the
+ * shell-compatible 128 + signal number.  Once the quit signal has been
+ * forwarded, a child that still has not exited after CHILD_KILL_TIMEOUT_MS is
+ * killed, and that escalation fires once rather than once per poll: a child
+ * that has exited but not yet been reaped is a zombie that still carries its
+ * PID and PGID, so repeating the group kill would reach whatever else now
+ * lives in that group.  The grace period starts when the signal is forwarded,
+ * not at entry, so the child gets its full timeout measured from the moment
+ * it first sees the signal; nothing is armed before that, because a command
+ * that is merely not being watched is waited for rather than killed.
+ *
+ * A quit signal that arrives after run_command_mode()'s own check is handled
+ * by forwarding the exact received signal -- but only once, since the caller
+ * normally forwards first and a second SIGINT from one Ctrl+C would cut short
+ * a handler a program installs to shut itself down cleanly.  SIGCONT is sent
+ * first so a stopped child is resumed before the signal is delivered; on
+ * macOS 10.7 a stopped process is invisible to the process iterator.
+ *
+ * An internal failure (an unreadable clock) does not end the process: the
+ * child is resumed, waited for so it does not stay a zombie, and EXIT_FAILURE
+ * is returned while the caller still produces its own diagnosis.
  */
 int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                               volatile int signal_forwarded);

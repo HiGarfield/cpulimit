@@ -52,21 +52,24 @@ pid_t find_process_by_pid(pid_t pid);
  * @return Positive PID if found and accessible, negative -PID if found but
  *         permission denied, 0 if not found or invalid name
  *
- * Behavior depends on whether process_name is an absolute path:
- * - If process_name starts with '/': compares full absolute paths
- * - Otherwise: compares only the basename (executable name without directory)
+ * A name is compared against argv[0]: an absolute path is compared in full,
+ * a bare or relative name only by its basename.
  *
- * When multiple matches exist, selects the first process found, or if one is
- * an ancestor of another, prefers the ancestor. This heuristic helps ensure
- * that if a parent process spawns children with the same name, the parent is
- * chosen.
+ * When several processes match, the choice is deterministic and independent
+ * of the platform's iteration order: the topmost ancestor wins, and among
+ * unrelated matches the smallest PID wins.  If the chosen process exits
+ * before the existence recheck, the best surviving candidate is selected by
+ * the same rule.  A match cpulimit cannot signal is never preferred over one
+ * it can, so a negative PID is returned only when every match is
+ * uncontrollable.
  *
  * @note Returns 0 immediately for NULL or empty process_name
- * @note Iterates through all processes in the system, which may be slow on
- *       systems with many processes. For known PIDs, use find_process_by_pid().
- * @note On critical errors (e.g., memory allocation or iterator
- *       initialization failure) returns 0, so the caller can treat the
- *       target as "not found" instead of the run being aborted.
+ * @note Iterates every process on the system, which is slow when there are
+ *       many; prefer find_process_by_pid() when the PID is known
+ * @note On critical errors (allocation or iterator initialization failure)
+ *       returns 0, so the caller can treat the target as "not found" instead
+ *       of aborting the run; a failure to close the iterator is reported but
+ *       does not change the selection
  */
 pid_t find_process_by_name(const char *process_name);
 
