@@ -55,7 +55,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
     int fd_flags;
     /* 1 when the quit flag is set and the signal must be forwarded */
     int forwarded_quit_signal;
-    /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if limiting never started */
+    /* LIMIT_PROCESS_OK, or whatever limit_process() reported instead */
     int limit_status = LIMIT_PROCESS_OK;
 
     /*
@@ -175,19 +175,19 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
          * its real exit status so the operator can diagnose the outcome
          * instead of only seeing cpulimit's own EXIT_FAILURE.
          *
-         * The two reasons are different and must not be reported as one.
-         * LIMIT_PROCESS_ERROR means the group was never built and nothing
-         * was limited at all.  LIMIT_PROCESS_SCAN_FAILED means limiting did
-         * run and only stopped when a scan failed, so the command merely ran
-         * unthrottled from that point on: saying the limit "could not be
-         * applied" sends anyone debugging it after permissions or target
-         * resolution instead of the failed scan.
+         * The reasons are different and must not be reported as one.
+         * LIMIT_PROCESS_ERROR means the group was never built and nothing was
+         * limited at all, which is the only case the limit "could not be
+         * applied".  The other two mean it was applied and then something
+         * failed, and they differ in what the operator has to do about it: a
+         * failed scan leaves the command unthrottled from that point on, while
+         * a member that could not be resumed is still stopped and has to be
+         * released by hand.  Say which of the three happened; the stranded
+         * members are named by limit_process() itself, each with the
+         * 'kill -CONT <pid>' that recovers it.
          *
-         * LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED is both at once, so it takes
-         * the scan wording: limiting did run and stopped early, which is the
-         * part the command's own status cannot show.  The stranded members
-         * are not mentioned here because limit_process() has already named
-         * each one with the 'kill -CONT <pid>' that recovers it.
+         * LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED is both scan-failure facts at
+         * once, so it takes the scan wording.
          */
         int child_exit_status =
             collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
@@ -196,6 +196,11 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
             fprintf(
                 stderr,
                 "Warning: CPU limiting stopped early for process %ld; the command ran unthrottled from that point and exited with status %d\n",
+                (long)child_pid, child_exit_status);
+        } else if (limit_status == LIMIT_PROCESS_STRANDED) {
+            fprintf(
+                stderr,
+                "Warning: CPU limiting ran for process %ld, but one or more processes it suspended were left stopped; recover each with the 'kill -CONT <pid>' printed above.  The command exited with status %d\n",
                 (long)child_pid, child_exit_status);
         } else {
             fprintf(
@@ -314,7 +319,7 @@ static void handle_stale_target(const struct cpulimit_cfg *cfg, pid_t found_pid,
 static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
                                     pid_t found_pid, int *exit_status,
                                     unsigned int *scan_failures) {
-    /* LIMIT_PROCESS_OK, or LIMIT_PROCESS_ERROR if it never started. */
+    /* LIMIT_PROCESS_OK, or the non-OK value limit_process() returned. */
     int limit_status;
     /* Set when this PID is shown to no longer be our target. */
     int pid_reused = 0;
@@ -418,17 +423,18 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
         (*scan_failures)++;
     } else if (limit_status != LIMIT_PROCESS_OK) {
         /*
-         * Everything that reaches here ends the run, and there are only two
-         * kinds of it: the group could not be built at all, or an attempt
-         * left a member stopped that only a manual 'kill -CONT' recovers.
+         * Everything that reaches here ends the run: LIMIT_PROCESS_ERROR, for
+         * a group that could not be built at all, and the two stranded values,
+         * for an attempt that left a member stopped that only a manual
+         * 'kill -CONT' recovers.
          *
          * The first is a failure of the scanning machinery, and it is the one
          * reason a non-lazy search gives up: nothing can be searched with
-         * afterwards.  The second is not a target state and does not go away
-         * by looking again -- a member refused the SIGCONT meant to release
-         * it -- so another attempt would repeat the same futile round and the
-         * same warnings, and the run's status has to stay non-zero until the
-         * member is repaired.
+         * afterwards.  The stranded outcomes are not a target state and do not
+         * go away by looking again -- a member refused the SIGCONT meant to
+         * release it -- so another attempt would repeat the same futile round
+         * and the same warnings, and the run's status has to stay non-zero
+         * until the member is repaired.
          */
         *exit_status = EXIT_FAILURE;
     }

@@ -467,17 +467,18 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
             "Warning: %d process(es) left suspended at shutdown; run 'kill -CONT <pid>' for each to recover.\n",
             resume_failed);
         /*
-         * When a scan failure is behind this too, returning
-         * LIMIT_PROCESS_ERROR would make the caller describe a run that did
-         * limit for a while as one that never applied the limit at all --
-         * the wording that separates exactly these two outcomes,
-         * reached again by a different route.  Say both, and let the caller
-         * add the part it alone knows.
+         * The limit was applied, so the caller must not be told it never was:
+         * returning LIMIT_PROCESS_ERROR here would make command mode describe
+         * a run that did limit for a while as one that never applied the limit
+         * at all, which sends the operator after permissions or target
+         * resolution instead of the PIDs that need releasing.  Whether the
+         * control loop also stopped on a failed scan decides between the two
+         * stranded values, so the caller can say both facts when both hold.
          */
         if (scan_failed) {
             return LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED;
         }
-        return LIMIT_PROCESS_ERROR;
+        return LIMIT_PROCESS_STRANDED;
     }
 
     /*

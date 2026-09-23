@@ -137,6 +137,16 @@ mode (`-p`, or `-e` together with `-z`) have no second chance and exit with
 code 1. Non-lazy mode (`-e` without `-z`) re-resolves the target and re-attaches
 instead, and it keeps doing so for as long as it runs.
 
+A run that does not limit its target to completion says which of three things
+happened, because each one needs a different response. `CPU limit could not be
+applied` means the process group was never built and nothing was throttled at
+all: look at permissions and at how the target was named. `CPU limiting stopped
+early` means the first cycles did throttle the target and a failed process scan
+then stopped the loop, so the command ran unthrottled from that point on. `left
+stopped` means limiting did its job and only the shutdown resume failed: the
+PIDs named above it with `kill -CONT` are still suspended and have to be
+released by hand, or they stay stopped for good.
+
 That is what non-lazy means here: the mode exists for a process whose start
 time cannot be known in advance, so waiting for it is the point rather than a
 cost. Nothing about the target ends the watch -- not being started yet, having

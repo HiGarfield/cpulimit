@@ -11142,7 +11142,7 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
  * @brief Drive limit_process() through one real control cycle, then shut it
  *        down while the target is suspended
  * @param fail_call 1-based kill() delivery the seam starts failing at
- * @param expect_error Return value limit_process() must produce
+ * @param expect_status Return value limit_process() must produce
  * @param needle Substring to look for in the child's stderr
  * @param needle_present Non-zero when needle must appear, zero when it
  *                       must not
@@ -11156,7 +11156,7 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
  * SIGSTOP lands and only the shutdown SIGCONT fails, with fail_call == 1
  * every delivery fails and the member is never suspended at all.
  */
-static void test_drive_limit_process_shutdown(int fail_call, int expect_error,
+static void test_drive_limit_process_shutdown(int fail_call, int expect_status,
                                               const char *needle,
                                               int needle_present) {
     int pipe_fds[2];
@@ -11224,7 +11224,7 @@ static void test_drive_limit_process_shutdown(int fail_call, int expect_error,
         seam_sleep_go_fd = -1;
         kill(target, SIGKILL);
         waitpid(target, NULL, 0);
-        _exit(limit_ret == expect_error ? EXIT_SUCCESS : EXIT_FAILURE);
+        _exit(limit_ret == expect_status ? EXIT_SUCCESS : EXIT_FAILURE);
     }
     close(pipe_fds[1]);
     close(announce_fds[1]);
@@ -11285,15 +11285,20 @@ static void test_drive_limit_process_shutdown(int fail_call, int expect_error,
 
 /**
  * @brief limit_process() must report (and exit non-zero) when a process it
- *        suspended cannot be resumed at shutdown (BUG-050, BUG-051)
+ *        suspended cannot be resumed at shutdown
  * @note The control loop really runs once: the first SIGSTOP lands, then
  *       the quit flag is set and the shutdown SIGCONT fails.  A member
  *       this group suspended and cannot resume must produce the "left
- *       suspended at shutdown" report and LIMIT_PROCESS_ERROR; a plain
- *       signal failure must not (that is the symmetric test below).
+ *       suspended at shutdown" report and LIMIT_PROCESS_STRANDED: the group
+ *       was built and the limit was applied, so it is not
+ *       LIMIT_PROCESS_ERROR, and no scan failed, so it is not
+ *       LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED either.  A plain signal
+ *       failure must not report anything (that is the symmetric test
+ *       below).  Verified by mutation: returning LIMIT_PROCESS_ERROR here
+ *       makes this assertion fail.
  */
 static void test_limit_process_reports_resume_failure(void) {
-    test_drive_limit_process_shutdown(2, LIMIT_PROCESS_ERROR,
+    test_drive_limit_process_shutdown(2, LIMIT_PROCESS_STRANDED,
                                       "left suspended at shutdown", 1);
 }
 
@@ -11313,7 +11318,7 @@ static void test_limit_process_all_signals_fail_returns_ok(void) {
 /**
  * @brief Drive limit_process() through a suspension that left the group
  * @param inject_errno errno the shutdown SIGCONT must fail with
- * @param expect_error Return value limit_process() must produce
+ * @param expect_status Return value limit_process() must produce
  * @param expect_report Non-zero when "left suspended" must appear on stderr
  *
  * The iterator seam scripts three snapshots: the target (initial scan),
@@ -11326,7 +11331,7 @@ static void test_limit_process_all_signals_fail_returns_ok(void) {
  * failed resume of a current member.
  */
 static void test_drive_limit_process_left_group(int inject_errno,
-                                                int expect_error,
+                                                int expect_status,
                                                 int expect_report) {
     int pipe_fds[2];
     int ret, waited, exited;
@@ -11377,7 +11382,7 @@ static void test_drive_limit_process_left_group(int inject_errno,
         seam_fail_call = 0;
         seam_fail_errno = 0;
         free(frames);
-        _exit(limit_ret == expect_error ? EXIT_SUCCESS : EXIT_FAILURE);
+        _exit(limit_ret == expect_status ? EXIT_SUCCESS : EXIT_FAILURE);
     }
     close(pipe_fds[1]);
 
@@ -11424,10 +11429,13 @@ static void test_drive_limit_process_left_group(int inject_errno,
  *       suspended, and every one of them was suspended by this group.  Its
  *       failure used to be printed but never counted, so the run returned
  *       success while a process stayed stopped -- inconsistent with the
- *       identical failure on a current member.
+ *       identical failure on a current member.  The value it produces is
+ *       LIMIT_PROCESS_STRANDED, the same one a current member's failed
+ *       resume produces: the limit was applied, and what the caller is owed
+ *       is a repair rather than a retry.
  */
 static void test_limit_process_deferred_resume_failure(void) {
-    test_drive_limit_process_left_group(EPERM, LIMIT_PROCESS_ERROR, 1);
+    test_drive_limit_process_left_group(EPERM, LIMIT_PROCESS_STRANDED, 1);
 }
 
 /**
@@ -15728,21 +15736,14 @@ static void test_lazy_mode_fails_after_scan_failure(void) {
 }
 
 /**
- * @brief Command mode must not claim the limit was never applied (T3)
- * @note LIMIT_PROCESS_SCAN_FAILED means limiting did run and only stopped
- *       when a scan failed, so "CPU limit could not be applied" is simply
- *       wrong: it sends anyone debugging the run after permissions or
- *       target resolution instead of the failed scan, and hides the fact
- *       that the first cycles really were throttled.  The driver runs
- *       run_command_mode() with limit_process() reporting a scan failure
- *       and captures stderr, so both halves can be asserted: the wording
- *       has to describe a limit that stopped, and the old wording has to
- *       be gone.  The command's own exit status is still reported and the
- *       run is still EXIT_FAILURE.
- *       Verified by mutation: printing the old wording for every non-OK
- *       status makes the "could not be applied" assertion fail.
+ * @brief Run one command-mode run whose limit_process() reports a status
+ * @param write_fd Where the run's stderr goes
+ * @param limit_status Status the stubbed limit_process() reports
+ *
+ * The command is "true", so the run is over as soon as limit_process()
+ * returns and the caller's summary line is the only thing left to observe.
  */
-static void command_scan_failure_driver_child(int write_fd) {
+static void command_status_driver_child(int write_fd, int limit_status) {
     struct cpulimit_cfg cfg;
     char cmd[] = "true";
     char *args[2];
@@ -15765,7 +15766,7 @@ static void command_scan_failure_driver_child(int write_fd) {
      */
     seam_reset();
     seam_hook_limit_process = 1;
-    seam_limit_process_status = LIMIT_PROCESS_SCAN_FAILED;
+    seam_limit_process_status = limit_status;
 
     /*
      * Redirect stderr to the pipe so the child's diagnostics reach the
@@ -15788,12 +15789,28 @@ static void command_scan_failure_driver_child(int write_fd) {
     _exit(rc);
 }
 
-static void test_command_mode_reports_stopped_limiting(void) {
+/**
+ * @brief Run one command-mode run with a scripted limit_process() status and
+ *        check which summary it prints
+ * @param limit_status Status the stubbed limit_process() reports
+ * @param must_appear Substring the run's summary has to contain
+ * @param forbidden_one Substring it must not contain
+ * @param forbidden_two Second substring it must not contain
+ *
+ * The command's own status is still reported and the run still fails: what is
+ * under test is only which of the three summaries the caller picks, and that
+ * it never describes a run that did limit as one that never applied a limit.
+ */
+static void check_command_mode_summary(int limit_status,
+                                       const char *must_appear,
+                                       const char *forbidden_one,
+                                       const char *forbidden_two) {
     int err_pipe[2];
     pid_t driver, waited;
-    int status, exited, exit_code, stopped, misleading;
+    int status, exited, exit_code;
     size_t total = 0;
     char *capture;
+
     assert(pipe(err_pipe) == 0);
 
     fflush(stdout);
@@ -15802,7 +15819,7 @@ static void test_command_mode_reports_stopped_limiting(void) {
     assert(driver >= 0);
     if (driver == 0) {
         close(err_pipe[0]);
-        command_scan_failure_driver_child(err_pipe[1]);
+        command_status_driver_child(err_pipe[1], limit_status);
     }
     close(err_pipe[1]);
 
@@ -15829,14 +15846,44 @@ static void test_command_mode_reports_stopped_limiting(void) {
     exited = WIFEXITED(status);
     exit_code = WEXITSTATUS(status);
 
-    stopped = strstr(capture, "stopped early") != NULL;
-    misleading = strstr(capture, "could not be applied") != NULL;
-    free(capture);
-
     assert(exited);
     assert(exit_code == EXIT_FAILURE);
-    assert(stopped);
-    assert(!misleading);
+    assert(strstr(capture, must_appear) != NULL);
+    assert(strstr(capture, forbidden_one) == NULL);
+    assert(strstr(capture, forbidden_two) == NULL);
+    free(capture);
+}
+
+/**
+ * @brief Command mode must not claim the limit was never applied (T3)
+ * @note LIMIT_PROCESS_SCAN_FAILED means limiting did run and only stopped when
+ *       a scan failed, so "CPU limit could not be applied" is simply wrong: it
+ *       sends anyone debugging the run after permissions or target resolution
+ *       instead of the failed scan, and hides the fact that the first cycles
+ *       really were throttled.  Verified by mutation: printing the old wording
+ *       for every non-OK status makes the "could not be applied" assertion
+ *       fail.
+ */
+static void test_command_mode_reports_stopped_limiting(void) {
+    check_command_mode_summary(LIMIT_PROCESS_SCAN_FAILED, "stopped early",
+                               "could not be applied", "left stopped");
+}
+
+/**
+ * @brief Command mode must report a stranded member as a repair owed, not as a
+ *        limit that was never applied
+ * @note The group was built and limiting did run; only the shutdown resume
+ *       failed, so a member may be stopped still.  "CPU limit could not be
+ *       applied" would send the operator after permissions or target
+ *       resolution instead of the PIDs named above the summary, and "limiting
+ *       stopped early" would hide that the run did throttle its target and
+ *       stopped for an unrelated reason.  Verified by mutation: reporting
+ *       LIMIT_PROCESS_STRANDED with the wording of the never-applied case
+ *       makes the assertions fail.
+ */
+static void test_command_mode_reports_stranded_run(void) {
+    check_command_mode_summary(LIMIT_PROCESS_STRANDED, "left stopped",
+                               "could not be applied", "stopped early");
 }
 
 /**
@@ -16704,6 +16751,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_pid_mode_scan_failure_streak_resets);
     RUN_TEST(test_lazy_mode_fails_after_scan_failure);
     RUN_TEST(test_command_mode_reports_stopped_limiting);
+    RUN_TEST(test_command_mode_reports_stranded_run);
     RUN_TEST(test_pid_mode_skips_resume_when_pid_reused);
     RUN_TEST(test_pid_mode_resumes_when_start_time_unknown);
     RUN_TEST(test_exe_mode_resumes_when_only_name_changed);
