@@ -123,7 +123,7 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 | Exit Code | Description                                                 |
 | --------- | ----------------------------------------------------------- |
 | 0         | Success                                                     |
-| 1         | Error (invalid arguments, target not found, internal error) |
+| 1         | Error (invalid arguments, target not found in a mode that does not wait, internal error) |
 | 126       | Command found but not executable (command mode only)        |
 | 127       | Command not found (command mode only)                       |
 | 128+N     | Command terminated by signal N (command mode only)          |
@@ -131,25 +131,25 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 If the process scan fails while the control loop is running, limiting stops
 and the target is no longer limited from that point on. Command mode and lazy
 mode (`-p`, or `-e` together with `-z`) have no second chance and exit with
-code 1. Non-lazy mode (`-e` without `-z`) re-resolves the target and retries,
-but only up to 15 consecutive failed scans -- about 30 seconds -- after which it
-gives up and exits with code 1 as well. The streak is counted from the last run
-that limited to completion, so a scan that only fails occasionally keeps its
-full budget.
+code 1. Non-lazy mode (`-e` without `-z`) re-resolves the target and re-attaches
+instead, and it keeps doing so for as long as it runs: a target that has not
+started yet, a name that resolves to a recycled PID, and a scan that cannot be
+carried out are all conditions it is meant to sit out. It stops only on a
+termination signal, on a target it is not allowed to signal, or on an internal
+failure it cannot recover from.
 
-A target that cannot be found is bounded the same way, by its own counter and
-with its own message: non-lazy mode prints `retrying...` while it waits, then
-gives up after 15 consecutive failed lookups -- about 30 seconds -- with
-`Giving up after 15 attempts: target not found` and exit code 1. The two
-counters differ only in when they reset. The lookup streak resets as soon as
-the target resolves, which is what lets a daemon that restarts keep being
-re-attached; the scan streak resets only after a run that limited to
-completion.
+That is what non-lazy means here: the mode exists for a process whose start
+time cannot be known in advance, so waiting for it is the point rather than a
+cost. Use `-z` -- or `-p`, which implies it -- when the run should end as soon
+as the target is gone.
 
-Both are reported once per streak, not once per retry: a retrying run
-otherwise prints the same line fifteen times in a row and buries whatever
-follows it, including the hints that name a process left stopped. How many
-attempts the run made is stated by the closing `Giving up after N` line.
+While it waits, the target-missing message repeats on every attempt
+(`Process 'NAME' cannot be found, retrying...`, once per two-second wait),
+because that is the only sign of life a waiting run gives. The scan diagnostic
+is reported once per streak instead, so a run whose scans keep failing does not
+print the same line on every attempt and bury whatever follows it -- including
+the hints that name a process left stopped. A streak ends when a run limits to
+completion, which is when that diagnostic becomes due again.
 
 ## Get the Latest Source Code
 
