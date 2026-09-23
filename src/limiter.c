@@ -217,7 +217,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
 /**
  * @def TARGET_UNCONTROLLABLE
  * @brief resolve_target() result: the target exists but refuses to be
- *        signalled, so no retry can ever succeed
+ *        signalled, so nothing can be limited right now
  */
 #define TARGET_UNCONTROLLABLE 1
 
@@ -240,6 +240,8 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
  * Both failure diagnostics are printed here rather than by the caller,
  * because they follow from what the lookup found and not from what the
  * caller then decides to do about it: every policy reports them the same.
+ * In non-lazy mode both end with ", retrying...", which says what that mode
+ * does with the situation rather than what the situation is.
  */
 static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
                           pid_t *found_pid) {
@@ -258,11 +260,14 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
     }
     if (*found_pid < 0) {
         /*
-         * The process exists but signalling it is refused. There is nothing
-         * to attach to and no point retrying, so the caller stops here.
+         * The process exists but refuses to be signalled, so nothing can be
+         * attached to right now.  What that means for the search is the
+         * caller's decision, not this function's: a refusal belongs to the
+         * process currently wearing that name or PID, and a later one may be
+         * controllable.
          */
-        fprintf(stderr, "No permission to control process %ld\n",
-                -(long)*found_pid);
+        fprintf(stderr, "No permission to control process %ld%s\n",
+                -(long)*found_pid, cfg->lazy_mode ? "" : ", retrying...");
         return TARGET_UNCONTROLLABLE;
     }
     return TARGET_RESOLVED;
@@ -413,10 +418,17 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
         (*scan_failures)++;
     } else if (limit_status != LIMIT_PROCESS_OK) {
         /*
-         * Limiting never engaged for this target, or it ran and then stopped
-         * with no second chance left.  Stop instead of retrying: the failure
-         * is in setting the group up, so the next attempt would fail the same
-         * way and the loop would just spin on it.
+         * Everything that reaches here ends the run, and there are only two
+         * kinds of it: the group could not be built at all, or an attempt
+         * left a member stopped that only a manual 'kill -CONT' recovers.
+         *
+         * The first is a failure of the scanning machinery, and it is the one
+         * reason a non-lazy search gives up: nothing can be searched with
+         * afterwards.  The second is not a target state and does not go away
+         * by looking again -- a member refused the SIGCONT meant to release
+         * it -- so another attempt would repeat the same futile round and the
+         * same warnings, and the run's status has to stay non-zero until the
+         * member is repaired.
          */
         *exit_status = EXIT_FAILURE;
     }
@@ -436,15 +448,36 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
      */
     unsigned int scan_failures = 0;
 
+    /*
+     * Search loop.  In non-lazy mode this is a watch rather than a single
+     * attempt: it keeps resolving the target for as long as the run lasts,
+     * and every attempt ends by looking again.  Nothing about the target ends
+     * it -- not running yet, having exited (while running or while
+     * suspended), being restarted on a recycled PID, or refusing every signal
+     * -- because each of those can be followed by a target that still has to
+     * be limited.  Only a failure of the scanning machinery ends the search,
+     * since nothing can be searched with after that (see
+     * limit_and_resume_target()), and so does a member that could not be
+     * resumed, which needs repairing by hand rather than another attempt.
+     * Lazy mode is the opposite by design: one attempt, whatever it produced.
+     */
     while (!is_quit_flag_set()) {
         pid_t found_pid;
         int resolved = resolve_target(cfg, pid_mode, &found_pid);
 
         if (resolved == TARGET_UNCONTROLLABLE) {
-            exit_status = EXIT_FAILURE;
-            break;
-        }
-        if (resolved == TARGET_NOT_FOUND) {
+            /*
+             * Every signal the target was sent was refused, so nothing can be
+             * attached to right now.  Lazy mode has only this one attempt and
+             * ends with a failure.  A non-lazy run keeps looking: the refusal
+             * belongs to the process that currently wears that name or PID,
+             * and once the target is restarted its replacement may well be
+             * one this process owns and can limit.
+             */
+            if (cfg->lazy_mode) {
+                exit_status = EXIT_FAILURE;
+            }
+        } else if (resolved == TARGET_NOT_FOUND) {
             /*
              * Lazy mode treats a missing target as an error.  Non-lazy mode
              * waits for it: a process that has not started yet is exactly
@@ -480,7 +513,9 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
          * Exit conditions:
          * - lazy_mode: exit after the first attempt, whatever it produced
          * - quit_flag: the user asked to terminate via a signal
-         * - a failure recorded above: there is nothing left to retry
+         * - a failure recorded above: the scanning machinery failed, or an
+         *   attempt left a member stopped, and neither is something another
+         *   look can fix
          */
         if (cfg->lazy_mode || is_quit_flag_set() ||
             exit_status != EXIT_SUCCESS) {

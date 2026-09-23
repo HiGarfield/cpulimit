@@ -41,12 +41,23 @@ extern "C" {
 
 /**
  * @def LIMIT_PROCESS_ERROR
- * @brief limit_process() could not start limiting
+ * @brief limit_process() could not do its job: the group was never built, or
+ *        a suspended member could not be released
  *
- * The process group could not be set up (allocation, clock or process-scan
- * failure), or limiting ran to its end and then failed to resume a suspended
- * member.  Nothing was stopped, so there is nothing to resume; the caller
- * decides what to do and must not treat the target as limited.
+ * Two outcomes share this value, and both mean the target was not limited.
+ * Either the process group could not be set up at all -- allocation, clock or
+ * process-scan failure -- in which case the scanning machinery is broken and
+ * nothing was ever stopped; or limiting ran and a suspended member could not
+ * be resumed afterwards, in which case that member may stay stopped until
+ * 'kill -CONT' is run by hand.  limit_process() names every such member on
+ * stderr before returning, so a caller only has to state that limiting ended.
+ *
+ * Neither can be helped by trying again: the first needs a working
+ * environment, the second needs the member repaired.  A caller that watches
+ * its target therefore stops watching when it sees this, which makes it the
+ * one outcome besides a manual repair that ends a non-lazy search; a failed
+ * scan on its own (LIMIT_PROCESS_SCAN_FAILED) does not, since the target is
+ * still out there to be limited again.
  *
  * Only when the scan failure is NOT also present: a run that both stopped on
  * a failed scan and left a member suspended returns
