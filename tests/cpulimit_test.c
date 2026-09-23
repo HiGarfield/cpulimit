@@ -14580,7 +14580,13 @@ static void test_child_wait_escalates_sigkill_once(void) {
     if (child_pid == 0) {
         struct seam_signal record;
         struct timespec tick = {0, 5000000L}; /* 5 ms */
-        int saw_kill = 0, after_kill = 0, rounds = 0;
+        int saw_kill = 0;
+        /*
+         * Unsigned because they are only ever incremented and compared: with
+         * signed counters the optimiser has to assume no overflow to fold the
+         * bounds below, which -Wstrict-overflow=5 reports.
+         */
+        unsigned int after_kill = 0, rounds = 0;
         close(log_pipe[1]);
         alarm(60);
         /*
