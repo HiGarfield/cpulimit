@@ -14701,6 +14701,8 @@ static void await_child_exit(pid_t pid) {
     }
 #else
     const struct timespec settle_time = {0, 200000000L}; /* 200 ms */
+    /* Only the Linux branch above looks at the PID. */
+    (void)pid;
     sleep_timespec(&settle_time);
 #endif
 }
