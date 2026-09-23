@@ -85,12 +85,8 @@ int main(int argc, char *argv[]) {
 
     busy_loop(NULL);
 
-    if (is_quit_flag_set() && is_terminated_by_tty() && isatty(STDIN_FILENO) &&
-        isatty(STDOUT_FILENO)) {
-        if (write(STDOUT_FILENO, "\n", 1) != 1) {
-            /* non-fatal: cosmetic newline at shutdown */
-        }
-    }
+    /* The newline that keeps the shell prompt off the terminal's "^C" echo. */
+    finish_tty_quit_line();
 
     return 0;
 }

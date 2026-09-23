@@ -35,7 +35,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/param.h>
-#include <unistd.h>
 
 /*
  * The test harness renames getloadavg() to cpulimit_test_getloadavg() via a
@@ -433,14 +432,14 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     }
 
     /*
-     * If terminated from terminal (Ctrl+C) and both stdin/stdout are TTY,
-     * print newline for clean terminal output.
+     * End the line the keyboard-quit echo is on, now and not after the cleanup
+     * below: the warnings that cleanup can print must not start on that same
+     * line.  A run that ends without ever reaching this loop -- still searching
+     * for a target that has not appeared, or reaping a command's child -- asks
+     * for the same newline on its way out instead, and it is written once per
+     * run however many of those paths are taken.
      */
-    if (is_quit_flag_set() && is_terminated_by_tty() && isatty(STDIN_FILENO) &&
-        isatty(STDOUT_FILENO)) {
-        fputc('\n', stdout);
-        fflush(stdout);
-    }
+    finish_tty_quit_line();
 
     /*
      * Critical: Always resume any stopped processes before exit.

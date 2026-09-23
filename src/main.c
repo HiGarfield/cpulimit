@@ -37,6 +37,7 @@ int main(int argc, char *argv[]) {
      */
     struct cpulimit_cfg cfg;
     int parse_result;
+    int status;
 
     /*
      * Parse and validate command line arguments.
@@ -70,7 +71,20 @@ int main(int argc, char *argv[]) {
      * - PID/exe mode: search for an existing process and limit its CPU usage
      */
     if (cfg.command_mode) {
-        return run_command_mode(&cfg);
+        status = run_command_mode(&cfg);
+    } else {
+        status = run_pid_or_exe_mode(&cfg);
     }
-    return run_pid_or_exe_mode(&cfg);
+
+    /*
+     * A run can end without ever reaching the limiting loop, and those paths --
+     * searching for a target that has not appeared yet, or reaping a command's
+     * child after limiting stopped early -- would otherwise leave the shell
+     * prompt on the line the terminal's keyboard-quit echo is on.  Calling this
+     * unconditionally is safe: it writes nothing unless the quit came from the
+     * keyboard on a terminal, and never more than one newline per run, so the
+     * loop's own call takes care of the runs that do reach it.
+     */
+    finish_tty_quit_line();
+    return status;
 }
