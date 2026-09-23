@@ -11,6 +11,12 @@
 #   bash tools/behaviour_baseline.sh          # rewrite baseline/*.txt
 #   bash tools/behaviour_baseline.sh --check  # replay and diff (exit 1 on drift)
 #
+# baseline/ is scratch and is not tracked by git: the snapshots describe the
+# machine that recorded them (its PID sequence, its CPU count, its temporary
+# directories) and the first form above recreates them at any time.  Record on
+# the revision that is the reference before changing anything, keep the files
+# in the working tree, and replay with --check as the work goes on.
+#
 # Each snapshot is baseline/<name>.txt with the fields:
 #
 #   COMMAND      the cpulimit invocation, with volatile paths collapsed
