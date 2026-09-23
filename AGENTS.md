@@ -344,6 +344,9 @@ Before suggesting or modifying code, verify ALL of:
 - Before submission, builds MUST succeed with both compilers:
   - `rm -rf build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all`
   - `rm -rf build && cmake -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release -B build && cmake --build build --target all`
+- The legacy Make path MUST build too, because `/README.md` documents it as a
+  supported way to build and install: `make && make -C tests all`, then
+  `make test`.
 - New warnings introduced by a change MUST be resolved before submission.
 
 ## Test and Analysis Requirements
@@ -387,8 +390,14 @@ Additional requirements MUST be enforced:
 
 ## Continuous Integration
 
-- Every pull request MUST pass build, tests, static analysis, and dynamic
-  analysis checks.
+- `.github/workflows/CI.yml` automates cross-platform builds only: the OS
+  matrix (Ubuntu, macOS, FreeBSD) builds release binaries and, outside pull
+  requests, publishes them. It runs no tests, no `check` and no `valgrind`.
+- The checks in "Test and Analysis Requirements" MUST therefore be run
+  locally and MUST pass before a change is proposed; the build workflow
+  succeeding is not evidence that they do. On Linux, `make test` MUST be run
+  as well, for the reason given under Repository Structure: it and `ctest`
+  do not exercise the same scenarios.
 - Pull requests with failing required checks MUST NOT be merged.
 
 ## Commit Policy
@@ -412,10 +421,19 @@ Additional requirements MUST be enforced:
 - `/tests`: tests and test helpers
 - `/cmake`: CMake helper scripts
 - `/CMakeLists.txt`: top-level CMake configuration
-- `/Makefile`: legacy Make build
+- `/Makefile`, `/common.mk`: legacy Make build and the variables it shares
+  with the per-directory Makefiles
 - `/build_with_cmake.sh`: release build helper
+- `/tools`: verification helpers - `behaviour_baseline.sh`, which records and
+  replays the behaviour snapshots, and `hook.c`, the LD_PRELOAD injection hook
+  it builds to reach the signal-failure paths
+- `/baseline`: behaviour snapshots recorded by `tools/behaviour_baseline.sh`
+  and replayed by `tools/behaviour_baseline.sh --check`
+- `/.github/workflows/CI.yml`: cross-platform build and release workflow
 - `/.clang-format`: formatting configuration
 - `/.clang-tidy`: static analysis configuration
+- `/.gitignore`: build artifacts kept out of version control
+- `/LICENSE`: GPL-2.0 licence text
 - `/README.md`: user documentation
 - `/AGENTS.md`: agent/development policy
 
@@ -459,6 +477,15 @@ Additional requirements MUST be enforced:
   helper source file.
 - `busy.c`: pthread-based CPU load helper
 - `multi_process_busy.c`: fork-based multi-process load helper
+- `Makefile` and `CMakeLists.txt`: two definitions of the same test build,
+  and they MUST be kept in step. The deterministic seams are compile-time
+  renames listed once per definition (`SEAM_*_FLAGS` in the Makefile,
+  `CPULIMIT_TEST_SEAM_*` in the CMakeLists); a rename added to one list and
+  not the other silently changes what that build actually exercises. Any
+  change to one list MUST be mirrored in the other, and both
+  `ctest`/`./tests/cpulimit_test` after a CMake build and `make test` MUST be
+  run: the two start the suite from different working directories, so they
+  do not run identical scenarios.
 
 ## CMake Helpers (`/cmake`)
 

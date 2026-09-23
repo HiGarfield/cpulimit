@@ -135,14 +135,21 @@ code 1. Non-lazy mode (`-e` without `-z`) re-resolves the target and retries,
 but only up to 15 consecutive failed scans -- about 30 seconds -- after which it
 gives up and exits with code 1 as well. The streak is counted from the last run
 that limited to completion, so a scan that only fails occasionally keeps its
-full budget. A target that simply cannot be found is a different case: waiting
-for a process that may still start is what non-lazy mode is for.
+full budget.
 
-The failed scan is reported once per streak, not once per retry: a retrying
-run otherwise prints the same diagnostic fifteen times in a row and buries
-whatever follows it, including the hints that name a process left stopped.
-How many attempts the run made is stated by the closing "Giving up after N
-failed scan(s)" line.
+A target that cannot be found is bounded the same way, by its own counter and
+with its own message: non-lazy mode prints `retrying...` while it waits, then
+gives up after 15 consecutive failed lookups -- about 30 seconds -- with
+`Giving up after 15 attempts: target not found` and exit code 1. The two
+counters differ only in when they reset. The lookup streak resets as soon as
+the target resolves, which is what lets a daemon that restarts keep being
+re-attached; the scan streak resets only after a run that limited to
+completion.
+
+Both are reported once per streak, not once per retry: a retrying run
+otherwise prints the same line fifteen times in a row and buries whatever
+follows it, including the hints that name a process left stopped. How many
+attempts the run made is stated by the closing `Giving up after N` line.
 
 ## Get the Latest Source Code
 
@@ -238,4 +245,4 @@ Run the tests from the project build directory.
 
 ## Contributions
 
-Contributions to cpulimit are welcome, including bug fixes, new features, or support for additional operating systems. Please submit pull requests to the `develop` branch and ensure all tests pass before merging.
+Contributions to cpulimit are welcome, including bug fixes, new features, or support for additional operating systems. Please submit pull requests to the `master` branch and ensure all tests pass before merging. (`develop` is a mirror that CI keeps in sync with `master`, not an integration branch.)
