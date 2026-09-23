@@ -149,8 +149,9 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
     if (cfg->verbose) {
         printf("Limiting process %ld\n", (long)child_pid);
     }
+    /* Command mode runs once, so every scan failure is the first: pass 0. */
     limit_status = limit_process(child_pid, cfg->cpu_limit,
-                                 cfg->include_children, cfg->verbose);
+                                 cfg->include_children, cfg->verbose, 0);
 
     /*
      * Always resume the process group after limit_process() returns.
@@ -423,8 +424,13 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
      * Apply CPU limiting to the target process.  This call blocks until the
      * process terminates or the quit flag is set.
      */
-    limit_status = limit_process(found_pid, cfg->cpu_limit,
-                                 cfg->include_children, cfg->verbose);
+    /*
+     * Pass the streak so far: this caller retries, and without it every
+     * retry would repeat the same scan diagnostic every two seconds (V5).
+     */
+    limit_status =
+        limit_process(found_pid, cfg->cpu_limit, cfg->include_children,
+                      cfg->verbose, *scan_failures);
 
     /*
      * Always resume the target after limit_process() returns.

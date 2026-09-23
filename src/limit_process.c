@@ -234,7 +234,7 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
  * @note Always resumes suspended processes (sends SIGCONT) before returning
  */
 int limit_process(pid_t pid, double cpu_limit, int include_children,
-                  int verbose) {
+                  int verbose, unsigned int prior_scan_failures) {
     struct process_set proc_set;
     struct dynamic_time_slot_ctx time_slot_ctx = {BASE_TIME_SLOT_US, 0, {0, 0}};
     int cycle_counter = 0, ncpu = get_ncpu();
@@ -296,10 +296,23 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
              * (S2).  The initial scan failure has its own report above;
              * this one happens after limiting already ran.
              */
-            fprintf(stderr,
-                    "Process group scan failed; CPU limiting stopped for PID "
-                    "%ld, the target is no longer limited\n",
-                    (long)pid);
+            /*
+             * Reported once per streak, not once per attempt: a caller that
+             * retries calls this again every couple of seconds and fifteen
+             * identical lines buried whatever came next -- including the
+             * stranded-process hints that say which PID to recover by hand.
+             * The retrying caller closes the streak with its own "Giving up
+             * after N failed scan(s)" line, so the outcome is still stated.
+             * scan_failed itself is set every time: it is what the return
+             * value is built from, and the caller's streak is its own
+             * counter (V5).
+             */
+            if (prior_scan_failures == 0) {
+                fprintf(stderr,
+                        "Process group scan failed; CPU limiting stopped for "
+                        "PID %ld, the target is no longer limited\n",
+                        (long)pid);
+            }
             scan_failed = 1;
             break;
         }

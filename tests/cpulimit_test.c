@@ -6339,7 +6339,7 @@ static void test_limit_process_basic(void) {
             return;
         }
         /* limiter_pid == 0: CPU limiter process */
-        limit_process(child_pid, cpu_usage_limit, 1, 0);
+        limit_process(child_pid, cpu_usage_limit, 1, 0, 0);
         _exit(EXIT_SUCCESS);
     } else {
         /* child_pid == 0: Target process group */
@@ -6402,7 +6402,7 @@ static void test_limit_process_exits_early(void) {
     assert(waited_pid == child_pid);
 
     /* limit_process must handle an already-gone process gracefully */
-    limit_process(child_pid, 0.5, 0, 0);
+    limit_process(child_pid, 0.5, 0, 0, 0);
 }
 
 /**
@@ -6431,7 +6431,7 @@ static void test_limit_process_verbose(void) {
             waited_pid = waitpid(child_pid, NULL, 0);
         } while (waited_pid == -1 && errno == EINTR);
         assert(waited_pid == child_pid);
-        limit_process(child_pid, 0.5, 0, 1); /* verbose = 1 */
+        limit_process(child_pid, 0.5, 0, 1, 0); /* verbose = 1 */
         _exit(EXIT_SUCCESS);
     }
 
@@ -6462,7 +6462,7 @@ static void test_limit_process_include_children(void) {
         waited_pid = waitpid(child_pid, NULL, 0);
     } while (waited_pid == -1 && errno == EINTR);
     assert(waited_pid == child_pid);
-    limit_process(child_pid, 0.5, 1, 0); /* include_children=1 */
+    limit_process(child_pid, 0.5, 1, 0, 0); /* include_children=1 */
 }
 
 /**
@@ -6604,7 +6604,7 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
         ret = close(heartbeat[0]);
         assert(ret == 0);
         configure_signal_handler();
-        limit_process(target_pid, cpu_usage_limit, 1, 0);
+        limit_process(target_pid, cpu_usage_limit, 1, 0, 0);
         _exit(EXIT_SUCCESS);
     }
 
@@ -6736,7 +6736,7 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
              * Very low CPU limit forces short work slots and long sleep
              * slots, exercising SIGSTOP/SIGCONT cycles quickly.
              */
-            limit_process(target_pid, 0.001, 0, 0);
+            limit_process(target_pid, 0.001, 0, 0, 0);
             _exit(EXIT_SUCCESS);
         }
 
@@ -6821,7 +6821,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
         }
         close(ready_pipe[1]);
 
-        limit_process(target_pid, 0.5, 0, 0);
+        limit_process(target_pid, 0.5, 0, 0, 0);
         /*
          * limit_process always resumes all stopped processes before
          * returning, so target_pid should be in a runnable state here.
@@ -9657,7 +9657,8 @@ static void seam_push_frame(const struct seam_proc *procs, int count);
 /* Hooks that park a call site on a barrier driven by the test. */
 /* NOLINTBEGIN(misc-use-internal-linkage) */
 int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
-                                int include_children, int verbose);
+                                int include_children, int verbose,
+                                unsigned int prior_scan_failures);
 pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options);
 /* NOLINTEND(misc-use-internal-linkage) */
 
@@ -10769,7 +10770,7 @@ static void test_drive_limit_process_shutdown(int fail_call, int expect_error,
         seam_fail_call = fail_call;
         seam_fail_span = 100;
         seam_fail_errno = EPERM;
-        limit_ret = limit_process(target, 0.5, 0, 0);
+        limit_ret = limit_process(target, 0.5, 0, 0, 0);
         /* Re-enable real signals before reaping the target. */
         seam_fail_call = 0;
         seam_fail_errno = 0;
@@ -10926,7 +10927,7 @@ static void test_drive_limit_process_left_group(int inject_errno,
         seam_fail_call = 2; /* the SIGSTOP lands, the SIGCONT fails */
         seam_fail_span = 100;
         seam_fail_errno = inject_errno;
-        limit_ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
+        limit_ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0, 0);
         seam_active = 0;
         seam_fail_call = 0;
         seam_fail_errno = 0;
@@ -12948,15 +12949,18 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem) {
  * sources that call it, which is why the return type tracks limit_process().
  */
 int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
-                                int include_children, int verbose) {
+                                int include_children, int verbose,
+                                unsigned int prior_scan_failures) {
     char go;
     if (!seam_hook_limit_process) {
-        return limit_process(pid, cpu_limit, include_children, verbose);
+        return limit_process(pid, cpu_limit, include_children, verbose,
+                             prior_scan_failures);
     }
     (void)pid;
     (void)cpu_limit;
     (void)include_children;
     (void)verbose;
+    (void)prior_scan_failures;
     if (seam_limit_announce_fd >= 0 &&
         write(seam_limit_announce_fd, "L", 1) != 1) {
         /* Nobody is listening; the barrier is advisory. */
@@ -13067,7 +13071,7 @@ static int seam_run_smoke_limit(void) {
     seam_push_frame(NULL, 0);
 
     seam_active = 1;
-    limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
+    limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0, 0);
     seam_active = 0;
 
     free(visible);
@@ -13151,7 +13155,7 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
     seam_push_frame(NULL, 0);
 
     seam_active = 1;
-    limit_process((pid_t)SEAM_TARGET_PID, 0.5, 1, 0);
+    limit_process((pid_t)SEAM_TARGET_PID, 0.5, 1, 0, 0);
     seam_active = 0;
 
     free(both);
@@ -13737,7 +13741,7 @@ static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
     if (limiter_pid == 0) {
         alarm(60);
         configure_signal_handler();
-        limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
+        limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0, 0);
         _exit(EXIT_SUCCESS);
     }
     return limiter_pid;
@@ -14555,7 +14559,7 @@ static void loop_exit_driver_child(pid_t victim) {
     seam_active = 0; /* real signals: the victim must actually be stopped */
     seam_fail_update_after = 1; /* fail the 2nd update_process_set() */
     (void)victim;
-    limit_process(victim, 0.5, 0, 0);
+    limit_process(victim, 0.5, 0, 0, 0);
     seam_reset();
     _exit(0);
 }
@@ -14664,7 +14668,7 @@ static void scan_failure_driver_child(int write_fd) {
         close(write_fd);
     }
 
-    ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0);
+    ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0, 0);
     seam_active = 0;
     free(visible);
     close(err_fd);
@@ -14849,19 +14853,19 @@ static void test_pid_mode_retries_after_scan_failure(void) {
     capture[total] = '\0';
 
     /*
-     * Count the per-cycle diagnostics: more than one proves the loop
-     * re-resolved the target and retried instead of stopping at the first
-     * bad scan, which is the whole difference from lazy mode.
+     * Take the attempt count from the run's own closing line: more than one
+     * proves the loop re-resolved the target and retried instead of stopping
+     * at the first bad scan, which is the whole difference from lazy mode.
+     * The per-cycle diagnostic is now reported once per streak rather than
+     * once per attempt, so how many attempts there were shows up in the
+     * count the run gives up with (V5).
      */
     attempts = 0;
-    walk = capture;
-    for (;;) {
-        const char *hit = strstr(walk, "CPU limiting stopped");
-        if (hit == NULL) {
-            break;
+    walk = strstr(capture, "Giving up after ");
+    if (walk != NULL) {
+        if (sscanf(walk + strlen("Giving up after "), "%d", &attempts) != 1) {
+            attempts = 0;
         }
-        attempts++;
-        walk = hit + 1;
     }
     close(err_pipe[0]);
     free(capture);
@@ -14875,6 +14879,78 @@ static void test_pid_mode_retries_after_scan_failure(void) {
     assert(attempts > 1);
     assert(seen);
     assert(exit_code == EXIT_FAILURE);
+}
+
+/**
+ * @brief The per-cycle scan diagnostic appears once per streak, not once per
+ *        retry (V5)
+ * @note Non-lazy mode re-resolves the target and retries a failed scan every
+ *       two seconds, up to fifteen times, so a diagnostic printed on every
+ *       attempt came out fifteen times identically and buried whatever
+ *       followed -- notably the stranded-process hints that name the PID to
+ *       recover by hand.  V5 reports it only on the first failure of a streak
+ *       and leaves the closing "Giving up after N failed scan(s)" line to say
+ *       how many attempts there were.  This drives the same run as the retry
+ *       test above and counts the diagnostic in the captured stderr.
+ *       Verified by mutation: removing the throttle makes the count 15 and
+ *       this assertion fail.
+ */
+static void test_scan_failure_diagnostic_reported_once(void) {
+    int err_pipe[2];
+    pid_t driver, waited;
+    int status, exited, exit_code, reports;
+    size_t total = 0;
+    char *capture;
+    const char *walk;
+
+    assert(pipe(err_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        close(err_pipe[0]);
+        pid_mode_retry_driver_child(err_pipe[1]);
+    }
+    close(err_pipe[1]);
+
+    capture = (char *)malloc(4096);
+    assert(capture != NULL);
+    while (total < 4095) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    capture[total] = '\0';
+
+    reports = 0;
+    walk = capture;
+    for (;;) {
+        const char *hit = strstr(walk, "CPU limiting stopped");
+        if (hit == NULL) {
+            break;
+        }
+        reports++;
+        walk = hit + 1;
+    }
+    close(err_pipe[0]);
+
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+
+    assert(exited);
+    assert(exit_code == EXIT_FAILURE);
+    /* Fifteen attempts against that streak, and only one report of it. */
+    assert(reports == 1);
+    free(capture);
 }
 
 /**
@@ -16118,6 +16194,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
     RUN_TEST(test_limit_process_reports_scan_failure);
     RUN_TEST(test_pid_mode_retries_after_scan_failure);
+    RUN_TEST(test_scan_failure_diagnostic_reported_once);
     RUN_TEST(test_pid_mode_scan_failure_streak_resets);
     RUN_TEST(test_lazy_mode_fails_after_scan_failure);
     RUN_TEST(test_command_mode_reports_stopped_limiting);
@@ -16372,7 +16449,7 @@ static void test_limit_process_scan_failed_and_stranded(void) {
     seam_fail_errno = EPERM;
     seam_fail_sig = SIGCONT;
 
-    rc = limit_process(child, 0.01, 0, 0);
+    rc = limit_process(child, 0.01, 0, 0, 0);
     assert(rc == LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED);
 
     kill(child, SIGKILL);
