@@ -78,29 +78,19 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
         return -1;
     }
     /*
-     * Drain the sync pipe until EOF to confirm the child has closed its
-     * write end.  On a successful exec, FD_CLOEXEC closes the write end
-     * automatically; on exec failure the child closes it explicitly
-     * before _exit().  Only EOF (n_read == 0) guarantees the write end
-     * is closed and the child will not write again.
+     * Drain the sync pipe until EOF, the only event that proves the child has
+     * closed its write end: a successful exec closes it through FD_CLOEXEC,
+     * and an exec failure closes it explicitly before _exit().
      *
-     * Reading just one byte and then closing the read end is unsafe:
-     * if the caller has closed fds 1 and 2 before this function is
-     * called, pipe() assigns those fds to the sync pipe, causing the
-     * child's FILE *stderr (fd 2) to alias the sync pipe write end.
-     * perror() in the exec-failure path then makes multiple write()
-     * calls to fd 2.  Closing the read end after only one byte leaves
-     * the write end still open; the child's next write() receives
-     * SIGPIPE (default action: terminate), so the child dies from a
-     * signal instead of calling _exit(127), producing exit code 141
-     * (128+SIGPIPE) rather than 127.
-     *
-     * Draining until EOF keeps the read end open for all of the child's
-     * writes, eliminating the SIGPIPE race.  It also eliminates the race
-     * where a signal (e.g. SIGTERM) is sent while the child is still in
-     * the middle of exec setup, which is critical under tools such as
-     * valgrind that intercept execve and may not handle signals safely
-     * during their exec interception phase.
+     * Stopping after one byte would be unsafe.  If the caller has closed fds
+     * 1 and 2, pipe() hands those numbers to the sync pipe, so the child's
+     * stderr aliases the write end; the writes perror() makes on the
+     * exec-failure path would then hit a pipe whose read end is already
+     * closed, raising SIGPIPE and killing the child with 141 instead of
+     * letting it report 127.  Draining to EOF keeps the read end open for
+     * every write, and also removes the race where a signal arrives while the
+     * child is still inside exec setup -- which matters under tools such as
+     * valgrind that intercept execve.
      */
     do {
         n_read = read(sync_read_fd, &sync_byte, 1);

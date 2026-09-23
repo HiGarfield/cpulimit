@@ -48,6 +48,10 @@ extern "C" {
  * Any signal that becomes pending during the blocked window is delivered
  * through the new handlers once the mask is restored.
  *
+ * The two scratch sigset_t objects are heap allocated before the mask is
+ * raised, so no allocation happens in the window where a failure could not
+ * be reported with the handlers already replaced.
+ *
  * @note Exits with error if signal mask or handler registration fails
  */
 void configure_signal_handler(void);

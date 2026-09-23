@@ -416,33 +416,24 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
                       cfg->verbose, *scan_failures);
 
     /*
-     * Always resume the target after limit_process() returns.
-     * limit_process() sends SIGCONT via its process list before returning,
-     * but on some platforms (e.g. macOS 10.7) a stopped process may not be
-     * visible to the process iterator, leaving it stopped even though
-     * limit_process() has exited; and if update_process_set() fails,
-     * proc_list is cleared so the cleanup SIGCONT inside limit_process()
-     * traverses an empty list and cannot resume a still-stopped target.
-     * Sending SIGCONT here unconditionally ensures the target is running when
-     * we leave.  kill() to an already-exited process returns ESRCH, which is
-     * harmless here.
+     * Resume the target after limit_process() returns, unless the PID can be
+     * shown to have changed hands while it ran.
      *
-     * This mirrors the symmetric guard already present in run_command_mode()
-     * after its limit_process() call.
+     * The resume is usually redundant, since limit_process() already sends
+     * SIGCONT, but it is not guaranteed: on some platforms (e.g. macOS 10.7) a
+     * stopped process is invisible to the iterator, and a failed
+     * update_process_set() clears proc_list so the cleanup inside
+     * limit_process() walks an empty list.  Sending it anyway costs one kill()
+     * that returns ESRCH for an already-exited target.
      *
-     * It is only unconditional while this PID is still the target.
-     * limit_process() blocks for a long time, and by the time it returns the
-     * PID may have been recycled, so an unconditional SIGCONT can resume a
-     * process that somebody else is holding stopped on purpose: job control,
-     * a debugger, another cpulimit instance.  The signal is therefore skipped
-     * only when the PID can be shown to have changed hands: whichever
-     * mode, when its start time differs from the one recorded above.  The
-     * start time is the authoritative identity; the executable name
-     * is not an identity signal, because an exec() changes argv[0] without
-     * changing the process, so a re-exec'd target must not be mistaken for a
-     * hand-off.  A start time the platform cannot report means nobody
-     * can tell, so the signal is sent anyway: stranding a stopped target is
-     * precisely what this fallback exists to prevent.
+     * It is conditional because limit_process() blocks for a long time: by the
+     * time it returns, the PID may have been recycled, and a blind SIGCONT
+     * would resume a process somebody else is holding stopped on purpose (job
+     * control, a debugger, another cpulimit).  Only a differing start time
+     * proves the change of hands -- an exec() rewrites argv[0] without
+     * changing the process, so a name is not identity.  A start time the
+     * platform cannot report means nobody can tell, and then the signal is
+     * sent: stranding a stopped target is what this fallback prevents.
      */
     current_start = get_process_start_time(found_pid);
     /*

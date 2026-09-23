@@ -32,29 +32,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/**
- * @brief Initialize a process table with specified hash size
- * @param proc_table Pointer to the process table structure to initialize
- * @param hash_size Number of buckets to allocate in the hash table
- * @return 0 on success, -1 on failure (proc_table is NULL, hash_size too
- *         large for the bucket array to be representable, or memory
- *         allocation failed); never calls exit(), so callers that must
- *         undo suspensions first get the chance to do so
- *
- * Allocates memory for the hash table bucket array and initializes all
- * buckets to NULL. The hash table uses separate chaining for collision
- * resolution.
- *
- * A hash_size whose bucket array size would overflow size_t is rejected
- * before calloc() is called at all: the product must never be handed
- * to the allocator, where it is undefined for the standard library and
- * aborts outright under hardened allocators and AddressSanitizer instead
- * of returning NULL.
- *
- * @note On success the caller must call destroy_process_table() to free
- *       resources; after a -1 return there is nothing to destroy (buckets
- *       is NULL), and the caller owns the process_table structure itself
- */
 int init_process_table(struct process_table *proc_table, size_t hash_size) {
     if (proc_table == NULL) {
         return -1;
@@ -120,26 +97,6 @@ struct process *find_in_process_table(const struct process_table *proc_table,
     return find_process_in_list_by_pid(proc_table->buckets[bucket_idx], pid);
 }
 
-/**
- * @brief Insert a process into the hash table
- * @param proc_table Pointer to the process table
- * @param proc Pointer to the process structure to insert
- * @return 0 on success (including no-op cases), -1 on memory allocation
- *         failure -- for a new bucket list or for the list node that
- *         should hold the record
- *
- * Adds the process to the appropriate bucket based on its PID hash.
- * If the bucket doesn't exist, creates a new linked list for it.
- *
- * @note If a process with the same PID is already present in the table, the
- *       existing entry is left unchanged and the new process is not inserted
- *       (duplicate PIDs are ignored); the call still returns 0.
- * @note Safe to call when proc_table is NULL or the table has been destroyed
- *       (proc_table->buckets is NULL): the call is a no-op returning 0.
- * @note On memory allocation failure returns -1 instead of terminating the
- *       process, so the limiting loop can resume the group and clean up.
- *       The record is then still untouched and owned by the caller.
- */
 int add_to_process_table(struct process_table *proc_table,
                          struct process *proc) {
     size_t bucket_idx;

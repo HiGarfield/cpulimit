@@ -100,20 +100,6 @@ int get_current_time(struct timespec *result_ts) {
 #endif
 }
 
-/**
- * @brief Sleep for a specified duration
- * @param duration Pointer to timespec specifying sleep duration
- * @return 0 on success, -1 on error (errno set by underlying call)
- *
- * Uses clock_nanosleep() with CLOCK_MONOTONIC if available to provide sleep
- * durations that are unaffected by system time changes, otherwise falls back
- * to nanosleep().
- *
- * The sleep is accurate: if the underlying call returns early because a signal
- * interrupted it (EINTR), this function resumes sleeping the remaining time so
- * the full requested duration is honored and the duty cycle never runs short.
- * Only non-interrupt errors are reported to the caller.
- */
 int sleep_timespec(const struct timespec *duration) {
     struct timespec request, remaining;
     request = *duration;

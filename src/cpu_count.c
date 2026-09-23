@@ -42,22 +42,6 @@
 #endif
 
 #if defined(__linux__)
-/**
- * @brief Parse CPU range string from sysfs format to count
- * @param str CPU range specification string (e.g., "0-3", "0,2,4", "0-1,4-7")
- * @return Number of CPUs specified in the range, or -1 on parse error
- *
- * Parses CPU range strings in the format used by Linux sysfs. Supports:
- * - Single CPUs: "0", "2"
- * - Ranges: "0-3" (inclusive, counts as 4 CPUs)
- * - Combinations: "0-3,8-11,15" (separated by commas)
- * - Spaces around numbers are tolerated
- *
- * Returns -1 if the string is NULL or zero-length, contains invalid syntax,
- * negative numbers, reversed ranges (end < start), or if the CPU count
- * would overflow int. Note: a whitespace-only string (e.g., " ") is also
- * rejected due to invalid syntax (strtol finds no number).
- */
 int parse_cpu_range(const char *str) {
     const char *parse_pos = str;
     char *endptr;

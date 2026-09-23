@@ -38,12 +38,12 @@
 #include <unistd.h>
 
 /**
- * @brief Display usage information and terminate the program
+ * @brief Display usage information
  * @param stream Output stream (stdout for normal help, stderr for errors)
  * @param cfg Pointer to configuration structure (used for program_name display)
- * @param exit_code Exit status code (0 for success, non-zero for error)
  *
- * Prints formatted usage message showing all available options and targets.
+ * Prints the usage message with all available options and targets; deciding
+ * on an exit status is left to the caller.
  */
 static void print_usage(FILE *stream, const struct cpulimit_cfg *cfg) {
     int ncpu = get_ncpu();

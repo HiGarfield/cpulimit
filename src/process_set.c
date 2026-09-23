@@ -61,26 +61,6 @@ static int start_time_matches(double a, double b) {
  */
 #define PROCESS_TABLE_HASHSIZE 2048
 
-/**
- * @brief Initialize a process set for monitoring and CPU limiting
- * @param proc_set Pointer to uninitialized process_set structure to set up
- * @param target_pid PID of the primary process to monitor
- * @param include_children Non-zero to monitor descendants, zero for target only
- * @return 0 on success, -1 on error
- *
- * This function:
- * 1. Allocates and initializes the process hashtable (PROCESS_TABLE_HASHSIZE
- *    buckets)
- * 2. Allocates and initializes the process list
- * 3. Records the current time as baseline for CPU calculations
- * 4. Performs initial update to populate the process list
- *
- * @note Returns -1 immediately if proc_set is NULL
- * @note Returns -1 on memory allocation, timing, or initial scan errors;
- *       partially allocated resources are released before returning
- * @note After successful return, proc_set is fully initialized and ready
- *       for use
- */
 int init_process_set(struct process_set *proc_set, pid_t target_pid,
                      int include_children) {
     if (proc_set == NULL) {
@@ -156,23 +136,6 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
     return 0;
 }
 
-/**
- * @brief Release all resources associated with a process set
- * @param proc_set Pointer to the process_set structure to clean up
- * @return 0 on success (always succeeds)
- *
- * This function:
- * 1. Clears and frees the process list
- * 2. Destroys and frees the process hashtable
- * 3. Sets pointers to NULL and zeros numeric fields for safety
- *
- * @note Safe to call with NULL proc_set (returns 0 immediately)
- * @note Safe to call even if proc_set is partially initialized (NULLs are
- *       handled)
- * @note Does not send any signals to processes; they continue running
- * @note After return, proc_set fields should not be accessed without
- *       re-initialization
- */
 int close_process_set(struct process_set *proc_set) {
     if (proc_set == NULL) {
         return 0;
@@ -247,35 +210,6 @@ struct stopped_pid_record {
     double start_time;
 };
 
-/**
- * @brief Record that a member of the group has just been suspended
- * @param proc_set Pointer to the process set structure
- * @param pid PID that was successfully sent SIGSTOP
- * @param start_time Start time of pid at suspension, from
- * get_process_start_time()
- * @return 0 when the suspension is recorded, -1 when it is not -- in
- *         which case the process has already been resumed again and the
- *         caller must not treat it as suspended by this group
- *
- * proc_list is rebuilt from scratch by update_process_set(), so a process
- * can cease to be a member of the group while it is still suspended: a
- * descendant, for instance, is re-parented away when its monitored ancestor
- * exits, and is_child_of() then no longer matches it.  Recording the PID
- * here keeps the suspension undoable after the process has left proc_list.
- *
- * A PID already present is updated in place rather than appended: the SIGSTOP
- * round records every member, and a member whose SIGCONT failed in the
- * previous round still carries its record, so without this the second
- * recording would double it up.  Only the latest start time matters for the
- * recycle check, so folding the two into one entry costs nothing and keeps
- * the list free of duplicates that resume_stopped_pids() would otherwise
- * walk twice.
- *
- * When the record cannot be created, the suspension is undone immediately:
- * an unrecorded suspension would never be resumed after the member leaves
- * the group, leaving it stopped forever with no warning at all.  Both the
- * record allocation and the list node allocation are checked.
- */
 int record_stopped_pid(struct process_set *proc_set, pid_t pid,
                        double start_time) {
     struct stopped_pid_record *rec;
@@ -331,34 +265,6 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
 static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
                                 int may_remain_stopped);
 
-/**
- * @brief Resume every PID recorded by record_stopped_pid() and empty the list
- * @param proc_set Pointer to the process set structure
- * @return The number of recorded PIDs that could not be resumed for a
- *         reason other than ESRCH; a PID that no longer exists has
- *         no suspension left to undo and does not count
- *
- * Sends SIGCONT to every recorded PID that has left the group and frees the
- * list.  Group members are resumed by the regular resume round, which walks
- * proc_list, so they are deliberately not signalled twice.  Used both for
- * the regular resume round and for the final cleanup, so that processes
- * which left the group while suspended are resumed as well instead of
- * staying suspended forever.
- *
- * The count must reach the caller: a recorded PID was suspended by this
- * group by definition, so a failed resume here can strand it just like a
- * failed resume of a current member, and the shutdown report has to see
- * both the same way.
- *
- * Destroying the list unconditionally is what makes the invariant below
- * necessary.  Members that are still in proc_list are skipped here because
- * the caller resumes them itself, but their records are dropped all the
- * same, and their SIGCONT can still fail: process_set_send_signal() then
- * re-records them, so the list is never emptied of a suspension that was
- * not actually undone.  Between resume_stopped_pids() and that re-
- * record lies the window in which nothing guarantees the resume of a
- * member that leaves the group -- the window this closes.
- */
 int resume_stopped_pids(struct process_set *proc_set) {
     const struct list_node *node;
     int failed = 0;
@@ -665,10 +571,10 @@ int update_process_set(struct process_set *proc_set) {
             proc = process_dup(scan_proc);
             if (proc == NULL) {
                 /*
-                 * Out of memory: abandon this scan cycle. Returning -1
-                 * makes limit_process() break the limiting loop and run
-                 * its own cleanup, which resumes every still-stopped member
-                 * (no atexit needed, so no exit() left in this path).
+                 * Out of memory: abandon this scan cycle.  Returning -1
+                 * makes limit_process() break its loop and run the cleanup
+                 * that resumes every still-stopped member, so a failure
+                 * here cannot leave a process suspended.
                  */
                 alloc_failed = 1;
                 break;
@@ -765,10 +671,9 @@ int update_process_set(struct process_set *proc_set) {
     }
     if (alloc_failed) {
         /*
-         * An allocation in the scan loop failed. limit_process() sees the
+         * An allocation in the scan loop failed.  limit_process() sees the
          * -1, breaks its loop and resumes the group through its own cleanup
-         * path -- there is no exit() left here that could strand a stopped
-         * process.
+         * path, so the failure cannot strand a stopped process.
          */
         return -1;
     }
@@ -828,64 +733,31 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  * @param sig Signal whose delivery failed
  * @param pid Process the signal could not be delivered to
  * @param err errno value captured at the point of failure
- * @param verbose Retained for the callers' API; this function no longer
- *                gates on it, because throttling is owned entirely
- *                by the per-member stop_warned / cont_warned / resume_warned
- *                flags
- * @param may_remain_stopped Non-zero when the failed signal is a SIGCONT
+ * @param verbose Retained for the callers' API; whether to report at all is
+ *                already decided by the caller's per-member gate, so this
+ *                argument does not change what is printed
+ * @param may_remain_stopped Non-zero when the failed signal was a SIGCONT
  *                           that would have undone a suspension this group
  *                           recorded, so the member may stay stopped forever
  *
- * A process that cannot be signalled is retried on every control cycle,
- * so reporting every failure would flood the terminal; the caller limits
- * reporting to one message per member and failure episode through its
- * per-member flags.  There are two distinct episodes a member can live
- * through, which must not share a gate: the benign one is a failed
- * SIGCONT while this group never suspended it -- it has been running all
- * along, so nothing is stuck and cont_warned covers it -- and the severe
- * one is a failed SIGCONT while this group did suspend it, which is the
- * only case where the recovery hint "run kill -CONT <pid>" is the thing
- * the user needs; resume_warned covers that.  stop_warned covers a failed
- * SIGSTOP.  A member can fail a SIGCONT before it is ever suspended (set
- * cont_warned) and then fail again after suspension, so gating the severe
- * message on cont_warned would swallow it.  The diagnostic is printed
- * even when not verbose because it means the requested limit cannot be
- * enforced on that process, which the user has to be told about.
- *
- * Reporting is gated per member and never per run: a process-wide "once
- * ever" gate would report only the first uncontrollable member and make
- * several of them look like one, so every member its own flags let through
- * reports.
- *
- * A failed SIGCONT is only a "may remain stopped" emergency when this
- * group had actually suspended the member (may_remain_stopped); for a
- * member this group never suspended the signal failure is ordinary --
- * nothing is stuck, so no recovery hint is printed.  A failed
- * SIGCONT with ESRCH is not reported at all: the process is gone, so
- * there is no suspension left to undo and no recovery to suggest
- *.
+ * Prints a single line: the recovery hint when the member may be stranded,
+ * the ordinary "cannot send signal" line otherwise.  A failed SIGCONT for a
+ * process that no longer exists is not reported, because there is no
+ * suspension left to undo.  Reporting happens even without -v, since it means
+ * the requested limit cannot be enforced on that process and the user has to
+ * be told.  Deciding which failures are worth reporting at all is
+ * classify_signal_failure()'s job, and the per-member gating that keeps a
+ * retried failure from flooding the terminal belongs to the caller.
  */
 static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
                                 int may_remain_stopped) {
-    /*
-     * The verbose parameter is kept for the callers' signature, but the
-     * decision whether to report at all already happened in the caller's
-     * per-member gate; gating again here would silence concurrent members.
-     */
     (void)verbose;
+    /* Nothing is suspended for a process that no longer exists. */
     if (sig == SIGCONT && err == ESRCH) {
-        /*
-         * The process does not exist any more, so nothing is suspended:
-         * stay silent instead of telling the user to resume a corpse.
-         */
         return;
     }
+    /* Only an unresumed member needs the hint that names its PID. */
     if (sig == SIGCONT && may_remain_stopped) {
-        /*
-         * A failed SIGCONT for a suspended member means that process could
-         * not be resumed, so it may stay stopped forever.  That is critical
-         * and is always reported with a recovery hint.
-         */
         fprintf(
             stderr,
             "Warning: cannot resume PID %ld with SIGCONT: %s\n         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
@@ -899,43 +771,6 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
         sig, (long)pid, strerror(err));
 }
 
-/**
- * @brief Send a signal to every active member of the process set
- * @param proc_set Pointer to the process set structure
- * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose Retained for API compatibility and forwarded to
- *                warn_signal_failure(); failure reporting is throttled
- *                per member through the stop_warned / cont_warned flags,
- *                so this flag no longer changes what is printed
- *
- * Iterates through all processes in the group and sends the specified
- * signal.  A process that no longer exists (ESRCH) is removed from the
- * group and from the process table to avoid repeated errors.  A process
- * that still exists but could not be signalled (EPERM/EACCES, a seccomp
- * filter, ...) is kept: dropping it would silently end the limit for a
- * process the user asked to limit, while its CPU time still counts
- * against the group budget.  Such a failure is always reported, and each
- * member reports its own first failure.
- *
- * Successful SIGSTOP delivery is recorded so that the suspension can
- * always be undone, both in the member's suspended_by_us flag and in the
- * stopped-PID list; SIGCONT additionally resumes processes that were
- * recorded earlier but have since left the group.
- *
- * @return The number of processes whose signal delivery failed and that
- *         the call may have left suspended.  On the SIGCONT round this
- *         covers two groups of candidates: current members this group had
- *         actually suspended, and PIDs that left the group while
- *         suspended, which are resumed from the record first.  A
- *         failed SIGCONT for a member never suspended (or already
- *         resumed) cannot strand anything, so it is an ordinary failure
- *         that neither claims "left suspended" nor fails the shutdown
- *         report; a deferred resume that fails with ESRCH does
- *         not count either, because the process is gone.  On every other
- *         round every failed delivery counts.
- *
- * @note Safe iteration: stores next node before potential deletion
- */
 /**
  * @def SIGNAL_FAILURE_BENIGN
  * @brief classify_signal_failure() result: the member has been running all
@@ -1066,12 +901,12 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                  * EPERM/EACCES (a descendant that changed credentials or
                  * is owned by another user), a seccomp filter, and so on.
                  *
-                 * Keep tracking it. Removing it here is what used to
-                 * happen, and it silently ended the limit for that
-                 * process: it kept running past the requested budget and
-                 * nothing in the output explained why. It stays in the
-                 * set instead, so its CPU time is still accounted for and
-                 * the remaining members are still held to the budget.
+                 * Keep tracking it: dropping it here would silently end
+                 * the limit for that process, which would then keep
+                 * running past the requested budget with nothing in the
+                 * output explaining why.  It stays in the set instead, so
+                 * its CPU time is still accounted for and the remaining
+                 * members are still held to the budget.
                  *
                  * Consequence worth knowing: its usage keeps dragging
                  * work_ratio down, so if it alone exceeds the limit the

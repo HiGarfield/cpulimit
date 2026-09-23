@@ -68,40 +68,6 @@ pid_t find_process_by_pid(pid_t pid) {
     return 0;
 }
 
-/**
- * @brief Find a running process by its executable name or path
- * @param process_name Name or absolute path of the executable to search for
- * @return Positive PID if found and accessible, negative -PID if found but
- *         permission denied, 0 if not found or invalid name
- *
- * Behavior depends on whether process_name is an absolute path:
- * - If process_name starts with '/': compares full absolute paths
- * - Otherwise: compares only the basename (executable name without directory)
- *
- * When multiple matches exist, the topmost ancestor is preferred; among
- * unrelated matches the smallest PID wins, which makes the choice
- * independent of the platform's process iteration order.  This heuristic
- * helps ensure that if a parent process spawns children with the same name,
- * the parent is chosen.  If the chosen process vanishes before the
- * existence recheck, the best surviving candidate is selected by the same
- * rule.
- *
- * Controllability outranks both criteria: a match that exists but cannot be
- * signalled is a dead end, so the best candidate cpulimit can actually
- * limit is preferred over one it cannot.  A negative PID is returned only
- * when every surviving match is uncontrollable.
- *
- * @note Returns 0 immediately for NULL or empty process_name
- * @note Iterates through all processes in the system, which may be slow on
- *       systems with many processes. For known PIDs, use find_process_by_pid().
- * @note On critical errors (e.g., memory allocation or iterator
- *       initialization failure) returns 0, letting the caller treat the
- *       target as "not found" and decide, instead of aborting the run.
- * @note A failure to close the iterator is reported but does not change the
- *       selection: the scan itself did complete, so the existence recheck,
- *       the controllability probe and the candidate fallback below all still
- *       run, and an uncontrollable match is still returned as -PID.
- */
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
@@ -213,33 +179,21 @@ pid_t find_process_by_name(const char *process_name) {
 
     /*
      * Verify the selected process still exists.  If it vanished between the
-     * scan and this recheck, fall back to another live candidate instead of
-     * giving up entirely: a still-running match is better than a spurious
-     * "not found" that would make cpulimit throttle nothing.
+     * scan and this recheck, fall back to another live candidate rather than
+     * reporting a spurious "not found" that would throttle nothing.
      *
-     * The fallback adjudicates the surviving candidates with the same rule
-     * the scan above used -- an ancestor beats a descendant, and unrelated
-     * candidates are decided by the smaller PID.  Picking the first
-     * survivor in candidates[] order would inherit the platform's process
-     * iteration order, which the primary selection deliberately does not
-     * depend on.
+     * The fallback ranks the survivors by three tiers, highest first:
+     * 1. controllable (probe > 0) beats uncontrollable (probe < 0);
+     * 2. within one tier, an ancestor beats a descendant;
+     * 3. otherwise the smaller PID wins.
      *
-     * That rule alone is blind to controllability, though: the probe returns
-     * -PID for a process that exists but cannot be controlled
-     * (EPERM/EACCES), and an uncontrollable candidate would beat a
-     * perfectly controllable one merely by having a smaller PID, giving up
-     * a run that could have limited something.  The surviving candidates
-     * are therefore ranked by three tiers, highest first:
-     *
-     *   1. controllable (probe > 0) beats uncontrollable (probe < 0);
-     *   2. within one tier, an ancestor beats a descendant;
-     *   3. otherwise the smaller PID wins.
-     *
-     * The probe's sign still has to reach the caller: -PID is what makes it
-     * emit a single "No permission to control process N" instead of limping
-     * through a limit run it cannot enforce.  It is now returned
-     * only after every surviving candidate has been probed and none of them
-     * turned out to be controllable.
+     * Reusing the scan's rule keeps the choice independent of the platform's
+     * iteration order, and the controllability tier stops an uncontrollable
+     * match from winning on PID alone and giving up a run that could have
+     * limited something.  The probe's sign still reaches the caller: -PID is
+     * what makes it emit one "No permission to control process N", and it is
+     * returned only after every survivor has been probed and none turned out
+     * to be controllable.
      */
     if (n_candidates == 0) {
         return 0;

@@ -207,33 +207,6 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
     return ctx->time_slot * (0.95 + (double)(random() % 1001) / 10000.0);
 }
 
-/**
- * @brief Enforce CPU usage limit on a process or process set
- * @param pid Process ID of the target process to limit
- * @param cpu_limit CPU usage limit expressed in CPU cores (core
- *              equivalents), in the range (0, N_CPU]. Example: on a 4-core
- *              system, cpu_limit=0.5 means 50% of one core (12.5% of total
- *              capacity), and cpu_limit=2.0 means two full cores (50% of
- *              total capacity).
- * @param include_children If non-zero, limit applies to target and all
- *                         descendants; if zero, limit applies only to target
- *                         process
- * @param verbose If non-zero, print periodic statistics about CPU usage and
- *                control; if zero, operate silently
- *
- * This function implements the core CPU limiting algorithm using
- * SIGSTOP/SIGCONT:
- * 1. Monitors the process set's actual CPU usage
- * 2. Calculates appropriate work/sleep intervals to achieve the target limit
- * 3. Alternately sends SIGCONT (allow execution) and SIGSTOP (suspend
- * execution)
- * 4. Dynamically adjusts timing based on measured CPU usage
- * 5. Continues until the target terminates or quit signal received
- *
- * @note This function blocks until target terminates or is_quit_flag_set()
- *       returns true
- * @note Always resumes suspended processes (sends SIGCONT) before returning
- */
 int limit_process(pid_t pid, double cpu_limit, int include_children,
                   int verbose, unsigned int prior_scan_failures) {
     struct process_set proc_set;
