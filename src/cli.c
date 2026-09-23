@@ -97,7 +97,7 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     /*
      * Reject a leading whitespace before conversion.  strtol() skips leading
      * whitespace, so "-p ' 5'" would otherwise be accepted as PID 5, which is
-     * inconsistent with the strict trailing-character rejection (BUG-035).
+     * inconsistent with the strict trailing-character rejection.
      */
     if (pid_str == NULL || isspace((unsigned char)pid_str[0])) {
         /* %s with a NULL argument is undefined, so the defensive NULL check
@@ -113,7 +113,7 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
      * Validate conversion: check for errors, empty strings, and trailing
      * characters.  PID 1 is allowed (it is the only reserved PID worth
      * rejecting indirectly) so that cpulimit can throttle PID 1 inside a
-     * container where the target process is init (BUG-008); only PID 0 and
+     * container where the target process is init; only PID 0 and
      * negative values are invalid.
      */
     if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid < 1) {
@@ -154,7 +154,7 @@ static int parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
     /*
      * Reject a leading whitespace before conversion.  strtod() skips leading
      * whitespace, so "-l ' 50'" would otherwise be accepted as 50%, which is
-     * inconsistent with the strict trailing-character rejection (BUG-035).
+     * inconsistent with the strict trailing-character rejection.
      */
     if (limit_str == NULL || isspace((unsigned char)limit_str[0])) {
         /* %s with a NULL argument is undefined, so the defensive NULL check
@@ -214,20 +214,6 @@ static int validate_target_options(const struct cpulimit_cfg *cfg) {
     return 0;
 }
 
-/**
- * @brief Parse command line arguments and populate configuration structure
- * @param argc Number of command-line arguments (from main)
- * @param argv Array of command-line argument strings (from main)
- * @param cfg Pointer to configuration structure to be filled with parsed values
- *
- * This function processes all command-line options and validates the input.
- * On success, cfg contains valid configuration and the function returns 0.
- * On validation failure, the function prints an error message and returns
- * EXIT_FAILURE. If help is requested, usage is printed and the function
- * returns -1 so the caller can exit with EXIT_SUCCESS.
- *
- * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested
- */
 int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     int option_char, ncpu;
     int pid_option_seen = 0, exe_option_seen = 0, limit_option_seen = 0;
@@ -331,8 +317,8 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
                 return EXIT_FAILURE;
             }
             /*
-             * Reject match names that can never select a process (BUG-071,
-             * N7): find_process_by_name() compares against the basename for
+             * Reject match names that can never select a process:
+             * find_process_by_name() compares against the basename for
              * relative names and returns 0 immediately when that basename is
              * empty, so "bin/", "a/b/", "//" and "/tmp/" are all
              * structurally unmatchable.  A bare "/" is the same case (its
@@ -418,7 +404,7 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         /*
          * An empty command name ("cpulimit -l 50 ''") would otherwise fall
          * through to execvp(""), which fails with a confusing 126/127.  Reject
-         * it up front so the user gets a clear error and exit code 1 (BUG-077).
+         * it up front so the user gets a clear error and exit code 1.
          */
         if (argv[optind][0] == '\0') {
             fprintf(stderr, "Error: empty command name\n\n");

@@ -181,7 +181,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      *
      * The check runs for an explicit path AND for a bare name resolved through
      * PATH, so both spellings of the same script report the same code
-     * (BUG-053): an inaccessible interpreter always yields 126, never a
+     *: an inaccessible interpreter always yields 126, never a
      * misleading 127.
      */
     check_path = cfg->command_args[0];
@@ -191,7 +191,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * PATH_MAX-sized array on the stack, which would blow the project's
      * -Wstack-usage=512 limit.  Only the PATH-resolved branch needs it:
      * the explicit-path branch works on check_path itself and therefore
-     * runs whether or not the allocation succeeded (R5).  A failed
+     * runs whether or not the allocation succeeded.  A failed
      * allocation costs just the PATH pre-check -- a bare name then falls
      * through to execvp() and reports the usual code -- never the
      * explicit-path check whose 126 classification must not depend on a
@@ -203,7 +203,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * whether the allocation above succeeded; a bare name has to be resolved
      * through PATH first, and one that resolves nowhere has nothing to
      * check and falls through to execvp().  The message names what the user
-     * typed either way (BUG-053).
+     * typed either way.
      */
     if (strchr(check_path, '/') != NULL) {
         script_path = check_path;

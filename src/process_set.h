@@ -215,7 +215,7 @@ int close_process_set(struct process_set *proc_set);
  * allocation fails, or the list node allocation fails -- the suspension is
  * undone immediately and -1 is returned: an unrecorded suspension would
  * never be resumed once the member leaves the group, leaving it stopped
- * forever with no warning (R4).
+ * forever with no warning.
  *
  * @note Safe to call with NULL proc_set or a group whose suspended-PID
  *       list has not been allocated; the call is then a -1 no-op
@@ -229,7 +229,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
  * @return The number of recorded PIDs that could not be resumed for a
  *         reason other than ESRCH: they were suspended by this group and
  *         may have been left stopped, so the shutdown report must treat
- *         them like a failed resume of a current member (R1)
+ *         them like a failed resume of a current member
  *
  * Sends SIGCONT to every recorded PID that has left the group and frees the
  * list.  Group members are resumed by the regular resume round, which walks
@@ -363,7 +363,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig, int verbose);
  *         start time reflects the second (latest) recording, -1 otherwise
  *
  * Defined only in the test build so the production object stays free of test
- * code (V3).  The production callers rely on record_stopped_pid() folding a
+ * code.  The production callers rely on record_stopped_pid() folding a
  * re-recording into the existing entry rather than appending a duplicate.
  */
 int cpulimit_test_record_stopped_pid_dedup(void);

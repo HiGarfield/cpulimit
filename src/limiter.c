@@ -56,23 +56,6 @@
 #include <time.h>
 #include <unistd.h>
 
-/**
- * @brief Execute and monitor a user-specified command with CPU limiting
- * @param cfg Pointer to configuration structure containing command and options
- *
- * This function implements command execution mode (COMMAND [ARG]...):
- * 1. Forks a child process to execute the specified command
- * 2. Creates a new process group for the child
- * 3. Applies CPU limiting to the command and optionally its descendants
- * 4. Waits for command completion and exits with the child's exit status
- *
- * The parent process monitors the child and handles:
- * - Normal exit (returns child's exit code)
- * - Signal termination (returns 128 + signal number)
- * - Timeout after termination request (sends SIGKILL)
- *
- * @return Exit status code; the caller is responsible for calling exit()
- */
 int run_command_mode(const struct cpulimit_cfg *cfg) {
     /* PID of forked child that will execute the command */
     pid_t child_pid;
@@ -200,7 +183,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
         /*
          * The command child was not limited to completion either way; surface
          * its real exit status so the operator can diagnose the outcome
-         * (BUG-018) instead of only seeing cpulimit's own EXIT_FAILURE.
+         * instead of only seeing cpulimit's own EXIT_FAILURE.
          *
          * The two reasons are different and must not be reported as one.
          * LIMIT_PROCESS_ERROR means the group was never built and nothing
@@ -208,13 +191,13 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
          * run and only stopped when a scan failed, so the command merely ran
          * unthrottled from that point on: saying the limit "could not be
          * applied" sends anyone debugging it after permissions or target
-         * resolution instead of the failed scan (T3).
+         * resolution instead of the failed scan.
          *
          * LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED is both at once, so it takes
          * the scan wording: limiting did run and stopped early, which is the
          * part the command's own status cannot show.  The stranded members
          * are not mentioned here because limit_process() has already named
-         * each one with the 'kill -CONT <pid>' that recovers it (V4).
+         * each one with the 'kill -CONT <pid>' that recovers it.
          */
         int child_exit_status =
             collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
@@ -402,7 +385,7 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
     /* Set when this PID is shown to no longer be our target. */
     int pid_reused = 0;
     /* Start time before limit_process(); both -p and -e use it to detect
-     * PID recycling (T4 / V1). */
+     * PID recycling. */
     double target_start_time = UNKNOWN_START_TIME;
     double current_start;
 
@@ -413,10 +396,10 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
     /*
      * Recorded before limiting so the closing SIGCONT below can tell this
      * process from whatever the PID may have been recycled into while
-     * limit_process() was running (T4).  Both -p and -e use the start time
-     * because it is the authoritative identity (BUG-004); an exec() changes
+     * limit_process() was running.  Both -p and -e use the start time
+     * because it is the authoritative identity; an exec() changes
      * the name but not the process, so the -e branch must not fall back to
-     * comparing names or a re-exec'd target would be stranded (V1).
+     * comparing names or a re-exec'd target would be stranded.
      */
     target_start_time = get_process_start_time(found_pid);
 
@@ -426,7 +409,7 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
      */
     /*
      * Pass the streak so far: this caller retries, and without it every
-     * retry would repeat the same scan diagnostic every two seconds (V5).
+     * retry would repeat the same scan diagnostic every two seconds.
      */
     limit_status =
         limit_process(found_pid, cfg->cpu_limit, cfg->include_children,
@@ -452,12 +435,12 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
      * PID may have been recycled, so an unconditional SIGCONT can resume a
      * process that somebody else is holding stopped on purpose: job control,
      * a debugger, another cpulimit instance.  The signal is therefore skipped
-     * only when the PID can be shown to have changed hands (T4): whichever
+     * only when the PID can be shown to have changed hands: whichever
      * mode, when its start time differs from the one recorded above.  The
-     * start time is the authoritative identity (BUG-004); the executable name
+     * start time is the authoritative identity; the executable name
      * is not an identity signal, because an exec() changes argv[0] without
      * changing the process, so a re-exec'd target must not be mistaken for a
-     * hand-off (V1).  A start time the platform cannot report means nobody
+     * hand-off.  A start time the platform cannot report means nobody
      * can tell, so the signal is sent anyway: stranding a stopped target is
      * precisely what this fallback exists to prevent.
      */
@@ -465,7 +448,7 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
     /*
      * Relational comparisons only: -Wfloat-equal rejects ==/!= on doubles,
      * and a real start time is positive while UNKNOWN_START_TIME is not.
-     * The name is deliberately ignored (V1).
+     * The name is deliberately ignored.
      */
     pid_reused = (target_start_time > 0.0 && current_start > 0.0 &&
                   (current_start < target_start_time ||
@@ -473,7 +456,7 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
     if (pid_reused) {
         /*
          * Unconditional now: a silently skipped resume strands the target
-         * forever, far worse than the harmless SIGCONT we avoided (V1).
+         * forever, far worse than the harmless SIGCONT we avoided.
          */
         fprintf(stderr,
                 "Process %ld is no longer the target; not resuming it\n",
@@ -485,7 +468,7 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
     }
 
     /*
-     * A run that limited to completion ends the streak (N2), the same way a
+     * A run that limited to completion ends the streak, the same way a
      * resolved target ends the not-found streak.
      */
     if (limit_status == LIMIT_PROCESS_OK) {
@@ -500,16 +483,16 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
      * that stopped there is final: the target is no longer limited and
      * nothing will re-attach to it, the same outcome command mode already
      * reports as a failure.  limit_process() has already said why on stderr
-     * (S2).
+     *.
      */
     if (limit_status == LIMIT_PROCESS_SCAN_FAILED && !cfg->lazy_mode) {
         /*
          * The retry is bounded, and the bound exists for the same reason as
-         * the not-found one (BUG-014): a scan that keeps failing is not a
+         * the not-found one: a scan that keeps failing is not a
          * target that will come back, it is an environment that cannot be
          * scanned at all (no procfs, sustained allocation pressure).  Left
          * unbounded it would re-walk the whole process table every two
-         * seconds, print a diagnostic each time and never exit (U1).  Fifteen
+         * seconds, print a diagnostic each time and never exit.  Fifteen
          * attempts is thirty seconds of grace for a transient failure.
          *
          * A target that simply is not there is a different case and is
@@ -529,19 +512,6 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
     }
 }
 
-/**
- * @brief Search for and limit an existing process by PID or executable name
- * @param cfg Pointer to configuration structure containing target specification
- *
- * This function implements PID/exe search mode (-p PID or -e EXE):
- * 1. Continuously searches for the target process
- * 2. When found, applies CPU limiting
- * 3. Behavior depends on lazy_mode flag:
- *    - lazy_mode=1: Exit when target terminates or cannot be found
- *    - lazy_mode=0: Keep searching and re-attach if target restarts
- *
- * @return Exit status code; the caller is responsible for calling exit()
- */
 int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     /* Wait interval between search attempts: two seconds. */
     const struct timespec wait_time = {2, 0};
@@ -552,7 +522,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
      * a process that never starts would spin indefinitely; fifteen attempts
      * at two seconds each is thirty seconds of grace for a slow target.
      *
-     * Consecutive rather than lifetime (N2): a daemon that restarts
+     * Consecutive rather than lifetime: a daemon that restarts
      * periodically keeps being re-attached instead of exhausting a budget
      * that was only ever meant to bound one wait.
      *
@@ -566,7 +536,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
      * Deliberately not lookup_attempts: that one is reset every time the
      * target resolves, which happens on every retry here, so reusing it
      * could never reach the cap and a scan that keeps failing would be
-     * retried forever (U1).  It is reset only when a run actually limits to
+     * retried forever.  It is reset only when a run actually limits to
      * completion, so a target whose scanning fails occasionally keeps its
      * full budget.
      */
@@ -586,7 +556,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
                 exit_status = EXIT_FAILURE;
             } else {
                 /* Non-lazy mode waits for a slow target, but not forever
-                 * (BUG-014): cap the attempts so the run ends instead of
+                 *: cap the attempts so the run ends instead of
                  * looping and growing stderr without limit.  The cap exits
                  * the loop through the check below. */
                 (void)bump_retry_streak(&lookup_attempts, STREAK_LOOKUP,
@@ -611,7 +581,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
             handle_stale_target(cfg, found_pid, &exit_status, &lookup_attempts);
         } else {
             /*
-             * A resolved, non-stale target ends the streak (N2): the caps
+             * A resolved, non-stale target ends the streak: the caps
              * bound one wait, not the process lifetime, so a daemon that
              * restarts daily stays attached across restarts.
              */

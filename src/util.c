@@ -33,17 +33,6 @@
 #include <sys/sysinfo.h>
 #endif
 
-/**
- * @brief Attempt to increase the scheduling priority of the current process
- *
- * Tries to set the process nice value to -20 (highest priority) to minimize
- * scheduling latency when controlling target processes. Iterates through
- * priority values from -20 upward until one succeeds, skipping levels that
- * are denied by permissions (RLIMIT_NICE may allow a value less negative
- * than PRIO_MIN even without root). Silently continues if no priority
- * improvement is possible; cpulimit can function at normal priority, just
- * with potentially higher latency.
- */
 void increase_priority(void) {
     int old_priority, priority;
     errno = 0;
@@ -82,16 +71,6 @@ void increase_priority(void) {
 }
 
 #ifdef CPULIMIT_IMPL_GETLOADAVG
-/**
- * @brief Get system load averages (custom implementation for old uClibc)
- * @param loadavg Array to receive load average values
- * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
- * @return Number of samples retrieved (nelem), or -1 on error
- *
- * Retrieves system load averages using the sysinfo() syscall and converts
- * the fixed-point values to floating-point. This implementation is used
- * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
- */
 int getloadavg_impl(double *loadavg, int nelem) {
     struct sysinfo sys_info;
     int load_idx;
@@ -120,24 +99,6 @@ int getloadavg_impl(double *loadavg, int nelem) {
 }
 #endif
 
-/**
- * @brief Safely convert long to pid_t with overflow detection
- * @param long_pid Long value to convert to pid_t
- * @return The pid_t value on success, or -1 if long_pid < 0 or overflow occurs
- *
- * Validates that the long value can be safely converted to pid_t without
- * overflow. Returns -1 if the input is negative or if the conversion would
- * result in data loss due to pid_t having a smaller range than long on the
- * platform. This prevents incorrect PID values on systems where pid_t is
- * smaller than long (e.g., 32-bit pid_t with 64-bit long).
- *
- * @note The conversion uses implementation-defined behavior when the value
- *       cannot be represented in pid_t (C89 section 3.2.1.2). However, the
- *       round-trip check correctly detects overflow on all common platforms
- *       (Linux, macOS, FreeBSD) where pid_t is a signed integer type. This
- *       approach is preferred over no overflow checking, as there is no
- *       portable way to check pid_t limits at compile time in C89/POSIX.1-2001.
- */
 pid_t long_to_pid_t(long long_pid) {
     pid_t result;
     /* Reject negative values */

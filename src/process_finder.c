@@ -35,21 +35,9 @@
 #include <string.h>
 
 /* Maximum number of name matches kept for fallback when the preferred one
- * vanishes between selection and the existence recheck (BUG-056). */
+ * vanishes between selection and the existence recheck. */
 #define PROC_FINDER_MAX_CANDIDATES 16
 
-/**
- * @brief Check if a process exists and can be controlled by cpulimit
- * @param pid Process ID to search for
- * @return Positive PID if process exists and can be signaled
- *         (kill(pid,0)==0), negative -PID if process exists but permission
- *         denied (errno==EPERM), 0 if process does not exist (errno==ESRCH or
- *         invalid PID)
- *
- * Uses kill(pid, 0) as a lightweight probe to test process existence and
- * signal permission without actually sending a signal. This is the standard
- * POSIX method for checking process liveness and accessibility.
- */
 pid_t find_process_by_pid(pid_t pid) {
     /* Reject invalid PIDs (must be positive) */
     if (pid <= 0) {
@@ -58,7 +46,7 @@ pid_t find_process_by_pid(pid_t pid) {
 #ifdef CPULIMIT_TEST_BUILD
     /* When the harness arms it, probe existence from the scripted iterator
      * seam instead of a real kill(pid, 0) so name-based lookup tests can drive
-     * the final recheck deterministically (BUG-055/BUG-056). */
+     * the final recheck deterministically. */
     if (seam_find_by_pid_override) {
         return cpulimit_test_find_by_pid(pid);
     }
@@ -112,7 +100,7 @@ pid_t find_process_by_pid(pid_t pid) {
  * @note A failure to close the iterator is reported but does not change the
  *       selection: the scan itself did complete, so the existence recheck,
  *       the controllability probe and the candidate fallback below all still
- *       run, and an uncontrollable match is still returned as -PID (T5).
+ *       run, and an uncontrollable match is still returned as -PID.
  */
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
@@ -179,7 +167,7 @@ pid_t find_process_by_name(const char *process_name) {
              * - This process is a descendant of the previous match
              *   (is_child_of(pid, proc->pid)) -- keep the higher/older one,
              * - The two matches are unrelated and this PID is smaller, which
-             *   makes the winner independent of scan order (BUG-055).  The
+             *   makes the winner independent of scan order.  The
              *   /proc readdir / proc_listpids / kvm_getprocs order is not
              *   guaranteed, so without this tie-break the chosen target would
              *   change across runs.
@@ -194,7 +182,7 @@ pid_t find_process_by_name(const char *process_name) {
             }
             /*
              * Remember every match so a vanished winner can fall back to
-             * another live candidate (BUG-056).  The array only caps the
+             * another live candidate.  The array only caps the
              * MEMORY of candidates: the primary selection above keeps
              * running over every process, so with more than
              * PROC_FINDER_MAX_CANDIDATES matches the winner is still
@@ -214,11 +202,11 @@ pid_t find_process_by_name(const char *process_name) {
          * The scan itself completed and this diagnostic is all the operator
          * can act on, so the selection below continues exactly as it does
          * on the normal path.  Returning a PID here would skip the
-         * existence recheck (BUG-056), the controllability probe (S1) and
-         * the -PID contract (BUG-061), and would hand the caller a positive
+         * existence recheck, the controllability probe and
+         * the -PID contract, and would hand the caller a positive
          * PID for a process cpulimit cannot control at all: a limit run
          * that cannot be enforced, an EPERM warning per member per cycle,
-         * and a zero exit status (T5).
+         * and a zero exit status.
          */
         fprintf(stderr, "Failed to close process iterator\n");
     }
@@ -227,29 +215,29 @@ pid_t find_process_by_name(const char *process_name) {
      * Verify the selected process still exists.  If it vanished between the
      * scan and this recheck, fall back to another live candidate instead of
      * giving up entirely: a still-running match is better than a spurious
-     * "not found" that would make cpulimit throttle nothing (BUG-056).
+     * "not found" that would make cpulimit throttle nothing.
      *
      * The fallback adjudicates the surviving candidates with the same rule
      * the scan above used -- an ancestor beats a descendant, and unrelated
-     * candidates are decided by the smaller PID (N3).  Picking the first
+     * candidates are decided by the smaller PID.  Picking the first
      * survivor in candidates[] order would inherit the platform's process
      * iteration order, which the primary selection deliberately does not
      * depend on.
      *
      * That rule alone is blind to controllability, though: the probe returns
      * -PID for a process that exists but cannot be controlled
-     * (EPERM/EACCES), and an uncontrollable candidate used to beat a
-     * perfectly controllable one merely by having a smaller PID, which gave
-     * up a run that could have limited something (S1).  The surviving
-     * candidates are therefore ranked by three tiers, highest first:
+     * (EPERM/EACCES), and an uncontrollable candidate would beat a
+     * perfectly controllable one merely by having a smaller PID, giving up
+     * a run that could have limited something.  The surviving candidates
+     * are therefore ranked by three tiers, highest first:
      *
      *   1. controllable (probe > 0) beats uncontrollable (probe < 0);
      *   2. within one tier, an ancestor beats a descendant;
-     *   3. otherwise the smaller PID wins (N3).
+     *   3. otherwise the smaller PID wins.
      *
      * The probe's sign still has to reach the caller: -PID is what makes it
      * emit a single "No permission to control process N" instead of limping
-     * through a limit run it cannot enforce (BUG-061).  It is now returned
+     * through a limit run it cannot enforce.  It is now returned
      * only after every surviving candidate has been probed and none of them
      * turned out to be controllable.
      */

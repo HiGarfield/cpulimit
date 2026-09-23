@@ -42,7 +42,7 @@ extern "C" {
  * An internal failure does not end the process: if the clock cannot be read,
  * the child is resumed so it does not stay stopped, waited for so it does not
  * stay a zombie, and EXIT_FAILURE is returned to the caller, which still has
- * its own diagnosis and exit status to produce (S4).
+ * its own diagnosis and exit status to produce.
  *
  * Polls for the child's termination. Once the quit signal has been
  * forwarded, a 5-second SIGKILL timeout is applied if the child does not
@@ -72,7 +72,7 @@ extern "C" {
  * because limit_process() stopped watching it is waited for, not killed.
  *
  * Once the grace period is over the escalation fires once, not once per poll
- * (S5).  A process group is signalled, and repeating it during the window in
+ *.  A process group is signalled, and repeating it during the window in
  * which the child has exited but has not been reaped yet -- a zombie still
  * carries its PID and PGID -- would reach whatever else now lives in that
  * group, and would repeat signal_command()'s own failure report each time.

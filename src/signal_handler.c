@@ -195,7 +195,7 @@ void configure_signal_handler(void) {
     /*
      * Non-zero once all signals are blocked: the error path must then
      * restore the original mask before exiting, instead of dying with
-     * every signal blocked (BUG-011).  Exiting a signal-deaf process is
+     * every signal blocked.  Exiting a signal-deaf process is
      * harmless today, but the function header promises the mask is
      * restored, and a future change of exit() to return would otherwise
      * leave the promise broken.
@@ -263,54 +263,18 @@ error:
     exit(EXIT_FAILURE);
 }
 
-/**
- * @brief Check if a termination signal has been received
- * @return 1 if a termination signal was caught, 0 otherwise
- *
- * Returns the state of the quit flag, which is set by the signal handler
- * when SIGINT, SIGQUIT, SIGTERM, SIGHUP, or SIGPIPE is received.
- * The main program loop should periodically check this flag to initiate
- * graceful shutdown.
- */
 int is_quit_flag_set(void) {
     return !!quit_flag;
 }
 
-/**
- * @brief Check if termination was triggered by terminal keyboard input
- * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
- *
- * Distinguishes between terminal-originated termination (Ctrl+C or Ctrl+\)
- * and other termination signals (SIGTERM, SIGHUP, SIGPIPE).
- * This can be used to customize shutdown behavior or messages based on how
- * termination occurred.
- */
 int is_terminated_by_tty(void) {
     return !!tty_quit_flag;
 }
 
-/**
- * @brief Get the signal number that caused the quit flag to be set
- * @return Signal number (e.g. SIGTERM, SIGINT) of the first received
- *         termination signal, or 0 if no termination signal has been
- *         received yet
- *
- * Returns the signal number recorded when the first termination signal
- * was delivered to the process. This allows callers to forward the exact
- * received signal to child processes, ensuring consistent behavior with
- * a standard shell (e.g., Ctrl+C sends SIGINT to the child, not SIGTERM).
- */
 int get_quit_signal(void) {
     return (int)quit_signal_num;
 }
 
-/**
- * @brief Reset all signal handlers installed by configure_signal_handler()
- *        back to their default dispositions (SIG_DFL)
- * @return 0 on success, -1 on failure (errno set; error logged to stderr)
- *
- * Resets SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.
- */
 int reset_signal_handlers_to_default(void) {
     if (set_signal_action(SIG_DFL) != 0) {
         perror("Failed to reset signal handlers");

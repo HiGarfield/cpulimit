@@ -119,9 +119,10 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem);
  * @struct dynamic_time_slot_ctx
  * @brief Explicit state for the dynamic time-slot algorithm
  *
- * Holds the mutable state that was previously kept in static local
- * variables inside get_dynamic_time_slot().  The caller owns an instance
- * of this structure and passes it to get_dynamic_time_slot().
+ * Holds the mutable state of the dynamic time-slot algorithm.  The caller
+ * owns an instance and passes it to get_dynamic_time_slot(), which keeps
+ * the algorithm free of static locals that two runs sharing this process
+ * would otherwise have to share state through.
  */
 struct dynamic_time_slot_ctx {
     /** Current smoothed time slot in microseconds. */
@@ -293,7 +294,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
              * well-defined state -- but nothing is throttled from here on,
              * and saying nothing would let a command-mode run report the
              * command's own exit status as a successfully limited run
-             * (S2).  The initial scan failure has its own report above;
+             *.  The initial scan failure has its own report above;
              * this one happens after limiting already ran.
              */
             /*
@@ -305,7 +306,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
              * after N failed scan(s)" line, so the outcome is still stated.
              * scan_failed itself is set every time: it is what the return
              * value is built from, and the caller's streak is its own
-             * counter (V5).
+             * counter.
              */
             if (prior_scan_failures == 0) {
                 fprintf(stderr,
@@ -336,10 +337,10 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          *
          * A negative cpu_usage means "not measured yet": the first cycles
          * have no CPU-time delta to compare against. Substituting a guess
-         * here used to scale work_ratio by cpu_limit/ncpu on the very
-         * first cycle, so a run asking for 50% of one core started at a
-         * small fraction of that before converging. Leave the ratio
-         * untouched until there is a real measurement to act on.
+         * there would scale work_ratio by cpu_limit/ncpu before any
+         * measurement exists, so a run asking for 50% of one core would
+         * start at a small fraction of that before converging. Leave the
+         * ratio untouched until there is a real measurement to act on.
          */
         if (cpu_usage >= 0) {
             work_ratio =
@@ -482,11 +483,11 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     if (resume_failed > 0) {
         /*
          * At least one suspended process could not be resumed at shutdown
-         * (BUG-050).  It may stay stopped forever, so report it and exit
+         *.  It may stay stopped forever, so report it and exit
          * non-zero rather than silently returning success.  The resume
          * round above already printed a per-PID "cannot resume PID N ... may
          * remain stopped; run 'kill -CONT N'" line for every process it
-         * could not resume (U2) -- those lines carry the PID the operator
+         * could not resume -- those lines carry the PID the operator
          * must act on, so this summary only repeats the count.
          */
         fprintf(
@@ -497,9 +498,9 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          * When a scan failure is behind this too, returning
          * LIMIT_PROCESS_ERROR would make the caller describe a run that did
          * limit for a while as one that never applied the limit at all --
-         * the wording T3 introduced to separate exactly these two outcomes,
+         * the wording that separates exactly these two outcomes,
          * reached again by a different route.  Say both, and let the caller
-         * add the part it alone knows (V4).
+         * add the part it alone knows.
          */
         if (scan_failed) {
             return LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED;

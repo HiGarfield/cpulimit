@@ -32,13 +32,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/**
- * @brief Initialize an empty doubly linked list
- * @param lst Pointer to the list structure to initialize
- *
- * Sets first and last pointers to NULL and count to 0, preparing the list
- * for use. Safe to call with NULL pointer (does nothing).
- */
 void init_list(struct list *lst) {
     if (lst == NULL) {
         return;
@@ -88,17 +81,6 @@ struct list_node *add_list_elem(struct list *lst, void *elem) {
     return new_node;
 }
 
-/**
- * @brief Remove a node from the list without freeing its data
- * @param lst Pointer to the list
- * @param node Pointer to the node to remove
- *
- * Unlinks the node from the list and frees the node structure itself, but
- * does not free the data pointer. Use this when the data is managed
- * externally or when multiple references to the data exist.
- *
- * @note Safe to call with NULL list or node (does nothing)
- */
 void delete_list_node(struct list *lst, struct list_node *node) {
     if (lst == NULL || node == NULL || lst->count == 0) {
         return;
@@ -122,17 +104,6 @@ void delete_list_node(struct list *lst, struct list_node *node) {
     free(node);
 }
 
-/**
- * @brief Remove a node from the list and free its data
- * @param lst Pointer to the list
- * @param node Pointer to the node to remove
- *
- * Unlinks the node from the list, frees the data pointer using free(),
- * then frees the node structure. Use this only when the data was allocated
- * with malloc() and has no other references.
- *
- * @note Safe to call with NULL list or node; does nothing when either is NULL
- */
 void destroy_list_node(struct list *lst, struct list_node *node) {
     if (lst == NULL || node == NULL) {
         return;
@@ -141,39 +112,14 @@ void destroy_list_node(struct list *lst, struct list_node *node) {
     delete_list_node(lst, node);
 }
 
-/**
- * @brief Check if the list is empty
- * @param lst Pointer to the list
- * @return 1 if the list is empty or NULL, 0 otherwise
- *
- * Provides O(1) emptiness check by examining the count field.
- */
 int is_empty_list(const struct list *lst) {
     return lst == NULL || lst->count == 0;
 }
 
-/**
- * @brief Get the first node in the list
- * @param lst Pointer to the list
- * @return Pointer to the first node, or NULL if list is empty or NULL
- *
- * Provides O(1) access to the list head. Use for starting forward iteration.
- */
 struct list_node *first_list_node(const struct list *lst) {
     return lst != NULL ? lst->first : NULL;
 }
 
-/**
- * @brief Search for a process in the list by its PID
- * @param lst Pointer to the list to search
- * @param pid Process ID to search for
- * @return Pointer to the matching process structure, or NULL if not found
- *
- * Performs linear search comparing the pid field of each node's data.
- * The list is expected to contain struct process pointers.
- *
- * @note Returns NULL if list is NULL
- */
 struct process *find_process_in_list_by_pid(const struct list *lst, pid_t pid) {
     struct list_node *current_node;
 
@@ -195,17 +141,6 @@ struct process *find_process_in_list_by_pid(const struct list *lst, pid_t pid) {
     return NULL;
 }
 
-/**
- * @brief Remove all nodes from the list without freeing node data
- * @param lst Pointer to the list to clear
- *
- * Frees all node structures but leaves the data pointers intact. Use this
- * when the data is managed externally or when you need to preserve the data
- * while resetting the list. After clearing, the list is empty but can be
- * reused.
- *
- * @note Safe to call with NULL list (does nothing)
- */
 void clear_list(struct list *lst) {
     struct list_node *current_node, *next_node;
     if (lst == NULL || lst->count == 0) {
@@ -221,16 +156,6 @@ void clear_list(struct list *lst) {
     init_list(lst);
 }
 
-/**
- * @brief Remove all nodes from the list and free their data
- * @param lst Pointer to the list to destroy
- *
- * Frees all node structures and their associated data pointers using free().
- * Use this only when all data was allocated with malloc() and has no other
- * references. After destruction, the list is empty but can be reused.
- *
- * @note Safe to call with NULL list (does nothing)
- */
 void destroy_list(struct list *lst) {
     struct list_node *current_node, *next_node;
     if (lst == NULL || lst->count == 0) {
