@@ -76,11 +76,12 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (pid > 0 && is_quit_flag_set() && is_terminated_by_tty() &&
-        isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
-        if (write(STDOUT_FILENO, "\n", 1) != 1) {
-            /* non-fatal: cosmetic newline at shutdown */
-        }
+    /*
+     * Only the parent writes it: the children share the same terminal, and one
+     * newline ends the echo's line as well as several would.
+     */
+    if (pid > 0) {
+        finish_tty_quit_line();
     }
     return 0;
 }

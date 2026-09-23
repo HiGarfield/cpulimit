@@ -148,7 +148,10 @@ the run rather than with the target: a failure of the scanning machinery
 (allocation, clock or process-iterator initialisation), after which there is
 nothing left to search with, and an attempt that left a member stopped, which
 needs `kill -CONT` by hand instead of another attempt. A termination signal
-ends the whole run, as it does in any mode.
+ends the whole run, as it does in any mode: when that signal came from the
+keyboard (Ctrl+C or Ctrl+\ on a terminal) and both standard streams are
+terminals, the run ends its line first, so the shell prompt does not start on
+the same line as the interrupt echo -- whichever point of the run it was at.
 
 Use `-z` -- or `-p`, which implies it -- when the run should end as soon as
 the target is gone.

@@ -1856,6 +1856,167 @@ static void test_signal_handler_get_quit_signal(void) {
 }
 
 /**
+ * @brief The newline that keeps the shell prompt off the terminal's "^C" echo
+ * @note The tty driver echoes the keyboard interrupt without a newline of its
+ *       own, so a run stopped by one has to write it.  That write belongs to
+ *       the run: it happens only when the quit came from the keyboard and both
+ *       standard descriptors are terminals, only once however many paths ask
+ *       for it, and a later run in the same process gets its own because
+ *       configure_signal_handler() clears the marker with the rest of the
+ *       per-run state.  Only a terminal can show any of this, so the child runs
+ *       on a pty it opens itself and the parent counts the bytes that reach the
+ *       master; the second sub-test repeats it with a pipe for stdout, where
+ *       nothing may be written at all.
+ */
+static void test_signal_handler_finish_tty_quit_line(void) {
+    int master_fd, slave_fd;
+    int pipe_fds[2];
+    const char *slave_name;
+    pid_t pid, waited;
+    int status = 0, exited, exit_code;
+    char capture[64];
+    size_t total, idx, newlines, others;
+    ssize_t n_read;
+
+    /* Sub-test 1: a keyboard quit on a terminal writes exactly one newline. */
+    master_fd = posix_openpt(O_RDWR | O_NOCTTY);
+    assert(master_fd >= 0);
+    assert(grantpt(master_fd) == 0);
+    assert(unlockpt(master_fd) == 0);
+    slave_name = ptsname(master_fd);
+    assert(slave_name != NULL);
+    slave_fd = open(slave_name, O_RDWR | O_NOCTTY);
+    assert(slave_fd >= 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        if (dup2(slave_fd, STDIN_FILENO) < 0 ||
+            dup2(slave_fd, STDOUT_FILENO) < 0) {
+            _exit(1);
+        }
+        if (slave_fd != STDIN_FILENO && slave_fd != STDOUT_FILENO) {
+            close(slave_fd);
+        }
+        /* stderr stays where it was, so a diagnostic here is still visible. */
+        configure_signal_handler();
+        /* No quit yet, so there is no echo to end. */
+        finish_tty_quit_line();
+        if (raise(SIGINT) != 0) {
+            _exit(1);
+        }
+        /* Two callers, one newline: the limiting loop, then main(). */
+        finish_tty_quit_line();
+        finish_tty_quit_line();
+        /* A second run in this process must get its own newline. */
+        configure_signal_handler();
+        if (raise(SIGINT) != 0) {
+            _exit(1);
+        }
+        finish_tty_quit_line();
+        _exit(0);
+    }
+    if (slave_fd != STDIN_FILENO && slave_fd != STDOUT_FILENO) {
+        close(slave_fd);
+    }
+
+    total = 0;
+    alarm(20);
+    while (total < sizeof(capture)) {
+        n_read = read(master_fd, capture + total, sizeof(capture) - total);
+        if (n_read > 0) {
+            total += (size_t)n_read;
+            continue;
+        }
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    alarm(0);
+    close(master_fd);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+    assert(exited);
+    assert(exit_code == 0);
+
+    /*
+     * Exactly two newlines and nothing else: one for each run's quit.  A pty
+     * may render a newline as CR LF, so only the line endings are counted and
+     * not the exact bytes.
+     */
+    newlines = 0;
+    others = 0;
+    for (idx = 0; idx < total; idx++) {
+        if (capture[idx] == '\n') {
+            newlines++;
+        } else if (capture[idx] != '\r') {
+            others++;
+        }
+    }
+    assert(newlines == 2);
+    assert(others == 0);
+
+    /* Sub-test 2: with stdout not a terminal, nothing is written at all. */
+    assert(pipe(pipe_fds) == 0);
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        close(pipe_fds[0]);
+        if (dup2(pipe_fds[1], STDOUT_FILENO) < 0) {
+            _exit(1);
+        }
+        close(pipe_fds[1]);
+        configure_signal_handler();
+        if (raise(SIGINT) != 0) {
+            _exit(1);
+        }
+        finish_tty_quit_line();
+        if (write(STDOUT_FILENO, "x", 1) != 1) {
+            _exit(1);
+        }
+        close(STDOUT_FILENO);
+        _exit(0);
+    }
+    close(pipe_fds[1]);
+
+    /*
+     * The child's own marker byte is read first, so the assertion below is on
+     * what follows it: the newline must not be there.
+     */
+    total = 0;
+    alarm(20);
+    while (total < sizeof(capture)) {
+        n_read = read(pipe_fds[0], capture + total, sizeof(capture) - total);
+        if (n_read > 0) {
+            total += (size_t)n_read;
+            continue;
+        }
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        break;
+    }
+    alarm(0);
+    close(pipe_fds[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+    assert(exited);
+    assert(exit_code == 0);
+    assert(total == 1 && capture[0] == 'x');
+}
+
+/**
  * @brief Test configure_signal_handler() resets internal state each call
  * @note In a single process, after a signal sets quit flags, reconfiguring
  *       handlers must clear all flags so a new run starts from a deterministic
@@ -16902,6 +17063,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_signal_handler_sigpipe);
     RUN_TEST(test_signal_handler_initial_state);
     RUN_TEST(test_signal_handler_get_quit_signal);
+    RUN_TEST(test_signal_handler_finish_tty_quit_line);
     RUN_TEST(test_signal_handler_reconfigure_resets_state);
     RUN_TEST(test_signal_handler_mask_restored_after_configure);
     RUN_TEST(test_signal_handler_reconfigure_delivers_pending);

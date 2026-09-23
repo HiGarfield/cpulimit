@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 /**
  * @brief Global quit flag indicating a termination signal was received
@@ -80,17 +81,31 @@ typedef char sig_atomic_large_enough[((sig_atomic_t)127 == 127) ? 1 : -1];
 static volatile sig_atomic_t quit_signal_num = 0;
 
 /**
+ * @brief Non-zero once the newline that ends the keyboard-quit echo was
+ *        written
+ *
+ * One newline per run is enough, and a run can end by more than one route --
+ * the limiting loop knows it is over, and so does main() -- so the callers ask
+ * without having to find out whether the other already did.  Cleared with the
+ * other per-run flags in reset_signal_state().  A plain int, not a
+ * sig_atomic_t: unlike the flags above, this one is only ever touched in
+ * process context.
+ */
+static int tty_newline_written = 0;
+
+/**
  * @brief Reset internal signal-handler state flags to their initial values
  *
- * Clears quit_flag, tty_quit_flag, and quit_signal_num so subsequent
- * monitoring sessions start from a clean state. Intended to be called during
- * signal-handler setup in process context (never from within a signal
- * handler).
+ * Clears quit_flag, tty_quit_flag, quit_signal_num and the newline marker so
+ * subsequent monitoring sessions start from a clean state. Intended to be
+ * called during signal-handler setup in process context (never from within a
+ * signal handler).
  */
 static void reset_signal_state(void) {
     quit_flag = 0;
     tty_quit_flag = 0;
     quit_signal_num = 0;
+    tty_newline_written = 0;
 }
 
 /**
@@ -243,6 +258,18 @@ int is_quit_flag_set(void) {
 
 int is_terminated_by_tty(void) {
     return !!tty_quit_flag;
+}
+
+void finish_tty_quit_line(void) {
+    if (tty_newline_written || !quit_flag || !tty_quit_flag) {
+        return;
+    }
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
+        return;
+    }
+    tty_newline_written = 1;
+    fputc('\n', stdout);
+    fflush(stdout);
 }
 
 int get_quit_signal(void) {

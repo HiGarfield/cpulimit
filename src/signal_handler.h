@@ -79,6 +79,25 @@ int is_quit_flag_set(void);
 int is_terminated_by_tty(void);
 
 /**
+ * @brief End the terminal line a keyboard quit left the cursor on
+ *
+ * The terminal driver echoes the keyboard interrupt -- "^C" for Ctrl+C, and
+ * the same shape for Ctrl+\ -- without a newline of its own, so a run stopped
+ * by SIGINT or SIGQUIT has to write one, or the shell prompt starts on the
+ * same line as that echo.  This writes it when the
+ * quit came from the keyboard and both stdin and stdout are terminals, and
+ * writes at most one newline per run.
+ *
+ * The callers are the two places a run can end: the limiting loop, which
+ * writes it before its cleanup warnings so those do not start on the echo's
+ * line, and main(), which covers the runs that never reach the limiting loop at
+ * all -- searching for a target that has not appeared, or reaping a command's
+ * child.  Because it is written once per run, both can call it unconditionally;
+ * the second call does nothing.
+ */
+void finish_tty_quit_line(void);
+
+/**
  * @brief Get the signal number that caused the quit flag to be set
  * @return Signal number (e.g. SIGTERM, SIGINT) of the first received
  *         termination signal, or 0 if no termination signal has been
