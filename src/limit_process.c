@@ -265,8 +265,8 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
              * resumes whatever is still suspended, so the caller sees a
              * well-defined state -- but nothing is throttled from here on,
              * and saying nothing would let a command-mode run report the
-             * command's own exit status as a successfully limited run
-             *.  The initial scan failure has its own report above;
+             * command's own exit status as a successfully limited run.
+             * The initial scan failure has its own report above;
              * this one happens after limiting already ran.
              */
             /*
@@ -454,8 +454,8 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
 
     if (resume_failed > 0) {
         /*
-         * At least one suspended process could not be resumed at shutdown
-         *.  It may stay stopped forever, so report it and exit
+         * At least one suspended process could not be resumed at shutdown.
+         * It may stay stopped forever, so report it and exit
          * non-zero rather than silently returning success.  The resume
          * round above already printed a per-PID "cannot resume PID N ... may
          * remain stopped; run 'kill -CONT N'" line for every process it
