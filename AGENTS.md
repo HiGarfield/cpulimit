@@ -438,7 +438,9 @@ Additional requirements MUST be enforced:
   replays the behaviour snapshots, and `hook.c`, the LD_PRELOAD injection hook
   it builds to reach the signal-failure paths
 - `/baseline`: behaviour snapshots recorded by `tools/behaviour_baseline.sh`
-  and replayed by `tools/behaviour_baseline.sh --check`
+  and replayed by `tools/behaviour_baseline.sh --check`. Working-tree scratch,
+  not tracked by version control: the script regenerates the directory from the
+  current build, and a snapshot only describes the machine that recorded it
 - `/.github/workflows/CI.yml`: cross-platform build and release workflow
 - `/.clang-format`: formatting configuration
 - `/.clang-tidy`: static analysis configuration
