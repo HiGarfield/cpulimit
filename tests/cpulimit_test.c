@@ -1867,7 +1867,14 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     ssize_t n_read;
 
     /* Sub-test 1: a keyboard quit on a terminal writes exactly one newline. */
-    master_fd = posix_openpt(O_RDWR | O_NOCTTY);
+    /*
+     * open("/dev/ptmx", ...) is what posix_openpt() does on every supported
+     * platform, and the only spelling of it that the oldest supported C
+     * libraries have: uClibc does provide grantpt(), unlockpt() and
+     * ptsname(), but not posix_openpt() itself, so relying on that wrapper
+     * would leave this test unable to link there.
+     */
+    master_fd = open("/dev/ptmx", O_RDWR | O_NOCTTY);
     assert(master_fd >= 0);
     assert(grantpt(master_fd) == 0);
     assert(unlockpt(master_fd) == 0);
@@ -14642,6 +14649,57 @@ static void test_child_wait_escalates_sigkill_once(void) {
 }
 
 /**
+ * @brief Wait for a child to have exited, and leave it unreaped
+ * @param pid PID of a child of this process
+ * @note Waiting is what makes test_child_wait_reaps_child_on_clock_failure()
+ *       meaningful: the reap it exercises is deliberately non-blocking (T2),
+ *       so it can only collect a child that has already become a zombie.
+ *       The wait therefore has to observe a real state change and must not
+ *       consume the child itself.  EOF on a pipe observes neither: the child
+ *       can close its end a moment before it exits, long enough to lose that
+ *       race under valgrind.
+ *
+ *       waitid(P_PID, ..., WEXITED | WNOWAIT) would report exactly that
+ *       moment while leaving the child reapable, but C libraries predating
+ *       those options export neither the options nor waitid() itself, so
+ *       Linux is served by the 'Z' state in /proc/[pid]/stat and every other
+ *       platform by a wait long enough for a child that has already called
+ *       _exit().  Neither branch reaps anything.
+ */
+static void await_child_exit(pid_t pid) {
+#if defined(__linux__)
+    /*
+     * The state field follows the parenthesised comm field, which may itself
+     * contain spaces, so only the last ')' reliably ends it.
+     */
+    for (;;) {
+        const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
+        char stat_path[sizeof("/proc/2147483647/stat")];
+        char *fields = NULL;
+        const char *comm_end;
+        int has_exited = 0;
+
+        snprintf(stat_path, sizeof(stat_path), "/proc/%ld/stat", (long)pid);
+        fields = read_file_contents(stat_path);
+        if (fields != NULL) {
+            comm_end = strrchr(fields, ')');
+            if (comm_end != NULL) {
+                has_exited = comm_end[1] == ' ' && comm_end[2] == 'Z';
+            }
+            free(fields);
+        }
+        if (has_exited) {
+            break;
+        }
+        sleep_timespec(&poll_time);
+    }
+#else
+    const struct timespec settle_time = {0, 200000000L}; /* 200 ms */
+    sleep_timespec(&settle_time);
+#endif
+}
+
+/**
  * @brief collect_child_exit_status() must reap the child it gives up on (S4)
  * @note The three get_current_time() failure paths used to call exit() out of
  *       this function, so neither run_command_mode() nor run_pid_or_exe_mode()
@@ -14663,7 +14721,6 @@ static void test_child_wait_reaps_child_on_clock_failure(void) {
     pid_t target, waited;
     struct cpulimit_cfg cfg;
     int status, result, orphan;
-    siginfo_t child_info;
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "test";
@@ -14680,19 +14737,9 @@ static void test_child_wait_reaps_child_on_clock_failure(void) {
     /*
      * Wait for the child to really have exited before the failure is armed:
      * the reap on that path is deliberately non-blocking (T2), so it can
-     * only collect a child that is already gone.  WNOWAIT reports the exit
-     * without consuming it, which leaves the child reapable for
-     * collect_child_exit_status() -- and it is a real state change, unlike
-     * EOF on a pipe, which only says the child closed its end and happens a
-     * moment before the exit itself (long enough to lose this race under
-     * valgrind).
+     * only collect a child that is already gone.
      */
-    memset(&child_info, 0, sizeof(child_info));
-    while (waitid(P_PID, (id_t)target, &child_info, WEXITED | WNOWAIT) != 0 &&
-           errno == EINTR) {
-        ;
-    }
-    assert((pid_t)child_info.si_pid == target);
+    await_child_exit(target);
 
     seam_reset();
     seam_active = 1;
