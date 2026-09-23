@@ -842,8 +842,8 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
     if (proc_set == NULL || proc_set->proc_list == NULL) {
         /*
          * Return what the deferred round reported instead of a bare 0:
-         * the group list may be gone while recorded suspensions remain
-         *, and that failure must not be dropped here.
+         * the group list may be gone while recorded suspensions remain, and
+         * that failure must not be dropped here.
          */
         return failed;
     }

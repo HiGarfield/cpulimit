@@ -180,9 +180,8 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * sync_write_fd), which also signals exec completion to the parent.
      *
      * The check runs for an explicit path AND for a bare name resolved through
-     * PATH, so both spellings of the same script report the same code
-     *: an inaccessible interpreter always yields 126, never a
-     * misleading 127.
+     * PATH, so both spellings of the same script report the same code: an
+     * inaccessible interpreter always yields 126, never a misleading 127.
      */
     check_path = cfg->command_args[0];
     resolved = (char *)malloc(PATH_MAX);
