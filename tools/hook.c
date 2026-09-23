@@ -90,6 +90,7 @@ int kill(pid_t pid, int sig) {
             void *obj;
             int (*fn)(pid_t, int);
         } pun;
+
         pun.obj = dlsym(RTLD_NEXT, "kill");
         real_kill = pun.fn;
         if (real_kill == NULL) {
