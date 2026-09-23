@@ -58,9 +58,6 @@
 #include <string.h>
 #include <sys/types.h>
 
-/* The real kill(), resolved lazily on the first call. */
-static int (*real_kill)(pid_t, int) = NULL;
-
 /**
  * @brief Interposed kill() implementing the configured rejection policy
  * @param pid Target process or process group
@@ -72,6 +69,13 @@ static int (*real_kill)(pid_t, int) = NULL;
  * scenario explicitly arms it.
  */
 int kill(pid_t pid, int sig) {
+    /*
+     * The real kill(), resolved lazily on the first call.  It belongs to this
+     * function alone: interposition resolves the symbol once and every
+     * forwarding path is right here, so no other function has any use for the
+     * pointer.
+     */
+    static int (*real_kill)(pid_t, int) = NULL;
     const char *mode;
     const char *target;
     pid_t restricted_pid;

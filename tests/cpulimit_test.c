@@ -216,18 +216,6 @@ static void test_suspend_until_killed(void) {
 }
 
 /**
- * @brief PID of the test process, published to children that get orphaned
- *        on purpose
- *
- * test_limit_process_resumes_orphaned_descendant() kills the tracked
- * ancestor so that its descendant is re-parented away; that descendant
- * must keep running, so it cannot use its own parent to notice that
- * the test is over.  The ancestor publishes the test process PID here
- * and the descendant inherits it across fork().
- */
-static pid_t test_runner_pid = 0;
-
-/**
  * @brief Burn CPU in a test child until it is killed
  * @note The CPU-burning counterpart of test_suspend_until_killed(): a
  *       leaked burner is worse than a leaked sleeper because it also
@@ -6667,6 +6655,15 @@ static int drain_heartbeats(int fd) {
  * a pipe.  Once the limiter has exited, heartbeats must reappear.
  */
 static void test_limit_process_resumes_orphaned_descendant(void) {
+    /*
+     * PID of the test process, published to the descendants this test lets
+     * get orphaned.  The test kills the tracked ancestor so that its
+     * descendant is re-parented away, and that descendant cannot use its own
+     * parent to notice the test is over: it reads this PID instead, which it
+     * inherits across the fork() below.  Static storage keeps the value alive
+     * from the write before that fork to the read after it.
+     */
+    static pid_t test_runner_pid = 0;
     const double cpu_usage_limit = 0.001;
     const struct timespec settle_time = {1, 0};
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
@@ -9508,9 +9505,6 @@ static size_t seam_signal_count = 0;
  * far past the per-frame stack budget.
  */
 static struct seam_signal *seam_run_snapshot;
-
-/** @brief Number of entries in seam_run_snapshot. */
-static size_t seam_run_snapshot_len = 0;
 
 /** @brief Number of kill() calls made so far. */
 static int seam_kill_calls = 0;
@@ -13540,6 +13534,8 @@ static int seam_run_smoke_limit(void) {
  */
 static int seam_snapshot_run(void) {
     size_t idx;
+    /** @brief Number of entries copied into seam_run_snapshot, this run. */
+    static size_t seam_run_snapshot_len = 0;
     seam_run_snapshot_len = seam_signal_count < SEAM_MAX_SIGNALS
                                 ? seam_signal_count
                                 : SEAM_MAX_SIGNALS;
