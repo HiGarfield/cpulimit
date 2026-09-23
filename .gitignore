@@ -4,3 +4,4 @@ build-*
 .codebuddy
 tools/hook.so
 baseline
+tools/hook.o
