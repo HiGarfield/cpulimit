@@ -393,7 +393,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     }
 #ifdef CPULIMIT_TEST_BUILD
 /* Opt-in: only route through the test seam when the harness arms it, so the
-   default path stays a direct call to the real getppid_of() (BUG-043). */
+   default path stays a direct call to the real getppid_of(). */
 #define GETPPID_OF(c)                                                          \
     (seam_getppid_fabricate ? cpulimit_test_getppid_of(c) : getppid_of(c))
 #else
@@ -416,7 +416,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
          * A transient lookup failure (e.g. the process exited or became a
          * zombie between the previous step and this one) must not be taken as
          * proof of non-membership: retry once before giving up, so a single
-         * -1 does not break the ancestor chain (BUG-043).
+         * -1 does not break the ancestor chain.
          */
         if (next_ppid < 0) {
             next_ppid = GETPPID_OF(child_pid);

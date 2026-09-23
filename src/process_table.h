@@ -73,7 +73,7 @@ struct process_table {
  * resolution.
  *
  * A hash_size whose bucket array size would overflow size_t is rejected
- * before calloc() is called at all (R2): the product must never be handed
+ * before calloc() is called at all: the product must never be handed
  * to the allocator, where it is undefined for the standard library and
  * aborts outright under hardened allocators and AddressSanitizer instead
  * of returning NULL.

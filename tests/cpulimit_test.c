@@ -9553,8 +9553,8 @@ static size_t seam_child_log_len = 0;
 
 /*
  * Start times scripted for the get_process_start_time() seam.  Kept on its own
- * queue instead of riding the process-iterator frames because V1 made that read
- * unconditional in -e mode; letting it consume an iterator frame would shift
+ * queue instead of riding the process-iterator frames because -e mode performs
+ * that read on every run; letting it consume an iterator frame would shift
  * the frame accounting of every iterator-driven test.  A test that does not
  * seed the queue leaves it empty, so a read falls back to UNKNOWN_START_TIME --
  * the safe "cannot tell" value that never suppresses a resume.
@@ -12605,10 +12605,10 @@ int cpulimit_test_get_current_time(struct timespec *result_ts) {
  *
  * While the seam is inactive this is a straight passthrough to the real
  * implementation.  While active it drains a dedicated queue rather than the
- * process-iterator seam, so the extra bookkeeping read V1 added in -e mode does
- * not steal a snapshot frame from iterator-driven tests.  An empty queue yields
- * UNKNOWN_START_TIME, the safe "cannot compare" fallback that never suppresses
- * a closing resume.
+ * process-iterator seam, so the extra bookkeeping read -e mode performs does
+ * not steal a snapshot frame from iterator-driven tests.  An empty queue
+ * yields UNKNOWN_START_TIME, the safe "cannot compare" fallback that never
+ * suppresses a closing resume.
  */
 double cpulimit_test_get_process_start_time(pid_t pid) {
     if (!seam_active) {
@@ -14858,7 +14858,7 @@ static void test_pid_mode_retries_after_scan_failure(void) {
      * at the first bad scan, which is the whole difference from lazy mode.
      * The per-cycle diagnostic is now reported once per streak rather than
      * once per attempt, so how many attempts there were shows up in the
-     * count the run gives up with (V5).
+     * count the run gives up with.
      */
     attempts = 0;
     walk = strstr(capture, "Giving up after ");
@@ -14883,12 +14883,12 @@ static void test_pid_mode_retries_after_scan_failure(void) {
 
 /**
  * @brief The per-cycle scan diagnostic appears once per streak, not once per
- *        retry (V5)
+ *        retry
  * @note Non-lazy mode re-resolves the target and retries a failed scan every
  *       two seconds, up to fifteen times, so a diagnostic printed on every
  *       attempt came out fifteen times identically and buried whatever
  *       followed -- notably the stranded-process hints that name the PID to
- *       recover by hand.  V5 reports it only on the first failure of a streak
+ *       recover by hand.  It is reported only on the first failure of a streak
  *       and leaves the closing "Giving up after N failed scan(s)" line to say
  *       how many attempts there were.  This drives the same run as the retry
  *       test above and counts the diagnostic in the captured stderr.
@@ -15362,7 +15362,7 @@ static int seam_count_closing_sigcont(const struct cpulimit_cfg *cfg,
     seam_hook_limit_process = 1;
     seam_limit_process_status = LIMIT_PROCESS_OK;
     /* Drive the closing-resume start-time comparison off the dedicated queue,
-     * independent of the iterator frames (V1). */
+     * independently of the iterator frames. */
     seam_set_start_times(start_before, start_after);
 
     result = run_pid_or_exe_mode(cfg);
@@ -15460,13 +15460,12 @@ static void test_pid_mode_resumes_when_start_time_unknown(void) {
 }
 
 /**
- * @brief -e must still resume a target that only changed its name (V1)
- * @note Before V1 the -e branch skipped the closing resume when the process
- *       no longer carried the requested name.  But a name is not an identity
- *       signal: an exec() rewrites argv[0] without changing the process, so a
- *       re-exec'd target was wrongly left stopped forever -- the bug V1 fixes.
- *       Both modes now judge identity by the start time, the authoritative
- *       signal BUG-004 already uses in -p.  Every frame here shares start time
+ * @brief -e must still resume a target that only changed its name
+ * @note A name is not an identity signal: an exec() rewrites argv[0] without
+ *       changing the process, so a re-exec'd target must not be mistaken for a
+ *       hand-off and left stopped forever.  Both modes judge identity by the
+ *       start time instead, the same signal -p relies on.  Every frame here
+ *       shares start time
  *       100.0 while the last frame's command is changed ("other") to simulate
  *       the exec; because the start time is unchanged the resume must happen.
  *       Verified by mutation: reverting to the name comparison makes it 0.
@@ -15507,8 +15506,8 @@ static void test_exe_mode_resumes_when_only_name_changed(void) {
 }
 
 /**
- * @brief -e must skip the closing resume only when the PID was recycled (V1)
- * @note V1 keeps the -p behaviour for the genuine recycle: when the start time
+ * @brief -e must skip the closing resume only when the PID was recycled
+ * @note The -p behaviour holds for the genuine recycle: when the start time
  *       read after limit_process() differs from the one recorded before it, the
  *       PID changed hands and resuming it would wake a process somebody else is
  *       holding stopped.  Only a changed start time triggers this (the queue is
@@ -15874,8 +15873,8 @@ static void test_process_set_resume_skips_recycled_pid(void) {
 
     /*
      * resume_stopped_pids() re-queries the PID's start time through the
-     * get_process_start_time() seam (V1 moved that read onto a dedicated
-     * queue, decoupled from the iterator seam).  Seed it with the
+     * get_process_start_time() seam, which keeps that read on a dedicated
+     * queue decoupled from the iterator seam.  Seed it with the
      * replacement's start time so the recycle is detected and the resume
      * skipped.
      */
@@ -16383,8 +16382,8 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
 
 /**
  * @brief reap_child_before_error_return() must not block on a child ignoring
- *        the termination signal (V2)
- * @note V2 made the single reap helper non-blocking (WNOHANG), so an internal
+ *        the termination signal
+ * @note The reap helper is non-blocking (WNOHANG), so an internal
  *       error branch can no longer hang on a child that ignores SIGTERM -- the
  *       forwarded signal is ineffective and this path skips the polling loop's
  *       SIGKILL escalation.  Fork a child that ignores SIGTERM and sleeps,
@@ -16395,8 +16394,8 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
  *       fix it is only reparented to init when this process exits.
  */
 /**
- * @brief record_stopped_pid() must de-duplicate a re-recorded PID (V3)
- * @note V3 made record_stopped_pid() fold a second recording of the same PID
+ * @brief record_stopped_pid() must de-duplicate a re-recorded PID
+ * @note record_stopped_pid() folds a second recording of the same PID
  *       into the existing entry instead of appending a duplicate.  Without it,
  *       the SIGSTOP round re-records a member whose SIGCONT failed in the
  *       prior round (S3) and leaves two entries for one suspension, which
@@ -16412,12 +16411,12 @@ static void test_stopped_pids_record_does_not_duplicate(void) {
 
 /**
  * @brief limit_process() must report a failed scan and a stranded member as
- *        both rather than as a run that never limited (V4)
+ *        both rather than as a run that never limited
  * @note When a run both stopped on a failed scan and then failed to resume a
  *       member, returning LIMIT_PROCESS_ERROR made command mode describe it as
  *       "CPU limit could not be applied" -- the wording reserved for a group
- *       that was never built -- even though limiting demonstrably ran.  V4
- *       adds LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED for exactly that
+ *       that was never built -- even though limiting demonstrably ran.
+ *       LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED exists for exactly that
  *       combination.  Drive the real limit_process() with a CPU-burning child:
  *       let a few cycles run so the group really gets suspended, make the next
  *       scan fail, and make every SIGCONT fail, then assert the combined

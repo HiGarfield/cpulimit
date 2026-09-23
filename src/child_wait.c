@@ -58,7 +58,7 @@
  * -- "cpulimit -l 50 -- sh -c 'trap "" TERM; sleep 100000'" would wait for the
  * sleep to end even though the forwarded SIGTERM can simply be ignored, and
  * this path bypasses the polling loop's SIGKILL escalation that would
- * otherwise bound the wait (T2).  So the wait is always WNOHANG: if the child
+ * otherwise bound the wait.  So the wait is always WNOHANG: if the child
  * has not exited yet this returns immediately.  EINTR is retried because
  * waitpid() is interruptible; any other error means there is nothing left to
  * collect.
@@ -69,7 +69,7 @@
  * defect to avoid.
  *
  * Used by the internal failure paths, which return EXIT_FAILURE to the caller
- * instead of terminating the process underneath it (S4).
+ * instead of terminating the process underneath it.
  */
 static void reap_child_before_error_return(pid_t child_pid) {
     for (;;) {
@@ -110,7 +110,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
     int child_exit_status = EXIT_FAILURE;
     /* 1 if child PID was successfully reaped, 0 otherwise */
     int child_reaped = 0;
-    /* 1 once the SIGKILL escalation has been sent, so it happens once (S5) */
+    /* 1 once the SIGKILL escalation has been sent, so it happens once */
     int kill_sent = 0;
     /* Timeout anchor; reset when forwarding signal */
     struct timespec start_time;
@@ -121,11 +121,11 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
         /*
          * Return instead of exiting: the caller still has its own
          * diagnosis and exit status to produce, and terminating the
-         * process here skipped both (S4).  The child is resumed first so
+         * process here skipped both.  The child is resumed first so
          * it does not stay stopped, then reaped.  Reaping is always
          * non-blocking (WNOHANG): even if the child ignores the signal and
          * keeps running, this returns immediately and the child is
-         * reparented to init on exit (T2).
+         * reparented to init on exit.
          */
         kill(child_pid, SIGCONT);
         reap_child_before_error_return(child_pid);
@@ -195,9 +195,9 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
             if (get_current_time(&current_time) != 0) {
                 perror("get_current_time");
                 /* Same reasoning as above: reap, then let the caller
-                 * decide how the run ends (S4).  Reaping is non-blocking
+                 * decide how the run ends.  Reaping is non-blocking
                  * (WNOHANG) regardless; the child is reparented to init if
-                 * it keeps running (T2). */
+                 * it keeps running. */
                 kill(child_pid, SIGCONT);
                 reap_child_before_error_return(child_pid);
                 return EXIT_FAILURE;
@@ -231,9 +231,9 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                 if (get_current_time(&start_time) != 0) {
                     perror("get_current_time");
                     /* Same reasoning as above: reap, then let the caller
-                       decide how the run ends (S4).  Reaping is non-blocking
+                       decide how the run ends.  Reaping is non-blocking
                        (WNOHANG) regardless; the child is reparented to init
-                       if it keeps running (T2). */
+                       if it keeps running. */
                     kill(child_pid, SIGCONT);
                     reap_child_before_error_return(child_pid);
                     return EXIT_FAILURE;
@@ -266,7 +266,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                      * zombie still carries its PID and PGID, so the
                      * repeats reached whatever else was living in that
                      * group, and signal_command() printed its own
-                     * failure message again each time (S5).
+                     * failure message again each time.
                      */
                     if (cfg->verbose) {
                         printf("Process %ld timed out, sending SIGKILL\n",

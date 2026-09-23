@@ -184,8 +184,8 @@ int get_ncpu(void) {
              * Cross-check with sysfs, but only let a usable answer replace
              * what sysconf() reported: get_online_cpu_count() returns -1
              * when /sys cannot be read (a restricted container, or sysfs
-             * not mounted), and taking that as the count used to overwrite
-             * a perfectly good value with 1.
+             * not mounted), and taking that for the count would replace a
+             * perfectly good value with 1.
              */
             long sysfs_ncpu = get_online_cpu_count();
             if (sysfs_ncpu > 0) {

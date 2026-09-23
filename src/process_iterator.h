@@ -148,7 +148,7 @@ struct process {
     char command[CMD_BUFF_SIZE];
 
     /**
-     * Throttle state for signal-failure diagnostics (BUG-058).
+     * Throttle state for signal-failure diagnostics.
      *
      * A member whose SIGCONT/SIGSTOP cannot be delivered (EPERM/EACCES) is
      * retried on every control cycle, so reporting each failure would flood
@@ -166,7 +166,7 @@ struct process {
     int stop_warned;
 
     /**
-     * Throttle state for the severe resume episode (U2).
+     * Throttle state for the severe resume episode.
      *
      * Separate from cont_warned because the two episodes are independent:
      * whether a failed SIGCONT deserves the "may remain stopped" emergency
@@ -181,7 +181,7 @@ struct process {
     int resume_warned;
 
     /**
-     * Suspension state owned by the limiting group (BUG-051).
+     * Suspension state owned by the limiting group.
      *
      * Non-zero while the most recent SIGSTOP this group delivered to the
      * member was successful and has not yet been undone by a successful
@@ -410,10 +410,10 @@ pid_t getppid_of(pid_t pid);
  *
  * When the test harness is built, is_child_of() routes its parent-PID lookups
  * through this function (only when seam_getppid_fabricate is set) so
- * ancestor-chain breakage (BUG-043) can be reproduced deterministically.
+ * ancestor-chain breakage can be reproduced deterministically.
  */
 pid_t cpulimit_test_getppid_of(pid_t pid);
-/** @brief Non-zero: is_child_of() should use the getppid_of() seam (BUG-043).
+/** @brief Non-zero: is_child_of() should use the getppid_of() seam.
  */
 extern int seam_getppid_fabricate;
 
@@ -424,12 +424,12 @@ extern int seam_getppid_fabricate;
  * its liveness check through this function instead of sending a real
  * kill(pid, 0).  The backing reads the currently selected iterator seam frame,
  * so a candidate that the scripted snapshot dropped is reported as gone -- this
- * lets name-based lookup tests (BUG-055/BUG-056) drive the final recheck
+ * lets name-based lookup tests drive the final recheck
  * deterministically instead of depending on a real PID being alive.
  */
 pid_t cpulimit_test_find_by_pid(pid_t pid);
 /** @brief Non-zero: find_process_by_pid() should use the seam probe
- * (BUG-055/056). */
+ * instead of a real PID being alive. */
 extern int seam_find_by_pid_override;
 #endif
 
