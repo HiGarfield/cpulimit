@@ -83,9 +83,12 @@ Prebuilt binaries for major platforms are available in [Releases](https://github
 > — one that belongs to another user, is filtered out by seccomp, or lives
 > in another PID namespace — loses to any match it *can* control, even when
 > it would otherwise win as the ancestor or as the smaller PID. cpulimit
-> reports `No permission to control process <pid>` and exits nonzero only
-> when **every** surviving match is uncontrollable; as long as one match can
-> be limited, that one is used.
+> reports `No permission to control process <pid>` only when **every**
+> surviving match is uncontrollable; as long as one match can be limited, that
+> one is used. In non-lazy mode that report repeats while the search goes on,
+> exactly as it does for a target that is missing altogether: the process
+> currently wearing the name may be replaced by one cpulimit is allowed to
+> limit, and the replacement has to be picked up.
 >
 > _Example:_ If a process `myapp` spawns a child process also named
 > `myapp`, `-e myapp` selects the parent process (the ancestor), not the
@@ -132,24 +135,33 @@ If the process scan fails while the control loop is running, limiting stops
 and the target is no longer limited from that point on. Command mode and lazy
 mode (`-p`, or `-e` together with `-z`) have no second chance and exit with
 code 1. Non-lazy mode (`-e` without `-z`) re-resolves the target and re-attaches
-instead, and it keeps doing so for as long as it runs: a target that has not
-started yet, a name that resolves to a recycled PID, and a scan that cannot be
-carried out are all conditions it is meant to sit out. It stops only on a
-termination signal, on a target it is not allowed to signal, or on an internal
-failure it cannot recover from.
+instead, and it keeps doing so for as long as it runs.
 
 That is what non-lazy means here: the mode exists for a process whose start
 time cannot be known in advance, so waiting for it is the point rather than a
-cost. Use `-z` -- or `-p`, which implies it -- when the run should end as soon
-as the target is gone.
+cost. Nothing about the target ends the watch -- not being started yet, having
+exited (whether it was running or suspended when it did), reappearing on a
+recycled PID, refusing every signal, or a scan that fails mid-attempt --
+because in every one of those cases the target can come back, and it has to be
+limited again when it does. Only two things end it, and both are problems with
+the run rather than with the target: a failure of the scanning machinery
+(allocation, clock or process-iterator initialisation), after which there is
+nothing left to search with, and an attempt that left a member stopped, which
+needs `kill -CONT` by hand instead of another attempt. A termination signal
+ends the whole run, as it does in any mode.
 
-While it waits, the target-missing message repeats on every attempt
-(`Process 'NAME' cannot be found, retrying...`, once per two-second wait),
-because that is the only sign of life a waiting run gives. The scan diagnostic
-is reported once per streak instead, so a run whose scans keep failing does not
-print the same line on every attempt and bury whatever follows it -- including
-the hints that name a process left stopped. A streak ends when a run limits to
-completion, which is when that diagnostic becomes due again.
+Use `-z` -- or `-p`, which implies it -- when the run should end as soon as
+the target is gone.
+
+While it waits, the message saying why the last attempt limited nothing
+repeats on every attempt (`Process 'NAME' cannot be found, retrying...`,
+`No permission to control process PID, retrying...`, once per two-second
+wait), because that is the only sign of life a waiting run gives. The scan
+diagnostic is reported once per streak instead, so a run whose scans keep
+failing does not print the same line on every attempt and bury whatever
+follows it -- including the hints that name a process left stopped. A streak
+ends when a run limits to completion, which is when that diagnostic becomes
+due again.
 
 ## Get the Latest Source Code
 

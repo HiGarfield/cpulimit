@@ -9866,160 +9866,191 @@ static void test_find_by_name_prefers_controllable_if_close_fails(void) {
  * a clear message, never spin forever.  This locks in the already-correct
  *       behaviour (no source change required for BUG-013 itself).
  */
-static void test_limiter_run_pid_or_exe_mode_exits_on_permission_denied(void) {
-    pid_t pid, waited;
-    int status = 0, exited, exit_code, sec;
+/**
+ * @brief Drive a run whose target exists but refuses every signal
+ * @param write_fd Where the child's stderr and its final report go
+ * @param announce_fd Where the parked wait announces itself
+ * @param go_fd Where the parked wait waits to be released
+ * @param exe_mode Non-zero to search by name (-e), zero to name a PID (-p)
+ *
+ * The kill seam refuses every signal with EPERM, so each lookup ends in
+ * TARGET_UNCONTROLLABLE: either from the probe find_process_by_pid() makes for
+ * a named PID, or from the probe find_process_by_name() makes for the single
+ * candidate its frame serves.  The run parks on the third wait, so it can only
+ * announce itself if two refusals did not end it.
+ */
+static void uncontrollable_target_driver_child(int write_fd, int announce_fd,
+                                               int go_fd, int exe_mode) {
     struct cpulimit_cfg cfg;
+    struct seam_proc *frame;
+    int err_fd;
+    int rc;
+
+    frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    strcpy(frame[0].command, "busy");
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
-    cfg.target_pid = 9999;
     cfg.cpu_limit = 0.5;
-    cfg.lazy_mode = 0; /* non-lazy would loop forever without the EPERM exit */
+    cfg.lazy_mode = 0;
 
     seam_reset();
+    if (exe_mode) {
+        cfg.exe_name = "busy";
+        /* One candidate, served again for every lookup. */
+        seam_push_frame(frame, 1);
+        seam_repeat_last = 1;
+    } else {
+        cfg.target_pid = SEAM_TARGET_PID;
+    }
     seam_active = 1;
-    seam_kill_calls = 0;
     seam_fail_call = 1;
-    seam_fail_span = 1;
-    seam_fail_errno = EPERM;
-
-    fflush(stdout);
-    fflush(stderr);
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        int mode_result;
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        configure_signal_handler();
-        mode_result = run_pid_or_exe_mode(&cfg);
-        _exit(mode_result);
-    }
-
-    /* A permission-denied target exits on the first loop iteration, so it must
-     * terminate within a few seconds, not block on the 30s give-up timer. */
-    waited = 0;
-    for (sec = 0; sec < 10; sec++) {
-        waited = waitpid(pid, &status, WNOHANG);
-        if (waited == pid) {
-            break;
-        }
-        if (waited < 0 && errno != ECHILD) {
-            break;
-        }
-        sleep(1);
-    }
-    if (waited != pid) {
-        kill(pid, SIGKILL);
-        waitpid(pid, &status, 0);
-        assert(0 && "run_pid_or_exe_mode did not exit on permission denied");
-    }
-    exited = WIFEXITED(status);
-    assert(exited);
-    exit_code = WEXITSTATUS(status);
-    assert(exit_code == EXIT_FAILURE);
-    /* The parent armed the kill seam; reset it so later tests are unaffected.
+    /*
+     * A million calls, not one: whether the search stops must be decided by
+     * the refusal, never by the seam running out of failures to inject.
      */
-    seam_active = 0;
-    seam_fail_call = 0;
-    seam_fail_errno = 0;
+    seam_fail_span = 1000000;
+    seam_fail_errno = EPERM;
+    seam_hook_sleep = 1;
+    seam_sleep_call = 3;
+    seam_sleep_announce_fd = announce_fd;
+    seam_sleep_go_fd = go_fd;
+
+    configure_signal_handler();
+
+    fflush(stderr);
+    err_fd = dup2(write_fd, STDERR_FILENO);
+    if (err_fd < 0) {
+        _exit(EXIT_FAILURE);
+    }
+    if (write_fd != STDERR_FILENO) {
+        close(write_fd);
+    }
+
+    rc = run_pid_or_exe_mode(&cfg);
+    free(frame);
+    close(err_fd);
+    _exit(rc);
 }
 
 /**
- * @brief run_pid_or_exe_mode() must fail cleanly when the -e candidate
- *        cannot be controlled (BUG-061)
- * @note find_process_by_name() used to drop the negative sign of the
- *       permission probe, so the limiter started a doomed limit run on an
- *       uncontrollable PID and flooded stderr with per-signal EPERM
- *       warnings instead of one clear line.  The scan is scripted and the
- *       recheck probe fails with EPERM, so the -e loop must print "No
- *       permission to control process" and return EXIT_FAILURE instead of
- *       entering limit_process().
+ * @brief Check that a refused target does not end a non-lazy search
+ * @param exe_mode Non-zero to drive the -e lookup, zero to drive the -p one
+ *
+ * A refusal belongs to the process wearing that name or PID at this moment,
+ * not to the search: the target may be restarted, and its replacement may be
+ * one this process owns and can limit.  The run therefore parks on the third
+ * wait, which only a run that kept looking after two refusals reaches; the
+ * parent then asserts the diagnostic, its retrying suffix, the absence of the
+ * per-signal warnings a doomed limit run would produce, and a clean exit once
+ * it signals.  Verified by mutation: making the uncontrollable-target path end
+ * the loop leaves the announcement read returning 0.
  */
-static void test_limiter_run_exe_mode_reports_permission_denied(void) {
-    int pipe_fds[2];
-    int ret, waited, exited;
-    pid_t pid;
-    int status;
-    char *err_buf;
-    size_t err_len;
+static void check_uncontrollable_target_keeps_waiting(int exe_mode) {
+    int err_pipe[2];
+    int announce_pipe[2];
+    int go_pipe[2];
+    pid_t driver, waited;
+    int status = 0, exited, exit_code;
+    char announce;
+    char *capture;
+    size_t total;
 
-    ret = pipe(pipe_fds);
-    assert(ret == 0);
+    assert(pipe(err_pipe) == 0);
+    assert(pipe(announce_pipe) == 0);
+    assert(pipe(go_pipe) == 0);
+
     fflush(stdout);
     fflush(stderr);
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        struct cpulimit_cfg cfg;
-        struct seam_proc *frame;
-        int run_status;
-        close(STDOUT_FILENO);
-        close(pipe_fds[0]);
-        ret = dup2(pipe_fds[1], STDERR_FILENO);
-        if (ret < 0) {
-            _exit(EXIT_FAILURE);
-        }
-        close(pipe_fds[1]);
-        frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
-        assert(frame != NULL);
-        memset(frame, 0, sizeof(struct seam_proc));
-        frame[0].pid = (pid_t)SEAM_TARGET_PID;
-        frame[0].ppid = (pid_t)1;
-        strcpy(frame[0].command, "busy");
-        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
-        cfg.program_name = "test";
-        cfg.exe_name = "busy";
-        cfg.cpu_limit = 0.5;
-        cfg.lazy_mode = 0;
-        seam_reset();
-        seam_push_frame(frame, 1);
-        seam_active = 1;
-        seam_fail_call = 1;
-        seam_fail_span = 1;
-        seam_fail_errno = EPERM;
-        run_status = run_pid_or_exe_mode(&cfg);
-        seam_active = 0;
-        seam_fail_call = 0;
-        seam_fail_errno = 0;
-        free(frame);
-        _exit(run_status == EXIT_FAILURE ? EXIT_SUCCESS : EXIT_FAILURE);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        close(err_pipe[0]);
+        close(announce_pipe[0]);
+        close(go_pipe[1]);
+        uncontrollable_target_driver_child(err_pipe[1], announce_pipe[1],
+                                           go_pipe[0], exe_mode);
     }
-    close(pipe_fds[1]);
+    close(err_pipe[1]);
+    close(announce_pipe[1]);
+    close(go_pipe[0]);
 
-    err_buf = (char *)malloc(512);
-    assert(err_buf != NULL);
-    err_len = 0;
-    while (1) {
-        ssize_t nread = read(pipe_fds[0], err_buf + err_len, 512 - 1 - err_len);
-        if (nread > 0) {
-            err_len += (size_t)nread;
-            if (err_len >= 512 - 1) {
-                break;
-            }
+    /* Only now, so the forked child inherits nothing to leak. */
+    capture = (char *)malloc(2048);
+    assert(capture != NULL);
+
+    /*
+     * The barrier sits on the wait that follows two refused lookups: a run
+     * that treated the first refusal as fatal never reaches it and the read
+     * returns 0 at EOF instead.  The parent then ends the run the only way an
+     * unbounded search can be ended.
+     */
+    alarm(30);
+    assert(read(announce_pipe[0], &announce, 1) == 1);
+    assert(kill(driver, SIGTERM) == 0);
+    assert(write(go_pipe[1], "G", 1) == 1);
+    alarm(0);
+    close(announce_pipe[0]);
+    close(go_pipe[1]);
+
+    total = 0;
+    while (total < 2047) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 2047 - total);
+        if (n_read < 0 && errno == EINTR) {
             continue;
         }
-        if (nread == 0) {
+        if (n_read <= 0) {
             break;
         }
-        if (errno == EINTR) {
-            continue;
-        }
-        break;
+        total += (size_t)n_read;
     }
-    err_buf[err_len] = '\0';
-    close(pipe_fds[0]);
+    capture[total] = '\0';
+    close(err_pipe[0]);
 
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
     exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+
     assert(exited);
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
-    /* One clear diagnostic instead of a doomed limit run (BUG-061). */
-    assert(strstr(err_buf, "No permission to control process") != NULL);
-    assert(strstr(err_buf, "Warning: cannot send signal") == NULL);
-    free(err_buf);
+    assert(exit_code == EXIT_SUCCESS);
+    /* One clear diagnostic per attempt, saying what the mode does about it. */
+    assert(strstr(capture, "No permission to control process") != NULL);
+    assert(strstr(capture, "retrying...") != NULL);
+    assert(strstr(capture, "Warning: cannot send signal") == NULL);
+    free(capture);
+}
+
+/**
+ * @brief The PID lookup must not end a non-lazy search on a refusal either
+ * @note Treating the refusal as fatal made a target that is restarted as a
+ *       process this one owns unreachable, although sitting that out is what
+ *       the mode is for.  -p implies -z at the command line, so this
+ *       combination comes from the API rather than from the CLI; it is the
+ *       same branch either way, and the PID path must reach it exactly as the
+ *       name path does.  See check_uncontrollable_target_keeps_waiting().
+ */
+static void test_limiter_run_pid_or_exe_mode_waits_on_permission_denied(void) {
+    check_uncontrollable_target_keeps_waiting(0);
+}
+
+/**
+ * @brief A non-lazy -e run must report an uncontrollable candidate once, then
+ *        keep looking
+ * @note find_process_by_name() has to keep the negative sign of its permission
+ *       probe: dropping it made the limiter start a doomed limit run on an
+ *       uncontrollable PID and flood stderr with per-signal warnings instead
+ *       of one clear line.  Reporting the refusal is not the same as acting on
+ *       it, though -- the search continues, because the candidate may be
+ *       restarted as a process this one owns.  See
+ *       check_uncontrollable_target_keeps_waiting().
+ */
+static void test_limiter_run_exe_mode_reports_permission_denied(void) {
+    check_uncontrollable_target_keeps_waiting(1);
 }
 
 /**
@@ -10457,6 +10488,167 @@ static void test_limiter_retries_across_failures_and_success(void) {
     assert(misses == 28);
     assert(strstr(err_buf, "Giving up") == NULL);
     free(err_buf);
+}
+
+/**
+ * @brief Drive a -p run whose attempts keep ending because the target does
+ * @param write_fd Where the child's stderr and its final report go
+ * @param announce_fd Where the parked wait announces itself
+ * @param go_fd Where the parked wait waits to be released
+ *
+ * The lookup is served by the seam's alive set, so the target resolves on
+ * every iteration; what makes the run take two attempts is the stubbed
+ * limit_process(), which returns LIMIT_PROCESS_OK -- how an attempt ends when
+ * the target it was limiting terminates.  The run is parked on the second
+ * wait that follows those attempts, so a run that stopped after the first one
+ * never reports at all.
+ */
+static void pid_mode_reattach_driver_child(int write_fd, int announce_fd,
+                                           int go_fd) {
+    struct cpulimit_cfg cfg;
+    int err_fd;
+    int rc;
+
+    /*
+     * Everything, including the setup, happens before the stderr redirect: a
+     * failure that leaves through a signal handler would otherwise leave the
+     * redirected descriptor open for the analyser to flag.
+     */
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.target_pid = SEAM_TARGET_PID;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 0;
+
+    seam_reset();
+    seam_active = 1;
+    seam_find_by_pid_override = 1;
+    seam_alive[0] = (pid_t)SEAM_TARGET_PID;
+    seam_alive_count = 1;
+    seam_hook_limit_process = 1;
+    seam_hook_sleep = 1;
+    seam_sleep_call = 2;
+    seam_sleep_announce_fd = announce_fd;
+    seam_sleep_go_fd = go_fd;
+
+    configure_signal_handler();
+
+    fflush(stderr);
+    err_fd = dup2(write_fd, STDERR_FILENO);
+    if (err_fd < 0) {
+        _exit(EXIT_FAILURE);
+    }
+    if (write_fd != STDERR_FILENO) {
+        close(write_fd);
+    }
+
+    rc = run_pid_or_exe_mode(&cfg);
+    /*
+     * How many attempts were made is only visible in this process, so it is
+     * reported on the stderr pipe instead of asserted here: the parent can
+     * then say which count it saw.
+     */
+    fprintf(stderr, "CALLS=%d\n", seam_limit_process_calls);
+    fflush(stderr);
+    close(err_fd);
+    _exit(rc);
+}
+
+/**
+ * @brief A target that exits must not end a non-lazy run, and it must be
+ *        limited again when it is there again
+ * @note Non-lazy -p/-e mode is a watch rather than a single attempt: the
+ *       target being limited, terminating, and being back is one attempt
+ *       followed by another search, however often it repeats.  Two attempts
+ *       are scripted, each ending the way an attempt ends when its target
+ *       terminates, and the run parks on the wait that follows the second.
+ *       Reaching that barrier proves the first attempt's ending did not end
+ *       the run, and CALLS=2 proves the target was limited a second time
+ *       rather than merely waited out.  The parent ends the run with SIGTERM,
+ *       the only way a watch that never gives up can be ended: a run that
+ *       stopped on its own would fail the exit-status assertion instead.
+ *       Verified by mutation: making the LIMIT_PROCESS_OK path end the loop
+ *       leaves the announcement read returning 0, and CALLS never reaching 2.
+ */
+static void test_pid_mode_reattaches_after_target_exits(void) {
+    int err_pipe[2];
+    int announce_pipe[2];
+    int go_pipe[2];
+    pid_t driver, waited;
+    int status = 0, exited, exit_code, calls;
+    char announce;
+    char *capture;
+    char *report;
+    size_t total;
+
+    assert(pipe(err_pipe) == 0);
+    assert(pipe(announce_pipe) == 0);
+    assert(pipe(go_pipe) == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        close(err_pipe[0]);
+        close(announce_pipe[0]);
+        close(go_pipe[1]);
+        pid_mode_reattach_driver_child(err_pipe[1], announce_pipe[1],
+                                       go_pipe[0]);
+    }
+    close(err_pipe[1]);
+    close(announce_pipe[1]);
+    close(go_pipe[0]);
+
+    /* Only now, so the forked child inherits nothing to leak. */
+    capture = (char *)malloc(4096);
+    assert(capture != NULL);
+
+    /*
+     * The barrier sits on the wait that follows the second attempt, which a
+     * run that stopped when the first attempt's target went away would never
+     * reach: the read would return 0 at EOF instead.  The parent then ends
+     * the run the only way an unbounded watch can be ended.
+     */
+    alarm(30);
+    assert(read(announce_pipe[0], &announce, 1) == 1);
+    assert(kill(driver, SIGTERM) == 0);
+    assert(write(go_pipe[1], "G", 1) == 1);
+    alarm(0);
+    close(announce_pipe[0]);
+    close(go_pipe[1]);
+
+    total = 0;
+    while (total < 4095) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    capture[total] = '\0';
+    close(err_pipe[0]);
+
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+
+    calls = -1;
+    report = strstr(capture, "CALLS=");
+    if (report != NULL) {
+        calls = atoi(report + 6);
+    }
+
+    assert(exited);
+    assert(exit_code == EXIT_SUCCESS);
+    assert(calls == 2);
+    /* Only the parent's signal ended it: nothing stopped on its own. */
+    assert(strstr(capture, "Giving up") == NULL);
+    free(capture);
 }
 
 /**
@@ -16804,11 +16996,12 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_waits_without_target);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_exits_on_permission_denied);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_waits_on_permission_denied);
     RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
     RUN_TEST(test_limiter_stale_pid_lookups_are_not_capped);
     RUN_TEST(test_limiter_lazy_stale_pid_reports_failure);
     RUN_TEST(test_limiter_retries_across_failures_and_success);
+    RUN_TEST(test_pid_mode_reattaches_after_target_exits);
     RUN_TEST(test_limiter_run_command_mode_false);
     RUN_TEST(test_limiter_run_command_mode_signal_term);
     RUN_TEST(test_limiter_run_command_mode_signal_kill);

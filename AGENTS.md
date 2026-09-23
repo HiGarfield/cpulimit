@@ -96,12 +96,15 @@ descendants.
   - newly spawned descendants MUST be included,
   - short-lived descendants SHOULD be missed as rarely as reasonably possible.
 - Non-lazy mode (`-e` without `-z`) MUST keep searching for as long as it runs:
-  a target that has not started yet, a name that resolves to a recycled PID,
-  and a process scan that fails MUST each end the attempt and never the run.
-  Only a termination signal, a target that may not be signalled, or an
-  unrecoverable internal failure may end it. Lazy mode (`-p`, or `-e` with
-  `-z`) MUST exit instead, so this MUST NOT be implemented by making every
-  mode wait.
+  a target that has not started yet, one that has exited (whether it was
+  running or suspended when it did), one that is restarted on a recycled PID,
+  a process scan that fails, and a target that may not be signalled MUST each
+  end the attempt and never the run, because the target can come back and MUST
+  be limited again when it does. Only a termination signal, a failure of the
+  scanning machinery (allocation, clock, process-iterator initialisation), or a
+  member left stopped that only a manual `kill -CONT` recovers may end it.
+  Lazy mode (`-p`, or `-e` with `-z`) MUST exit instead, so this MUST NOT be
+  implemented by making every mode wait.
 - Exit codes MUST be documented and meaningful:
   - `0` on success,
   - non-zero on error.

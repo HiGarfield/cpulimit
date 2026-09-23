@@ -25,7 +25,7 @@
 # ---------------------------------------------------------------------------
 # Nothing below is optional: without them the snapshots flap between runs and
 # the check is useless. The cost is that some distinctions stop being visible
-# here; those are covered by the unit tests instead (231 of them), while this
+# here; those are covered by the unit test suite instead, while this
 # script guards the things unit tests cannot see: real stdout/stderr wording,
 # real exit codes, real signals, real leaving-processes-stopped.
 #
@@ -587,6 +587,38 @@ sc_21_hook_select_controllable() {
     reap_artifacts
 }
 
+# A refused target must not end an unbounded search: the process wearing that
+# name may be restarted, and the replacement may be one cpulimit is allowed to
+# signal.  -e without -z is the only way to ask for that search, because -p
+# implies -z, so the refusal can only be sat out here.  The target outlives the
+# scenario window on purpose: a target that had exited would be reported as
+# missing instead, which is a different diagnostic.
+sc_22_hook_exe_nonlazy_eperm() {
+    if [ "$HOOK_READY" -eq 0 ]; then
+        skip_scenario "hook not built"
+        return
+    fi
+    "$BUSY" 30 >/dev/null 2>&1 &
+    _bp=$!
+    sleep 1
+    DESC="cpulimit -l 50 -e busy with hook MODE=eperm_all TARGET=<the only busy>"
+    : > "$OUT"
+    : > "$ERR"
+    # Signalled by hand rather than through timeout: the exit status recorded
+    # then belongs to cpulimit, and a run that stopped on its own would show
+    # up as the failure status it used to exit with.
+    CPULIMIT_HOOK_MODE=eperm_all CPULIMIT_HOOK_TARGET_PID="$_bp" \
+        LD_PRELOAD="$HOOK_SO" "$CL" -l 50 -e busy >"$OUT" 2>"$ERR" &
+    _cpid=$!
+    sleep 3
+    kill -TERM "$_cpid" 2>/dev/null
+    wait "$_cpid" 2>/dev/null
+    EC=$?
+    kill -KILL "$_bp" 2>/dev/null
+    wait "$_bp" 2>/dev/null
+    reap_artifacts
+}
+
 skip_scenario() {
     : > "$OUT"
     : > "$ERR"
@@ -627,6 +659,7 @@ SCENARIOS="
 19_hook_deny_cont
 20_hook_deny_stop
 21_hook_select_controllable
+22_hook_exe_nonlazy_eperm
 "
 
 if [ "$MODE" = record ]; then

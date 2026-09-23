@@ -59,13 +59,19 @@ int run_command_mode(const struct cpulimit_cfg *cfg);
  * 1. Continuously searches for the target process
  * 2. When found, applies CPU limiting
  * 3. Behavior depends on lazy_mode flag:
- *    - lazy_mode=1: Exit when target terminates or cannot be found
- *    - lazy_mode=0: Keep searching and re-attach if target restarts, for as
- *      long as the run lasts.  A target that is not running yet, a name that
- *      resolves to a recycled PID, and a failed process scan all end the
- *      attempt, never the run: this mode exists for a process whose start
- *      time cannot be known, so it only stops on a quit signal, on a target
- *      it may not signal, or on an internal failure it cannot recover from
+ *    - lazy_mode=1: one attempt, then exit with a failure if the attempt did
+ *      not end because the target terminated
+ *    - lazy_mode=0: a watch that lasts as long as the run.  Every attempt
+ *      ends by searching again, so nothing about the target ends it: not
+ *      being started yet, exiting (while running or while suspended by this
+ *      run), reappearing on a recycled PID, and refusing every signal all
+ *      keep it looking, because the target can come back and must be limited
+ *      again when it does.  What does end it is a failure of the scanning
+ *      machinery (allocation, clock or process-iterator initialisation),
+ *      after which nothing can be searched with, or an attempt that left a
+ *      member stopped and needing repair by hand
+ * 4. A target that turns out to be cpulimit itself is refused outright in
+ *    both modes, with a failure exit status
  *
  * @return Exit status code; the caller is responsible for calling exit()
  */
