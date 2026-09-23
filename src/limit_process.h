@@ -141,9 +141,15 @@ extern "C" {
  *         Whenever a member cannot be resumed, limit_process() has already
  *         named every stranded PID on stderr with the command to recover it
  *         before returning, so no caller has to repeat that.
+ *
+ * @param prior_scan_failures How many consecutive scan failures the caller has
+ *        already recorded for this run.  A caller that retries passes its
+ *        streak so the per-cycle scan diagnostic is printed only on the first
+ *        failure of the streak instead of once per retry; a caller that runs
+ *        once passes 0.  It does not change what is returned.
  */
 int limit_process(pid_t pid, double cpu_limit, int include_children,
-                  int verbose);
+                  int verbose, unsigned int prior_scan_failures);
 
 #ifdef __cplusplus
 }

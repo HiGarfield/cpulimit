@@ -138,6 +138,12 @@ that limited to completion, so a scan that only fails occasionally keeps its
 full budget. A target that simply cannot be found is a different case: waiting
 for a process that may still start is what non-lazy mode is for.
 
+The failed scan is reported once per streak, not once per retry: a retrying
+run otherwise prints the same diagnostic fifteen times in a row and buries
+whatever follows it, including the hints that name a process left stopped.
+How many attempts the run made is stated by the closing "Giving up after N
+failed scan(s)" line.
+
 ## Get the Latest Source Code
 
 Source code is available at <https://github.com/HiGarfield/cpulimit>.
