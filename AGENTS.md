@@ -95,6 +95,13 @@ descendants.
   - descendants MUST be discovered and tracked,
   - newly spawned descendants MUST be included,
   - short-lived descendants SHOULD be missed as rarely as reasonably possible.
+- Non-lazy mode (`-e` without `-z`) MUST keep searching for as long as it runs:
+  a target that has not started yet, a name that resolves to a recycled PID,
+  and a process scan that fails MUST each end the attempt and never the run.
+  Only a termination signal, a target that may not be signalled, or an
+  unrecoverable internal failure may end it. Lazy mode (`-p`, or `-e` with
+  `-z`) MUST exit instead, so this MUST NOT be implemented by making every
+  mode wait.
 - Exit codes MUST be documented and meaningful:
   - `0` on success,
   - non-zero on error.

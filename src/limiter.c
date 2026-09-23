@@ -23,16 +23,6 @@
 #define _GNU_SOURCE
 #endif
 
-/*
- * Number of "target not found" retries allowed in non-lazy mode before
- * cpulimit gives up.  See MAX_TARGET_LOOKUP_ATTEMPTS usage in
- * run_pid_or_exe_mode: a target that never appears should not be retried
- * forever.  Fifteen attempts at the two-second wait below is thirty seconds
- * of grace for a target that is slow to start, after which giving up is the
- * only sane outcome.
- */
-#define MAX_TARGET_LOOKUP_ATTEMPTS 15
-
 #include "limiter.h"
 
 #include "child_exec.h"
@@ -219,62 +209,6 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
 }
 
 /**
- * @def STREAK_LOOKUP
- * @brief Failure streak passed to bump_retry_streak() when searching for the
- *        target did not produce a usable PID
- */
-#define STREAK_LOOKUP 0
-
-/**
- * @def STREAK_SCAN
- * @brief Failure streak passed to bump_retry_streak() when scanning the
- *        process group failed while the control loop was running
- */
-#define STREAK_SCAN 1
-
-/**
- * @brief Count one consecutive failure and report when its cap is reached
- * @param count Pointer to the consecutive failure streak for this kind
- * @param kind STREAK_LOOKUP or STREAK_SCAN; selects the diagnostic printed
- * @param exit_status Pointer to the running exit status; set to EXIT_FAILURE
- *        when the cap is reached
- * @return 1 when the cap has just been reached and the caller should stop,
- *         0 while there is still budget for another attempt
- *
- * Every retry in the search loop is capped for the same reason: a target
- * that never appears, a name that keeps resolving to a recycled PID, and a
- * process table that cannot be scanned at all are conditions that waiting
- * cannot fix, so the loop has to end eventually instead of printing two
- * diagnostic lines every two seconds for as long as cpulimit runs. The
- * streak counts consecutive failures rather than lifetime ones, so a daemon
- * that restarts periodically keeps being re-attached instead of exhausting
- * a budget that was only ever meant to bound one wait.
- *
- * Whether reaching the cap ends the loop stays the caller's decision, which
- * is what lets the three call sites keep the control flow they had: the two
- * target-lookup paths fall through to the loop's own exit check below, while
- * a failing scan breaks out at once because nothing in this iteration can
- * still be retried.
- */
-static int bump_retry_streak(unsigned int *count, int kind, int *exit_status) {
-    (*count)++;
-    if (*count < MAX_TARGET_LOOKUP_ATTEMPTS) {
-        return 0;
-    }
-    if (kind == STREAK_SCAN) {
-        fprintf(
-            stderr,
-            "Giving up after %u failed scan(s): the target is no longer limited\n",
-            *count);
-    } else {
-        fprintf(stderr, "Giving up after %u attempts: target not found\n",
-                *count);
-    }
-    *exit_status = EXIT_FAILURE;
-    return 1;
-}
-
-/**
  * @def TARGET_NOT_FOUND
  * @brief resolve_target() result: nothing on the system matches the target
  */
@@ -339,27 +273,22 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
  * @param cfg Pointer to the configuration naming the target
  * @param found_pid The PID whose name no longer matches the target
  * @param exit_status In/out: the running exit status of the whole run
- * @param lookup_attempts In/out: consecutive target-lookup failure streak
  *
  * The process we resolved has exited and its PID has been reused, so this
  * attempt deliberately does not touch it: suspending it would suspend an
  * unrelated program and resuming it would be equally wrong.
  *
  * Lazy mode ends the run reporting failure, because a run that never limited
- * anything must not come back as success. Non-lazy mode counts the attempt
- * against the same cap as a missing target - a stale name is the same kind of
- * never-arriving target - and starts the search over for the real one.
+ * anything must not come back as success. Non-lazy mode treats a stale hit as
+ * a target that has not started yet and keeps looking for the real one.
  */
 static void handle_stale_target(const struct cpulimit_cfg *cfg, pid_t found_pid,
-                                int *exit_status,
-                                unsigned int *lookup_attempts) {
+                                int *exit_status) {
     fprintf(stderr, "Process %ld is no longer '%s'; not limiting it\n",
             (long)found_pid, cfg->exe_name);
     if (cfg->lazy_mode) {
         *exit_status = EXIT_FAILURE;
-        return;
     }
-    (void)bump_retry_streak(lookup_attempts, STREAK_LOOKUP, exit_status);
 }
 
 /**
@@ -459,39 +388,29 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
     }
 
     /*
-     * A run that limited to completion ends the streak, the same way a
-     * resolved target ends the not-found streak.
+     * A run that limited to completion ends the streak, so that a scan
+     * failure after it is reported again instead of being taken for a
+     * continuation of the previous one.
      */
     if (limit_status == LIMIT_PROCESS_OK) {
         *scan_failures = 0;
     }
 
     /*
-     * Whether a bad scan that stopped the control loop counts as a failure
-     * depends on whether there is a second chance: non-lazy mode re-resolves
-     * the target on every iteration, so for it falling through is exactly the
-     * retry that is wanted.  Lazy mode ends after one attempt, so a limit
-     * that stopped there is final: the target is no longer limited and
-     * nothing will re-attach to it, the same outcome command mode already
-     * reports as a failure.  limit_process() has already said why on stderr
-     *.
+     * Whether a bad scan that stopped the control loop ends the run depends
+     * on whether there is a second chance.  Non-lazy mode re-resolves the
+     * target on every iteration and re-attaches, so a failed scan only ends
+     * the attempt: it keeps retrying, which is what that mode is for.  Lazy
+     * mode ends after one attempt, so a limit that stopped there is final:
+     * the target is no longer limited and nothing will re-attach to it, the
+     * same outcome command mode already reports as a failure.
+     * limit_process() has already said why on stderr.
+     *
+     * The streak is advanced only so the diagnostic stays at one line per
+     * streak; it no longer bounds anything.
      */
     if (limit_status == LIMIT_PROCESS_SCAN_FAILED && !cfg->lazy_mode) {
-        /*
-         * The retry is bounded, and the bound exists for the same reason as
-         * the not-found one: a scan that keeps failing is not a
-         * target that will come back, it is an environment that cannot be
-         * scanned at all (no procfs, sustained allocation pressure).  Left
-         * unbounded it would re-walk the whole process table every two
-         * seconds, print a diagnostic each time and never exit.  Fifteen
-         * attempts is thirty seconds of grace for a transient failure.
-         *
-         * A target that simply is not there is a different case and is
-         * handled by the caller: that wait stays open ended, because a
-         * daemon that starts late is exactly what non-lazy mode promises to
-         * wait for.
-         */
-        (void)bump_retry_streak(scan_failures, STREAK_SCAN, exit_status);
+        (*scan_failures)++;
     } else if (limit_status != LIMIT_PROCESS_OK) {
         /*
          * Limiting never engaged for this target, or it ran and then stopped
@@ -508,28 +427,12 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     const struct timespec wait_time = {2, 0};
     int pid_mode = cfg->target_pid > 0, exit_status = EXIT_SUCCESS;
     /*
-     * Consecutive target-lookup failures, non-lazy mode.  Without a cap the
-     * loop printed "retrying..." forever, so a name that can never match or
-     * a process that never starts would spin indefinitely; fifteen attempts
-     * at two seconds each is thirty seconds of grace for a slow target.
-     *
-     * Consecutive rather than lifetime: a daemon that restarts
-     * periodically keeps being re-attached instead of exhausting a budget
-     * that was only ever meant to bound one wait.
-     *
-     * unsigned: the increment followed by the bound check folds into
-     * "X + 1 >= C", which -Wstrict-overflow=5 reads as assuming signed
-     * overflow cannot happen.
-     */
-    unsigned int lookup_attempts = 0;
-    /*
-     * Consecutive scan failures inside the control loop, non-lazy mode.
-     * Deliberately not lookup_attempts: that one is reset every time the
-     * target resolves, which happens on every retry here, so reusing it
-     * could never reach the cap and a scan that keeps failing would be
-     * retried forever.  It is reset only when a run actually limits to
-     * completion, so a target whose scanning fails occasionally keeps its
-     * full budget.
+     * Consecutive scan failures in the control loop, used only to decide
+     * whether the per-cycle scan diagnostic still has to be printed:
+     * limit_process() reports it on the first failure of a streak and stays
+     * quiet afterwards, so a retrying run does not repeat the same line
+     * every two seconds.  It is reset when a run limits to completion, which
+     * starts a new streak.
      */
     unsigned int scan_failures = 0;
 
@@ -542,16 +445,14 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
             break;
         }
         if (resolved == TARGET_NOT_FOUND) {
+            /*
+             * Lazy mode treats a missing target as an error.  Non-lazy mode
+             * waits for it: a process that has not started yet is exactly
+             * what that mode is for, so the search continues for as long as
+             * the process keeps not being there.
+             */
             if (cfg->lazy_mode) {
-                /* In lazy mode, missing target is an error condition */
                 exit_status = EXIT_FAILURE;
-            } else {
-                /* Non-lazy mode waits for a slow target, but not forever
-                 *: cap the attempts so the run ends instead of
-                 * looping and growing stderr without limit.  The cap exits
-                 * the loop through the check below. */
-                (void)bump_retry_streak(&lookup_attempts, STREAK_LOOKUP,
-                                        &exit_status);
             }
         } else if (found_pid == getpid()) {
             /*
@@ -569,22 +470,17 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
              * have been recycled.  -p names the PID explicitly and that
              * choice is never second-guessed.
              */
-            handle_stale_target(cfg, found_pid, &exit_status, &lookup_attempts);
+            handle_stale_target(cfg, found_pid, &exit_status);
         } else {
-            /*
-             * A resolved, non-stale target ends the streak: the caps
-             * bound one wait, not the process lifetime, so a daemon that
-             * restarts daily stays attached across restarts.
-             */
-            lookup_attempts = 0;
             limit_and_resume_target(cfg, found_pid, &exit_status,
                                     &scan_failures);
         }
 
         /*
          * Exit conditions:
-         * - lazy_mode: Exit after first attempt (regardless of success)
-         * - quit_flag: User requested termination via signal
+         * - lazy_mode: exit after the first attempt, whatever it produced
+         * - quit_flag: the user asked to terminate via a signal
+         * - a failure recorded above: there is nothing left to retry
          */
         if (cfg->lazy_mode || is_quit_flag_set() ||
             exit_status != EXIT_SUCCESS) {
@@ -592,8 +488,8 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
         }
 
         /*
-         * In non-lazy mode, wait before retrying.
-         * This prevents excessive CPU usage when target is not running.
+         * In non-lazy mode, wait before looking again, so a search for a
+         * target that is not running yet does not spin on the process table.
          */
         sleep_timespec(&wait_time);
     }
