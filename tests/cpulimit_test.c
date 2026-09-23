@@ -1844,6 +1844,22 @@ static void test_signal_handler_get_quit_signal(void) {
 }
 
 /**
+ * @brief Leave the pty child of test_signal_handler_finish_tty_quit_line()
+ * @param code Exit status to report to the parent
+ * @note The child reached this with its stdin and stdout replaced by
+ *       duplicates of one pty slave.  Those duplicates belong to this
+ *       process and nothing here closes them later, so releasing them is the
+ *       child's own last act -- the static analyser sees a descriptor left
+ *       open across _exit() otherwise, even though the process is about to
+ *       give every descriptor back anyway.
+ */
+static void pty_child_exit(int code) {
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    _exit(code);
+}
+
+/**
  * @brief The newline that keeps the shell prompt off the terminal's "^C" echo
  * @note The tty driver echoes the keyboard interrupt without a newline of its
  *       own, so a run stopped by one has to write it.  That write belongs to
@@ -1868,13 +1884,21 @@ static void test_signal_handler_finish_tty_quit_line(void) {
 
     /* Sub-test 1: a keyboard quit on a terminal writes exactly one newline. */
     /*
-     * open("/dev/ptmx", ...) is what posix_openpt() does on every supported
-     * platform, and the only spelling of it that the oldest supported C
-     * libraries have: uClibc does provide grantpt(), unlockpt() and
-     * ptsname(), but not posix_openpt() itself, so relying on that wrapper
-     * would leave this test unable to link there.
+     * Old uClibc builds do not export posix_openpt() at all, so this test
+     * could not link there.  open("/dev/ptmx", ...) is exactly what that
+     * wrapper does, and nothing else below changes: grantpt(), unlockpt()
+     * and ptsname() are present even in those builds.  The version range is
+     * the one util.h already uses for getloadavg().
      */
+#if defined(__UCLIBC__) && defined(__UCLIBC_MAJOR__) &&                        \
+    defined(__UCLIBC_MINOR__) && defined(__UCLIBC_SUBLEVEL__) &&               \
+    ((__UCLIBC_MAJOR__ < 1) ||                                                 \
+     (__UCLIBC_MAJOR__ == 1 && __UCLIBC_MINOR__ == 0 &&                        \
+      __UCLIBC_SUBLEVEL__ < 42))
     master_fd = open("/dev/ptmx", O_RDWR | O_NOCTTY);
+#else
+    master_fd = posix_openpt(O_RDWR | O_NOCTTY);
+#endif
     assert(master_fd >= 0);
     assert(grantpt(master_fd) == 0);
     assert(unlockpt(master_fd) == 0);
@@ -1890,7 +1914,7 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     if (pid == 0) {
         if (dup2(slave_fd, STDIN_FILENO) < 0 ||
             dup2(slave_fd, STDOUT_FILENO) < 0) {
-            _exit(1);
+            pty_child_exit(1);
         }
         if (slave_fd != STDIN_FILENO && slave_fd != STDOUT_FILENO) {
             close(slave_fd);
@@ -1900,7 +1924,7 @@ static void test_signal_handler_finish_tty_quit_line(void) {
         /* No quit yet, so there is no echo to end. */
         finish_tty_quit_line();
         if (raise(SIGINT) != 0) {
-            _exit(1);
+            pty_child_exit(1);
         }
         /* Two callers, one newline: the limiting loop, then main(). */
         finish_tty_quit_line();
@@ -1908,10 +1932,10 @@ static void test_signal_handler_finish_tty_quit_line(void) {
         /* A second run in this process must get its own newline. */
         configure_signal_handler();
         if (raise(SIGINT) != 0) {
-            _exit(1);
+            pty_child_exit(1);
         }
         finish_tty_quit_line();
-        _exit(0);
+        pty_child_exit(0);
     }
     if (slave_fd != STDIN_FILENO && slave_fd != STDOUT_FILENO) {
         close(slave_fd);
@@ -10876,6 +10900,11 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
         seam_hook_sleep = 0;
         seam_sleep_announce_fd = -1;
         seam_sleep_go_fd = -1;
+        /*
+         * The duplicate of err_pipe[1] belongs to this child and nothing
+         * closes it before the process goes away, so release it here.
+         */
+        close(STDERR_FILENO);
         _exit(mode_result);
     }
     close(err_pipe[1]);
