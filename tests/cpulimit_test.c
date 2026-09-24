@@ -14751,7 +14751,7 @@ static void await_child_exit(pid_t pid) {
      */
     for (;;) {
         const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
-        char stat_path[sizeof("/proc/2147483647/stat")];
+        char stat_path[64];
         char *fields = NULL;
         const char *comm_end;
         int has_exited = 0;
