@@ -1912,8 +1912,19 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        if (dup2(slave_fd, STDIN_FILENO) < 0 ||
-            dup2(slave_fd, STDOUT_FILENO) < 0) {
+        /*
+         * Keep each result in a variable instead of testing the call inside
+         * the condition: the analyser reports a descriptor whose only mention
+         * is a comparison as leaked, even though the child is about to exit
+         * with it.
+         */
+        int dup_result;
+        dup_result = dup2(slave_fd, STDIN_FILENO);
+        if (dup_result < 0) {
+            pty_child_exit(1);
+        }
+        dup_result = dup2(slave_fd, STDOUT_FILENO);
+        if (dup_result < 0) {
             pty_child_exit(1);
         }
         if (slave_fd != STDIN_FILENO && slave_fd != STDOUT_FILENO) {
@@ -10877,7 +10888,7 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
-        int mode_result;
+        int mode_result, dup_result;
         close(err_pipe[0]);
         close(announce_pipe[0]);
         close(go_pipe[1]);
@@ -10891,7 +10902,9 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
         configure_signal_handler();
         fflush(stdout);
         fflush(stderr);
-        if (dup2(err_pipe[1], STDERR_FILENO) < 0) {
+        /* Same reason as above for keeping the result. */
+        dup_result = dup2(err_pipe[1], STDERR_FILENO);
+        if (dup_result < 0) {
             _exit(EXIT_FAILURE);
         }
         close(err_pipe[1]);
@@ -10900,10 +10913,7 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
         seam_hook_sleep = 0;
         seam_sleep_announce_fd = -1;
         seam_sleep_go_fd = -1;
-        /*
-         * The duplicate of err_pipe[1] belongs to this child and nothing
-         * closes it before the process goes away, so release it here.
-         */
+        /* The duplicate of err_pipe[1] belongs to this child. */
         close(STDERR_FILENO);
         _exit(mode_result);
     }
