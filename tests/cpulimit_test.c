@@ -6879,7 +6879,7 @@ static volatile sig_atomic_t resume_counter = 0;
  */
 static void resume_counter_handler(int sig) {
     (void)sig;
-    resume_counter++;
+    resume_counter = resume_counter + 1;
 }
 
 /**
@@ -7279,7 +7279,7 @@ static volatile sig_atomic_t sigcont_delivery_count = 0;
  */
 static void count_sigint_delivery(int sig) {
     (void)sig;
-    sigint_delivery_count++;
+    sigint_delivery_count = sigint_delivery_count + 1;
 }
 
 /**
@@ -7288,7 +7288,7 @@ static void count_sigint_delivery(int sig) {
  */
 static void count_sigcont_delivery(int sig) {
     (void)sig;
-    sigcont_delivery_count++;
+    sigcont_delivery_count = sigcont_delivery_count + 1;
 }
 
 /** @brief Number of SIGTERMs received by the out-of-group command. */
@@ -7300,7 +7300,7 @@ static volatile sig_atomic_t forward_delivery_count = 0;
  */
 static void count_forward_delivery(int sig) {
     (void)sig;
-    forward_delivery_count++;
+    forward_delivery_count = forward_delivery_count + 1;
 }
 
 /**

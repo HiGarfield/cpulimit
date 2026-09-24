@@ -65,7 +65,7 @@ extern "C" {
  * is returned while the caller still produces its own diagnosis.
  */
 int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
-                              volatile int signal_forwarded);
+                              int signal_forwarded);
 
 #ifdef __cplusplus
 }
