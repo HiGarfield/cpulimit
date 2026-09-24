@@ -210,8 +210,8 @@ jobs:
       contents: read
     strategy:
       matrix:
-        osver: ["13.5", "14.3"]
-        arch: ["x86_64", "aarch64"]
+        osver: ["13.5", "14.5", "15.1"]
+        arch: ["x86_64", "aarch64", "riscv64", "powerpc64"]
     runs-on: ubuntu-24.04
 
     steps:
