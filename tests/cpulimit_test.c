@@ -9797,6 +9797,10 @@ static void seam_mark_snapshot(void);
 /* Forward declaration: defined further below, after SEAM_CHILD_PID. */
 static void seam_push_frame(const struct seam_proc *procs, int count);
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Hooks that park a call site on a barrier driven by the test. */
 /* NOLINTBEGIN(misc-use-internal-linkage) */
 int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
@@ -9826,6 +9830,10 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem);
 double cpulimit_test_get_process_start_time(pid_t pid);
 
 /* NOLINTEND(misc-use-internal-linkage) */
+
+#ifdef __cplusplus
+}
+#endif
 
 /**
  * @brief Return the seam to its inactive, empty state
@@ -13068,6 +13076,10 @@ static void seam_assert_no_double_stop(const struct seam_signal *log,
  * @return 0 on success, -1 on failure
  */
 /* cppcheck-suppress-begin unusedFunction */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int cpulimit_test_get_current_time(struct timespec *result_ts) {
     double whole_seconds;
     seam_clock_call_count++;
@@ -13233,6 +13245,10 @@ pid_t cpulimit_test_find_by_pid(pid_t pid) {
     return 0;
 }
 
+#ifdef __cplusplus
+}
+#endif
+
 /* NOLINTEND(misc-use-internal-linkage) */
 
 /** * @brief Test that is_child_of() retries a transient getppid_of() failure
@@ -13254,6 +13270,10 @@ static void test_is_child_of_retries_on_ppid_lookup_failure(void) {
     seam_getppid_fail_pid = 0;
     seam_getppid_failed_once = 0;
 }
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 int cpulimit_test_kill(pid_t pid, int sig) {
     int failed;
@@ -13377,6 +13397,10 @@ int cpulimit_test_close_process_iterator(struct process_iterator *iter) {
     return 0;
 }
 
+#ifdef __cplusplus
+}
+#endif
+
 /**
  * @brief Record a snapshot boundary in the signal log
  *
@@ -13398,6 +13422,10 @@ static void seam_mark_snapshot(void) {
  * @brief Replacement for random()
  * @return A constant while the seam is active, so the jitter is fixed
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 long cpulimit_test_random(void) {
     if (!seam_active) {
         return random();
@@ -13534,6 +13562,10 @@ pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
     }
     return waitpid(pid, status, options);
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 /* cppcheck-suppress-end unusedFunction */
 
@@ -16798,7 +16830,13 @@ int cpulimit_test_exercise_reap(pid_t child_pid);
  * defined only in the test build so the production object stays free of test
  * code.  Declared here (not just in the header guard) because the test TU is
  * compiled without CPULIMIT_TEST_BUILD and needs the prototype to call it. */
+#ifdef __cplusplus
+extern "C" {
+#endif
 int cpulimit_test_record_stopped_pid_dedup(void);
+#ifdef __cplusplus
+}
+#endif
 
 /* Forward declaration so the RUN_TEST registration below can reference the
  * stopped_pids de-duplication test, which is defined later (next to main()). */
