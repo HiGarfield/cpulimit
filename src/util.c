@@ -31,7 +31,7 @@
 #if defined(__linux__) || defined(__FreeBSD__)
 /*
  * sched_setscheduler(2) and SCHED_FIFO live in <sched.h> on Linux (glibc) and
- * FreeBSD.  They are intentionally not pulled in on macOS, which has no POSIX
+ * FreeBSD. They are intentionally not pulled in on macOS, which has no POSIX
  * real-time scheduler and instead uses the Mach THREAD_TIME_CONSTRAINT_POLICY
  * (see try_become_realtime() below).
  */
@@ -55,29 +55,18 @@
 #if defined(__linux__) || defined(__FreeBSD__)
 /*
  * Best-effort: raise cpulimit to SCHED_FIFO (lowest RT priority) so it can
- * preempt the throttled process the instant it wakes from nanosleep and deliver
- * SIGSTOP promptly, instead of waiting for the target to yield.  On a
- * non-fully-preemptible kernel (e.g. 2.6.9 PREEMPT_VOLUNTARY) a busy-looping
- * target otherwise starves cpulimit and the enforced duty cycle becomes biased
- * and noisy -- which is exactly the limit-cycle oscillation seen on such
- * kernels.
+ * deliver SIGSTOP the instant the target wakes from nanosleep, instead of
+ * waiting for it to yield. On a non-fully-preemptible kernel a busy-looping
+ * target otherwise starves cpulimit and the duty cycle oscillates.
  *
- * Both Linux and FreeBSD implement the POSIX real-time scheduler; priority 1 is
- * the lowest FIFO priority on either.  cpulimit sleeps between signals, so an
- * RT priority only matters during the brief wakeup-to-signal window and never
- * monopolizes the CPU.  If CAP_SYS_NICE (Linux) or the required privilege
- * (FreeBSD) is unavailable the call fails silently and the portable nice()
- * ladder in increase_priority() remains the only lever.
+ * cpulimit sleeps between signals, so RT only matters during the brief
+ * wakeup-to-signal window and never monopolizes the CPU; if the privilege is
+ * unavailable the call fails silently and the nice() ladder remains.
  *
- * The class must not outlive this process, though: a real-time task outranks
- * every ordinary one, so a child that inherits it and burns CPU without ever
- * blocking starves the rest of the machine.  Linux throttles real-time tasks
- * to sched_rt_runtime_us out of every period and so bounds the damage;
- * FreeBSD has no such throttle, and there such a child stops the whole
- * machine answering.  Linux enforces the boundary in the kernel
- * (SCHED_RESET_ON_FORK below); elsewhere it rests on ordering alone, since
- * the program's only fork() is the one run_command_mode() does before it
- * reaches the promotion inside limit_process().
+ * The class must not outlive this process: an RT task outranks every ordinary
+ * one, so an inheriting child that never blocks starves the machine. Linux
+ * bounds this with sched_rt_runtime and SCHED_RESET_ON_FORK; elsewhere the only
+ * guard is ordering, since the program's only fork() is before this promotion.
  */
 static void try_become_realtime(void) {
     struct sched_param sp;
@@ -87,9 +76,9 @@ static void try_become_realtime(void) {
     /*
      * Linux 2.6.32 and later: a child created by fork() starts in
      * SCHED_OTHER with nice 0 instead of inheriting this class, and the flag
-     * is cleared in that child, so cpulimit alone stays real-time.  It also
+     * is cleared in that child, so cpulimit alone stays real-time. It also
      * keeps the boosted priority away from a command-mode target, which is
-     * the process being slowed down.  FreeBSD and macOS have no equivalent.
+     * the process being slowed down. FreeBSD and macOS have no equivalent.
      */
     policy |= SCHED_RESET_ON_FORK;
 #endif
@@ -100,9 +89,9 @@ static void try_become_realtime(void) {
  * macOS/Darwin has no POSIX SCHED_FIFO/SCHED_RR, so the equivalent real-time
  * lever is the Mach THREAD_TIME_CONSTRAINT_POLICY: it schedules the calling
  * thread with a bounded time constraint so it can preempt the throttled busy
- * loop promptly and deliver SIGSTOP.  cpulimit sleeps between signals, so the
+ * loop promptly and deliver SIGSTOP. cpulimit sleeps between signals, so the
  * thread is only "real-time" during the brief wakeup-to-signal window and does
- * not monopolize the CPU.  If the policy cannot be applied the call is silently
+ * not monopolize the CPU. If the policy cannot be applied the call is silently
  * ignored and the portable nice() ladder below remains the only lever.
  */
 static void try_become_realtime(void) {
@@ -122,6 +111,12 @@ static void try_become_realtime(void) {
 }
 #endif /* platform selection */
 
+/**
+ * @brief Raise the scheduling priority of the current process
+ *
+ * Iterates nice values from PRIO_MIN upward until one succeeds, skipping levels
+ * denied by permissions (RLIMIT_NICE), then best-effort real-time promotion.
+ */
 void increase_priority(void) {
     int old_priority, priority;
     errno = 0;
@@ -131,15 +126,13 @@ void increase_priority(void) {
         old_priority = 0;
     }
     /* Best-effort real-time promotion so SIGSTOP is prompt; see
-       try_become_realtime() above.  No-op without sufficient privilege, in
+       try_become_realtime() above. No-op without sufficient privilege, in
        which case the portable nice() ladder below remains the only lever. */
     try_become_realtime();
-    /* Portable priority boost: raise the nice priority as far as permitted.
-       Used on macOS, FreeBSD, and Linux without CAP_SYS_NICE. */
     for (priority = PRIO_MIN; priority < old_priority; priority++) {
         errno = 0;
         if (setpriority(PRIO_PROCESS, 0, priority) == 0) {
-            break; /* Successfully set priority */
+            break;
         }
         /*
          * Permission denied at this level. Continue to the next
@@ -151,7 +144,7 @@ void increase_priority(void) {
          * be retried: Linux reports EACCES when CAP_SYS_NICE is
          * missing (and EPERM when RLIMIT_NICE is exceeded), while
          * the BSDs report EACCES precisely for the "lower the nice
-         * value" denial.  Retrying only EPERM aborted the ladder on
+         * value" denial. Retrying only EPERM aborted the ladder on
          * its very first rung on Linux, leaving cpulimit at default
          * priority even when a milder level would have been
          * accepted.
@@ -159,12 +152,22 @@ void increase_priority(void) {
         if (errno == EPERM || errno == EACCES) {
             continue;
         }
-        /* Any other error is unexpected; stop trying */
         break;
     }
 }
 
 #ifdef CPULIMIT_IMPL_GETLOADAVG
+/**
+ * @brief Get system load averages (custom implementation for old uClibc)
+ *
+ * @param loadavg Array to receive load average values
+ * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
+ * @return Number of samples retrieved (nelem), or -1 on error
+ *
+ * Retrieves system load averages using the sysinfo() syscall and converts
+ * the fixed-point values to floating-point. This implementation is used
+ * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
+ */
 int getloadavg_impl(double *loadavg, int nelem) {
     struct sysinfo sys_info;
     int load_idx;
@@ -180,10 +183,8 @@ int getloadavg_impl(double *loadavg, int nelem) {
         return -1;
     }
 
-    /* Retrieve at most 3 load averages */
     nelem = (nelem > 3) ? 3 : nelem;
 
-    /* Convert fixed-point to floating-point using SI_LOAD_SHIFT */
     for (load_idx = 0; load_idx < nelem; load_idx++) {
         loadavg[load_idx] =
             (double)sys_info.loads[load_idx] / (1 << SI_LOAD_SHIFT);
@@ -193,13 +194,20 @@ int getloadavg_impl(double *loadavg, int nelem) {
 }
 #endif
 
+/**
+ * @brief Safely convert long to pid_t with overflow detection
+ *
+ * @param long_pid Long value to convert to pid_t
+ * @return The pid_t value on success, or -1 if long_pid < 0 or overflow occurs
+ *
+ * @note The cast is implementation-defined when out of pid_t range, but the
+ *       round-trip check detects overflow on Linux, macOS and FreeBSD.
+ */
 pid_t long_to_pid_t(long long_pid) {
     pid_t result;
-    /* Reject negative values */
     if (long_pid < 0) {
         return (pid_t)(-1);
     }
-    /* Cast to pid_t and verify no overflow occurred */
     result = (pid_t)long_pid;
     if ((long)result != long_pid) {
         return (pid_t)(-1);

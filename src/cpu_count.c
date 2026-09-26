@@ -42,6 +42,18 @@
 #endif
 
 #if defined(__linux__)
+/**
+ * @brief Parse a Linux sysfs CPU range string into a CPU count
+ *
+ * @param str CPU range specification (e.g. "0-3", "0,2,4", "0-1,4-7")
+ * @return Number of CPUs described by the range, or -1 on parse error
+ *
+ * Accepts single CPUs ("0"), inclusive ranges ("0-3" counts as four) and
+ * comma-separated combinations ("0-3,8-11,15"); whitespace around the
+ * numbers is tolerated. Returns -1 for a NULL or empty string, invalid
+ * syntax, a negative number, a reversed range (end < start), or a total that
+ * would overflow int; a whitespace-only string is rejected as invalid syntax.
+ */
 int parse_cpu_range(const char *str) {
     const char *parse_pos = str;
     char *endptr;
@@ -57,26 +69,23 @@ int parse_cpu_range(const char *str) {
         errno = 0;
         start = strtol(parse_pos, &endptr, 10);
         if (endptr == parse_pos || errno != 0 || start < 0) {
-            return -1; /* Parse error or invalid value */
+            return -1;
         }
         parse_pos = endptr;
 
-        /* Skip trailing whitespace after number */
         while (isspace((unsigned char)*parse_pos)) {
             parse_pos++;
         }
 
         if (*parse_pos == '-') {
-            /* Range format: start-end */
             long end, range_len;
 
-            parse_pos++; /* Skip the dash */
+            parse_pos++;
 
-            /* Parse end of range */
             errno = 0;
             end = strtol(parse_pos, &endptr, 10);
             if (endptr == parse_pos || errno != 0 || start > end || end < 0) {
-                return -1; /* Parse error or invalid range */
+                return -1;
             }
             /* Compute range length safely (start <= end and both >= 0 here) */
             range_len = end - start;
@@ -92,29 +101,26 @@ int parse_cpu_range(const char *str) {
 
             parse_pos = endptr;
 
-            /* Skip trailing whitespace */
             while (isspace((unsigned char)*parse_pos)) {
                 parse_pos++;
             }
         } else {
-            /* Single CPU number */
             if (cpu_count == INT_MAX) {
                 return -1; /* Would overflow int */
             }
             cpu_count++;
         }
 
-        /* Expect comma or end of string */
         if (*parse_pos == ',') {
-            parse_pos++; /* Move past comma to parse next segment */
+            parse_pos++;
             while (isspace((unsigned char)*parse_pos)) {
                 parse_pos++;
             }
             if (*parse_pos == '\0') {
-                return -1; /* Trailing comma in CPU range is invalid */
+                return -1;
             }
         } else if (*parse_pos != '\0') {
-            return -1; /* Unexpected character */
+            return -1;
         }
     }
 
@@ -123,6 +129,7 @@ int parse_cpu_range(const char *str) {
 
 /**
  * @brief Get online CPU count by reading sysfs
+ *
  * @return Number of online CPUs on success, or -1 on error (failed to
  *         open/read /sys/devices/system/cpu/online or invalid format)
  *
@@ -149,11 +156,23 @@ static int get_online_cpu_count(void) {
 }
 #endif
 
+/**
+ * @brief Get the number of online/available CPU cores
+ *
+ * @return Number of CPUs available to the process (>= 1)
+ *
+ * Queries the system for the number of online CPUs using platform-specific
+ * methods (sysconf on Linux/POSIX, sysctl on macOS/FreeBSD). The result is
+ * cached after the first call for efficiency. On Linux, performs additional
+ * validation by reading /sys/devices/system/cpu/online to work around older
+ * library bugs. Returns 1 if count cannot be determined.
+ *
+ * @note Result is cached and never recalculated even if CPU hotplugging occurs
+ */
 int get_ncpu(void) {
     /* Static cache: -1 indicates not yet initialized */
     static int cached_ncpu = -1;
 
-    /* Return cached value if already computed */
     if (cached_ncpu < 0) {
 #if defined(_SC_NPROCESSORS_ONLN)
         /* POSIX-compliant systems: use sysconf */

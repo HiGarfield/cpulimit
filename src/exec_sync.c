@@ -31,10 +31,20 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/**
+ * @brief Wait for the child process to complete exec setup
+ *
+ * @param child_pid PID of the forked child process
+ * @param sync_read_fd Read end of the synchronization pipe
+ *
+ * Reads the readiness byte written by the child after setpgid() and signal
+ * handler reset, then blocks until the pipe EOF that proves exec completed (or
+ * the child exited on exec failure). Closes sync_read_fd on return.
+ *
+ * @return 0 on success, -1 on error (the child is killed and reaped)
+ */
 int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
-    /* Synchronization byte from child */
     char sync_byte;
-    /* Bytes read from pipe */
     ssize_t n_read;
 
     /*
@@ -45,7 +55,6 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
         n_read = read(sync_read_fd, &sync_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     if (n_read != 1 || sync_byte != 'A') {
-        /* Return value of waitpid in error path */
         pid_t wait_result;
         if (n_read < 0) {
             perror("read sync");
@@ -82,12 +91,12 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
      * closed its write end: a successful exec closes it through FD_CLOEXEC,
      * and an exec failure closes it explicitly before _exit().
      *
-     * Stopping after one byte would be unsafe.  If the caller has closed fds
+     * Stopping after one byte would be unsafe. If the caller has closed fds
      * 1 and 2, pipe() hands those numbers to the sync pipe, so the child's
      * stderr aliases the write end; the writes perror() makes on the
      * exec-failure path would then hit a pipe whose read end is already
      * closed, raising SIGPIPE and killing the child with 141 instead of
-     * letting it report 127.  Draining to EOF keeps the read end open for
+     * letting it report 127. Draining to EOF keeps the read end open for
      * every write, and also removes the race where a signal arrives while the
      * child is still inside exec setup -- which matters under tools such as
      * valgrind that intercept execve.

@@ -27,6 +27,18 @@
 
 #include <string.h>
 
+/**
+ * @brief Extract filename from a full path
+ *
+ * @param path Full file path (may contain directory separators), or NULL
+ * @return Pointer to the filename portion within the path string
+ *
+ * Returns a pointer to the substring after the last '/' character, or the
+ * original string if no '/' is found. Does not allocate memory; the returned
+ * pointer references part of the input string.
+ *
+ * If path is NULL, returns an empty string.
+ */
 const char *get_file_basename(const char *path) {
     const char *last_slash;
     if (path == NULL) {

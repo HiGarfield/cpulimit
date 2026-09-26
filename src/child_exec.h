@@ -34,13 +34,10 @@ extern "C" {
 
 /**
  * @brief Execute a child process for command mode
+ *
  * @param cfg Pointer to configuration structure containing command and options
  * @param sync_read_fd Read end of the synchronization pipe
  * @param sync_write_fd Write end of the synchronization pipe
- *
- * This function executes in the child process after fork(). It sets up the
- * process group, resets signal handlers, signals readiness to the parent,
- * and replaces the process image with the user command via execvp().
  *
  * @note This function never returns; it calls _exit() on any failure
  */

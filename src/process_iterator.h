@@ -84,120 +84,82 @@ extern "C" {
  */
 struct process {
     /**
-     * Process ID.
+     * @brief Process ID.
      */
     pid_t pid;
 
     /**
-     * Parent process ID.
+     * @brief Parent process ID.
      */
     pid_t ppid;
 
     /**
-     * Time at which this process started, in seconds.
+     * @brief Time at which this process started, in seconds.
      *
-     * The reference point is platform-specific: seconds since boot on Linux
-     * (derived from the starttime field of /proc/[pid]/stat) and seconds
-     * since the epoch on macOS and FreeBSD. Only equality against another
-     * start time obtained on the same platform is meaningful, and that is
-     * all PID reuse detection needs. A value of -1.0 means the platform
-     * could not provide it, in which case callers must not compare it.
+     * Reference point is platform-specific (seconds since boot on Linux,
+     * since the epoch on macOS/FreeBSD); only same-platform equality is
+     * meaningful, which is all PID-reuse detection needs. -1.0 means unknown
+     * and must not be compared.
      */
     double start_time;
 
     /**
-     * Cumulative CPU time consumed by the process in milliseconds.
+     * @brief Cumulative CPU time consumed by the process in milliseconds.
      * Includes both user and system time.
      */
     double cpu_time;
 
     /**
-     * Moment at which cpu_time was recorded as a baseline, using the same
-     * monotonic source as the process_set's last_update.
+     * @brief Baseline moment cpu_time was recorded, same clock as a set's
+     *        last_update.
      *
-     * A CPU sample is a delta of cpu_time divided by the wall-clock
-     * interval that delta actually spans.  A member discovered in the
-     * middle of a cycle has its baseline taken later than last_update
-     * (usually the moment it first appeared in a scan), so the divisor
-     * must be measured from THIS timestamp rather than from last_update;
-     * otherwise a late-discovered member (typically a new descendant
-     * with -i) is systematically under-measured, which relaxes the
-     * group's limit.  For a member tracked across the whole cycle both
-     * timestamps advance together and the intervals are identical.
-     *
-     * The field is meaningful only for records stored in a process_set's
-     * proc_table: iterator snapshots carry {0, 0} because the platform
-     * get_next_process() implementations zero the whole structure, so
-     * every path that writes a new cpu_time baseline must set this
-     * timestamp explicitly.
+     * A sample divides a cpu_time delta by the interval from THIS timestamp,
+     * not last_update, so a member discovered mid-cycle is not under-measured.
+     * Meaningful only for proc_table records; iterator snapshots carry {0,0}.
      */
     struct timespec cpu_time_ts;
 
     /**
-     * Estimated current CPU usage as a multiplier of one CPU core.
-     * Range: 0.0 to number_of_cpus. For example, 0.5 means using
-     * 50% of one core, while 2.0 means using two full cores.
-     * A value of -1.0 indicates that usage has not yet been measured.
+     * @brief Estimated CPU usage as a multiple of one core.
+     * 0.0 = idle, N = N cores busy; -1.0 means not yet measured.
      */
     double cpu_usage;
 
     /**
-     * Absolute path to the process executable or command.
+     * @brief Absolute path to the process executable or command.
      * Size is platform-dependent (see CMD_BUFF_SIZE).
      */
     char command[CMD_BUFF_SIZE];
 
     /**
-     * Throttle state for signal-failure diagnostics.
+     * @brief Per-member throttles for repeated signal-failure warnings.
      *
-     * A member whose SIGCONT/SIGSTOP cannot be delivered (EPERM/EACCES) is
-     * retried on every control cycle, so reporting each failure would flood
-     * the terminal in --verbose mode.  These flags record that the failure
-     * for the given signal has already been reported for the current
-     * failure episode; the matching success path clears them so a later
-     * failure re-reports.  They are intentionally per-member rather than a
-     * single global so concurrent members report independently.
-     *
-     * cont_warned gates the benign episode: a SIGCONT that failed while the
-     * member was never suspended by this group, so it has been running all
-     * along and the failure only means it cannot be limited.
+     * A member whose SIGSTOP/SIGCONT cannot be delivered is retried every
+     * cycle, so flagging the failure once per episode (cleared by a later
+     * success) avoids flooding the terminal. Per-member rather than global so
+     * concurrent members report independently. cont_warned gates the benign
+     * "never suspended" SIGCONT failure.
      */
     int cont_warned;
     int stop_warned;
 
     /**
-     * Throttle state for the severe resume episode.
+     * @brief Throttle for the severe "may remain stopped" SIGCONT failure.
      *
-     * Separate from cont_warned because the two episodes are independent:
-     * whether a failed SIGCONT deserves the "may remain stopped" emergency
-     * depends on suspended_by_us, not on the signal, and a member can live
-     * through both.  A member that fails a SIGCONT before this group ever
-     * suspends it takes the benign branch and sets cont_warned; gating the
-     * later, severe failure on that same flag swallowed the one message the
-     * user needs -- the PID to run 'kill -CONT' on -- so the severe episode
-     * gets its own flag, cleared by a successful SIGCONT just like the
-     * suspension it reports on.
+     * Separate from cont_warned: the severe episode depends on
+     * suspended_by_us and can co-occur with the benign one, so it needs its
+     * own flag (cleared by a successful SIGCONT).
      */
     int resume_warned;
 
     /**
-     * Suspension state owned by the limiting group.
+     * @brief Non-zero while a successful SIGSTOP by this group is still
+     *        outstanding (not yet undone by SIGCONT).
      *
-     * Non-zero while the most recent SIGSTOP this group delivered to the
-     * member was successful and has not yet been undone by a successful
-     * SIGCONT.  process_set_send_signal() sets it on a successful SIGSTOP
-     * and clears it on a successful SIGCONT, so a failed shutdown SIGCONT
-     * can be reported as "left suspended" only for members this group
-     * actually suspended; a member whose signals were never deliverable
-     * (EPERM/EACCES, seccomp, ...) has been running the whole time and
-     * must not be reported as stranded.
-     *
-     * The field is meaningful only for records stored in a process_set's
-     * proc_table; iterator snapshots carry it as 0 (the platform
-     * get_next_process() implementations zero the whole structure), which
-     * is what makes the PID-reuse reset in
-     * update_existing_process_entry() clear the flag together with the
-     * rest of the old process's state.
+     * A failed shutdown SIGCONT reports "left suspended" only for members this
+     * flag marks; a member whose signals were never deliverable has been
+     * running and must not be reported as stranded. Meaningful only for
+     * proc_table records (snapshots carry 0).
      */
     int suspended_by_us;
 };
@@ -211,14 +173,14 @@ struct process {
  */
 struct process_filter {
     /**
-     * Target process ID to filter by, or 0 to iterate all processes.
+     * @brief Target process ID to filter by, or 0 to iterate all processes.
      * When non-zero, only this process (and optionally its descendants)
      * will be returned.
      */
     pid_t pid;
 
     /**
-     * Whether to include child processes of the target PID.
+     * @brief Whether to include child processes of the target PID.
      * Only meaningful when pid is non-zero.
      * 0: Return only the specified process
      * 1: Return the process and all its descendants
@@ -226,7 +188,7 @@ struct process_filter {
     int include_children;
 
     /**
-     * Whether to read the command path for each process.
+     * @brief Whether to read the command path for each process.
      * 0: Skip reading command path (faster, process.command is empty)
      * 1: Read full executable path (slower, populates process.command)
      */
@@ -249,85 +211,80 @@ struct process_filter {
 struct process_iterator {
 #if defined(__linux__)
     /**
-     * Directory stream for /proc filesystem.
+     * @brief Directory stream for /proc filesystem.
      * Each entry corresponds to a process directory (e.g., /proc/1234).
      */
     DIR *proc_dir;
 
     /**
-     * Flag indicating iteration is complete.
+     * @brief Flag indicating iteration is complete.
      * Set to 1 when readdir() returns NULL or single-process mode completes.
      */
     int end_of_processes;
 #elif defined(__FreeBSD__)
     /**
-     * Kernel virtual memory descriptor for accessing process information.
-     * Opened via kvm_openfiles() and used for all process queries.
+     * @brief Kernel virtual memory descriptor for accessing process
+     * information. Opened via kvm_openfiles() and used for all process queries.
      */
     kvm_t *kvm_descriptor;
 
     /**
-     * Snapshot of all process information structures.
+     * @brief Snapshot of all process information structures.
      * Populated by kvm_getprocs() at initialization.
      */
     struct kinfo_proc *kinfo_procs;
 
     /**
-     * Total number of processes in the snapshot.
+     * @brief Total number of processes in the snapshot.
      */
     int proc_count;
 
     /**
-     * Current iteration index into the kinfo_procs array.
+     * @brief Current iteration index into the kinfo_procs array.
      */
     int current_index;
 #elif defined(__APPLE__)
     /**
-     * Current iteration index into the pid_list array.
+     * @brief Current iteration index into the pid_list array.
      */
     int current_index;
 
     /**
-     * Total number of process IDs in the list.
+     * @brief Total number of process IDs in the list.
      */
     int proc_count;
 
     /**
-     * Snapshot of all process IDs in the system.
+     * @brief Snapshot of all process IDs in the system.
      * Populated by proc_listpids() at initialization.
      */
     pid_t *pid_list;
 #endif
 
     /**
-     * Filter criteria to apply during iteration.
+     * @brief Filter criteria to apply during iteration.
      * Determines which processes to return and what information to retrieve.
      */
     const struct process_filter *filter;
 };
 
 /**
- * @brief Initialize a process iterator with specified filter criteria
+ * @brief Initialize a process iterator with the given filter
+ *
  * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL iter or filter and
- *         out-of-memory); this function does not call exit()
+ * @return 0 on success, -1 on failure (including NULL iter/filter or OOM);
+ *         this function does not call exit()
  *
- * This function prepares the iterator for process enumeration. The behavior
- * varies by platform:
- * - Linux: Opens /proc directory, may skip if filtering single process
- * - FreeBSD: Opens kvm descriptor, retrieves process snapshot if needed
- * - macOS: Retrieves process ID list snapshot, may skip if filtering single
- *          process
- *
- * The filter pointer is stored and must remain valid until
- * close_process_iterator() is called.
+ * @note The filter pointer is stored and must remain valid until
+ *       close_process_iterator() is called.
  */
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter);
 
 /**
  * @brief Retrieve the next process matching the filter criteria
+ *
  * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
  * @return 0 on success with process data in proc, -1 if no more processes or
@@ -346,6 +303,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc);
 
 /**
  * @brief Close the process iterator and release allocated resources
+ *
  * @param iter Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
  *
@@ -372,6 +330,7 @@ int close_process_iterator(struct process_iterator *iter);
 
 /**
  * @brief Determine if one process is a descendant of another
+ *
  * @param child_pid Process ID to check for descendant relationship
  * @param parent_pid Process ID of the potential ancestor
  * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
@@ -390,37 +349,35 @@ int is_child_of(pid_t child_pid, pid_t parent_pid);
 
 /**
  * @brief Retrieve the parent process ID for a given process
+ *
  * @param pid Process ID to query
  * @return Parent process ID on success, -1 on error
  *
- * Queries the system to determine the parent process ID of the specified
- * process. Implementation varies by platform:
- * - Linux: Parses /proc/[pid]/stat for PPID field
- * - FreeBSD: Uses kvm_getprocs() with KERN_PROC_PID
- * - macOS: Uses proc_pidinfo() with PROC_PIDTASKALLINFO
- *
- * Returns -1 if the process does not exist, is a zombie, or if system
- * call fails.
+ * @note Returns -1 if the process does not exist, is a zombie, or the lookup
+ *       fails (per-platform backend: /proc, kvm, or libproc).
  */
 pid_t getppid_of(pid_t pid);
 
 #ifdef CPULIMIT_TEST_BUILD
 /**
  * @brief Test seam backing getppid_of() inside is_child_of()
+ *
  * @param pid Process whose parent PID is wanted
  * @return The fabricated parent PID, or the real one when the seam is unarmed
  *
  * is_child_of() routes its parent-PID lookups through this function when
  * seam_getppid_fabricate is set, so ancestor-chain breakage can be reproduced
- * deterministically.  Compiled only into the test build.
+ * deterministically. Compiled only into the test build.
  */
 pid_t cpulimit_test_getppid_of(pid_t pid);
 
-/** @brief Non-zero: is_child_of() should use the getppid_of() seam. */
+/**
+ * @brief Non-zero: is_child_of() should use the getppid_of() seam. */
 extern int seam_getppid_fabricate;
 
 /**
  * @brief Test seam backing find_process_by_pid()'s existence probe
+ *
  * @param pid Process whose liveness is being checked
  * @return The PID while the seam reports it alive, 0 once it is gone
  *
@@ -428,17 +385,19 @@ extern int seam_getppid_fabricate;
  * seam_find_by_pid_override is set, instead of sending a real kill(pid, 0).
  * The seam reads the currently selected iterator frame, so a candidate the
  * scripted snapshot dropped reports as gone, which lets name-based lookup
- * tests drive the final recheck deterministically.  Compiled only into the
+ * tests drive the final recheck deterministically. Compiled only into the
  * test build.
  */
 pid_t cpulimit_test_find_by_pid(pid_t pid);
 
-/** @brief Non-zero: find_process_by_pid() should use the seam probe. */
+/**
+ * @brief Non-zero: find_process_by_pid() should use the seam probe. */
 extern int seam_find_by_pid_override;
 #endif
 
 /**
  * @brief Determine whether a process ID satisfies the iterator filter
+ *
  * @param pid Process ID to evaluate
  * @param filter Filter criteria to apply
  * @return 1 if the process matches the filter, 0 otherwise
@@ -454,6 +413,7 @@ int process_matches_filter(pid_t pid, const struct process_filter *filter);
 
 /**
  * @brief Get the start time of a single process, if available
+ *
  * @param pid Process ID to query
  * @return The process start time in seconds, or UNKNOWN_START_TIME when the
  *         process does not exist or the platform could not provide a value.

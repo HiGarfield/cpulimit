@@ -34,16 +34,12 @@ extern "C" {
 /**
  * @brief Read the entire contents of a text file.
  *
- * Opens the specified text file and reads all of its bytes into a
- * heap-allocated, NUL-terminated buffer. Unlike a line reader, this reads
- * past any newline, which is required for files such as /proc/[pid]/stat
- * whose only string field (comm) may legitimately embed a newline.
- *
- * The returned buffer is heap-allocated and must be freed by the caller.
+ * Opens the file and reads all bytes into a heap-allocated, NUL-terminated
+ * buffer, past any newline -- needed for /proc/[pid]/stat whose comm field may
+ * embed a newline. The caller must free the result.
  *
  * @param file_name Path to the file.
- * @return Heap-allocated NUL-terminated string, or NULL on error or empty
- *         file.
+ * @return Heap-allocated NUL-terminated string, or NULL on error or empty file.
  */
 char *read_file_contents(const char *file_name);
 #endif

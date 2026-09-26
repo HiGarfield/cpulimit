@@ -34,18 +34,15 @@ extern "C" {
 
 /**
  * @brief Wait for the child process to complete exec setup
+ *
  * @param child_pid PID of the forked child process
  * @param sync_read_fd Read end of the synchronization pipe
  *
  * Reads the readiness byte written by the child after setpgid() and signal
- * handler reset, then blocks until the pipe EOF that indicates exec has
- * completed (or the child has exited on exec failure). Closes sync_read_fd
- * on return.
+ * handler reset, then blocks until the pipe EOF that proves exec completed (or
+ * the child exited on exec failure). Closes sync_read_fd on return.
  *
- * On any error, kills and reaps the child, then returns -1 so the caller
- * can decide how to terminate.
- *
- * @return 0 on success, -1 on error
+ * @return 0 on success, -1 on error (the child is killed and reaped)
  */
 int wait_for_child_exec(pid_t child_pid, int sync_read_fd);
 

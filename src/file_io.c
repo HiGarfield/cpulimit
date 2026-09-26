@@ -31,11 +31,21 @@
 #include <unistd.h>
 
 #if defined(__linux__)
+/**
+ * @brief Read the entire contents of a text file.
+ *
+ * Opens the file and reads all bytes into a heap-allocated, NUL-terminated
+ * buffer, past any newline -- needed for /proc/[pid]/stat whose comm field may
+ * embed a newline. The caller must free the result.
+ *
+ * @param file_name Path to the file.
+ * @return Heap-allocated NUL-terminated string, or NULL on error or empty file.
+ */
 char *read_file_contents(const char *file_name) {
     int fd = -1;
     char *buf = NULL;
-    size_t bufsize = 2048; /* Initial buffer capacity */
-    size_t buflen = 0;     /* Current data length */
+    size_t bufsize = 2048;
+    size_t buflen = 0;
     ssize_t n_read;
 
     if (file_name == NULL) {
@@ -53,7 +63,6 @@ char *read_file_contents(const char *file_name) {
     }
 
     while (1) {
-        /* Ensure sufficient buffer space for next read */
         if (buflen >= bufsize - 1) {
             char *temp;
             if (bufsize > (size_t)-1 / 2) {
@@ -67,19 +76,17 @@ char *read_file_contents(const char *file_name) {
             buf = temp;
         }
 
-        /* Read data directly into buffer until EOF */
         do {
             n_read = read(fd, buf + buflen, bufsize - buflen - 1);
         } while (n_read < 0 && errno == EINTR);
 
         if (n_read <= 0) {
-            break; /* EOF or error */
+            break;
         }
 
         buflen += (size_t)n_read;
     }
 
-    /* Handle error or empty file cases */
     if (n_read < 0 || (n_read == 0 && buflen == 0)) {
         goto error;
     }

@@ -34,12 +34,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Maximum number of name matches kept for fallback when the preferred one
- * vanishes between selection and the existence recheck. */
 #define PROC_FINDER_MAX_CANDIDATES 16
 
+/**
+ * @brief Check if a process exists and can be controlled by cpulimit
+ *
+ * @param pid Process ID to search for
+ * @return Positive PID if process exists and can be signaled
+ *         (kill(pid,0)==0), negative -PID if it exists but permission is
+ *         denied (EPERM/EACCES), 0 if it does not exist or the PID is invalid
+ */
 pid_t find_process_by_pid(pid_t pid) {
-    /* Reject invalid PIDs (must be positive) */
     if (pid <= 0) {
         return 0;
     }
@@ -51,31 +56,40 @@ pid_t find_process_by_pid(pid_t pid) {
         return cpulimit_test_find_by_pid(pid);
     }
 #endif
-    /*
-     * Attempt to send null signal (doesn't actually signal, just checks
-     * permission).
-     */
+    /* kill(pid, 0): existence + permission probe without signalling */
     if (kill(pid, 0) == 0) {
         return pid;
     }
-    /* Process exists but we lack permission to signal it.  Some systems
+    /* Process exists but we lack permission to signal it. Some systems
      * report EACCES rather than EPERM for an inaccessible process, so accept
      * both: neither is "does not exist". */
     if (errno == EPERM || errno == EACCES) {
         return -pid;
     }
-    /* Process does not exist (errno is ESRCH or other error) */
     return 0;
 }
 
+/**
+ * @brief Find a running process by its executable name or path
+ *
+ * @param process_name Name or absolute path of the executable to search for
+ * @return Positive PID if found and accessible, negative -PID if found but
+ *         permission denied, 0 if not found or invalid name
+ *
+ * Compares against argv[0] (full path if absolute, else basename). With
+ * several matches the topmost ancestor wins, and among unrelated ones the
+ * smallest PID wins; a controllable match is preferred over an uncontrollable
+ * one, and a vanished winner falls back to another live candidate.
+ *
+ * @note Iterates every process, so prefer find_process_by_pid() when the PID is
+ *       known; returns 0 on allocation or iterator errors.
+ */
 pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
     pid_t probe, best_pid, best_probe;
     pid_t candidates[PROC_FINDER_MAX_CANDIDATES];
-    /* unsigned: as signed counters the fallback loop below needs the
-       assumption that i + 1 does not overflow to be folded, which
-       -Wstrict-overflow reports on older compilers. */
+    /* unsigned avoids a -Wstrict-overflow warning on the i + 1 bound below. */
     unsigned int n_candidates = 0;
     unsigned int i;
     struct process_iterator iter;
@@ -99,7 +113,7 @@ pid_t find_process_by_name(const char *process_name) {
     /*
      * Reject an empty comparison name (e.g. process_name == "bin/").
      * get_file_basename("bin/") returns "" because the last '/' has nothing
-     * after it.  Matching against an empty string would produce false
+     * after it. Matching against an empty string would produce false
      * positives for any process whose argv[0] also ends with '/'.
      */
     if (process_cmp_name[0] == '\0') {
@@ -111,7 +125,6 @@ pid_t find_process_by_name(const char *process_name) {
         return 0;
     }
 
-    /* Configure iterator to scan all processes and read command names */
     filter.pid = 0;
     filter.include_children = 0;
     filter.read_cmd = 1;
@@ -121,11 +134,9 @@ pid_t find_process_by_name(const char *process_name) {
         return 0;
     }
 
-    /* Scan all processes to find matching executable */
     while (get_next_process(&iter, proc) != -1) {
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : get_file_basename(proc->command);
-        /* Check if this process matches the target name */
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
             /*
              * Select this PID if:
@@ -133,7 +144,7 @@ pid_t find_process_by_name(const char *process_name) {
              * - This process is a descendant of the previous match
              *   (is_child_of(pid, proc->pid)) -- keep the higher/older one,
              * - The two matches are unrelated and this PID is smaller, which
-             *   makes the winner independent of scan order.  The
+             *   makes the winner independent of scan order. The
              *   /proc readdir / proc_listpids / kvm_getprocs order is not
              *   guaranteed, so without this tie-break the chosen target would
              *   change across runs.
@@ -148,12 +159,12 @@ pid_t find_process_by_name(const char *process_name) {
             }
             /*
              * Remember every match so a vanished winner can fall back to
-             * another live candidate.  The array only caps the
+             * another live candidate. The array only caps the
              * MEMORY of candidates: the primary selection above keeps
              * running over every process, so with more than
              * PROC_FINDER_MAX_CANDIDATES matches the winner is still
              * chosen correctly and only a fallback could miss the ideal
-             * survivor.  Deliberately not raised: it bounds one fixed
+             * survivor. Deliberately not raised: it bounds one fixed
              * array on the stack, and 16 simultaneous name matches is
              * already far beyond realistic use.
              */
@@ -167,7 +178,7 @@ pid_t find_process_by_name(const char *process_name) {
         /*
          * The scan itself completed and this diagnostic is all the operator
          * can act on, so the selection below continues exactly as it does
-         * on the normal path.  Returning a PID here would skip the
+         * on the normal path. Returning a PID here would skip the
          * existence recheck, the controllability probe and
          * the -PID contract, and would hand the caller a positive
          * PID for a process cpulimit cannot control at all: a limit run
@@ -178,7 +189,7 @@ pid_t find_process_by_name(const char *process_name) {
     }
 
     /*
-     * Verify the selected process still exists.  If it vanished between the
+     * Verify the selected process still exists. If it vanished between the
      * scan and this recheck, fall back to another live candidate rather than
      * reporting a spurious "not found" that would throttle nothing.
      *
@@ -190,7 +201,7 @@ pid_t find_process_by_name(const char *process_name) {
      * Reusing the scan's rule keeps the choice independent of the platform's
      * iteration order, and the controllability tier stops an uncontrollable
      * match from winning on PID alone and giving up a run that could have
-     * limited something.  The probe's sign still reaches the caller: -PID is
+     * limited something. The probe's sign still reaches the caller: -PID is
      * what makes it emit one "No permission to control process N", and it is
      * returned only after every survivor has been probed and none turned out
      * to be controllable.
@@ -244,6 +255,17 @@ pid_t find_process_by_name(const char *process_name) {
     return best_probe;
 }
 
+/**
+ * @brief Check whether a PID has since been taken over by another program
+ *
+ * @param pid Process ID to inspect
+ * @param process_name Executable name or absolute path expected for that PID
+ * @return 1 only when the PID is confirmed running a different executable, 0
+ *         when it matches or no conclusion can be drawn
+ *
+ * Closes the window between resolving a name to a PID and starting to limit it;
+ * the test is one-sided so any uncertainty keeps prior behavior unchanged.
+ */
 int process_has_other_name(pid_t pid, const char *process_name) {
     struct process_iterator iter;
     struct process_filter filter;

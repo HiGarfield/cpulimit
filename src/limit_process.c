@@ -51,14 +51,8 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem);
 
 /**
  * @def WORK_RATIO_EPSILON
- * @brief Very small positive value used to prevent division by zero and
- *        bound work_ratio strictly away from 0 and 1
- *
- * Used in:
- * - MAX(cpu_usage, WORK_RATIO_EPSILON): prevents division by zero in
- *   work_ratio calculation
- * - CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON): ensures
- *   both work and sleep phases always have positive duration
+ * @brief Tiny value keeping work_ratio strictly away from 0 and 1 (no
+ * div-by-zero).
  */
 #define WORK_RATIO_EPSILON 1e-12
 
@@ -77,7 +71,7 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem);
  * @brief Number of control cycles between each verbose statistics line
  *
  * In verbose mode, CPU usage and control parameters are printed every
- * STATS_SAMPLE_PERIOD cycles.  Keeping this relatively low (10) provides
+ * STATS_SAMPLE_PERIOD cycles. Keeping this relatively low (10) provides
  * timely feedback without flooding the terminal.
  */
 #define STATS_SAMPLE_PERIOD 10
@@ -87,7 +81,7 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem);
  * @brief Number of control cycles between verbose statistics header lines
  *
  * A column-header line is printed every STATS_HEADER_PERIOD cycles so that
- * the output remains readable when scrolling.  Must be a multiple of
+ * the output remains readable when scrolling. Must be a multiple of
  * STATS_SAMPLE_PERIOD.
  */
 #define STATS_HEADER_PERIOD 200
@@ -116,42 +110,33 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem);
 
 /**
  * @struct dynamic_time_slot_ctx
- * @brief Explicit state for the dynamic time-slot algorithm
+ * @brief Mutable state for the dynamic time-slot algorithm
  *
- * Holds the mutable state of the dynamic time-slot algorithm.  The caller
- * owns an instance and passes it to get_dynamic_time_slot(), which keeps
- * the algorithm free of static locals that two runs sharing this process
- * would otherwise have to share state through.
+ * Held by the caller and passed to get_dynamic_time_slot(), avoiding static
+ * locals so two runs in one process do not share state.
  */
 struct dynamic_time_slot_ctx {
-    /** Current smoothed time slot in microseconds. */
+    /**
+     * @brief Current smoothed time slot in microseconds. */
     double time_slot;
-    /** Non-zero after the first call has seeded the timestamp and PRNG. */
+    /**
+     * @brief Non-zero after the first call has seeded the timestamp and PRNG.
+     */
     int initialized;
-    /** Timestamp of the most recent load-based adjustment. */
+    /**
+     * @brief Timestamp of the most recent load-based adjustment. */
     struct timespec last_update;
 };
 
 /**
- * @brief Calculate dynamic time slot duration based on system load
+ * @brief Adapt the control time slot to system load
+ *
  * @param ctx Pointer to dynamic_time_slot_ctx holding the algorithm state
  * @return Time slot duration in microseconds
  *
- * This function adapts the control time slot to system conditions:
- * - Under low load: uses smaller time slots for precise control
- * - Under high load: uses larger time slots to reduce overhead
- *
- * The algorithm:
- * 1. Maintains a time slot that evolves over time (stored in ctx)
- * 2. Reads system load average via getloadavg()
- * 3. Adjusts time slot proportionally to load per CPU
- * 4. Applies smoothing (exponential moving average) to avoid oscillation
- * 5. Adds small randomization to prevent synchronization with system tick
- *
- * Updates at most once per second to avoid excessive system calls.
- *
- * @note This function is not thread-safe and must only be called from a
- *       single thread.
+ * Reads the load average at most once per second and widens the slot with load
+ * (slot = load / ncpu / 0.3), clamps it to [MIN, MAX], EMA-smooths it, and adds
+ * small jitter to avoid tick synchronization. Not thread-safe.
  */
 static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
     struct timespec now;
@@ -159,16 +144,14 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
     /*
      * Standards note: getloadavg() is BSD/GNU -- neither C89 nor POSIX.1-2001
      * has any interface reporting the load average -- so this file defines
-     * _GNU_SOURCE.  srandom()/random() are POSIX.1-2001 XSI: C89's rand()
+     * _GNU_SOURCE. srandom()/random() are POSIX.1-2001 XSI: C89's rand()
      * could produce the jitter, but the test harness renames random() to
      * make it deterministic, so the XSI pair stays.
      */
 
-    /* First call: initialize timestamp and seed PRNG for jitter */
     if (!ctx->initialized) {
         ctx->initialized = 1;
         if (get_current_time(&ctx->last_update) == 0) {
-            /* Seed PRNG with current time for randomization */
             srandom((unsigned int)((unsigned long)ctx->last_update.tv_nsec ^
                                    (unsigned long)ctx->last_update.tv_sec));
         }
@@ -179,13 +162,8 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
 
         ctx->last_update = now;
 
-        /*
-         * Calculate new time slot based on load:
-         * - load / ncpu = normalized load per CPU
-         * - Divide by 0.3 to scale: target is 30% baseline load
-         * - Higher load -> larger time slot -> less frequent
-         *   adjustments.
-         */
+        /* Scale the slot by load: slot = load / ncpu / 0.3, so heavier
+         * load widens the slot and throttles less often. */
         new_time_slot = ctx->time_slot * load / get_ncpu() / 0.3;
         new_time_slot =
             CLAMP(new_time_slot, MIN_TIME_SLOT_US, MAX_TIME_SLOT_US);
@@ -206,6 +184,27 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
     return ctx->time_slot * (0.95 + (double)(random() % 1001) / 10000.0);
 }
 
+/**
+ * @brief Enforce a CPU usage limit on a process or process set
+ *
+ * @param pid Process ID of the target process to limit
+ * @param cpu_limit CPU limit in core equivalents, range (0, N_CPU]
+ * @param include_children Non-zero to limit descendants too, zero for target
+ * only
+ * @param verbose Non-zero to print periodic statistics
+ * @param prior_scan_failures Consecutive scan failures the caller has already
+ *        recorded, so the per-cycle diagnostic prints once per streak rather
+ *        than per retry; it does not change the return value
+ * @return One of the LIMIT_PROCESS_* codes: OK when finished with everything
+ *         resumed; SCAN_FAILED (or _AND_STRANDED if not all resumed) on a
+ * failed scan; STRANDED when the run ended but a member could not be resumed;
+ *         ERROR when the group could not be built. Every non-OK value means
+ * the target is no longer limited.
+ *
+ * @note Blocks until the target terminates or is_quit_flag_set() is true; every
+ *       suspended process is resumed before returning.
+ */
+
 int limit_process(pid_t pid, double cpu_limit, int include_children,
                   int verbose, unsigned int prior_scan_failures) {
     struct process_set proc_set;
@@ -219,7 +218,6 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     /* Current state: 1 if processes are stopped, 0 if running */
     int is_stopped = 0;
 
-    /* Clamp cpu_limit to valid range and calculate initial work ratio */
     cpu_limit = CLAMP(cpu_limit, WORK_RATIO_EPSILON, ncpu);
     work_ratio = cpu_limit / ncpu;
 
@@ -229,18 +227,11 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
      */
     increase_priority();
 
-    /* Initialize process set tracking structure */
     if (init_process_set(&proc_set, pid, include_children) != 0) {
         fprintf(stderr, "Failed to initialize process group for PID %ld\n",
                 (long)pid);
-        /*
-         * Report the failure to the caller instead of terminating the
-         * process.  Exiting here abandoned a command-mode child that had
-         * already been forked: it kept running at full speed, nobody
-         * waited for it and cpulimit reported EXIT_FAILURE without ever
-         * seeing the command's own status.  Nothing has been stopped at
-         * this point, so there is nothing to resume either.
-         */
+        /* Report to the caller instead of exiting: exiting would orphan the
+         * already-forked command child, leaving it running unthrottled. */
         return LIMIT_PROCESS_ERROR;
     }
 
@@ -258,27 +249,15 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
         double cpu_usage, work_time_ns, sleep_time_ns, time_slot, slot_time_ns;
         struct timespec work_time, sleep_time;
 
-        /* Refresh process list and update CPU usage measurements */
         if (update_process_set(&proc_set) != 0) {
             /*
-             * Limiting started and then had to stop.  The cleanup below
-             * resumes whatever is still suspended, so the caller sees a
-             * well-defined state -- but nothing is throttled from here on,
-             * and saying nothing would let a command-mode run report the
-             * command's own exit status as a successfully limited run.
-             * The initial scan failure has its own report above;
-             * this one happens after limiting already ran.
-             */
-            /*
-             * Reported once per streak, not once per attempt: a caller that
-             * retries calls this again every couple of seconds and fifteen
-             * identical lines buried whatever came next -- including the
-             * stranded-process hints that say which PID to recover by hand.
-             * The retrying caller closes the streak with its own "Giving up
-             * after N failed scan(s)" line, so the outcome is still stated.
-             * scan_failed itself is set every time: it is what the return
-             * value is built from, and the caller's streak is its own
-             * counter.
+             * Limiting ran and then had to stop on a failed scan. The cleanup
+             * below resumes whatever is still suspended, so the caller sees a
+             * well-defined state, but nothing is throttled from here on, and
+             * saying nothing would let a command-mode run report the command's
+             * own exit status as a successfully limited run. Reported once per
+             * streak, not per retry, so a retrying caller does not bury the
+             * stranded-process hints under repeated identical lines.
              */
             if (prior_scan_failures == 0) {
                 fprintf(stderr,
@@ -290,7 +269,6 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
             break;
         }
 
-        /* Exit if all target processes have terminated */
         if (process_set_is_empty(&proc_set)) {
             if (verbose) {
                 printf("No running target process found.\n");
@@ -298,7 +276,6 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
             break;
         }
 
-        /* Get current CPU usage of all processes in group */
         cpu_usage = get_process_set_cpu_usage(&proc_set);
 
         /*
@@ -319,7 +296,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
              * Gain cap (0.5..2.0): a plain multiplicative update
              * work_ratio *= cpu_limit / cpu_usage slams work_ratio to
              * saturation whenever cpu_usage dips toward zero, which is
-             * exactly what drives the 0%<->80% swings.  Capping the
+             * exactly what drives the 0%<->80% swings. Capping the
              * per-cycle gain keeps the correction bounded.
              */
             double gain = cpu_limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
@@ -328,28 +305,17 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
                                1 - WORK_RATIO_EPSILON);
         }
 
-        /* Get time slot duration (may vary based on system load) */
         time_slot = get_dynamic_time_slot(&time_slot_ctx);
 
-        /* Split time slot into work and sleep periods */
         slot_time_ns = time_slot * 1000.0;
         work_time_ns = slot_time_ns * work_ratio;
         /*
          * Keep both quanta at or above one nanosecond. nsec_to_timespec()
          * truncates, so anything below 1 ns becomes a zero timespec and the
-         * whole phase below is skipped -- and with it the SIGCONT or
-         * SIGSTOP that phase is responsible for sending. A target stopped
-         * during the sleep phase would then never be resumed by its own
-         * work phase. Clamping keeps the signal sequence intact even for
-         * extreme limits, and leaves ordinary values untouched.
-         */
-        /*
-         * Upper bound first, lower bound last: a slot too small to hold
-         * both a work and a sleep phase must still get one nanosecond
-         * each. Clamping the other way round could drive work_time_ns
-         * back below one, nsec_to_timespec() would truncate it to a zero
-         * timespec, and the whole work phase -- including the SIGCONT it
-         * is responsible for -- would be skipped.
+         * phase -- and the SIGCONT/SIGSTOP it must send -- is skipped, leaving
+         * a stopped target unresumed. Clamp the upper bound before the lower
+         * bound: clamping the other way could drive work_time_ns back below
+         * one.
          */
         if (work_time_ns > slot_time_ns - 1.0) {
             work_time_ns = slot_time_ns - 1.0;
@@ -387,12 +353,9 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
             }
         }
 
-        /*
-         * WORK PHASE: Allow processes to execute.
-         */
+        /* WORK PHASE: Allow processes to execute. */
         if (work_time.tv_sec > 0 || work_time.tv_nsec > 0) {
             if (is_stopped) {
-                /* Resume all stopped processes */
                 process_set_send_signal(&proc_set, SIGCONT, verbose);
                 is_stopped = 0;
                 /* Recheck process list after signaling */
@@ -400,21 +363,16 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
                     break;
                 }
             }
-            /* Allow processes to run for work_time duration */
             sleep_timespec(&work_time);
         }
 
-        /* Check for termination request before sleep phase */
         if (is_quit_flag_set()) {
             break;
         }
 
-        /*
-         * SLEEP PHASE: Suspend processes to limit CPU usage.
-         */
+        /* SLEEP PHASE: Suspend processes to limit CPU usage. */
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
             if (!is_stopped) {
-                /* Stop all running processes */
                 process_set_send_signal(&proc_set, SIGSTOP, verbose);
                 is_stopped = 1;
                 /* Recheck process list after signaling */
@@ -422,23 +380,20 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
                     break;
                 }
             }
-            /* Keep processes suspended for sleep_time duration */
             sleep_timespec(&sleep_time);
         }
 
-        /* Check for termination request after sleep phase */
         if (is_quit_flag_set()) {
             break;
         }
 
-        /* Increment cycle counter with wraparound */
         cycle_counter = (cycle_counter + 1) % STATS_HEADER_PERIOD;
     }
 
     /*
      * End the line the keyboard-quit echo is on, now and not after the cleanup
      * below: the warnings that cleanup can print must not start on that same
-     * line.  A run that ends without ever reaching this loop -- still searching
+     * line. A run that ends without ever reaching this loop -- still searching
      * for a target that has not appeared, or reaping a command's child -- asks
      * for the same newline on its way out instead, and it is written once per
      * run however many of those paths are taken.
@@ -453,14 +408,13 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
      */
     resume_failed = process_set_send_signal(&proc_set, SIGCONT, 0);
 
-    /* Release process tracking resources */
     close_process_set(&proc_set);
 
     if (resume_failed > 0) {
         /*
          * At least one suspended process could not be resumed at shutdown.
          * It may stay stopped forever, so report it and exit
-         * non-zero rather than silently returning success.  The resume
+         * non-zero rather than silently returning success. The resume
          * round above already printed a per-PID "cannot resume PID N ... may
          * remain stopped; run 'kill -CONT N'" line for every process it
          * could not resume -- those lines carry the PID the operator
@@ -475,7 +429,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          * returning LIMIT_PROCESS_ERROR here would make command mode describe
          * a run that did limit for a while as one that never applied the limit
          * at all, which sends the operator after permissions or target
-         * resolution instead of the PIDs that need releasing.  Whether the
+         * resolution instead of the PIDs that need releasing. Whether the
          * control loop also stopped on a failed scan decides between the two
          * stranded values, so the caller can say both facts when both hold.
          */
@@ -488,7 +442,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     /*
      * Everything was resumed, so no repair is left for the caller -- but
      * limiting did stop early, which is not the success LIMIT_PROCESS_OK
-     * describes.  Say so and let the caller that has no second chance
+     * describes. Say so and let the caller that has no second chance
      * (command mode) report it, while one that can re-resolve its target
      * simply tries again.
      */

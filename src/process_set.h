@@ -35,267 +35,161 @@ extern "C" {
 
 /**
  * @struct process_set
- * @brief Represents a monitored process and optionally its descendant tree
+ * @brief A monitored process and optionally its descendant tree
  *
- * proc_table OWNS the process records: it allocates them when a new PID is
- * discovered and frees them once that PID stops being a group member.
- * proc_list is a NON-OWNING per-cycle view whose nodes hold borrowed pointers
- * to those records and never allocate or free them.
- *
- * The two answer different questions rather than duplicating one state.
- * proc_table is the long-lived store that survives update cycles, because
- * PID-reuse detection and the CPU-usage EMA both need the previous sample of
- * a PID that is still present; proc_list is the membership snapshot used for
- * iteration (CPU-usage aggregation, signal delivery) and is rebuilt from
- * scratch every cycle.  Collapsing them would either lose the previous sample
- * or make "is this PID still a member?" cost a linear scan.
- *
- * update_process_set() keeps them in sync: every proc_list entry points at a
- * record owned by proc_table, clear_list(proc_list) releases only the list
- * nodes, and at the end of a cycle remove_stale_from_process_table() deletes
- * the records proc_list did not name.
+ * proc_table OWNS the process records and survives update cycles, so PID-reuse
+ * detection and the CPU-usage EMA retain each PID's previous sample.
+ * proc_list is a NON-OWNING per-cycle snapshot rebuilt every cycle for
+ * iteration and signal delivery.
  */
 struct process_set {
     /**
-     * Owning hashtable mapping PIDs to process structures for O(1) lookup.
+     * @brief Owning PID->record hashtable (O(1) lookup).
      *
-     * Sole owner of the records: process_dup() allocates them and
-     * remove_stale_from_process_table() frees them. Survives update cycles
-     * on purpose, so the previous cpu_time sample is still available for
-     * PID reuse detection and EMA smoothing when a later cycle finds the
-     * same PID again.
+     * Allocates records on discovery and frees them when a PID leaves the
+     * group; survives update cycles so PID-reuse detection and EMA keep the
+     * previous cpu_time sample.
      */
     struct process_table *proc_table;
 
     /**
-     * Non-owning linked list of the processes active in the current cycle.
+     * @brief Non-owning list of processes active in the current cycle.
      *
-     * Holds borrowed pointers into proc_table and never allocates or frees
-     * the records it points at. Rebuilt from scratch by every
-     * update_process_set() call by scanning /proc (or equivalent), so it
-     * carries only this cycle's membership and is the view used for
-     * iteration: CPU usage aggregation and SIGSTOP/SIGCONT delivery.
+     * Holds borrowed pointers into proc_table and is rebuilt from scratch by
+     * update_process_set(); used for iteration and SIGSTOP/SIGCONT delivery.
      */
     struct list *proc_list;
 
     /**
-     * Processes this group has suspended with SIGSTOP and has not resumed
-     * yet. Each element is a heap-allocated stopped_pid_record
-     * { pid_t pid; double start_time; } owned by the list.
+     * @brief PIDs this group suspended with SIGSTOP and has not resumed yet.
      *
-     * The list outlives a single update cycle on purpose: proc_list is
-     * rebuilt from scratch by update_process_set(), and a process that
-     * stops matching the group while suspended (for example a descendant
-     * that is re-parented away when its monitored ancestor exits) would
-     * otherwise never receive the SIGCONT that undoes the SIGSTOP.
-     *
-     * start_time is the start time of the process at the moment it was
-     * suspended: before resuming a PID that has left the group,
-     * resume_stopped_pids() re-queries the start time and skips a PID
-     * that a different process now occupies, so a recycled PID never
-     * receives the resume meant for its predecessor. The list is emptied
-     * after every resume round, so a record skipped by that PID-reuse
-     * check is dropped as well -- the original process is gone either
-     * way.
+     * Each element is a heap-allocated {pid, start_time} record owned by the
+     * list. It outlives a cycle because proc_list is rebuilt and a suspended
+     * process that leaves the group would otherwise never get its SIGCONT;
+     * start_time guards against resuming a recycled PID.
      */
     struct list *stopped_pids;
 
     /**
-     * PID of the primary target process.
-     * This is the root of the process tree being monitored.
+     * @brief PID of the primary target process (root of the monitored tree).
      */
     pid_t target_pid;
 
     /**
-     * Start time that target_pid had when the group was created, or
-     * UNKNOWN_START_TIME if the platform could not provide one.
+     * @brief Start time target_pid had when the group was created, or
+     *        UNKNOWN_START_TIME if unavailable.
      *
-     * Kept here rather than in the proc_table record because records that
-     * stop being group members are purged at the end of every cycle: a
-     * baseline stored in a record would be dropped along with it, and the
-     * process now occupying the recycled PID would then be accepted as
-     * brand new on the next cycle, which is exactly what this guards
-     * against.
+     * Stored here (not in a proc_table record) because records of departed
+     * members are purged each cycle; this lets a recycled PID be rejected.
      */
     double target_start_time;
 
     /**
-     * Flag controlling descendant tracking:
-     * - Non-zero: monitor target and all descendant processes (recursive)
-     * - Zero: monitor only the target process itself
+     * @brief Non-zero to monitor target and descendants, zero for target only.
      */
     int include_children;
 
     /**
-     * Timestamp of the most recent update operation.
-     * Used to calculate time deltas (dt) for CPU usage computation.
-     * Measured via clock_gettime() or equivalent high-resolution timer.
+     * @brief Timestamp of the most recent update, for CPU-usage dt.
      */
     struct timespec last_update;
 };
 
 /**
  * @brief Initialize a process set for monitoring and CPU limiting
+ *
  * @param proc_set Pointer to uninitialized process_set structure to set up
  * @param target_pid PID of the primary process to monitor
  * @param include_children Non-zero to monitor descendants, zero for target only
- * @return 0 on success, -1 on error; it never calls exit(), so the caller
- *         (limit_process) can resume the group and exit cleanly instead of
- *         stranding a stopped process
+ * @return 0 on success, -1 on error; it never calls exit(), so the caller can
+ *         resume the group and exit cleanly instead of stranding a stopped
+ *         process
  *
- * Allocates and initializes the process hashtable, the process list and the
- * suspended-PID list, records the current time as the CPU baseline, and
- * performs the initial scan that populates the process list.
- *
- * @note Returns -1 immediately if proc_set is NULL, and releases whatever it
- *       had partially allocated on any later failure
- * @note After a successful return, proc_set is fully initialized and ready
- *       for use
+ * @note Returns -1 immediately if proc_set is NULL, and releases partially
+ *       allocated resources on any later failure
  */
 int init_process_set(struct process_set *proc_set, pid_t target_pid,
                      int include_children);
 
 /**
  * @brief Release all resources associated with a process set
+ *
  * @param proc_set Pointer to the process_set structure to clean up
  * @return 0 on success (always succeeds)
  *
- * This function:
- * 1. Clears and frees the process list
- * 2. Destroys and frees the suspended-PID list
- * 3. Destroys and frees the process hashtable
- * 4. Sets pointers to NULL and zeros numeric fields for safety
- *
- * @note Safe to call with NULL proc_set (returns 0 immediately)
- * @note Safe to call even if proc_set is partially initialized (NULLs are
- *       handled)
- * @note Does not send any signals to processes; they continue running
- * @note After return, proc_set fields should not be accessed without
- *       re-initialization
+ * @note Safe to call with NULL proc_set or a partially initialized one
  */
 int close_process_set(struct process_set *proc_set);
 
 /**
- * @brief Record that a member of the group has just been suspended
+ * @brief Record that a member was just suspended with SIGSTOP
+ *
  * @param proc_set Pointer to the process set structure
  * @param pid PID that was successfully sent SIGSTOP
  * @param start_time Start time of pid at suspension, from
  *        get_process_start_time(); pass UNKNOWN_START_TIME when the platform
  *        cannot report one, which disables the recycle check for this PID
- * @return 0 when the suspension is recorded, -1 when it is not: the process
- *         has then already been resumed again and the caller must not treat
- *         it as suspended by this group
+ * @return 0 when recorded, -1 when not: the process was then already resumed
+ *         and the caller must not treat it as suspended by this group
  *
- * proc_list is rebuilt from scratch by update_process_set(), so a process
- * can cease to be a member of the group while it is still suspended: a
- * descendant, for instance, is re-parented away when its monitored ancestor
- * exits, and is_child_of() then no longer matches it.  Recording the PID
- * keeps the suspension undoable after the process has left proc_list, and
- * the start time is stored with it so resume_stopped_pids() can tell the
- * original process from one that later took over the recycled PID.
- *
- * A PID already recorded is updated in place rather than appended, because
- * the SIGSTOP round records every member and a member whose SIGCONT failed in
- * the previous round still carries its record.  When the record cannot be
- * created -- no list, or either allocation fails -- the suspension is undone
- * immediately and -1 is returned: an unrecorded suspension would never be
- * resumed once the member leaves the group.
- *
- * @note Safe to call with NULL proc_set or a group whose suspended-PID list
- *       has not been allocated; the call is then a -1 no-op
+ * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
+ *       the call is then a -1 no-op
  */
 int record_stopped_pid(struct process_set *proc_set, pid_t pid,
                        double start_time);
 
 /**
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
+ *
  * @param proc_set Pointer to the process set structure
- * @return The number of recorded PIDs that could not be resumed for a reason
- *         other than ESRCH: they were suspended by this group and may have
- *         been left stopped, so the shutdown report must treat them like a
- *         failed resume of a current member
+ * @return Number of recorded PIDs that could not be resumed for a reason other
+ *         than ESRCH (they may have been left stopped and the shutdown report
+ *         must treat them like a failed resume of a current member)
  *
- * Sends SIGCONT to every recorded PID that has left the group and frees the
- * list, so processes that left the group while suspended are resumed instead
- * of staying suspended forever.  Members still in proc_list are resumed by
- * the regular resume round and are deliberately not signalled twice here,
- * but their records are dropped all the same: that is why
- * process_set_send_signal() re-records a member whose SIGCONT then fails,
- * and why a member leaving the group in that window still gets its undo.
- *
- * A failed resume of a recorded PID is always reported on stderr.
- *
- * @note Safe to call with NULL proc_set or a group whose suspended-PID list
- *       has not been allocated; the call is then a no-op returning 0
+ * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
+ *       the call is then a no-op returning 0
  */
 int resume_stopped_pids(struct process_set *proc_set);
 
 /**
  * @brief Drop a PID from the suspension record without resuming it
+ *
  * @param proc_set Pointer to the process set structure
  * @param pid PID to forget
  *
- * Called when a signal to a tracked process failed, which means the
- * process can no longer be controlled and there is no suspension left to
- * undo. Resuming it later would be worse than pointless: the PID may
- * already have been recycled, and resume_stopped_pids() would then send
- * the resume to an unrelated process.
- *
- * @note Safe to call with NULL proc_set or a group whose suspended-PID
- *       list has not been allocated; the call is then a no-op
- * @note Removes every record for the PID, so the list cannot keep a
- *       duplicate entry behind
+ * Called when a signal to the process failed, so it can no longer be
+ * controlled and there is no suspension left to undo. Resuming it later would
+ * be unsafe: the PID may have been recycled and the resume would reach an
+ * unrelated process.
  */
 void forget_stopped_pid(struct process_set *proc_set, pid_t pid);
 
 /**
  * @brief Refresh process set state and recalculate CPU usage
+ *
  * @param proc_set Pointer to the process_set structure to update
- *
- * Scans for the target and its descendants, rebuilds proc_list, drops the
- * processes that are gone and recomputes each member's CPU usage:
- * - a usable sample needs the minimum delta CPU_MIN_DELTA_MS;
- * - usage is smoothed with an exponential moving average (CPU_EMA_ALPHA);
- * - a decreasing cpu_time means the PID was recycled, so its history is
- *   reset, and a backward clock jump establishes a new baseline;
- * - a process with no valid measurement yet reports cpu_usage = -1.
- *
  * @return 0 on success, -1 on a critical error (iterator, clock or
- *         allocation).  On -1 the caller must break out of its limiting loop
- *         rather than exit, so the cleanup path can resume whatever is
- *         stopped
+ *         allocation); the caller must then break its limiting loop rather
+ *         than exit, so cleanup can resume whatever is stopped
+ *
  * @note Safe to call with NULL proc_set (returns 0 immediately)
- * @note Should be called periodically (e.g., every 100ms) while limiting
- * @note Stale hash table entries are purged even when the iterator fails to
- *       close, so proc_table never retains exited processes across cycles
  */
 int update_process_set(struct process_set *proc_set);
 
 /**
- * @brief Calculate aggregate CPU usage across all processes in the group
+ * @brief Aggregate CPU usage across all processes in the group
+ *
  * @param proc_set Pointer to the process_set structure to query
- * @return Sum of CPU usage values for all processes with known usage, or
- *         -1.0 if no processes have valid CPU measurements yet or if
- *         proc_set is NULL
- *
- * CPU usage is expressed as a fraction of total system CPU capacity:
- * - 0.0 = idle
- * - 1.0 = fully utilizing one CPU core
- * - N = fully utilizing N CPU cores (on multi-core systems)
- *
- * The function:
- * 1. Iterates through all processes in proc_list
- * 2. Sums cpu_usage for processes with valid measurements (cpu_usage >= 0)
- * 3. Returns -1 if all processes have unknown usage (first update cycle)
+ * @return Sum of cpu_usage for members with a known measurement, or -1.0 if
+ *         none are known yet or proc_set is NULL
  *
  * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
- * @note Thread-safe if proc_set is not being modified concurrently
- * @note Safe to call with NULL proc_set (returns -1)
  */
 double get_process_set_cpu_usage(const struct process_set *proc_set);
 
 /**
  * @brief Check whether the process set currently has no active members
+ *
  * @param proc_set Pointer to the process_set structure to query
  * @return Non-zero if proc_list is empty or proc_set is NULL
  */
@@ -303,6 +197,7 @@ int process_set_is_empty(const struct process_set *proc_set);
 
 /**
  * @brief Return the number of active members in the process set
+ *
  * @param proc_set Pointer to the process_set structure to query
  * @return Number of nodes in proc_list, or 0 if proc_set is NULL
  */
@@ -310,31 +205,14 @@ size_t process_set_member_count(const struct process_set *proc_set);
 
 /**
  * @brief Send a signal to every active member of the process set
+ *
  * @param proc_set Pointer to the process set structure
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose Retained for API compatibility; failure reporting is
- *                throttled per member by the stop_warned / cont_warned /
- *                resume_warned flags, so this flag does not change what is
- *                printed
- * @return The number of processes whose delivery failed and that this call
- *         may have left suspended.  On the SIGCONT round that covers current
- *         members this group had suspended and PIDs that left the group while
- *         suspended (resumed from the record first); a resume that meets
- *         ESRCH does not count, because the process is gone.  On every other
- *         round every failed delivery counts, except that a failed SIGCONT
- *         for a member never suspended cannot strand anything and does not
- *         count either.
- *
- * A member that no longer exists (ESRCH) is removed from the group and from
- * the process table to avoid repeated errors.  A member that still exists but
- * refuses the signal (EPERM/EACCES, a seccomp filter, ...) is kept: dropping
- * it would silently end the limit the user asked for, while its CPU time
- * still counts against the group budget.
- *
- * Successful SIGSTOP delivery is recorded so the suspension can always be
- * undone, both in the member's suspended_by_us flag and in the stopped-PID
- * list; SIGCONT additionally resumes processes recorded earlier that have
- * since left the group.
+ * @param verbose Retained for API compatibility; failure reporting is throttled
+ *                per member by the stop_warned/cont_warned/resume_warned flags
+ * @return Number of deliveries that failed and may have left a member
+ * suspended. A failed SIGCONT for a member this group never suspended is benign
+ * and does not count; an ESRCH (process gone) never counts.
  *
  * @note Safe iteration: stores the next node before a potential deletion
  */

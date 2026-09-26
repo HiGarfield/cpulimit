@@ -42,7 +42,7 @@
  *
  * Used when the target file exists but cannot be executed (e.g., missing
  * execute permission, unsupported binary format, or missing shebang
- * interpreter).  Mirrors the POSIX shell convention for exit status 126.
+ * interpreter). Mirrors the POSIX shell convention for exit status 126.
  */
 #define EXIT_CMD_NOT_EXECUTABLE 126
 
@@ -60,13 +60,14 @@
 
 /**
  * @brief Resolve a bare command name to its absolute path using PATH
+ *
  * @param name Command name without a '/'
  * @param out  Buffer receiving the resolved path (must hold PATH_MAX bytes)
  * @param out_size Size of out in bytes
  * @return 1 if the name resolves to an existing file under PATH, 0 otherwise
  *
  * Mirrors execvp()'s PATH search so the shebang pre-check below can inspect a
- * PATH-resolved script the same way it inspects an explicit path.  Returns 0
+ * PATH-resolved script the same way it inspects an explicit path. Returns 0
  * (no resolution) for names that already contain a '/', leaving the existing
  * explicit-path path untouched.
  */
@@ -110,12 +111,18 @@ static int resolve_command_path(const char *name, char *out, size_t out_size) {
     return found;
 }
 
+/**
+ * @brief Execute a child process for command mode
+ *
+ * @param cfg Pointer to configuration structure containing command and options
+ * @param sync_read_fd Read end of the synchronization pipe
+ * @param sync_write_fd Write end of the synchronization pipe
+ *
+ * @note This function never returns; it calls _exit() on any failure
+ */
+
 void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
                         int sync_write_fd) {
-    /*
-     * This block executes in the child process.
-     * The child will become the command specified by the user.
-     */
     int saved_errno;
     const char *check_path;
     const char *script_path;
@@ -135,13 +142,13 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
 
     /*
      * Reset inherited signal handlers to SIG_DFL before notifying
-     * the parent.  After fork(), this child inherits the parent's
-     * configured handlers.  execvp() resets them, but on systems
+     * the parent. After fork(), this child inherits the parent's
+     * configured handlers. execvp() resets them, but on systems
      * where exec takes measurable time (e.g., macOS 10.15+ with
      * library validation), a signal forwarded by the parent between
      * reading the sync byte and exec completing would be silently
      * caught by the inherited handler instead of terminating this
-     * process.  Resetting here closes that race window.
+     * process. Resetting here closes that race window.
      */
     if (reset_signal_handlers_to_default() != 0) {
         close(sync_read_fd);
@@ -149,7 +156,6 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         goto error_out;
     }
 
-    /* Close unused read end of pipe */
     close(sync_read_fd);
     /*
      * Signal parent that child initialization is complete.
@@ -157,7 +163,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * Do NOT close sync_write_fd here: it must remain open until exec
      * so that the close-on-exec flag (FD_CLOEXEC) causes it to be
      * closed automatically on a successful execvp(), signalling exec
-     * completion to the parent.  On exec failure the code below closes
+     * completion to the parent. On exec failure the code below closes
      * it explicitly.
      */
     if (write(sync_write_fd, "A", 1) != 1) {
@@ -174,9 +180,9 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * automatically, signalling exec completion to the parent.
      *
      * Pre-check: detect a script whose shebang interpreter is inaccessible
-     * before calling execvp().  Under normal execution execvp() would fail in
+     * before calling execvp(). Under normal execution execvp() would fail in
      * this case, but under valgrind the exec interception is unrecoverable, so
-     * the check must happen before exec.  _exit() closes all fds (including
+     * the check must happen before exec. _exit() closes all fds (including
      * sync_write_fd), which also signals exec completion to the parent.
      *
      * The check runs for an explicit path AND for a bare name resolved through
@@ -188,20 +194,20 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     /*
      * Heap-allocate the PATH resolution buffer instead of putting a
      * PATH_MAX-sized array on the stack, which would blow the project's
-     * -Wstack-usage=512 limit.  Only the PATH-resolved branch needs it:
+     * -Wstack-usage=512 limit. Only the PATH-resolved branch needs it:
      * the explicit-path branch works on check_path itself and therefore
-     * runs whether or not the allocation succeeded.  A failed
+     * runs whether or not the allocation succeeded. A failed
      * allocation costs just the PATH pre-check -- a bare name then falls
      * through to execvp() and reports the usual code -- never the
      * explicit-path check whose 126 classification must not depend on a
      * 4 KiB allocation succeeding.
      */
     /*
-     * Decide which path to pre-check, then check it once.  An explicit path
+     * Decide which path to pre-check, then check it once. An explicit path
      * is checked as given so that its 126 classification never depends on
      * whether the allocation above succeeded; a bare name has to be resolved
      * through PATH first, and one that resolves nowhere has nothing to
-     * check and falls through to execvp().  The message names what the user
+     * check and falls through to execvp(). The message names what the user
      * typed either way.
      */
     if (strchr(check_path, '/') != NULL) {
