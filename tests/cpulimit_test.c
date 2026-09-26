@@ -2024,7 +2024,7 @@ static void pty_child_exit(int code) {
  *       nothing may be written at all.
  */
 static void test_signal_handler_finish_tty_quit_line(void) {
-    int master_fd, slave_fd;
+    int master_fd;
     int pipe_fds[2];
     const char *slave_name;
     pid_t pid, waited;
@@ -2055,8 +2055,6 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     assert(unlockpt(master_fd) == 0);
     slave_name = ptsname(master_fd);
     assert(slave_name != NULL);
-    slave_fd = open(slave_name, O_RDWR | O_NOCTTY);
-    assert(slave_fd >= 0);
 
     fflush(stdout);
     fflush(stderr);
@@ -2064,12 +2062,19 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     assert(pid >= 0);
     if (pid == 0) {
         /*
-         * Keep each result in a variable instead of testing the call inside
-         * the condition: the analyser reports a descriptor whose only mention
-         * is a comparison as leaked, even though the child is about to exit
-         * with it.
+         * The slave is opened here rather than in the parent because only
+         * this process needs it: a descriptor the parent opened would have
+         * to be closed in both, which is one close too many for a tool that
+         * does not model fork().  Keep each result in a variable instead of
+         * testing the call inside the condition: the analyser reports a
+         * descriptor whose only mention is a comparison as leaked, even
+         * though the child is about to exit with it.
          */
-        int dup_result;
+        int dup_result, slave_fd;
+        slave_fd = open(slave_name, O_RDWR | O_NOCTTY);
+        if (slave_fd < 0) {
+            pty_child_exit(1);
+        }
         dup_result = dup2(slave_fd, STDIN_FILENO);
         if (dup_result < 0) {
             pty_child_exit(1);
@@ -2099,10 +2104,6 @@ static void test_signal_handler_finish_tty_quit_line(void) {
         finish_tty_quit_line();
         pty_child_exit(0);
     }
-    if (slave_fd != STDIN_FILENO && slave_fd != STDOUT_FILENO) {
-        close(slave_fd);
-    }
-
     total = 0;
     alarm(20);
     while (total < sizeof(capture)) {
@@ -2763,18 +2764,18 @@ static pid_t find_unused_pid(void) {
  * @note Tests process ancestry checking
  */
 static void test_process_iterator_is_child_of(void) {
-    pid_t child_pid, parent_pid;
+    pid_t forked_pid, self_pid;
     pid_t unused_pid;
     int result;
 
     unused_pid = find_unused_pid();
-    parent_pid = getpid();
+    self_pid = getpid();
 
     /* Create a child process */
-    child_pid = fork();
-    assert(child_pid >= 0);
+    forked_pid = fork();
+    assert(forked_pid >= 0);
 
-    if (child_pid == 0) {
+    if (forked_pid == 0) {
         sigset_t full_mask;
         /*
          * Block all blockable signals so no signal can wake the child
@@ -2795,37 +2796,36 @@ static void test_process_iterator_is_child_of(void) {
     /* Parent process - test is_child_of */
 
     /* Child should be child of parent */
-    result = is_child_of(child_pid, parent_pid);
+    result = is_child_of(forked_pid, self_pid);
     assert(result == 1);
 
     /* Parent should not be child of child */
-    /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
-    result = is_child_of(parent_pid, child_pid);
+    result = is_child_of(self_pid, forked_pid);
     assert(result == 0);
 
     /* Process should not be child of itself */
-    result = is_child_of(parent_pid, parent_pid);
+    result = is_child_of(self_pid, self_pid);
     assert(result == 0);
 
     /* All processes are children of init (PID 1) */
-    result = is_child_of(parent_pid, 1);
+    result = is_child_of(self_pid, 1);
     assert(result == 1);
 
     /* Test with invalid PIDs */
-    result = is_child_of(0, parent_pid);
+    result = is_child_of(0, self_pid);
     assert(result == 0);
 
-    result = is_child_of(-1, parent_pid);
+    result = is_child_of(-1, self_pid);
     assert(result == 0);
 
-    result = is_child_of(child_pid, 0);
+    result = is_child_of(forked_pid, 0);
     assert(result == 0);
 
-    result = is_child_of(child_pid, -1);
+    result = is_child_of(forked_pid, -1);
     assert(result == 0);
 
     /* Test with non-existent PID */
-    result = is_child_of(unused_pid, parent_pid);
+    result = is_child_of(unused_pid, self_pid);
     assert(result == 0);
 
     /* Non-existent process must not be treated as child of init */
@@ -2833,7 +2833,7 @@ static void test_process_iterator_is_child_of(void) {
     assert(result == 0);
 
     /* Clean up child */
-    kill_and_wait(child_pid, SIGKILL);
+    kill_and_wait(forked_pid, SIGKILL);
 }
 
 /**
@@ -2843,12 +2843,12 @@ static void test_process_iterator_is_child_of(void) {
  *       traversal in is_child_of().
  */
 static void test_process_iterator_is_child_of_deep(void) {
-    pid_t grandparent_pid;
-    pid_t child_pid;
-    pid_t grandchild_pid;
+    pid_t top_pid;
+    pid_t middle_pid;
+    pid_t deep_pid;
     int pipe_fds[2];
 
-    grandparent_pid = getpid();
+    top_pid = getpid();
 
     if (pipe(pipe_fds) != 0) {
         fprintf(stderr,
@@ -2857,14 +2857,14 @@ static void test_process_iterator_is_child_of_deep(void) {
         return;
     }
 
-    child_pid = fork();
-    assert(child_pid >= 0);
+    middle_pid = fork();
+    assert(middle_pid >= 0);
 
-    if (child_pid == 0) {
+    if (middle_pid == 0) {
         /*
          * Child process: become a new process group leader so the
          * grandparent can kill both child and grandchild together via
-         * kill(-child_pid, SIGKILL).
+         * kill(-middle_pid, SIGKILL).
          */
         pid_t gc_pid;
         sigset_t full_mask;
@@ -2919,8 +2919,8 @@ static void test_process_iterator_is_child_of_deep(void) {
 
         /* Parent (grandparent): read grandchild PID from pipe */
         close(pipe_fds[1]);
-        buf = (char *)&grandchild_pid;
-        remaining = sizeof(grandchild_pid);
+        buf = (char *)&deep_pid;
+        remaining = sizeof(deep_pid);
         while (remaining > 0) {
             ssize_t n = read(pipe_fds[0], buf, remaining);
             if (n > 0) {
@@ -2933,31 +2933,29 @@ static void test_process_iterator_is_child_of_deep(void) {
             /* EINTR: retry */
         }
         close(pipe_fds[0]);
-        assert(grandchild_pid > 0);
+        assert(deep_pid > 0);
 
         /* Grandchild must be a descendant of grandparent (two hops up) */
-        result = is_child_of(grandchild_pid, grandparent_pid);
+        result = is_child_of(deep_pid, top_pid);
         assert(result == 1);
 
         /*
          * Grandchild must also be a direct descendant of the intermediate
          * child.
          */
-        /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
-        result = is_child_of(grandchild_pid, child_pid);
+        result = is_child_of(deep_pid, middle_pid);
         assert(result == 1);
 
         /* Inverse: intermediate child is NOT a descendant of grandchild */
-        /* NOLINTNEXTLINE(readability-suspicious-call-argument) */
-        result = is_child_of(child_pid, grandchild_pid);
+        result = is_child_of(middle_pid, deep_pid);
         assert(result == 0);
 
         /*
          * Kill the entire process group (child + grandchild) and wait for
          * our direct child to be reaped.  The grandchild gets reparented to
-         * init once child_pid exits and is reaped by init automatically.
+         * init once middle_pid exits and is reaped by init automatically.
          */
-        kill_and_wait(-child_pid, SIGKILL);
+        kill_and_wait(-middle_pid, SIGKILL);
     }
 }
 
@@ -6863,15 +6861,6 @@ static int drain_heartbeats(int fd) {
  * a pipe.  Once the limiter has exited, heartbeats must reappear.
  */
 static void test_limit_process_resumes_orphaned_descendant(void) {
-    /*
-     * PID of the test process, published to the descendants this test lets
-     * get orphaned.  The test kills the tracked ancestor so that its
-     * descendant is re-parented away, and that descendant cannot use its own
-     * parent to notice the test is over: it reads this PID instead, which it
-     * inherits across the fork() below.  Static storage keeps the value alive
-     * from the write before that fork to the read after it.
-     */
-    static pid_t test_runner_pid = 0;
     const double cpu_usage_limit = 0.001;
     const struct timespec settle_time = {1, 0};
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
@@ -6900,7 +6889,15 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
     target_pid = fork();
     assert(target_pid >= 0);
     if (target_pid == 0) {
-        pid_t child_pid;
+        /*
+         * PID of the test process, published to the descendants this test
+         * lets get orphaned: the test kills the tracked ancestor so that
+         * its descendant is re-parented away, and that descendant cannot
+         * use its own parent to notice the test is over.  Writing it
+         * before the fork() below is enough, because every descendant
+         * starts from a copy that already carries the value.
+         */
+        pid_t child_pid, test_runner_pid = 0;
         ret = close(heartbeat[0]);
         assert(ret == 0);
         ret = close(info[0]);
@@ -10959,7 +10956,7 @@ static void test_pid_mode_reattaches_after_target_exits(void) {
     int status = 0, exited, exit_code, calls;
     char announce;
     char *capture;
-    char *report;
+    const char *report;
     size_t total;
 
     assert(pipe(err_pipe) == 0);
