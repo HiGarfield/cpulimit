@@ -28,10 +28,78 @@
 #include <errno.h>
 #include <sys/resource.h>
 
+#if defined(__linux__) || defined(__FreeBSD__)
+/*
+ * sched_setscheduler(2) and SCHED_FIFO live in <sched.h> on Linux (glibc) and
+ * FreeBSD.  They are intentionally not pulled in on macOS, which has no POSIX
+ * real-time scheduler and instead uses the Mach THREAD_TIME_CONSTRAINT_POLICY
+ * (see try_become_realtime() below).
+ */
+#include <sched.h>
+#endif
+
+#ifdef __APPLE__
+/*
+ * macOS/Darwin has no POSIX real-time scheduler; the real-time lever is the
+ * Mach thread-policy API in these headers (used by try_become_realtime()).
+ */
+#include <mach/mach.h>
+#include <mach/thread_policy.h>
+#endif
+
 #ifdef CPULIMIT_IMPL_GETLOADAVG
 #include <stdlib.h>
 #include <sys/sysinfo.h>
 #endif
+
+#if defined(__linux__) || defined(__FreeBSD__)
+/*
+ * Best-effort: raise cpulimit to SCHED_FIFO (lowest RT priority) so it can
+ * preempt the throttled process the instant it wakes from nanosleep and deliver
+ * SIGSTOP promptly, instead of waiting for the target to yield.  On a
+ * non-fully-preemptible kernel (e.g. 2.6.9 PREEMPT_VOLUNTARY) a busy-looping
+ * target otherwise starves cpulimit and the enforced duty cycle becomes biased
+ * and noisy -- which is exactly the limit-cycle oscillation seen on such
+ * kernels.
+ *
+ * Both Linux and FreeBSD implement the POSIX real-time scheduler; priority 1 is
+ * the lowest FIFO priority on either.  cpulimit sleeps between signals, so an
+ * RT priority only matters during the brief wakeup-to-signal window and never
+ * monopolizes the CPU.  If CAP_SYS_NICE (Linux) or the required privilege
+ * (FreeBSD) is unavailable the call fails silently and the portable nice()
+ * ladder in increase_priority() remains the only lever.
+ */
+static void try_become_realtime(void) {
+    struct sched_param sp;
+    sp.sched_priority = 1;
+    (void)sched_setscheduler(0, SCHED_FIFO, &sp);
+}
+#elif defined(__APPLE__)
+/*
+ * macOS/Darwin has no POSIX SCHED_FIFO/SCHED_RR, so the equivalent real-time
+ * lever is the Mach THREAD_TIME_CONSTRAINT_POLICY: it schedules the calling
+ * thread with a bounded time constraint so it can preempt the throttled busy
+ * loop promptly and deliver SIGSTOP.  cpulimit sleeps between signals, so the
+ * thread is only "real-time" during the brief wakeup-to-signal window and does
+ * not monopolize the CPU.  If the policy cannot be applied the call is silently
+ * ignored and the portable nice() ladder below remains the only lever.
+ */
+static void try_become_realtime(void) {
+    thread_time_constraint_policy_data_t policy;
+    mach_port_t thread = mach_thread_self();
+    /* period/computation/constraint are in AbsoluteTime (ns on modern Darwin).
+       A modest, preemptible budget: 100us period, 50us computation, 100us
+       constraint. */
+    policy.period = 100000;
+    policy.computation = 50000;
+    policy.constraint = 100000;
+    policy.preemptible = 1;
+    (void)thread_policy_set(thread, THREAD_TIME_CONSTRAINT_POLICY,
+                            (thread_policy_t)&policy,
+                            THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+    (void)mach_port_deallocate(mach_task_self(), thread);
+}
+#endif /* platform selection */
 
 void increase_priority(void) {
     int old_priority, priority;
@@ -41,7 +109,12 @@ void increase_priority(void) {
         /* Error getting current priority, assume default priority */
         old_priority = 0;
     }
-    /* Try to set highest priority, working upward if denied */
+    /* Best-effort real-time promotion so SIGSTOP is prompt; see
+       try_become_realtime() above.  No-op without sufficient privilege, in
+       which case the portable nice() ladder below remains the only lever. */
+    try_become_realtime();
+    /* Portable priority boost: raise the nice priority as far as permitted.
+       Used on macOS, FreeBSD, and Linux without CAP_SYS_NICE. */
     for (priority = PRIO_MIN; priority < old_priority; priority++) {
         errno = 0;
         if (setpriority(PRIO_PROCESS, 0, priority) == 0) {
