@@ -5776,7 +5776,6 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
          * and names this project's own helper binary; nothing untrusted
          * reaches execv() here.
          */
-        /* NOLINTNEXTLINE(clang-analyzer-optin.taint.GenericTaint) */
         execv(mpb_path, child_argv);
         _exit(1);
     }
@@ -9580,6 +9579,12 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  *
  * While the seam is inactive every replacement is a pass through, so all
  * other tests in this file observe the production behaviour unchanged.
+ *
+ * A consequence of the rename is that each replacement's only callers live in
+ * other translation units, so cppcheck, which resolves one translation unit
+ * at a time, reports every one of them as never used.  Each definition
+ * therefore carries a single-line unusedFunction suppression, the narrowest
+ * scope cppcheck offers; nothing else in this file is exempted.
  ***************************************************************************/
 
 /** @brief PID the seam scripts report; it never belongs to a real process. */
@@ -9815,7 +9820,6 @@ static int seam_sleep_fails = 0;
  * Referenced from the sources linked into this test binary through the extern
  * declarations in process_iterator.h, so they must keep external linkage.
  */
-/* NOLINTBEGIN(misc-use-internal-linkage) */
 /*
  * This translation unit is compiled without CPULIMIT_TEST_BUILD, so the
  * extern declarations that process_iterator.h guards with that macro are not
@@ -9833,7 +9837,6 @@ int seam_getppid_fabricate = 0;
 /** @brief Non-zero: find_process_by_pid() probes from the iterator seam
  * (BUG-055/056). */
 int seam_find_by_pid_override = 0;
-/* NOLINTEND(misc-use-internal-linkage) */
 
 /**
  * @brief PIDs reported alive by cpulimit_test_find_by_pid() under override.
@@ -9975,12 +9978,10 @@ extern "C" {
 #endif
 
 /* Hooks that park a call site on a barrier driven by the test. */
-/* NOLINTBEGIN(misc-use-internal-linkage) */
 int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
                                 int include_children, int verbose,
                                 unsigned int prior_scan_failures);
 pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options);
-/* NOLINTEND(misc-use-internal-linkage) */
 
 /*
  * Replacements referenced by the sources compiled into this test binary.
@@ -9988,7 +9989,6 @@ pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options);
  * renamed onto these names at compile time, which a single translation
  * unit cannot show.
  */
-/* NOLINTBEGIN(misc-use-internal-linkage) */
 int cpulimit_test_get_current_time(struct timespec *result_ts);
 int cpulimit_test_sleep_timespec(const struct timespec *duration);
 int cpulimit_test_kill(pid_t pid, int sig);
@@ -10001,8 +10001,6 @@ int cpulimit_test_update_process_set(struct process_set *proc_set);
 long cpulimit_test_random(void);
 int cpulimit_test_getloadavg(double *loadavg, int nelem);
 double cpulimit_test_get_process_start_time(pid_t pid);
-
-/* NOLINTEND(misc-use-internal-linkage) */
 
 #ifdef __cplusplus
 }
@@ -13248,11 +13246,11 @@ static void seam_assert_no_double_stop(const struct seam_signal *log,
  * @param result_ts Timestamp to fill
  * @return 0 on success, -1 on failure
  */
-/* cppcheck-suppress-begin unusedFunction */
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_get_current_time(struct timespec *result_ts) {
     double whole_seconds;
     seam_clock_call_count++;
@@ -13288,6 +13286,7 @@ int cpulimit_test_get_current_time(struct timespec *result_ts) {
  * yields UNKNOWN_START_TIME, the safe "cannot compare" fallback that never
  * suppresses a closing resume.
  */
+/* cppcheck-suppress unusedFunction */
 double cpulimit_test_get_process_start_time(pid_t pid) {
     if (!seam_active) {
         return get_process_start_time(pid);
@@ -13307,6 +13306,7 @@ double cpulimit_test_get_process_start_time(pid_t pid) {
  * and no time is actually spent, so a duty cycle that would take seconds
  * of wall clock is decided in microseconds.
  */
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_sleep_timespec(const struct timespec *duration) {
     char go;
     if (seam_sleep_fails) {
@@ -13364,9 +13364,9 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
  * onto these names at compile time, which a single translation unit cannot
  * show.
  */
-/* NOLINTBEGIN(misc-use-internal-linkage) */
 pid_t cpulimit_test_getppid_of(pid_t pid);
 
+/* cppcheck-suppress unusedFunction */
 pid_t cpulimit_test_getppid_of(pid_t pid) {
     /*
      * The chain that is_child_of() walks under seam_getppid_fabricate.
@@ -13408,6 +13408,7 @@ pid_t cpulimit_test_getppid_of(pid_t pid) {
  */
 pid_t cpulimit_test_find_by_pid(pid_t pid);
 
+/* cppcheck-suppress unusedFunction */
 pid_t cpulimit_test_find_by_pid(pid_t pid) {
     int i;
     for (i = 0; i < seam_alive_count; i++) {
@@ -13421,8 +13422,6 @@ pid_t cpulimit_test_find_by_pid(pid_t pid) {
 #ifdef __cplusplus
 }
 #endif
-
-/* NOLINTEND(misc-use-internal-linkage) */
 
 /** * @brief Test that is_child_of() retries a transient getppid_of() failure
  *        instead of reporting a false negative (BUG-043)
@@ -13448,6 +13447,7 @@ static void test_is_child_of_retries_on_ppid_lookup_failure(void) {
 extern "C" {
 #endif
 
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_kill(pid_t pid, int sig) {
     int failed;
     if (!seam_active && seam_fail_call == 0) {
@@ -13494,6 +13494,7 @@ int cpulimit_test_kill(pid_t pid, int sig) {
  * @param filter Filter criteria (ignored; membership is scripted instead)
  * @return 0 on success, -1 on failure
  */
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_init_process_iterator(struct process_iterator *iter,
                                         const struct process_filter *filter) {
     (void)filter;
@@ -13526,6 +13527,7 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
  * @param proc Process structure to fill
  * @return 0 when a process was filled, -1 when the snapshot is exhausted
  */
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_get_next_process(struct process_iterator *iter,
                                    struct process *proc) {
     const struct seam_proc *entry;
@@ -13554,6 +13556,7 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
  * @param iter Iterator to close
  * @return 0 on success, -1 on failure
  */
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_close_process_iterator(struct process_iterator *iter) {
     if (!seam_active) {
         return close_process_iterator(iter);
@@ -13599,6 +13602,7 @@ static void seam_mark_snapshot(void) {
 extern "C" {
 #endif
 
+/* cppcheck-suppress unusedFunction */
 long cpulimit_test_random(void) {
     if (!seam_active) {
         return random();
@@ -13612,6 +13616,7 @@ long cpulimit_test_random(void) {
  * @param nelem Number of elements requested
  * @return Number of elements filled, or -1 on failure
  */
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_getloadavg(double *loadavg, int nelem) {
     int idx;
     if (!seam_active) {
@@ -13642,6 +13647,7 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem) {
  * Must match the declaration the renamed limit_process.h produces in the
  * sources that call it, which is why the return type tracks limit_process().
  */
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
                                 int include_children, int verbose,
                                 unsigned int prior_scan_failures) {
@@ -13689,6 +13695,7 @@ int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
  * forwarded and every call after that returns -1, driving limit_process() down
  * its error path so its cleanup (which resumes the group) is exercised.
  */
+/* cppcheck-suppress unusedFunction */
 int cpulimit_test_update_process_set(struct process_set *proc_set) {
     if (seam_fail_update_after > 0) {
         if (seam_update_call_count >= seam_fail_update_after) {
@@ -13711,6 +13718,7 @@ int cpulimit_test_update_process_set(struct process_set *proc_set) {
  * after run_command_mode() has already decided not to forward anything:
  * the late-arrival checkpoint.
  */
+/* cppcheck-suppress unusedFunction */
 pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
     char go;
     if (options & WNOHANG) {
@@ -13739,8 +13747,6 @@ pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
 #ifdef __cplusplus
 }
 #endif
-
-/* cppcheck-suppress-end unusedFunction */
 
 /**
  * @brief Drive limit_process() through the scripted smoke scenario

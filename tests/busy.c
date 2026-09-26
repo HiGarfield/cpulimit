@@ -50,7 +50,6 @@ static void *busy_loop(void *arg) {
     return NULL;
 }
 
-/* cppcheck-suppress-begin constParameter */
 /**
  * @brief Main function for CPU load generator
  * @param argc Argument count
@@ -60,9 +59,13 @@ static void *busy_loop(void *arg) {
  * Creates multiple threads to generate CPU load for testing cpulimit
  * functionality. The number of threads can be specified via argv[1].
  * Exits with failure if thread creation fails.
+ *
+ * cppcheck's constParameter fires on main()'s argv, and that signature is
+ * fixed by the standard, so it cannot be acted on; the suppression below is
+ * scoped to this one definition.
  */
+/* cppcheck-suppress constParameter */
 int main(int argc, char *argv[]) {
-    /* cppcheck-suppress-end constParameter */
     int thread_idx, num_threads;
     pthread_attr_t attr;
 
