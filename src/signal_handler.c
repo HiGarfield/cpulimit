@@ -261,7 +261,7 @@ int is_terminated_by_tty(void) {
 }
 
 void finish_tty_quit_line(void) {
-    if (tty_newline_written || !quit_flag || !tty_quit_flag) {
+    if (tty_newline_written || !quit_flag || !is_terminated_by_tty()) {
         return;
     }
     if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {

@@ -71,7 +71,7 @@
  * Used by the internal failure paths, which return EXIT_FAILURE to the caller
  * instead of terminating the process underneath it.
  */
-static void reap_child_before_error_return(pid_t child_pid) {
+void reap_child_before_error_return(pid_t child_pid) {
     for (;;) {
         int status;
         pid_t wpid = waitpid(child_pid, &status, WNOHANG);
@@ -301,19 +301,3 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
      */
     return child_reaped ? child_exit_status : EXIT_FAILURE;
 }
-
-#ifdef CPULIMIT_TEST_BUILD
-/*
- * Test-only accessor for reap_child_before_error_return(): a child that may
- * ignore the termination signal is resumed (SIGCONT) and reaped.  The call must
- * return at once (WNOHANG); it must never block waiting for the child.  Defined
- * only in the test build so the production object stays free of test code.
- */
-int cpulimit_test_exercise_reap(pid_t child_pid);
-
-int cpulimit_test_exercise_reap(pid_t child_pid) {
-    kill(child_pid, SIGCONT);
-    reap_child_before_error_return(child_pid);
-    return 0;
-}
-#endif

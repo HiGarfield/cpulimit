@@ -16995,22 +16995,6 @@ static void test_process_set_rejects_recycled_target_pid(void) {
  *       driver is back over the readability-function-size threshold now that
  *       this module has grown past thirty tests.
  */
-/* Test accessor for the static reap helper in child_wait.c; defined only in the
- * test build so the production object stays free of test code. */
-int cpulimit_test_exercise_reap(pid_t child_pid);
-
-/* Test accessor for record_stopped_pid()'s de-duplication in process_set.c;
- * defined only in the test build so the production object stays free of test
- * code.  Declared here (not just in the header guard) because the test TU is
- * compiled without CPULIMIT_TEST_BUILD and needs the prototype to call it. */
-#ifdef __cplusplus
-extern "C" {
-#endif
-int cpulimit_test_record_stopped_pid_dedup(void);
-#ifdef __cplusplus
-}
-#endif
-
 /* Forward declaration so the RUN_TEST registration below can reference the
  * stopped_pids de-duplication test, which is defined later (next to main()). */
 static void test_stopped_pids_record_does_not_duplicate(void);
@@ -17255,14 +17239,56 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
  *       into the existing entry instead of appending a duplicate.  Without it,
  *       the SIGSTOP round re-records a member whose SIGCONT failed in the
  *       prior round (S3) and leaves two entries for one suspension, which
- *       resume_stopped_pids() would then walk twice.  Drive the recorder
- *       directly through its test accessor and assert exactly one entry
- *       survives with the latest start time.  Verified by mutation: removing
- *       the fold makes the accessor report two entries and this assertion
- *       fail.
+ *       resume_stopped_pids() would then walk twice.  Both halves are checked
+ *       through the public interface, with no accessor of the module's
+ *       internals: first that one entry survives, then that it carries the
+ *       latest start time -- resume_stopped_pids() re-reads that time and
+ *       skips a PID whose start time moved on, so an entry left at the first
+ *       value would be read as recycled and never resumed.  The seam supplies
+ *       the current start time and records every signal.  Verified by
+ *       mutation: removing the fold leaves two entries, so the count
+ *       assertion fails, and keeping the first start time instead of the
+ *       latest leaves the resume skipped, so the signal count fails.
  */
 static void test_stopped_pids_record_does_not_duplicate(void) {
-    assert(cpulimit_test_record_stopped_pid_dedup() == 0);
+    struct process_set proc_set;
+    const struct list_node *node;
+    size_t entries;
+    int conts;
+
+    seam_reset();
+    memset(&proc_set, 0, sizeof(proc_set));
+    proc_set.stopped_pids = (struct list *)malloc(sizeof(struct list));
+    assert(proc_set.stopped_pids != NULL);
+    init_list(proc_set.stopped_pids);
+
+    /* One PID recorded twice must leave a single entry behind. */
+    assert(record_stopped_pid(&proc_set, (pid_t)4242, 100.0) == 0);
+    assert(record_stopped_pid(&proc_set, (pid_t)4242, 200.0) == 0);
+    entries = 0;
+    for (node = first_list_node(proc_set.stopped_pids); node != NULL;
+         node = node->next) {
+        entries++;
+    }
+    assert(entries == 1);
+
+    /*
+     * The start time the entry kept decides whether the resume reaches the
+     * process: 200.0 is what the current read reports, so a match is what
+     * makes the SIGCONT happen at all.
+     */
+    seam_active = 1;
+    seam_set_start_times(200.0, 200.0);
+    resume_stopped_pids(&proc_set);
+    conts = seam_count_signals(seam_signals, (int)seam_signal_count,
+                               (pid_t)4242, SIGCONT);
+    seam_active = 0;
+    assert(conts == 1);
+
+    /* destroy_list() frees each node's record as well. */
+    destroy_list(proc_set.stopped_pids);
+    free(proc_set.stopped_pids);
+    seam_reset();
 }
 
 /**
@@ -17328,7 +17354,9 @@ static void test_reap_before_error_return_does_not_block(void) {
     }
 
     assert(get_current_time(&before) == 0);
-    cpulimit_test_exercise_reap(child);
+    /* The resume is what the production caller does before the reap. */
+    kill(child, SIGCONT);
+    reap_child_before_error_return(child);
     assert(get_current_time(&after) == 0);
 
     /* Non-blocking: returned in well under the child's sleep. */
