@@ -63,6 +63,20 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem);
 #define WORK_RATIO_EPSILON 1e-12
 
 /**
+ * @def DEADBAND_FRACTION
+ * @brief Fractional deadband around the CPU-limit setpoint
+ *
+ * When |measured_usage - cpu_limit| stays within DEADBAND_FRACTION of the
+ * target, work_ratio is left untouched.  This stops the proportional term
+ * from chattering on every tick-quantized sample (CPU-time feedback is
+ * ~10 ms steps on a jiffy-only kernel such as 2.6.9) and prevents the
+ * relay-style limit cycle.  It is expressed as a fraction of the target so
+ * it scales across the whole cpu_limit range.  No fabs() is used, so the
+ * binary does not pull in libm.
+ */
+#define DEADBAND_FRACTION 0.10
+
+/**
  * @def BASE_TIME_SLOT_US
  * @brief Base control time slot in microseconds
  *
@@ -316,16 +330,29 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          */
         if (cpu_usage >= 0) {
             /*
-             * Gain cap (0.5..2.0): a plain multiplicative update
-             * work_ratio *= cpu_limit / cpu_usage slams work_ratio to
-             * saturation whenever cpu_usage dips toward zero, which is
-             * exactly what drives the 0%<->80% swings.  Capping the
-             * per-cycle gain keeps the correction bounded.
+             * Deadband: leave work_ratio unchanged while the measurement
+             * sits within DEADBAND_FRACTION of the target.  Without this the
+             * proportional term chatters on every tick-quantized sample
+             * (CPU-time feedback is ~10 ms steps on a jiffy-only kernel such
+             * as 2.6.9) and the loop limit-cycles between saturation and
+             * cutoff.  fabs() is avoided on purpose so we do not link libm.
              */
-            double gain = cpu_limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
-            gain = CLAMP(gain, 0.5, 2.0);
-            work_ratio = CLAMP(work_ratio * gain, WORK_RATIO_EPSILON,
-                               1 - WORK_RATIO_EPSILON);
+            double err = cpu_usage - cpu_limit;
+            if (err < 0.0)
+                err = -err;
+            if (err > DEADBAND_FRACTION * cpu_limit) {
+                /*
+                 * Gain cap (0.5..2.0): a plain multiplicative update
+                 * work_ratio *= cpu_limit / cpu_usage slams work_ratio to
+                 * saturation whenever cpu_usage dips toward zero, which is
+                 * exactly what drives the 0%<->80% swings.  Capping the
+                 * per-cycle gain keeps the correction bounded.
+                 */
+                double gain = cpu_limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
+                gain = CLAMP(gain, 0.5, 2.0);
+                work_ratio = CLAMP(work_ratio * gain, WORK_RATIO_EPSILON,
+                                   1 - WORK_RATIO_EPSILON);
+            }
         }
 
         /* Get time slot duration (may vary based on system load) */
