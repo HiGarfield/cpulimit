@@ -32,6 +32,7 @@ extern "C" {
 
 /**
  * @brief Extract filename from a full path
+ *
  * @param path Full file path (may contain directory separators), or NULL
  * @return Pointer to the filename portion within the path string
  *

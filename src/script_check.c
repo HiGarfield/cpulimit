@@ -29,6 +29,18 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+/**
+ * @brief Check whether a script shebang references an inaccessible interpreter
+ *
+ * @param path Path to the file to inspect
+ * @return 1 if the file begins with "#!" and the interpreter path cannot be
+ *         accessed; 0 otherwise.
+ *
+ * Opens with O_NONBLOCK so argv[0] being a FIFO or device (which would block
+ * until a peer appears) cannot strand this child before exec and freeze the
+ * parent on the sync pipe; regular files are unaffected. Done before exec
+ * because under tools like valgrind the execve interception is unrecoverable.
+ */
 int is_script_inaccessible_interpreter(const char *path) {
     int fd;
     int saved_errno;
@@ -56,19 +68,16 @@ int is_script_inaccessible_interpreter(const char *path) {
     close(fd);
     errno = saved_errno;
 
-    /* Not a script if too short or no shebang prefix */
     if (n < 2 || buf[0] != '#' || buf[1] != '!') {
         return 0;
     }
     buf[n] = '\0';
 
-    /* Skip optional whitespace after "#!" */
     p = buf + 2;
     while (*p == ' ' || *p == '\t') {
         p++;
     }
 
-    /* Find end of interpreter path (terminated by whitespace, newline, NUL) */
     end = p;
     while (*end != '\0' && *end != '\n' && *end != '\r' && *end != ' ' &&
            *end != '\t') {
@@ -77,7 +86,7 @@ int is_script_inaccessible_interpreter(const char *path) {
     *end = '\0';
 
     if (*p == '\0') {
-        return 0; /* Empty shebang line */
+        return 0;
     }
 
     /* Interpreter path is inaccessible -> report 126 */

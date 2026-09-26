@@ -63,8 +63,7 @@
 #include <dirent.h>
 #include <sys/prctl.h>
 
-/* Older glibc headers (e.g. CentOS 4.5) do not define PR_SET_NAME even
-   though the 2.6.9+ kernel supports it.  Provide the fallback value. */
+/*    though the 2.6.9+ kernel supports it. Provide the fallback value. */
 #ifndef PR_SET_NAME
 #define PR_SET_NAME 15
 #endif
@@ -73,7 +72,7 @@
 /*
  * sched_setscheduler()/sched_getscheduler() and SCHED_OTHER, used by
  * test_leave_realtime() to take a test child out of the real-time class it
- * inherited.  Not included on macOS, which has no POSIX real-time
+ * inherited. Not included on macOS, which has no POSIX real-time
  * scheduler and therefore nothing to leave.
  */
 #include <sched.h>
@@ -84,7 +83,7 @@
 /*
  * The flag requesting an anonymous mapping is spelled MAP_ANONYMOUS on
  * Linux and MAP_ANON on the BSDs, including macOS, whose 10.7 headers
- * only provide the latter.  Alias it so the mmap() call in
+ * only provide the latter. Alias it so the mmap() call in
  * seam_alloc_array() compiles unchanged on all supported platforms.
  */
 #if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
@@ -93,6 +92,7 @@
 
 /**
  * @brief Send SIGKILL to a process or process group and block until reaped
+ *
  * @param pid Process ID (positive) or negative process group ID
  * @note Used as a fallback cleanup path when the monotonic clock is
  *       unavailable. Sends SIGKILL, then blocks on waitpid()
@@ -102,16 +102,15 @@
 static void kill_blocking(pid_t pid) {
     kill(pid, SIGKILL);
     while (waitpid(pid, NULL, 0) == -1 && errno == EINTR) {
-        /* Retry on EINTR */
     }
     /* Reap any remaining zombies (process group case) */
     while (waitpid(pid, NULL, WNOHANG) > 0) {
-        /* Keep reaping until none left */
     }
 }
 
 /**
  * @brief Terminate a child process or process group and wait for it to exit
+ *
  * @param pid Process ID (positive) or negative process group ID
  * @param kill_signal Signal to send (SIGTERM or SIGKILL)
  * @note If pid > 0, treats pid as a single process. If pid < 0, treats -pid
@@ -144,7 +143,7 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
     }
     end_time.tv_sec += 5;
 
-    kill(pid, kill_signal); /* Send initial signal */
+    kill(pid, kill_signal);
 
     while (1) {
         pid_t wpid = waitpid(pid, NULL, WNOHANG);
@@ -155,12 +154,11 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
             if (pid > 0) {
                 break;
             }
-        } else if (wpid == -1) { /* Waitpid error */
+        } else if (wpid == -1) {
             if (errno != EINTR) {
                 break; /* Non-interrupt error */
             }
-        } else { /* wpid == 0: process still running */
-            /* Check timeout */
+        } else {
             if (get_current_time(&now) != 0) {
                 /* Clock failed mid-loop: SIGKILL + block to ensure cleanup */
                 kill_blocking(pid);
@@ -173,7 +171,6 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
                     /* SIGTERM timeout: escalate to SIGKILL */
                     kill(pid, SIGKILL);
                     kill_signal = SIGKILL;
-                    /* Reset timeout for SIGKILL (5 seconds) */
                     if (get_current_time(&end_time) != 0) {
                         /*
                          * Clock failed after escalation: block to ensure
@@ -194,7 +191,6 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
 
     /* Final cleanup: reap all remaining zombies */
     while (waitpid(pid, NULL, WNOHANG) > 0) {
-        /* Keep reaping until none left */
     }
 }
 
@@ -202,14 +198,14 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
  * @brief Take the calling process out of the real-time scheduling class
  *
  * increase_priority() promotes cpulimit to SCHED_FIFO, and a child inherits
- * that class across both fork() and exec().  The CPU-burning children below
+ * that class across both fork() and exec(). The CPU-burning children below
  * never block, so as many of them as there are CPUs -- exactly what
  * test_limit_process_basic() forks -- leave nothing of a lower class
- * runnable, the test process included.  Linux caps real-time tasks at 95%
+ * runnable, the test process included. Linux caps real-time tasks at 95%
  * of each period and so still lets the test process run; FreeBSD has no such
  * cap, and there the whole machine stopped answering instead of one test
- * failing.  Every child that burns CPU therefore drops to the timeshare
- * class first.  No-op where the platform has no POSIX real-time scheduler.
+ * failing. Every child that burns CPU therefore drops to the timeshare
+ * class first. No-op where the platform has no POSIX real-time scheduler.
  */
 static void test_leave_realtime(void) {
 #if defined(__linux__) || defined(__FreeBSD__)
@@ -221,12 +217,13 @@ static void test_leave_realtime(void) {
 
 /**
  * @brief Suspend the calling test child process until it is killed
+ *
  * @note Children that suspend indefinitely become permanent orphans if the
- *       test process aborts (e.g., a failed assertion).  An orphan keeps the
+ *       test process aborts (e.g., a failed assertion). An orphan keeps the
  *       test process's argv[0] and can confuse later tests such as
  *       find_process_by_name(), which scans all processes by name and may
- *       select the stale orphan.  Poll the parent every 100 ms and exit on
- *       its own as soon as the parent is gone.  Never returns.
+ *       select the stale orphan. Poll the parent every 100 ms and exit on
+ *       its own as soon as the parent is gone. Never returns.
  */
 static void test_suspend_until_killed(void) {
     const struct timespec poll_interval = {0, 100000000L}; /* 100 ms */
@@ -240,16 +237,16 @@ static void test_suspend_until_killed(void) {
         }
         remaining = poll_interval;
         while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
-            /* Retry on EINTR */
         }
     }
 }
 
 /**
  * @brief Burn CPU in a test child until it is killed
+ *
  * @note The CPU-burning counterpart of test_suspend_until_killed(): a
  *       leaked burner is worse than a leaked sleeper because it also
- *       skews the CPU usage that every later test measures.  Never
+ *       skews the CPU usage that every later test measures. Never
  *       returns.
  */
 static void test_burn_until_killed(void) {
@@ -276,6 +273,7 @@ static char *argv0 = NULL;
 
 /**
  * @brief Retrieve the OS-visible argv[0] of the current process
+ *
  * @param buf Buffer to populate with the command string
  * @param buf_size Size of the buffer in bytes
  * @return Pointer to buf on success (non-empty string), NULL on failure
@@ -334,43 +332,37 @@ static const char *get_self_command(char *buf, size_t buf_size) {
 
 /**
  * @brief Test nsec_to_timespec conversion
+ *
  * @note Tests conversion from nanoseconds to timespec including rollover
  *       and boundary values
  */
 static void test_time_util_nsec_to_timespec(void) {
     struct timespec result_ts;
 
-    /* Test 0 nanoseconds */
     nsec_to_timespec(0.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 0);
 
-    /* Test 1 second (1e9 nanoseconds) */
     nsec_to_timespec(1000000000.0, &result_ts);
     assert(result_ts.tv_sec == 1);
     assert(result_ts.tv_nsec == 0);
 
-    /* Test 1.5 seconds */
     nsec_to_timespec(1500000000.0, &result_ts);
     assert(result_ts.tv_sec == 1);
     assert(result_ts.tv_nsec == 500000000);
 
-    /* Test 2.25 seconds */
     nsec_to_timespec(2250000000.0, &result_ts);
     assert(result_ts.tv_sec == 2);
     assert(result_ts.tv_nsec == 250000000);
 
-    /* Test small value (100 microseconds) */
     nsec_to_timespec(100000.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 100000);
 
-    /* Test 500 milliseconds */
     nsec_to_timespec(500000000.0, &result_ts);
     assert(result_ts.tv_sec == 0);
     assert(result_ts.tv_nsec == 500000000L);
 
-    /* Test very large value: 10 seconds */
     nsec_to_timespec(10000000000.0, &result_ts);
     assert(result_ts.tv_sec == 10);
     assert(result_ts.tv_nsec == 0);
@@ -397,6 +389,7 @@ static void test_time_util_nsec_to_timespec(void) {
 
 /**
  * @brief Test get_current_time function
+ *
  * @note Tests time retrieval and monotonicity
  */
 static void test_time_util_get_current_time(void) {
@@ -404,7 +397,6 @@ static void test_time_util_get_current_time(void) {
     int ret;
     double diff;
 
-    /* Test get_current_time returns valid values */
     ret = get_current_time(&ts_before);
     assert(ret == 0);
     assert(ts_before.tv_sec >= 0);
@@ -420,6 +412,7 @@ static void test_time_util_get_current_time(void) {
 
 /**
  * @brief Test sleep_timespec function
+ *
  * @note Tests sleeping with various durations including zero
  */
 static void test_time_util_sleep_timespec(void) {
@@ -428,7 +421,6 @@ static void test_time_util_sleep_timespec(void) {
     int ret;
     double elapsed_ms;
 
-    /* Test sleep_timespec with 50ms */
     ret = get_current_time(&ts_before);
     assert(ret == 0);
 
@@ -446,12 +438,10 @@ static void test_time_util_sleep_timespec(void) {
         assert(ts_after.tv_nsec >= ts_before.tv_nsec);
     }
 
-    /* Test timediff_in_ms */
     elapsed_ms = timediff_in_ms(&ts_after, &ts_before);
     assert(elapsed_ms >= 0.0);
     /* Should be at least close to 50ms if sleep succeeded */
 
-    /* Test zero-duration sleep returns immediately without error */
     ret = sleep_timespec(&zero_sleep);
     /* 0 on success; -1 only if interrupted (EINTR) */
     assert(ret == 0 || ret == -1);
@@ -459,6 +449,7 @@ static void test_time_util_sleep_timespec(void) {
 
 /**
  * @brief Test timediff_in_ms calculations
+ *
  * @note Tests time difference including edge cases, negative differences,
  *       and sub-millisecond values
  */
@@ -466,7 +457,6 @@ static void test_time_util_timediff_in_ms(void) {
     struct timespec earlier, later;
     double diff_ms;
 
-    /* Test simple case: 1 second difference */
     earlier.tv_sec = 100;
     earlier.tv_nsec = 0;
     later.tv_sec = 101;
@@ -474,7 +464,6 @@ static void test_time_util_timediff_in_ms(void) {
     diff_ms = timediff_in_ms(&later, &earlier);
     assert(diff_ms >= 999.0 && diff_ms <= 1001.0);
 
-    /* Test with nanoseconds: 0.5 second difference */
     earlier.tv_sec = 100;
     earlier.tv_nsec = 0;
     later.tv_sec = 100;
@@ -482,7 +471,6 @@ static void test_time_util_timediff_in_ms(void) {
     diff_ms = timediff_in_ms(&later, &earlier);
     assert(diff_ms >= 499.0 && diff_ms <= 501.0);
 
-    /* Test with both seconds and nanoseconds */
     earlier.tv_sec = 100;
     earlier.tv_nsec = 250000000L;
     later.tv_sec = 101;
@@ -490,7 +478,6 @@ static void test_time_util_timediff_in_ms(void) {
     diff_ms = timediff_in_ms(&later, &earlier);
     assert(diff_ms >= 1499.0 && diff_ms <= 1501.0);
 
-    /* Test zero difference */
     earlier.tv_sec = 100;
     earlier.tv_nsec = 123456789L;
     later.tv_sec = 100;
@@ -498,7 +485,6 @@ static void test_time_util_timediff_in_ms(void) {
     diff_ms = timediff_in_ms(&later, &earlier);
     assert(diff_ms >= -0.001 && diff_ms <= 0.001);
 
-    /* Test very small difference: 1 millisecond */
     earlier.tv_sec = 1000;
     earlier.tv_nsec = 0;
     later.tv_sec = 1000;
@@ -506,7 +492,6 @@ static void test_time_util_timediff_in_ms(void) {
     diff_ms = timediff_in_ms(&later, &earlier);
     assert(diff_ms >= 0.999 && diff_ms <= 1.001);
 
-    /* Test large difference: 1000 seconds */
     earlier.tv_sec = 1000;
     earlier.tv_nsec = 0;
     later.tv_sec = 2000;
@@ -542,10 +527,11 @@ static void test_time_util_timediff_in_ms(void) {
 #if defined(__APPLE__)
 /**
  * @brief Test macOS KERN_PROCARGS2 buffer sizing used by get_proc_argv0()
+ *
  * @note Regression test for the buffer under-allocation bug: get_proc_argv0()
  *       read the process command line via sysctl(KERN_PROCARGS2), whose layout
  *       is [int argc][argument data...] and therefore requires
- *       sizeof(int) + argmax bytes.  The old code allocated only argmax bytes,
+ *       sizeof(int) + argmax bytes. The old code allocated only argmax bytes,
  *       which truncates the payload and makes sysctl() return ENOMEM for
  *       processes whose command line is longer than argmax - sizeof(int).
  *       That caused those processes to be skipped by find_process_by_name().
@@ -577,9 +563,9 @@ static void test_apple_proc_argv0_buffer_sizing(void) {
     mib[2] = (int)getpid();
 
     /*
-     * Fixed allocation: argmax + sizeof(int).  The kernel writes at most
+     * Fixed allocation: argmax + sizeof(int). The kernel writes at most
      * sizeof(int) (for argc) plus argmax (for the argument data), so this
-     * buffer is always large enough.  The returned size must therefore be
+     * buffer is always large enough. The returned size must therefore be
      * <= what we allocated and the call must succeed.
      */
     buf_fixed = (char *)malloc((size_t)argmax + sizeof(int));
@@ -591,10 +577,10 @@ static void test_apple_proc_argv0_buffer_sizing(void) {
     free(buf_fixed);
 
     /*
-     * Old allocation: argmax only.  Prove it can be insufficient: when the
+     * Old allocation: argmax only. Prove it can be insufficient: when the
      * real payload (sizeof(int) + argument bytes) exceeds argmax, sysctl()
      * returns ENOMEM and writes back the true requirement, which is larger
-     * than argmax.  We assert that such a process cannot be served by the old
+     * than argmax. We assert that such a process cannot be served by the old
      * buffer, whereas the fixed buffer (above) always can.
      */
     buf_old = (char *)malloc((size_t)argmax);
@@ -621,64 +607,54 @@ static void test_apple_proc_argv0_buffer_sizing(void) {
 
 /**
  * @brief Test get_file_basename extraction
+ *
  * @note Tests extracting filename from path including edge cases
  */
 static void test_util_get_file_basename(void) {
     const char *result;
     int cmp_ret;
 
-    /* Test simple filename */
     result = get_file_basename("test.txt");
     cmp_ret = strcmp(result, "test.txt");
     assert(cmp_ret == 0);
 
-    /* Test path with directory */
     result = get_file_basename("/usr/bin/test");
     cmp_ret = strcmp(result, "test");
     assert(cmp_ret == 0);
 
-    /* Test path with multiple directories */
     result = get_file_basename("/home/user/documents/file.txt");
     cmp_ret = strcmp(result, "file.txt");
     assert(cmp_ret == 0);
 
-    /* Test path ending with slash */
     result = get_file_basename("/home/user/");
     cmp_ret = strcmp(result, "");
     assert(cmp_ret == 0);
 
-    /* Test root directory */
     result = get_file_basename("/");
     cmp_ret = strcmp(result, "");
     assert(cmp_ret == 0);
 
-    /* Test current directory */
     result = get_file_basename("./file");
     cmp_ret = strcmp(result, "file");
     assert(cmp_ret == 0);
 
-    /* Test multiple consecutive slashes */
     result = get_file_basename("//usr//bin//test");
     cmp_ret = strcmp(result, "test");
     assert(cmp_ret == 0);
 
-    /* Test path with no directory separator */
     result = get_file_basename("filename");
     cmp_ret = strcmp(result, "filename");
     assert(cmp_ret == 0);
 
-    /* Test path with dot directory */
     result = get_file_basename("../test");
     cmp_ret = strcmp(result, "test");
     assert(cmp_ret == 0);
 
-    /* Test empty string - no slash, returns itself */
     result = get_file_basename("");
     assert(result != NULL);
     cmp_ret = strcmp(result, "");
     assert(cmp_ret == 0);
 
-    /* Test NULL input */
     result = get_file_basename(NULL);
     assert(result != NULL);
     cmp_ret = strcmp(result, "");
@@ -687,6 +663,7 @@ static void test_util_get_file_basename(void) {
 
 /**
  * @brief Test get_ncpu function
+ *
  * @note Tests retrieval of CPU count
  */
 static void test_util_get_ncpu(void) {
@@ -704,7 +681,7 @@ static void test_util_get_ncpu(void) {
  * @brief Nice value that increase_priority() must reach when the platform
  *        permits it
  *
- * Used by test_util_increase_priority_retries_lower_levels().  RLIMIT_NICE
+ * Used by test_util_increase_priority_retries_lower_levels(). RLIMIT_NICE
  * encodes the permitted priority ceiling as 20 - nice, so asking for
  * PRIORITY_LADDER_NICE requires a limit of 20 - PRIORITY_LADDER_NICE.
  */
@@ -712,11 +689,11 @@ static void test_util_get_ncpu(void) {
 
 /**
  * @brief Test increase_priority function
+ *
  * @note Tests attempting to increase process priority
  */
 static void test_util_increase_priority(void) {
     /* This function may succeed or fail depending on permissions */
-    /* Just ensure it doesn't crash */
     increase_priority();
 }
 
@@ -725,15 +702,15 @@ static void test_util_increase_priority(void) {
  *
  * increase_priority() must retry with successively less aggressive nice
  * values until one is accepted, because RLIMIT_NICE can allow a value
- * less negative than PRIO_MIN even for an unprivileged process.  POSIX
+ * less negative than PRIO_MIN even for an unprivileged process. POSIX
  * permits either EPERM or EACCES for that denial, and Linux reports
  * EACCES when CAP_SYS_NICE is missing, so retrying only EPERM aborted
- * the ladder on its very first rung.  cpulimit then stayed at its
+ * the ladder on its very first rung. cpulimit then stayed at its
  * original priority even where a milder level would have been granted,
  * which is exactly when it most needs the extra responsiveness.
  *
  * The failure only shows up where a nicer level is attainable, so the
- * test first raises RLIMIT_NICE to allow PRIORITY_LADDER_NICE.  A
+ * test first raises RLIMIT_NICE to allow PRIORITY_LADDER_NICE. A
  * default Linux install ships a hard limit of 0, which forbids any
  * lowering at all; there the ladder cannot be observed and only the
  * "never made worse" invariant is checked.
@@ -790,14 +767,15 @@ static void test_util_increase_priority_retries_lower_levels(void) {
 
 /**
  * @brief A CPU-burning test child must not keep the real-time class
+ *
  * @note increase_priority() promotes cpulimit to SCHED_FIFO and a child
- *       inherits that class across fork().  num_procs of the children
+ *       inherits that class across fork(). num_procs of the children
  *       test_limit_process_basic() forks -- one per CPU, and none of them
  *       ever blocks -- then leave nothing of a lower class runnable, the
- *       test process included.  Linux caps real-time tasks at 95% of every
+ *       test process included. Linux caps real-time tasks at 95% of every
  *       period, so the test process still gets CPU there; FreeBSD has no
  *       such cap, and the machine stopped answering instead of one test
- *       failing.  The child below promotes itself on purpose, then calls
+ *       failing. The child below promotes itself on purpose, then calls
  *       test_leave_realtime(), so the assertion bites exactly where the
  *       promotion is possible and stays out of the way where it is not.
  *       Verified by mutation: emptying test_leave_realtime() leaves the
@@ -854,14 +832,15 @@ static void test_util_burner_leaves_realtime_class(void) {
 
 /**
  * @brief The real-time class must not reach a child of this process
+ *
  * @note increase_priority() promotes cpulimit to SCHED_FIFO, and without a
  *       guard a forked child inherits that class: one that burns CPU without
- *       ever blocking then outranks everything else on the machine.  Linux
+ *       ever blocking then outranks everything else on the machine. Linux
  *       can close that hole in the kernel, so try_become_realtime() asks for
  *       SCHED_RESET_ON_FORK there and the child below must come back in
- *       SCHED_OTHER.  The check is conditional because the promotion only
+ *       SCHED_OTHER. The check is conditional because the promotion only
  *       happens where the privilege is granted; where it is not there is
- *       nothing to leak and nothing to assert.  Verified by mutation:
+ *       nothing to leak and nothing to assert. Verified by mutation:
  *       dropping SCHED_RESET_ON_FORK leaves the child in SCHED_FIFO and this
  *       assertion fails on a host that grants the promotion.
  */
@@ -910,13 +889,13 @@ static void test_util_realtime_does_not_reach_children(void) {
 
 /**
  * @brief Test long_to_pid_t conversion
+ *
  * @note Tests safe conversion from long to pid_t including edge cases and
  *       overflow
  */
 static void test_util_long_to_pid_t(void) {
     pid_t result;
 
-    /* Test valid positive values */
     result = long_to_pid_t(1L);
     assert(result == 1);
 
@@ -926,22 +905,18 @@ static void test_util_long_to_pid_t(void) {
     result = long_to_pid_t(32767L);
     assert(result == 32767);
 
-    /* Test zero */
     result = long_to_pid_t(0L);
     assert(result == 0);
 
-    /* Test negative value (should return -1) */
     result = long_to_pid_t(-1L);
     assert(result == -1);
 
     result = long_to_pid_t(-100L);
     assert(result == -1);
 
-    /* Test maximum reasonable PID */
     result = long_to_pid_t(65535L);
     assert(result == 65535);
 
-    /* Test with large positive value (must not crash) */
     long_to_pid_t(1000000L);
 
     /*
@@ -956,6 +931,7 @@ static void test_util_long_to_pid_t(void) {
 #if defined(__linux__)
 /**
  * @brief Test read_file_contents with NULL, missing, and valid files
+ *
  * @note Covers all return paths of read_file_contents (Linux only);
  *       also exercises the realloc growth path with content > 256 bytes.
  *       Unlike a line reader, the full content is returned verbatim,
@@ -1119,8 +1095,9 @@ static void test_util_read_file_contents(void) {
 #ifdef __linux__
 /**
  * @brief Exercise parse_cpu_range boundary and error handling
+ *
  * @note parse_cpu_range() previously had no test coverage despite its
- *       overflow/range/syntax guards.  This test drives it directly with
+ *       overflow/range/syntax guards. This test drives it directly with
  *       valid, malformed, and overflow-prone inputs to prove the boundary
  *       logic is correct and never returns a value that would corrupt the
  *       cached CPU count in get_ncpu().
@@ -1175,6 +1152,7 @@ static void test_util_parse_cpu_range(void) {
 
 /**
  * @brief Test MAX, MIN, and CLAMP macros with all comparison branches
+ *
  * @note Covers a>b, a<b, a==b for MAX/MIN; below/above/in-range for CLAMP
  */
 static void test_util_macros(void) {
@@ -1245,6 +1223,7 @@ static void test_util_macros(void) {
 
 /**
  * @brief Test list initialization and empty list operations
+ *
  * @note Tests init_list, is_empty_list with empty list
  */
 static void test_list_init_and_empty(void) {
@@ -1252,33 +1231,29 @@ static void test_list_init_and_empty(void) {
     int empty;
     const struct list_node *first_list_node_result;
 
-    /* Test initialization */
     init_list(&lst);
     assert(lst.first == NULL);
     assert(lst.last == NULL);
     assert(lst.count == 0);
 
-    /* Test is_empty_list */
     empty = is_empty_list(&lst);
     assert(empty == 1);
     empty = is_empty_list(NULL);
     assert(empty == 1);
 
-    /* Test count field directly */
     assert(lst.count == 0);
 
-    /* Test first_list_node */
     first_list_node_result = first_list_node(&lst);
     assert(first_list_node_result == NULL);
     first_list_node_result = first_list_node(NULL);
     assert(first_list_node_result == NULL);
 
-    /* Test init_list with NULL */
     init_list(NULL);
 }
 
 /**
  * @brief Test adding elements to list
+ *
  * @note Tests add_list_elem, first_list_node with non-empty
  * list and link integrity
  */
@@ -1292,7 +1267,6 @@ static void test_list_add_list_elem(void) {
 
     init_list(&lst);
 
-    /* Add first element */
     node1 = add_list_elem(&lst, &data1);
     assert(node1 != NULL);
     assert(node1->data == &data1);
@@ -1306,7 +1280,6 @@ static void test_list_add_list_elem(void) {
     first_list_node_result = first_list_node(&lst);
     assert(first_list_node_result == node1);
 
-    /* Add second element */
     node2 = add_list_elem(&lst, &data2);
     assert(node2 != NULL);
     assert(node2->data == &data2);
@@ -1317,7 +1290,6 @@ static void test_list_add_list_elem(void) {
     assert(lst.last == node2);
     assert(lst.count == 2);
 
-    /* Add third element */
     node3 = add_list_elem(&lst, &data3);
     assert(node3 != NULL);
     assert(node3->data == &data3);
@@ -1336,16 +1308,15 @@ static void test_list_add_list_elem(void) {
     assert(first_list_node_result->next->data == &data2);
     assert(first_list_node_result->previous == NULL);
 
-    /* Test add_list_elem with NULL list */
     null_node = add_list_elem(NULL, &data1);
     assert(null_node == NULL);
 
-    /* Clean up */
     clear_list(&lst);
 }
 
 /**
  * @brief Test deleting nodes from list
+ *
  * @note Tests delete_list_node without freeing data, including empty-list guard
  */
 static void test_list_delete_list_node(void) {
@@ -1361,7 +1332,6 @@ static void test_list_delete_list_node(void) {
     node2 = add_list_elem(&lst, &data2);
     node3 = add_list_elem(&lst, &data3);
 
-    /* Delete middle node */
     delete_list_node(&lst, node2);
     list_count = lst.count;
     assert(list_count == 2);
@@ -1370,7 +1340,6 @@ static void test_list_delete_list_node(void) {
     assert(node1->next == node3);
     assert(node3->previous == node1);
 
-    /* Delete first node */
     delete_list_node(&lst, node1);
     list_count = lst.count;
     assert(list_count == 1);
@@ -1379,7 +1348,6 @@ static void test_list_delete_list_node(void) {
     assert(node3->previous == NULL);
     assert(node3->next == NULL);
 
-    /* Delete last node */
     delete_list_node(&lst, node3);
     list_count = lst.count;
     assert(list_count == 0);
@@ -1388,11 +1356,9 @@ static void test_list_delete_list_node(void) {
     empty = is_empty_list(&lst);
     assert(empty == 1);
 
-    /* Test delete_list_node with NULL */
     delete_list_node(NULL, NULL);
     delete_list_node(&lst, NULL);
 
-    /* Test delete_list_node on empty list (count==0 guard path) */
     delete_list_node(&lst, &fake_node);
     list_count = lst.count;
     assert(list_count == 0);
@@ -1400,6 +1366,7 @@ static void test_list_delete_list_node(void) {
 
 /**
  * @brief Test destroying nodes from list
+ *
  * @note Tests destroy_list_node which frees both node and data, including
  *       NULL list safety
  */
@@ -1440,11 +1407,9 @@ static void test_list_destroy_list_node(void) {
     empty = is_empty_list(&lst);
     assert(empty == 1);
 
-    /* Test destroy_list_node with NULL */
     destroy_list_node(NULL, NULL);
     destroy_list_node(&lst, NULL);
 
-    /* Test destroy_list_node with NULL list is a no-op */
     null_data = (int *)malloc(sizeof(int));
     assert(null_data != NULL);
     *null_data = 42;
@@ -1466,6 +1431,7 @@ static void test_list_destroy_list_node(void) {
 
 /**
  * @brief Test clearing and destroying lists
+ *
  * @note Tests clear_list and destroy_list including empty-list no-op paths
  */
 static void test_list_clear_and_destroy(void) {
@@ -1475,7 +1441,6 @@ static void test_list_clear_and_destroy(void) {
     size_t list_count;
     int empty;
 
-    /* Test clear_list - data not freed */
     init_list(&lst1);
     add_list_elem(&lst1, &data1);
     add_list_elem(&lst1, &data2);
@@ -1491,10 +1456,8 @@ static void test_list_clear_and_destroy(void) {
     empty = is_empty_list(&lst1);
     assert(empty == 1);
 
-    /* Test clear_list with NULL */
     clear_list(NULL);
 
-    /* Test destroy_list - data is freed */
     init_list(&lst2);
     dyn_data1 = (int *)malloc(sizeof(int));
     dyn_data2 = (int *)malloc(sizeof(int));
@@ -1520,10 +1483,8 @@ static void test_list_clear_and_destroy(void) {
     empty = is_empty_list(&lst2);
     assert(empty == 1);
 
-    /* Test destroy_list with NULL */
     destroy_list(NULL);
 
-    /* Test clear_list on already-empty list (no-op path) */
     init_list(&lst1);
     clear_list(&lst1);
     list_count = lst1.count;
@@ -1531,7 +1492,6 @@ static void test_list_clear_and_destroy(void) {
     empty = is_empty_list(&lst1);
     assert(empty == 1);
 
-    /* Test destroy_list on already-empty list (no-op path) */
     init_list(&lst1);
     destroy_list(&lst1);
     list_count = lst1.count;
@@ -1542,6 +1502,7 @@ static void test_list_clear_and_destroy(void) {
 
 /**
  * @brief Test list operations with edge cases
+ *
  * @note Tests list behavior with various edge cases like reversing order
  */
 static void test_list_edge_cases(void) {
@@ -1554,7 +1515,6 @@ static void test_list_edge_cases(void) {
 
     init_list(&lst);
 
-    /* Test adding many elements */
     for (node_idx = 0; node_idx < 10; node_idx++) {
         data[node_idx] = node_idx;
         add_list_elem(&lst, &data[node_idx]);
@@ -1589,7 +1549,6 @@ static void test_list_edge_cases(void) {
     list_count = lst.count;
     assert(list_count == 0);
 
-    /* Test deleting nodes in middle repeatedly */
     for (node_idx = 0; node_idx < 5; node_idx++) {
         data[node_idx] = node_idx;
         add_list_elem(&lst, &data[node_idx]);
@@ -1619,6 +1578,7 @@ static void test_list_edge_cases(void) {
 
 /**
  * @brief Test type-safe PID lookup in a list of processes
+ *
  * @note Tests find_process_in_list_by_pid including NULL list and miss cases
  */
 static void test_list_find_process_in_list_by_pid(void) {
@@ -1648,27 +1608,22 @@ static void test_list_find_process_in_list_by_pid(void) {
     add_list_elem(&lst, proc2);
     add_list_elem(&lst, proc3);
 
-    /* Test find_process_in_list_by_pid - find by PID */
     found = find_process_in_list_by_pid(&lst, 200);
     assert(found == proc2);
     assert(found->pid == 200);
 
-    /* Test find_process_in_list_by_pid - not found */
     found = find_process_in_list_by_pid(&lst, 999);
     assert(found == NULL);
 
-    /* Test with NULL list */
     found = find_process_in_list_by_pid(NULL, 100);
     assert(found == NULL);
 
-    /* Test find_process_in_list_by_pid skips NULL-data nodes */
     add_list_elem(&lst, NULL);
     found = find_process_in_list_by_pid(&lst, 100);
     assert(found == proc1);
 
     clear_list(&lst);
 
-    /* Free allocated memory */
     free(proc1);
     free(proc2);
     free(proc3);
@@ -1676,6 +1631,7 @@ static void test_list_find_process_in_list_by_pid(void) {
 
 /**
  * @brief Test add_list_elem with NULL data and destroy_list_node safety
+ *
  * @note Covers: add_list_elem(l, NULL), destroy_list_node with NULL data
  *       pointer
  */
@@ -1713,13 +1669,13 @@ static void test_list_null_data_operations(void) {
 
 /**
  * @brief Test signal handler flags
+ *
  * @note Installs handlers in a child, raises signals, and checks flags
  */
 static void test_signal_handler_flags(void) {
     pid_t pid, waited;
     int status, exited, exit_code;
 
-    /* Test behavior on SIGTERM: quit flag set, not terminated by tty */
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -1745,7 +1701,6 @@ static void test_signal_handler_flags(void) {
     exit_code = WEXITSTATUS(status);
     assert(exit_code == 0);
 
-    /* Test behavior on SIGINT: quit flag set, terminated by tty */
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
@@ -1774,6 +1729,7 @@ static void test_signal_handler_flags(void) {
 
 /**
  * @brief Test SIGQUIT signal handling
+ *
  * @note SIGQUIT must set both quit_flag and terminated_by_tty
  *       The child calls setsid() to create a new session and detach from the
  *       controlling terminal, preventing BSD terminal drivers from propagating
@@ -1821,6 +1777,7 @@ static void test_signal_handler_sigquit(void) {
 
 /**
  * @brief Test SIGHUP signal handling
+ *
  * @note SIGHUP must set quit_flag but must NOT set terminated_by_tty
  */
 static void test_signal_handler_sighup(void) {
@@ -1853,6 +1810,7 @@ static void test_signal_handler_sighup(void) {
 
 /**
  * @brief Test SIGPIPE signal handling
+ *
  * @note SIGPIPE must set quit_flag but must NOT set terminated_by_tty
  */
 static void test_signal_handler_sigpipe(void) {
@@ -1885,6 +1843,7 @@ static void test_signal_handler_sigpipe(void) {
 
 /**
  * @brief Test initial state of signal handler flags before any signal is raised
+ *
  * @note Both quit_flag and terminated_by_tty must be 0 before any signal
  */
 static void test_signal_handler_initial_state(void) {
@@ -1913,8 +1872,9 @@ static void test_signal_handler_initial_state(void) {
 
 /**
  * @brief Test get_quit_signal before and after receiving signals
- * @note Before any signal: returns 0.  After SIGTERM: returns SIGTERM
- *       After SIGINT: returns SIGINT.  First signal wins; subsequent signals
+ *
+ * @note Before any signal: returns 0. After SIGTERM: returns SIGTERM
+ *       After SIGINT: returns SIGINT. First signal wins; subsequent signals
  *       do not overwrite the recorded number.
  */
 static void test_signal_handler_get_quit_signal(void) {
@@ -1996,9 +1956,10 @@ static void test_signal_handler_get_quit_signal(void) {
 
 /**
  * @brief Leave the pty child of test_signal_handler_finish_tty_quit_line()
+ *
  * @param code Exit status to report to the parent
  * @note The child reached this with its stdin and stdout replaced by
- *       duplicates of one pty slave.  Those duplicates belong to this
+ *       duplicates of one pty slave. Those duplicates belong to this
  *       process and nothing here closes them later, so releasing them is the
  *       child's own last act -- the static analyser sees a descriptor left
  *       open across _exit() otherwise, even though the process is about to
@@ -2012,13 +1973,14 @@ static void pty_child_exit(int code) {
 
 /**
  * @brief The newline that keeps the shell prompt off the terminal's "^C" echo
+ *
  * @note The tty driver echoes the keyboard interrupt without a newline of its
- *       own, so a run stopped by one has to write it.  That write belongs to
+ *       own, so a run stopped by one has to write it. That write belongs to
  *       the run: it happens only when the quit came from the keyboard and both
  *       standard descriptors are terminals, only once however many paths ask
  *       for it, and a later run in the same process gets its own because
  *       configure_signal_handler() clears the marker with the rest of the
- *       per-run state.  Only a terminal can show any of this, so the child runs
+ *       per-run state. Only a terminal can show any of this, so the child runs
  *       on a pty it opens itself and the parent counts the bytes that reach the
  *       master; the second sub-test repeats it with a pipe for stdout, where
  *       nothing may be written at all.
@@ -2036,9 +1998,9 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     /* Sub-test 1: a keyboard quit on a terminal writes exactly one newline. */
     /*
      * Old uClibc builds do not export posix_openpt() at all, so this test
-     * could not link there.  open("/dev/ptmx", ...) is exactly what that
+     * could not link there. open("/dev/ptmx", ...) is exactly what that
      * wrapper does, and nothing else below changes: grantpt(), unlockpt()
-     * and ptsname() are present even in those builds.  The version range is
+     * and ptsname() are present even in those builds. The version range is
      * the one util.h already uses for getloadavg().
      */
 #if defined(__UCLIBC__) && defined(__UCLIBC_MAJOR__) &&                        \
@@ -2065,7 +2027,7 @@ static void test_signal_handler_finish_tty_quit_line(void) {
          * The slave is opened here rather than in the parent because only
          * this process needs it: a descriptor the parent opened would have
          * to be closed in both, which is one close too many for a tool that
-         * does not model fork().  Keep each result in a variable instead of
+         * does not model fork(). Keep each result in a variable instead of
          * testing the call inside the condition: the analyser reports a
          * descriptor whose only mention is a comparison as leaked, even
          * though the child is about to exit with it.
@@ -2128,7 +2090,7 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     assert(exit_code == 0);
 
     /*
-     * Exactly two newlines and nothing else: one for each run's quit.  A pty
+     * Exactly two newlines and nothing else: one for each run's quit. A pty
      * may render a newline as CR LF, so only the line endings are counted and
      * not the exact bytes.
      */
@@ -2200,6 +2162,7 @@ static void test_signal_handler_finish_tty_quit_line(void) {
 
 /**
  * @brief Test configure_signal_handler() resets internal state each call
+ *
  * @note In a single process, after a signal sets quit flags, reconfiguring
  *       handlers must clear all flags so a new run starts from a deterministic
  *       baseline.
@@ -2245,9 +2208,10 @@ static void test_signal_handler_reconfigure_resets_state(void) {
 
 /**
  * @brief configure_signal_handler() must restore the caller's signal mask,
- *        including when the caller had everything blocked (BUG-011)
+ *        including when the caller had everything blocked
+ *
  * @note The function blocks all signals internally and restores the
- *       previous mask at the end.  The error path used to exit without
+ *       previous mask at the end. The error path used to exit without
  *       that restore, leaving a signal-deaf process behind; it now
  *       restores through the same old_mask before exiting, so this test
  *       pins the restore semantics for both extremes: a caller with an
@@ -2320,6 +2284,7 @@ static void test_signal_handler_mask_restored_after_configure(void) {
 
 /**
  * @brief Test pending signal during reconfigure is delivered, not dropped
+ *
  * @note configure_signal_handler() blocks handled signals during the
  *       reset-and-install window. A signal that becomes pending during that
  *       window must be delivered through the new handler after the mask is
@@ -2418,9 +2383,10 @@ static void test_signal_handler_reconfigure_delivers_pending(void) {
 
 /**
  * @brief Test reset_signal_handlers_to_default() restores SIG_DFL
+ *
  * @note After configure_signal_handler() installs custom handlers,
  *       reset_signal_handlers_to_default() must restore SIGINT, SIGQUIT,
- *       SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.  Verified by checking
+ *       SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL. Verified by checking
  *       that sa_handler == SIG_DFL for each signal after the reset.
  */
 static void test_signal_handler_reset_to_default(void) {
@@ -2462,10 +2428,11 @@ static void test_signal_handler_reset_to_default(void) {
 
 /**
  * @brief Test that two signals delivered concurrently produce consistent state
+ *
  * @note The child blocks all signals, signals readiness to the parent, then
- *       the parent sends SIGTERM followed immediately by SIGINT.  The child
+ *       the parent sends SIGTERM followed immediately by SIGINT. The child
  *       unblocks both signals at once via sigsuspend, allowing one pending
- *       signal to be delivered.  After delivery, quit_flag must be set and
+ *       signal to be delivered. After delivery, quit_flag must be set and
  *       quit_signal_num must be one of the two sent signals (delivery order
  *       and which signal is ultimately observed are implementation-defined
  *       and not asserted by this test).
@@ -2513,13 +2480,13 @@ static void test_signal_handler_race_concurrent_signals(void) {
 
         /*
          * Unblock all signals atomically and wait for the first pending
-         * signal.  Both SIGTERM and SIGINT should be pending; sigsuspend
-         * delivers whichever the kernel picks first.  The remaining
+         * signal. Both SIGTERM and SIGINT should be pending; sigsuspend
+         * delivers whichever the kernel picks first. The remaining
          * pending signal is cleared harmlessly on _exit().
          *
          * Install a safety timeout so that, if the expected signals are
          * never delivered, the child does not block indefinitely and hang
-         * the test run.  If the alarm ever fires, SIGALRM interrupts
+         * the test run. If the alarm ever fires, SIGALRM interrupts
          * sigsuspend() and the child terminates instead of hanging.
          */
         alarm(5);
@@ -2562,9 +2529,10 @@ static void test_signal_handler_race_concurrent_signals(void) {
 
 /**
  * @brief Test that a signal from an external process interrupts sleep_timespec
+ *
  * @note Exercises the interaction between SA_RESTART and clock_nanosleep
  *       clock_nanosleep is NOT automatically restarted by SA_RESTART, so a
- *       signal interrupts the sleep and returns EINTR.  The child installs
+ *       signal interrupts the sleep and returns EINTR. The child installs
  *       handlers, enters a long sleep, and verifies that an externally
  *       delivered SIGTERM wakes the sleep and sets quit_flag.
  */
@@ -2637,10 +2605,11 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
 
 /**
  * @brief Test rapid delivery of all five handled signals
+ *
  * @note All five handled signals (SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT)
  *       are sent from the parent in rapid succession while the child blocks
  *       them. The child then unblocks all signals at once (sigsuspend),
- *       allowing any one of the five to be delivered.  After the first
+ *       allowing any one of the five to be delivered. After the first
  *       delivery, quit_flag must be set and quit_signal_num must be one of
  *       the five valid numbers. The remaining pending signals are harmlessly
  *       cleared on _exit().
@@ -2690,9 +2659,9 @@ static void test_signal_handler_race_rapid_all_signals(void) {
         close(ready_pipe[1]);
 
         /*
-         * Unblock all signals atomically.  All five signals sent by the
+         * Unblock all signals atomically. All five signals sent by the
          * parent should be pending; sigsuspend delivers the first one
-         * (implementation-defined order).  The remaining signals are
+         * (implementation-defined order). The remaining signals are
          * cleared harmlessly when _exit() is called.
          */
         sigsuspend(&empty_mask);
@@ -2741,11 +2710,12 @@ static void test_signal_handler_race_rapid_all_signals(void) {
 
 /**
  * @brief Find a PID that is guaranteed not to exist on the current system
+ *
  * @return A PID for which kill(pid, 0) fails with ESRCH
  *
  * The test suite used the hard-coded PID 99999 to represent a non-existent
- * process.  PID 99999 can collide with a real process on busy systems
- * (PID reuse), which made the assertions non-deterministic.  This helper
+ * process. PID 99999 can collide with a real process on busy systems
+ * (PID reuse), which made the assertions non-deterministic. This helper
  * probes downwards from the top of the pid_t range until kill() reports
  * ESRCH, which is deterministic on all supported platforms.
  */
@@ -2761,6 +2731,7 @@ static pid_t find_unused_pid(void) {
 
 /**
  * @brief Test is_child_of function
+ *
  * @note Tests process ancestry checking
  */
 static void test_process_iterator_is_child_of(void) {
@@ -2779,7 +2750,7 @@ static void test_process_iterator_is_child_of(void) {
         sigset_t full_mask;
         /*
          * Block all blockable signals so no signal can wake the child
-         * prematurely.  test_suspend_until_killed() suspends until the
+         * prematurely. test_suspend_until_killed() suspends until the
          * parent kills it, and also exits on its own if the parent
          * aborts (failed assertion) so no orphan is left behind.
          */
@@ -2811,7 +2782,6 @@ static void test_process_iterator_is_child_of(void) {
     result = is_child_of(self_pid, 1);
     assert(result == 1);
 
-    /* Test with invalid PIDs */
     result = is_child_of(0, self_pid);
     assert(result == 0);
 
@@ -2824,7 +2794,6 @@ static void test_process_iterator_is_child_of(void) {
     result = is_child_of(forked_pid, -1);
     assert(result == 0);
 
-    /* Test with non-existent PID */
     result = is_child_of(unused_pid, self_pid);
     assert(result == 0);
 
@@ -2832,12 +2801,12 @@ static void test_process_iterator_is_child_of(void) {
     result = is_child_of(unused_pid, 1);
     assert(result == 0);
 
-    /* Clean up child */
     kill_and_wait(forked_pid, SIGKILL);
 }
 
 /**
  * @brief Test is_child_of() with multi-level (grandchild) ancestry
+ *
  * @note Tests that a grandchild process is correctly identified as a
  *       descendant of its grandparent, exercising multi-hop parent-chain
  *       traversal in is_child_of().
@@ -2897,7 +2866,7 @@ static void test_process_iterator_is_child_of_deep(void) {
                 _exit(1);
             }
             /*
-             * Suspend until killed.  test_suspend_until_killed() also
+             * Suspend until killed. test_suspend_until_killed() also
              * exits on its own if the grandparent aborts (failed
              * assertion); the grandchild, which waits on this process's
              * death, then exits too, so no orphan is left behind.
@@ -2952,7 +2921,7 @@ static void test_process_iterator_is_child_of_deep(void) {
 
         /*
          * Kill the entire process group (child + grandchild) and wait for
-         * our direct child to be reaped.  The grandchild gets reparented to
+         * our direct child to be reaped. The grandchild gets reparented to
          * init once middle_pid exits and is reaped by init automatically.
          */
         kill_and_wait(-middle_pid, SIGKILL);
@@ -2962,8 +2931,9 @@ static void test_process_iterator_is_child_of_deep(void) {
 /**
  * @brief Regression test: kernel threads (ppid=2) must not be reported as
  *        descendants of PID 1
+ *
  * @note The former fast-path in is_child_of() returned true for any process
- *       whose getppid_of() result was not -1.  Linux kernel threads (children
+ *       whose getppid_of() result was not -1. Linux kernel threads (children
  *       of kthreadd, PID 2) have ppid=2, which is a valid non-(-1) value, so
  *       the fast-path incorrectly claimed they were children of PID 1.
  *       This test locates such a thread via the process iterator and verifies
@@ -3014,11 +2984,12 @@ static void test_is_child_of_kernel_thread_not_child_of_init(void) {
 /**
  * @brief Regression test: a process whose comm contains a newline must remain
  *        visible to the iterator, getppid_of(), and is_child_of()
+ *
  * @note prctl(PR_SET_NAME) allows embedding a newline in comm, which the
- *       kernel stores verbatim in /proc/[pid]/stat.  Reading only the first
+ *       kernel stores verbatim in /proc/[pid]/stat. Reading only the first
  *       line of that file truncated the content inside comm, so the ')'
  *       terminating the comm field was never found and the process was
- *       silently dropped from iteration and parent-chain traversal.  Only
+ *       silently dropped from iteration and parent-chain traversal. Only
  *       runs on Linux where prctl(PR_SET_NAME) is available.
  */
 static void test_process_iterator_newline_comm(void) {
@@ -3115,6 +3086,7 @@ static void test_process_iterator_newline_comm(void) {
 
 /**
  * @brief Test process iterator filter edge cases
+ *
  * @note Tests various filter configurations
  */
 static void test_process_iterator_filter_edge_cases(void) {
@@ -3127,7 +3099,6 @@ static void test_process_iterator_filter_edge_cases(void) {
     proc = (struct process *)malloc(sizeof(struct process));
     assert(proc != NULL);
 
-    /* Test with PID 0 (all processes) and read_cmd enabled */
     filter.pid = (pid_t)0;
     filter.include_children = 0;
     filter.read_cmd = 1;
@@ -3148,6 +3119,7 @@ static void test_process_iterator_filter_edge_cases(void) {
 
 /**
  * @brief Test process iterator with a single process
+ *
  * @note Tests that the process iterator can retrieve the current process
  *       information correctly, both with and without child processes
  */
@@ -3170,7 +3142,6 @@ static void test_process_iterator_single(void) {
         exit(EXIT_FAILURE);
     }
 
-    /* Test without including children */
     filter.pid = getpid();
     filter.include_children = 0;
     filter.read_cmd = 0;
@@ -3189,7 +3160,6 @@ static void test_process_iterator_single(void) {
     ret = close_process_iterator(&iter);
     assert(ret == 0);
 
-    /* Test with including children */
     filter.pid = getpid();
     filter.include_children = 1;
     filter.read_cmd = 0;
@@ -3211,6 +3181,7 @@ static void test_process_iterator_single(void) {
 
 /**
  * @brief Test process iterator with multiple processes
+ *
  * @note Creates a child process and verifies that the iterator can retrieve
  *       both parent and child process information
  */
@@ -3232,7 +3203,7 @@ static void test_process_iterator_multiple(void) {
         sigset_t full_mask;
         /*
          * Block all blockable signals so no signal can wake the child
-         * prematurely.  test_suspend_until_killed() suspends until the
+         * prematurely. test_suspend_until_killed() suspends until the
          * parent kills it, and also exits on its own if the parent
          * aborts (failed assertion) so no orphan is left behind.
          */
@@ -3279,12 +3250,12 @@ static void test_process_iterator_multiple(void) {
     ret = close_process_iterator(&iter);
     assert(ret == 0);
 
-    /* Clean up child process */
     kill_and_wait(child_pid, SIGKILL);
 }
 
 /**
  * @brief Test process iterator with all system processes
+ *
  * @note Verifies that the iterator can retrieve processes and that the
  *       current process is correctly identified
  */
@@ -3333,6 +3304,7 @@ static void test_process_iterator_all(void) {
 
 /**
  * @brief Test process name retrieval
+ *
  * @note Verifies that the process iterator correctly retrieves the
  *       OS-visible argv[0] (command field) of the current process, and that
  *       it can be used to find the process by name. When running under a
@@ -3392,6 +3364,7 @@ static void test_process_iterator_read_command(void) {
 
 /**
  * @brief Test getppid_of function
+ *
  * @note Verifies that getppid_of returns the correct parent PID for multiple
  *       processes, including the current process
  */
@@ -3434,6 +3407,7 @@ static void test_process_iterator_getppid_of(void) {
 
 /**
  * @brief Test init_process_iterator and get_next_process with NULL inputs
+ *
  * @note NULL it or NULL filter must return -1 without crashing
  */
 static void test_process_iterator_null_inputs(void) {
@@ -3479,6 +3453,7 @@ static void test_process_iterator_null_inputs(void) {
 
 /**
  * @brief Test close_process_iterator with NULL pointer
+ *
  * @note Must return -1 without crashing
  */
 static void test_process_iterator_close_null(void) {
@@ -3489,6 +3464,7 @@ static void test_process_iterator_close_null(void) {
 
 /**
  * @brief Test getppid_of with boundary and invalid PIDs
+ *
  * @note PID 0 and INT_MAX must return -1; current PID must return getppid()
  */
 static void test_process_iterator_getppid_of_edges(void) {
@@ -3519,6 +3495,7 @@ static void test_process_iterator_getppid_of_edges(void) {
 
 /**
  * @brief Test init_process_iterator with pid=0 and include_children=1
+ *
  * @note Should open /proc and enumerate processes (same as all-process scan)
  */
 static void test_process_iterator_init_all_with_children(void) {
@@ -3549,6 +3526,7 @@ static void test_process_iterator_init_all_with_children(void) {
 
 /**
  * @brief Test get_next_process after end_of_processes is set
+ *
  * @note Must return -1 immediately on every call after first exhaustion
  */
 static void test_process_iterator_exhaust_single(void) {
@@ -3589,6 +3567,7 @@ static void test_process_iterator_exhaust_single(void) {
 
 /**
  * @brief Test process iterator with include_children=1 for current process
+ *
  * @note With a child process running, both parent and child must appear
  */
 static void test_process_iterator_with_children(void) {
@@ -3605,7 +3584,7 @@ static void test_process_iterator_with_children(void) {
         sigset_t full_mask;
         /*
          * Block all blockable signals so no signal can wake the child
-         * prematurely.  test_suspend_until_killed() suspends until the
+         * prematurely. test_suspend_until_killed() suspends until the
          * parent kills it, and also exits on its own if the parent
          * aborts (failed assertion) so no orphan is left behind.
          */
@@ -3648,6 +3627,7 @@ static void test_process_iterator_with_children(void) {
 
 /**
  * @brief Test close_process_iterator when dip is already NULL
+ *
  * @note After init with single-pid filter, dip==NULL; close must return 0
  */
 static void test_process_iterator_close_null_dip(void) {
@@ -3671,6 +3651,7 @@ static void test_process_iterator_close_null_dip(void) {
 
 /**
  * @brief Test that get_next_process handles NULL proc_dir defensively
+ *
  * @note On Linux, the single-PID optimisation leaves proc_dir=NULL
  *       Switching the filter to general mode (pid=0) without reinitialising
  *       exercises the NULL-proc_dir guard added to get_next_process.
@@ -3720,6 +3701,7 @@ static void test_process_iterator_null_proc_dir_guard(void) {
 /**
  * @brief Helper: fork with output suppressed, call parse_arguments, return
  *  the child's exit-status code
+ *
  * @param argc Argument count
  * @param argv Argument vector
  * @return Exit status from the child process
@@ -3755,6 +3737,7 @@ static int run_parse_in_child(int argc, char **argv) {
 
 /**
  * @brief Test parse_arguments with -l LIMIT -p PID (valid PID mode)
+ *
  * @note Verifies target_pid, limit fraction, and implied lazy_mode
  */
 static void test_cli_pid_mode(void) {
@@ -3790,6 +3773,7 @@ static void test_cli_pid_mode(void) {
 
 /**
  * @brief Test parse_arguments with -l LIMIT -e EXE (valid exe mode)
+ *
  * @note Verifies exe_name, limit fraction; lazy_mode stays 0
  */
 static void test_cli_exe_mode(void) {
@@ -3823,6 +3807,7 @@ static void test_cli_exe_mode(void) {
 
 /**
  * @brief Test parse_arguments with -l LIMIT COMMAND [ARGS] (command mode)
+ *
  * @note Verifies command_mode=1, command_args pointer, implied lazy_mode
  */
 static void test_cli_command_mode(void) {
@@ -3857,6 +3842,7 @@ static void test_cli_command_mode(void) {
 
 /**
  * @brief Test parse_arguments with long options (--limit=N, --pid=N)
+ *
  * @note Long-form options must behave identically to short-form
  */
 static void test_cli_long_options(void) {
@@ -3884,6 +3870,7 @@ static void test_cli_long_options(void) {
 
 /**
  * @brief Test parse_arguments with --exe=EXE long option
+ *
  * @note --exe long form must set exe_name correctly
  */
 static void test_cli_long_option_exe(void) {
@@ -3910,6 +3897,7 @@ static void test_cli_long_option_exe(void) {
 
 /**
  * @brief Test parse_arguments with -z and -i optional flags
+ *
  * @note Verifies lazy_mode and include_children are set correctly
  */
 static void test_cli_optional_flags(void) {
@@ -3941,6 +3929,7 @@ static void test_cli_optional_flags(void) {
 
 /**
  * @brief Test parse_arguments with -v (verbose) flag
+ *
  * @note -v causes a "N CPUs detected" print; run in fork to suppress it
  */
 static void test_cli_verbose_flag(void) {
@@ -3987,6 +3976,7 @@ static void test_cli_verbose_flag(void) {
 
 /**
  * @brief Test parse_arguments with -h / --help
+ *
  * @note Both short and long help flags must exit with EXIT_SUCCESS
  */
 static void test_cli_help(void) {
@@ -4012,6 +4002,7 @@ static void test_cli_help(void) {
 
 /**
  * @brief Test parse_arguments when -l/--limit is not supplied
+ *
  * @note The limit option is required; absence must cause EXIT_FAILURE
  */
 static void test_cli_missing_limit(void) {
@@ -4031,6 +4022,7 @@ static void test_cli_missing_limit(void) {
 
 /**
  * @brief Test parse_arguments with various invalid limit values
+ *
  * @note zero, negative, non-numeric, NaN, and above-max all cause
  *       EXIT_FAILURE
  */
@@ -4077,6 +4069,7 @@ static void test_cli_invalid_limits(void) {
 
 /**
  * @brief Test parse_arguments with various invalid PID values
+ *
  * @note 0, 1 (reserved), -1, non-numeric, and trailing-char PIDs all cause
  *       EXIT_FAILURE
  */
@@ -4124,6 +4117,7 @@ static void test_cli_invalid_pids(void) {
 
 /**
  * @brief Test parse_arguments with an empty exe name (-e "")
+ *
  * @note Empty string for -e must cause EXIT_FAILURE
  */
 static void test_cli_empty_exe(void) {
@@ -4147,6 +4141,7 @@ static void test_cli_empty_exe(void) {
 
 /**
  * @brief Test parse_arguments with no target specified (-l only)
+ *
  * @note Providing a limit but no -p/-e/COMMAND must cause EXIT_FAILURE
  */
 static void test_cli_no_target(void) {
@@ -4166,6 +4161,7 @@ static void test_cli_no_target(void) {
 
 /**
  * @brief Test parse_arguments with both -p and -e simultaneously
+ *
  * @note Only one target is allowed; two must cause EXIT_FAILURE
  */
 static void test_cli_multiple_targets(void) {
@@ -4194,6 +4190,7 @@ static void test_cli_multiple_targets(void) {
 
 /**
  * @brief Test parse_arguments with unknown short and long options
+ *
  * @note Unrecognised options must cause EXIT_FAILURE
  */
 static void test_cli_unknown_option(void) {
@@ -4219,6 +4216,7 @@ static void test_cli_unknown_option(void) {
 
 /**
  * @brief Test parse_arguments when a required option argument is absent
+ *
  * @note -p with no PID and -l with no value must both cause EXIT_FAILURE
  */
 static void test_cli_missing_arg(void) {
@@ -4244,6 +4242,7 @@ static void test_cli_missing_arg(void) {
 
 /**
  * @brief Test parse_arguments with --include-children long option
+ *
  * @note --include-children must set include_children=1
  */
 static void test_cli_long_option_include_children(void) {
@@ -4269,6 +4268,7 @@ static void test_cli_long_option_include_children(void) {
 
 /**
  * @brief Test parse_arguments with limit exactly equal to 100*ncpu (maximum)
+ *
  * @note Limit at the boundary must be accepted
  */
 static void test_cli_limit_at_max(void) {
@@ -4302,6 +4302,7 @@ static void test_cli_limit_at_max(void) {
 
 /**
  * @brief Test parse_arguments with minimum valid PID (>1; try 2)
+ *
  * @note PID 2 is valid if it exists; test parse path only (fork to isolate)
  */
 static void test_cli_pid_minimum_valid(void) {
@@ -4327,6 +4328,7 @@ static void test_cli_pid_minimum_valid(void) {
 
 /**
  * @brief Test parse_arguments with a limit value that has trailing whitespace
+ *
  * @note "50 " (trailing space) has trailing chars after strtod; must fail
  */
 static void test_cli_limit_trailing_chars(void) {
@@ -4350,6 +4352,7 @@ static void test_cli_limit_trailing_chars(void) {
 
 /**
  * @brief Test parse_arguments rejects duplicate target and limit options
+ *
  * @note Repeated -p/-e/-l options must fail fast with EXIT_FAILURE
  */
 static void test_cli_duplicate_options(void) {
@@ -4501,6 +4504,7 @@ static void test_cli_invalid_api_inputs(void) {
 
 /**
  * @brief Test parse_arguments with --lazy and --verbose long options
+ *
  * @note Long forms of -z and -v must behave identically to short forms
  */
 static void test_cli_long_options_lazy_verbose(void) {
@@ -4554,46 +4558,44 @@ static void test_cli_long_options_lazy_verbose(void) {
 
 /**
  * @brief Test process buckets initialization and destruction
+ *
  * @note Tests init_process_table and destroy_process_table
  */
 static void test_process_table_init_destroy(void) {
     struct process_table proc_table;
 
-    /* Test initialization with small hash_size */
     init_process_table(&proc_table, 16);
     assert(proc_table.buckets != NULL);
     assert(proc_table.hash_size == 16);
     destroy_process_table(&proc_table);
     assert(proc_table.buckets == NULL);
 
-    /* Test initialization with larger hash_size */
     init_process_table(&proc_table, 256);
     assert(proc_table.buckets != NULL);
     assert(proc_table.hash_size == 256);
     destroy_process_table(&proc_table);
 
-    /* Test zero hash_size fallback (must avoid division by zero in hashing) */
     init_process_table(&proc_table, 0);
     assert(proc_table.buckets != NULL);
     assert(proc_table.hash_size == 1);
     destroy_process_table(&proc_table);
 
-    /* Test destroy with NULL (should not crash) */
     destroy_process_table(NULL);
 }
 
 /**
  * @brief init_process_table() must report allocation failure instead of
- *        exiting (BUG-062) and must reject overflowing bucket sizes
+ *        exiting and must reject overflowing bucket sizes
  *        before calloc() (R2)
+ *
  * @note The bucket calloc used to call exit(EXIT_FAILURE) directly, which
  *       bypassed init_process_set()'s "return -1, never exit()" contract
- *       and could strand a suspended group on out-of-memory.  A size whose
+ *       and could strand a suspended group on out-of-memory. A size whose
  *       bucket array overflows size_t is now rejected before the
  *       allocator is called: handing the overflowing product to calloc()
  *       is undefined and aborts under AddressSanitizer and hardened
  *       allocators, so the "return -1, never die" contract would hold only
- *       on plain malloc.  The process must survive, receive -1 for the
+ *       on plain malloc. The process must survive, receive -1 for the
  *       overflow boundary, and a failed table must stay destroyable.
  */
 static void test_process_table_init_reports_alloc_failure(void) {
@@ -4622,17 +4624,18 @@ static void test_process_table_init_reports_alloc_failure(void) {
 }
 
 /**
- * @brief add_to_process_table() must keep its 0/-1 contract (BUG-063)
+ * @brief add_to_process_table() must keep its 0/-1 contract
+ *
  * @note add_list_elem()'s result used to be ignored: if the list node
  *       allocation failed, the record ended up in neither the bucket list
  *       nor (had the caller continued) proc_list, breaking the
  *       "proc_list borrows table records" ownership contract and leaking
- *       the record.  The fix returns -1 with the record untouched.
+ *       the record. The fix returns -1 with the record untouched.
  *
  *       The node malloc is a single fixed-size allocation with no seam to
  *       make it fail deterministically, so the -1 branch itself is
  *       covered by code review; the caller in update_process_set()
- *       already frees the record on any non-zero return.  This test pins
+ *       already frees the record on any non-zero return. This test pins
  *       the observable half of the contract: append success, duplicate
  *       PID, NULL table and destroyed table all return 0 and never take
  *       ownership twice.
@@ -4654,7 +4657,7 @@ static void test_process_table_add_contract(void) {
     assert(find_in_process_table(&proc_table, (pid_t)777000) == proc);
 
     /*
-     * The same PID again: a 0-return no-op.  A separate record is offered
+     * The same PID again: a 0-return no-op. A separate record is offered
      * so the duplicate is not the stored one; the call must leave it
      * untouched -- the caller still owns it and frees it below.
      */
@@ -4679,6 +4682,7 @@ static void test_process_table_add_contract(void) {
 
 /**
  * @brief Test process buckets add and find operations
+ *
  * @note Tests add_to_process_table and find_in_process_table
  */
 static void test_process_table_add_find(void) {
@@ -4708,17 +4712,14 @@ static void test_process_table_add_find(void) {
     proc3->ppid = 1;
     proc3->cpu_time = 0.0;
 
-    /* Test find on empty buckets */
     found = find_in_process_table(&proc_table, 100);
     assert(found == NULL);
 
-    /* Add first process */
     add_to_process_table(&proc_table, proc1);
     found = find_in_process_table(&proc_table, 100);
     assert(found == proc1);
     assert(found->pid == 100);
 
-    /* Add second process */
     add_to_process_table(&proc_table, proc2);
     found = find_in_process_table(&proc_table, 200);
     assert(found == proc2);
@@ -4728,16 +4729,13 @@ static void test_process_table_add_find(void) {
     found = find_in_process_table(&proc_table, 100);
     assert(found == proc1);
 
-    /* Add third process */
     add_to_process_table(&proc_table, proc3);
     found = find_in_process_table(&proc_table, 300);
     assert(found == proc3);
 
-    /* Test find non-existent PID */
     found = find_in_process_table(&proc_table, 999);
     assert(found == NULL);
 
-    /* Test find with NULL buckets */
     found = find_in_process_table(NULL, 100);
     assert(found == NULL);
 
@@ -4746,6 +4744,7 @@ static void test_process_table_add_find(void) {
 
 /**
  * @brief Test process buckets delete operation
+ *
  * @note Tests delete_from_process_table
  */
 static void test_process_table_del(void) {
@@ -4799,7 +4798,6 @@ static void test_process_table_del(void) {
     ret = delete_from_process_table(&proc_table, 999);
     assert(ret == 1);
 
-    /* Test del with NULL buckets */
     ret = delete_from_process_table(NULL, 100);
     assert(ret == 1);
 
@@ -4808,6 +4806,7 @@ static void test_process_table_del(void) {
 
 /**
  * @brief Test process buckets remove stale entries
+ *
  * @note Tests remove_stale_from_process_table
  */
 static void test_process_table_remove_stale(void) {
@@ -4852,7 +4851,6 @@ static void test_process_table_remove_stale(void) {
     found = find_in_process_table(&proc_table, 300);
     assert(found == proc3);
 
-    /* Test with NULL (should not crash) */
     remove_stale_from_process_table(NULL, &active_list);
 
     /*
@@ -4871,6 +4869,7 @@ static void test_process_table_remove_stale(void) {
 
 /**
  * @brief Test remove_stale_from_process_table removes NULL-data nodes
+ *
  * @note NULL-data nodes should be removed defensively
  *
  * To test this defensive path we must inject a NULL-data node directly
@@ -4923,6 +4922,7 @@ static void test_process_table_remove_stale_null_data(void) {
 
 /**
  * @brief Test process table with hash collisions
+ *
  * @note Tests behavior when multiple PIDs hash to same bucket
  */
 static void test_process_table_collisions(void) {
@@ -4974,6 +4974,7 @@ static void test_process_table_collisions(void) {
 
 /**
  * @brief Test process table with empty buckets
+ *
  * @note Tests operations when some buckets are empty
  */
 static void test_process_table_empty_buckets(void) {
@@ -5012,6 +5013,7 @@ static void test_process_table_empty_buckets(void) {
 
 /**
  * @brief Test init_process_table and add_to_process_table with NULL inputs
+ *
  * @note Covers: init_process_table(NULL,...), add_to_process_table(NULL,p),
  *       add_to_process_table(pt,NULL), and duplicate-PID insertion (silently
  *       ignored)
@@ -5065,6 +5067,7 @@ static void test_process_table_null_inputs_and_dup(void) {
 
 /**
  * @brief Test remove_stale_from_process_table with NULL active_list
+ *
  * @note NULL active_list must be treated as "skip stale removal"
  */
 static void test_process_table_stale_null_list(void) {
@@ -5094,6 +5097,7 @@ static void test_process_table_stale_null_list(void) {
 
 /**
  * @brief Test init_process_table with hash_size=0 (forced to 1)
+ *
  * @note hash_size=0 must be clamped to 1; add/find/del must still work
  */
 static void test_process_table_init_hashsize_zero(void) {
@@ -5126,6 +5130,7 @@ static void test_process_table_init_hashsize_zero(void) {
 
 /**
  * @brief Test find_in_process_table with NULL process buckets
+ *
  * @note Must return NULL without crashing
  */
 static void test_process_table_find_null_pt(void) {
@@ -5137,6 +5142,7 @@ static void test_process_table_find_null_pt(void) {
 /**
  * @brief Test delete_from_process_table when PID is absent from a populated
  * bucket
+ *
  * @note del on a non-empty buckets for a PID in the same bucket must return 1
  */
 static void test_process_table_del_absent_pid(void) {
@@ -5169,6 +5175,7 @@ static void test_process_table_del_absent_pid(void) {
 
 /**
  * @brief Test delete_from_process_table on a PID that was never inserted at all
+ *
  * @note Empty bucket: returns 1
  */
 static void test_process_table_del_empty_bucket(void) {
@@ -5184,6 +5191,7 @@ static void test_process_table_del_empty_bucket(void) {
 /**
  * @brief Test destroy_process_table on NULL and on a freshly-initialized
  * buckets
+ *
  * @note NULL must not crash; fresh empty buckets must also not crash
  */
 static void test_process_table_destroy_edge_cases(void) {
@@ -5201,6 +5209,7 @@ static void test_process_table_destroy_edge_cases(void) {
 
 /**
  * @brief Test that process_table operations are safe after destroy
+ *
  * @note After destroy_process_table,
  *       find_in_process_table/add_to_process_table/
  *       delete_from_process_table/remove_stale_from_process_table must not
@@ -5244,6 +5253,7 @@ static void test_process_table_ops_after_destroy(void) {
 
 /**
  * @brief Test find_process_by_pid function
+ *
  * @note Tests finding processes by PID including invalid PIDs, boundary
  *       values, and init process
  */
@@ -5275,6 +5285,7 @@ static void test_process_finder_find_by_pid(void) {
 
 /**
  * @brief Test find_process_by_name function
+ *
  * @note Tests finding processes by name including wrong names, absolute
  *       paths, NULL, empty string, and trailing slash
  */
@@ -5351,7 +5362,7 @@ static void test_process_finder_find_by_name(void) {
     /*
      * Test the absolute-path comparison branch: when process_name starts
      * with '/', find_process_by_name compares the full path against each
-     * process's cmdline.  Use a path incorporating the current PID so it
+     * process's cmdline. Use a path incorporating the current PID so it
      * is unique enough to never match any running process's cmdline,
      * even in shared CI environments.
      */
@@ -5383,6 +5394,7 @@ static void test_process_finder_find_by_name(void) {
 
 /**
  * @brief Test find_process_by_name with self's executable basename
+ *
  * @note The OS-visible command basename must be found; result > 0 or
  *       result is -PID (EPERM in confined environments). Uses the process
  *       iterator to obtain the real argv[0] so the test passes when the
@@ -5417,6 +5429,7 @@ static void test_process_finder_find_by_name_self(void) {
 
 /**
  * @brief Test find_process_by_name with process launched via symlink
+ *
  * @note Creates a temporary symlink to /bin/sleep, execs it so that
  *       argv[0] is the symlink path, and verifies that find_process_by_name
  *       finds the child using the symlink's basename. Skipped if /bin/sleep
@@ -5497,7 +5510,7 @@ static void test_process_finder_find_by_name_symlink(void) {
      * If the child was not found, check whether it already exited.
      * This happens when the target binary is a multicall binary (e.g.,
      * coreutils on Ubuntu 26.04+) that rejects an unrecognised argv[0]
-     * and exits immediately.  In that case the symlink-name lookup is
+     * and exits immediately. In that case the symlink-name lookup is
      * impossible by design, so skip rather than assert.
      */
     if (found_pid == 0 &&
@@ -5523,6 +5536,7 @@ static void test_process_finder_find_by_name_symlink(void) {
 
 /**
  * @brief Test find_process_by_name with process launched with custom argv[0]
+ *
  * @note Forks a child that execs /bin/sleep with a unique alias string
  *       as argv[0]. Verifies that find_process_by_name finds the child by
  *       that alias name. Skipped if /bin/sleep is not available.
@@ -5581,7 +5595,7 @@ static void test_process_finder_find_by_name_alias(void) {
      * If the child was not found, check whether it already exited.
      * This happens when the target binary is a multicall binary (e.g.,
      * coreutils on Ubuntu 26.04+) that rejects an unrecognised argv[0]
-     * and exits immediately.  In that case the alias lookup is
+     * and exits immediately. In that case the alias lookup is
      * impossible by design, so skip rather than assert.
      */
     if (found_pid == 0 &&
@@ -5604,8 +5618,9 @@ static void test_process_finder_find_by_name_alias(void) {
 /**
  * @brief Test find_process_by_name ancestor-preference with a parent/child
  *        process tree of identical names
+ *
  * @note Forks multi_process_busy (which internally forks more children that
- *       share the same executable name).  Verifies that find_process_by_name
+ *       share the same executable name). Verifies that find_process_by_name
  *       returns the outermost ancestor (the PID we directly forked) rather
  *       than one of its descendants, matching the documented heuristic that
  *       the parent of a same-named tree is preferred.
@@ -5613,13 +5628,14 @@ static void test_process_finder_find_by_name_alias(void) {
 #if defined(__linux__)
 /**
  * @brief Kill every process whose command name equals "comm"
+ *
  * @param comm Process command name to hunt for
  * @note find_process_by_name() scans the whole system by name, so the
  *       ancestor-preference check in this test is only deterministic when
- *       exactly one same-named process tree exists.  A previous (possibly
+ *       exactly one same-named process tree exists. A previous (possibly
  *       interrupted) run or a concurrently injected process sharing the
  *       "multi_process_busy" name would otherwise be matched first and
- *       break the assertion.  Reaping all such processes before forking
+ *       break the assertion. Reaping all such processes before forking
  *       this test's own tree guarantees a clean, single-tree environment.
  *
  *       Matching has to work the way find_process_by_name() does, on the
@@ -5717,7 +5733,7 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
     /*
      * Reap every multi_process_busy process so the global
      * find_process_by_name() scan sees only the tree this test is about to
-     * fork.  Any leftover from a prior (interrupted) run or a concurrently
+     * fork. Any leftover from a prior (interrupted) run or a concurrently
      * injected same-named process would otherwise be matched first and
      * break the ancestor-preference assertion (flaky / non-deterministic).
      */
@@ -5727,7 +5743,7 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
     /*
      * Bail out when the process iterator cannot even report this
      * process's own command: the name scan below would then have
-     * nothing reliable to work with.  The test binary is never named
+     * nothing reliable to work with. The test binary is never named
      * "multi_process_busy", so the assertion at the end is what
      * actually keeps our own PID out of the result.
      */
@@ -5783,7 +5799,7 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
     /*
      * Poll until find_process_by_name returns THIS test's multi_process_busy
      * ancestor (positive or negative PGID form), not merely any same-named
-     * process.  A concurrently injected same-named process (or a not-yet-
+     * process. A concurrently injected same-named process (or a not-yet-
      * reaped leftover) may be returned transiently; the loop must skip such
      * mismatches and keep polling, otherwise the ancestor-preference assertion
      * below would fail non-deterministically (flaky / hang under injection).
@@ -5823,6 +5839,7 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
 
 /**
  * @brief Test get_process_set_cpu_usage function
+ *
  * @note Tests CPU usage calculation for process set
  */
 static void test_process_set_cpu_usage(void) {
@@ -5877,6 +5894,7 @@ static void test_process_set_cpu_usage(void) {
 
 /**
  * @brief Test process set with rapid updates
+ *
  * @note Tests update_process_set called in quick succession
  */
 static void test_process_set_rapid_updates(void) {
@@ -5918,11 +5936,11 @@ static void test_process_set_rapid_updates(void) {
 
 /**
  * @brief Test process set initialization with all processes
+ *
  * @note Verifies that a process set initialized with PID 0 (all processes)
  *       is non-empty and never contains the current process: cpulimit must
  *       not suspend itself, and with --include-children a target that is an
- *       ancestor of this process would otherwise make it a group member
- *       (BUG-001).
+ *       ancestor of this process would otherwise make it a group member.
  */
 static void test_process_set_init_all(void) {
     struct process_set proc_set;
@@ -5958,6 +5976,7 @@ static void test_process_set_init_all(void) {
 
 /**
  * @brief Test process set with a single process
+ *
  * @param include_children Flag indicating whether to include child processes
  * @note Creates a child process and verifies that the process set
  *       correctly tracks it, with or without child process inclusion
@@ -6022,26 +6041,25 @@ static void test_process_set_single(int include_children) {
     ret = close_process_set(&proc_set);
     assert(ret == 0);
 
-    /* Clean up child process */
     kill_and_wait(child_pid, SIGKILL);
 }
 
 /**
  * @brief Test process set with a single process (both with and without
  * children)
+ *
  * @note Wrapper function to test process set with include_children set to
  *       0 and 1
  */
 static void test_process_set_init_single(void) {
-    /* Test without including children */
     test_process_set_single(0);
 
-    /* Test with including children */
     test_process_set_single(1);
 }
 
 /**
  * @brief Test process set initialization with invalid PIDs
+ *
  * @note Verifies that process set initialization with invalid PIDs (-1 and
  *       INT_MAX) results in empty process lists
  */
@@ -6050,7 +6068,6 @@ static void test_process_set_init_invalid_pid(void) {
     int ret;
     size_t list_count;
 
-    /* Test with PID -1 */
     ret = init_process_set(&proc_set, -1, 0);
     assert(ret == 0);
     list_count = proc_set.proc_list->count;
@@ -6061,7 +6078,6 @@ static void test_process_set_init_invalid_pid(void) {
     ret = close_process_set(&proc_set);
     assert(ret == 0);
 
-    /* Test with PID INT_MAX */
     ret = init_process_set(&proc_set, INT_MAX, 0);
     assert(ret == 0);
     list_count = proc_set.proc_list->count;
@@ -6075,6 +6091,7 @@ static void test_process_set_init_invalid_pid(void) {
 
 /**
  * @brief Test init_process_set with NULL proc_set argument
+ *
  * @note Must return -1 without crashing when proc_set is NULL
  */
 static void test_process_set_init_null(void) {
@@ -6085,6 +6102,7 @@ static void test_process_set_init_null(void) {
 
 /**
  * @brief Test get_process_set_cpu_usage when process list is empty
+ *
  * @note Must return -1.0 when no processes are tracked
  */
 static void test_process_set_cpu_usage_empty_list(void) {
@@ -6109,6 +6127,7 @@ static void test_process_set_cpu_usage_empty_list(void) {
 
 /**
  * @brief Test get_process_set_cpu_usage with NULL pointer
+ *
  * @note Verifies the null guard returns the -1 sentinel without crashing
  */
 static void test_process_set_cpu_usage_null(void) {
@@ -6118,6 +6137,7 @@ static void test_process_set_cpu_usage_null(void) {
 
 /**
  * @brief Test close_process_set with NULL pointer
+ *
  * @note Must return 0 without crashing
  */
 static void test_process_set_close_null(void) {
@@ -6136,6 +6156,7 @@ static void test_process_set_close_null(void) {
 
 /**
  * @brief Test that close_process_set zeros all numeric fields
+ *
  * @note After close, target_pid, include_children, and last_update must be 0
  */
 static void test_process_set_close_zeros_fields(void) {
@@ -6159,6 +6180,7 @@ static void test_process_set_close_zeros_fields(void) {
 
 /**
  * @brief Test update_process_set with NULL pointer
+ *
  * @note Must return 0 without crashing when proc_set is NULL
  */
 static void test_process_set_update_null(void) {
@@ -6170,6 +6192,7 @@ static void test_process_set_update_null(void) {
 
 /**
  * @brief Test update_process_set with uninitialized process_set members
+ *
  * @note Must return 0 without dereferencing NULL proc_list/proc_table
  */
 static void test_process_set_update_uninitialized_struct(void) {
@@ -6183,6 +6206,7 @@ static void test_process_set_update_uninitialized_struct(void) {
 
 /**
  * @brief Test get_process_set_cpu_usage with uninitialized process_set
+ *
  * @note Must return -1.0 when proc_list is NULL
  */
 static void test_process_set_cpu_usage_uninitialized_struct(void) {
@@ -6195,6 +6219,7 @@ static void test_process_set_cpu_usage_uninitialized_struct(void) {
 
 /**
  * @brief Test update_process_set twice in quick succession
+ *
  * @note Second call exercises the "insufficient dt" branch
  */
 static void test_process_set_double_update(void) {
@@ -6213,6 +6238,7 @@ static void test_process_set_double_update(void) {
 
 /**
  * @brief Test that update_process_set returns 0 on successful updates
+ *
  * @note Regression test for the fix that changed update_process_set from
  *       void to int: verifies the return value on success paths
  */
@@ -6247,7 +6273,7 @@ static void test_process_set_update_return_value(void) {
      * list is cleared at the top of every update, and a node allocation
      * failure during the re-link now aborts the cycle (N6) instead of
      * silently dropping the member -- which would also make
-     * remove_stale_from_process_table() purge its CPU history.  That
+     * remove_stale_from_process_table() purge its CPU history. That
      * failure branch sets alloc_failed and breaks, mirroring the other
      * allocation failures; it cannot be injected from the outside (the
      * node malloc has no seam), so it is covered by code review and this
@@ -6271,6 +6297,7 @@ static void test_process_set_update_return_value(void) {
 
 /**
  * @brief Test get_process_set_cpu_usage after waiting for a valid sample
+ *
  * @note After two updates separated by enough time, cpu_usage may be >= 0
  */
 static void test_process_set_cpu_usage_with_usage(void) {
@@ -6301,9 +6328,10 @@ static void test_process_set_cpu_usage_with_usage(void) {
 /**
  * @brief Test update_process_set when the target exits between init and
  *        the first explicit update call
+ *
  * @note Exercises the race where the target terminates after
  *       init_process_set (which performs one internal update) but before the
- *       caller invokes update_process_set again.  The function must handle a
+ *       caller invokes update_process_set again. The function must handle a
  *       missing process gracefully and leave proc_list empty without crashing.
  */
 static void test_process_set_race_target_exits_between_init_and_update(void) {
@@ -6341,8 +6369,9 @@ static void test_process_set_race_target_exits_between_init_and_update(void) {
 
 /**
  * @brief Test update_process_set with rapidly spawning and exiting children
+ *
  * @note Exercises the race where child processes are created and destroyed
- *       between successive update_process_set calls.  The function must never
+ *       between successive update_process_set calls. The function must never
  *       crash or corrupt internal state regardless of how quickly descendants
  *       appear and disappear.
  */
@@ -6401,10 +6430,11 @@ static void test_process_set_race_rapid_child_spawn_exit(void) {
 
 /**
  * @brief Regression test: proc_table must not retain exited descendants
+ *
  * @note update_process_set() previously returned early when
  *       close_process_iterator() failed, skipping
  *       remove_stale_from_process_table() and leaking hash table entries
- *       for processes that had already exited.  This test tracks a parent
+ *       for processes that had already exited. This test tracks a parent
  *       whose children all exit, then verifies that after further update
  *       cycles the table holds no entry for any exited child PID and that
  *       the live entry count matches the rebuilt active list exactly.
@@ -6508,7 +6538,7 @@ static void test_process_set_purges_exited_descendants(void) {
  * update_existing_process_entry() discards the stored CPU history and
  * marks the usage unknown in two situations: the CPU time moved backwards
  * (the PID now belongs to a different process) and the clock moved
- * backwards.  Both leave the entry with a fresh baseline so the next
+ * backwards. Both leave the entry with a fresh baseline so the next
  * delta is measured against the new process rather than the old one, and
  * neither path had any coverage.
  */
@@ -6546,7 +6576,7 @@ static void test_process_set_entry_resets_on_reuse_and_backward_clock(void) {
 
     /*
      * Backward clock: push the member's CPU baseline timestamp into the
-     * future so the elapsed time of this cycle comes out negative.  The
+     * future so the elapsed time of this cycle comes out negative. The
      * sample interval is measured from cpu_time_ts (N5), not from the
      * process set's last_update, so the baseline to corrupt is the
      * per-member one.
@@ -6572,6 +6602,7 @@ static void test_process_set_entry_resets_on_reuse_and_backward_clock(void) {
 
 /**
  * @brief Test limit_process function
+ *
  * @note Creates a process group with multi processes and applies CPU
  *       limiting to verify that the CPU usage stays within the specified limit
  */
@@ -6673,12 +6704,12 @@ static void test_limit_process_basic(void) {
             ncpu = get_ncpu();
             assert(cpu_usage <= ncpu);
             /*
-             * The average has to land near the requested limit.  The
+             * The average has to land near the requested limit. The
              * bound is deliberately loose so that scheduling noise
              * cannot turn this into a flaky failure, but it stays far
              * below what an unthrottled group would report: without
              * limiting, every monitored process pegs a core and the
-             * group total reaches num_procs.  Checking only against
+             * group total reaches num_procs. Checking only against
              * ncpu above would let that pass.
              */
             assert(cpu_usage <= cpu_usage_limit * 3.0);
@@ -6737,6 +6768,7 @@ static void test_limit_process_basic(void) {
 
 /**
  * @brief Test limit_process when the target has already exited
+ *
  * @note Exercises the empty-proc_list early-exit branch in limit_process
  */
 static void test_limit_process_exits_early(void) {
@@ -6761,6 +6793,7 @@ static void test_limit_process_exits_early(void) {
 
 /**
  * @brief Test limit_process with verbose=1
+ *
  * @note Exercises the verbose printf branches; output suppressed via fork
  */
 static void test_limit_process_verbose(void) {
@@ -6799,6 +6832,7 @@ static void test_limit_process_verbose(void) {
 
 /**
  * @brief Test limit_process with include_children=1
+ *
  * @note Target exits quickly; exercises the children-tracking code path
  */
 static void test_limit_process_include_children(void) {
@@ -6821,11 +6855,12 @@ static void test_limit_process_include_children(void) {
 
 /**
  * @brief Drain every heartbeat byte currently readable from a pipe
+ *
  * @param fd Non-blocking read end of a heartbeat pipe
  * @return Number of bytes drained
  *
  * A running process writes heartbeats into the pipe; a suspended process
- * writes nothing.  A zero count over a time window therefore proves the
+ * writes nothing. A zero count over a time window therefore proves the
  * writer did not execute during that window.
  */
 static int drain_heartbeats(int fd) {
@@ -6852,12 +6887,12 @@ static int drain_heartbeats(int fd) {
  * soon as its monitored ancestor exits: the descendant is re-parented away,
  * so is_child_of() no longer finds the ancestor in its parent chain and the
  * descendant disappears from the process set while it still holds the
- * SIGSTOP that limit_process() sent.  limit_process() must therefore
+ * SIGSTOP that limit_process() sent. limit_process() must therefore
  * remember every PID it suspended and resume those as well when it leaves;
  * otherwise the orphan stays suspended forever.
  *
  * The descendant announces that it is executing by writing heartbeats into
- * a pipe.  Once the limiter has exited, heartbeats must reappear.
+ * a pipe. Once the limiter has exited, heartbeats must reappear.
  */
 static void test_limit_process_resumes_orphaned_descendant(void) {
     const double cpu_usage_limit = 0.001;
@@ -6892,7 +6927,7 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
          * PID of the test process, published to the descendants this test
          * lets get orphaned: the test kills the tracked ancestor so that
          * its descendant is re-parented away, and that descendant cannot
-         * use its own parent to notice the test is over.  Writing it
+         * use its own parent to notice the test is over. Writing it
          * before the fork() below is enough, because every descendant
          * starts from a copy that already carries the value.
          */
@@ -6977,7 +7012,6 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
     /* Kill the ancestor: the descendant is orphaned while suspended. */
     kill(target_pid, SIGKILL);
     while (waitpid(target_pid, NULL, 0) == -1 && errno == EINTR) {
-        /* Retry on EINTR */
     }
 
     /* The limiter must notice that its group is gone and return. */
@@ -6995,7 +7029,6 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
     if (!limiter_exited) {
         kill(limiter_pid, SIGKILL);
         while (waitpid(limiter_pid, NULL, 0) == -1 && errno == EINTR) {
-            /* Retry on EINTR */
         }
     }
     assert(limiter_exited);
@@ -7016,10 +7049,11 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
 
 /**
  * @brief Signal handler used by race condition tests: exits on SIGCONT
+ *
  * @param sig Signal number (unused)
  *
  * Installed as the SIGCONT handler so a process immediately terminates
- * when resumed after being stopped by SIGSTOP.  This reproduces the race
+ * when resumed after being stopped by SIGSTOP. This reproduces the race
  * where limit_process issues SIGCONT and the target exits before the next
  * SIGSTOP can be delivered.
  */
@@ -7030,6 +7064,7 @@ static void sigcont_exit_handler(int sig) {
 
 /**
  * @brief Shared counter incremented by resume_counter_handler.
+ *
  * @note Used by test_limiter_run_pid_or_exe_mode_resumes_target to prove the
  *       target was resumed (received SIGCONT) at least once instead of being
  *       left permanently stopped.
@@ -7038,6 +7073,7 @@ static volatile sig_atomic_t resume_counter = 0;
 
 /**
  * @brief SIGCONT handler that records a resume event in resume_counter.
+ *
  * @param sig Signal number (unused)
  */
 static void resume_counter_handler(int sig) {
@@ -7047,6 +7083,7 @@ static void resume_counter_handler(int sig) {
 
 /**
  * @brief Test that limit_process handles ESRCH when target exits on SIGCONT
+ *
  * @note Exercises the race between SIGCONT and the subsequent SIGSTOP:
  *       the target installs a SIGCONT handler that calls _exit(), so when
  *       limit_process resumes the stopped process, it dies immediately.
@@ -7144,8 +7181,9 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
 /**
  * @brief Test that a quit signal received during limit_process sleep exits
  *        the control loop gracefully
+ *
  * @note Exercises the race where clock_nanosleep (or nanosleep) is
- *       interrupted by a SIGTERM delivered from an external process.  Because
+ *       interrupted by a SIGTERM delivered from an external process. Because
  *       neither clock_nanosleep nor nanosleep honours SA_RESTART, the sleep
  *       returns EINTR and the loop immediately checks is_quit_flag_set(),
  *       which must now be true, causing a clean exit.
@@ -7220,7 +7258,6 @@ static void test_limit_process_race_quit_during_sleep(void) {
         exit_code = WEXITSTATUS(limiter_status);
         assert(exit_code == EXIT_SUCCESS);
 
-        /* Clean up the spinning target */
         kill_and_wait(target_pid, SIGKILL);
     }
 }
@@ -7231,6 +7268,7 @@ static void test_limit_process_race_quit_during_sleep(void) {
 
 /**
  * @brief Test run_command_mode with a command that exits immediately
+ *
  * @note Forks a child to call run_command_mode and checks the exit code
  *       matches the command's exit code
  */
@@ -7252,7 +7290,7 @@ static void test_limiter_run_command_mode(void) {
 
     /*
      * Flush stdout and stderr before forking to prevent the child from
-     * inheriting buffered output.  run_command_mode() calls
+     * inheriting buffered output. run_command_mode() calls
      * fflush(stdout) and fflush(stderr) before its own inner fork; if
      * the parent's buffers are not empty at this point, the child's
      * flushes would write the buffered content early, and the parent's
@@ -7282,6 +7320,7 @@ static void test_limiter_run_command_mode(void) {
 
 /**
  * @brief Test run_pid_or_exe_mode when the target process does not exist
+ *
  * @note Verifies that lazy mode exits with EXIT_FAILURE when the target
  *       executable name is not found
  */
@@ -7322,6 +7361,7 @@ static void test_limiter_run_pid_or_exe_mode(void) {
 
 /**
  * @brief Test run_command_mode with a non-existent binary
+ *
  * @note execvp ENOENT in child; parent should return shell code 127
  */
 static void test_limiter_run_command_mode_nonexistent(void) {
@@ -7370,7 +7410,8 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  */
 #define SIGCOUNT_CHILD_ARG "--cpulimit-test-sigcount-child"
 
-/** @brief CPU bursts spent waiting for the limiter to suspend this process. */
+/**
+ * @brief CPU bursts spent waiting for the limiter to suspend this process. */
 #define SIGCOUNT_HANDSHAKE_BURSTS 100000
 
 /**
@@ -7384,10 +7425,12 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  */
 #define SIGCOUNT_LINGER_SLOTS 30
 
-/** @brief Reported when the limiter never suspended the counting command. */
+/**
+ * @brief Reported when the limiter never suspended the counting command. */
 #define SIGCOUNT_NOT_SUSPENDED 98
 
-/** @brief Reported when a signal handler could not be installed. */
+/**
+ * @brief Reported when a signal handler could not be installed. */
 #define SIGCOUNT_NO_HANDLER 99
 
 /**
@@ -7402,7 +7445,7 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 
 /**
  * @brief Marker: run as a command child that exits immediately with the code
- *        given in argv[2].  Used by the BUG-018 regression test, which needs a
+ *        given in argv[2]. Used by a regression test that needs a
  *        command whose real exit status is known and non-zero.
  *
  * Unit tests must live in cpulimit_test.c, so the command used by
@@ -7411,10 +7454,12 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  */
 #define EXIT_CHILD_ARG "--cpulimit-test-exit-child"
 
-/** @brief Reported when the forwarded signal reached that command. */
+/**
+ * @brief Reported when the forwarded signal reached that command. */
 #define FORWARD_DELIVERED 42
 
-/** @brief Reported when that command could not leave its process group. */
+/**
+ * @brief Reported when that command could not leave its process group. */
 #define FORWARD_NO_GROUP 98
 
 /**
@@ -7427,17 +7472,21 @@ static void test_limiter_run_command_mode_nonexistent(void) {
  */
 #define COUNT_CHILD_ARG "--cpulimit-test-count-child"
 
-/** @brief How many 10 ms slots it lingers, so a duplicate shows up. */
+/**
+ * @brief How many 10 ms slots it lingers, so a duplicate shows up. */
 #define COUNT_LINGER_SLOTS 30
 
-/** @brief Number of SIGINTs received by the counting command. */
+/**
+ * @brief Number of SIGINTs received by the counting command. */
 static volatile sig_atomic_t sigint_delivery_count = 0;
 
-/** @brief Number of SIGCONTs received by the counting command. */
+/**
+ * @brief Number of SIGCONTs received by the counting command. */
 static volatile sig_atomic_t sigcont_delivery_count = 0;
 
 /**
  * @brief Record one SIGINT delivery in the counting command
+ *
  * @param sig Signal number (unused)
  */
 static void count_sigint_delivery(int sig) {
@@ -7447,6 +7496,7 @@ static void count_sigint_delivery(int sig) {
 
 /**
  * @brief Record one SIGCONT delivery in the counting command
+ *
  * @param sig Signal number (unused)
  */
 static void count_sigcont_delivery(int sig) {
@@ -7454,11 +7504,13 @@ static void count_sigcont_delivery(int sig) {
     sigcont_delivery_count = sigcont_delivery_count + 1;
 }
 
-/** @brief Number of SIGTERMs received by the out-of-group command. */
+/**
+ * @brief Number of SIGTERMs received by the out-of-group command. */
 static volatile sig_atomic_t forward_delivery_count = 0;
 
 /**
  * @brief Record one SIGTERM delivery in the out-of-group command
+ *
  * @param sig Signal number (unused)
  */
 static void count_forward_delivery(int sig) {
@@ -7467,10 +7519,11 @@ static void count_forward_delivery(int sig) {
 }
 
 /**
- * @brief Exit immediately with the code supplied in code_arg (BUG-018 child).
- * @param code_arg Decimal exit code, parsed with atoi(); used by the
- *                 test_limiter_run_command_mode_reports_child_exit_on_limit_failure
- *                 regression test so the command's real exit status is known.
+ * @brief Exit immediately with the code supplied in code_arg.
+ *
+ * @param code_arg Decimal exit code (atoi); used by the command-mode
+ *                 exit-status regression test so the command's real status
+ *                 is known.
  */
 static int run_exit_child(const char *code_arg) {
     int code = atoi(code_arg);
@@ -7479,6 +7532,7 @@ static int run_exit_child(const char *code_arg) {
 
 /**
  * @brief Leave the limiter's process group and report the forwarded signal
+ *
  * @param ready_path File created once this process has left the group, so
  *                   the driving test can interrupt at that point
  * @return FORWARD_DELIVERED once the signal arrived, 0 if it never did,
@@ -7527,6 +7581,7 @@ static int run_forward_child(const char *ready_path) {
 
 /**
  * @brief Sleep, returning early once the driving test releases the command
+ *
  * @param release_fd Pipe end the driving test writes to; -1 to just sleep
  * @param duration How long to sleep for
  * @return 1 once the release was seen, 0 otherwise
@@ -7557,7 +7612,10 @@ static int seam_poll_release(int release_fd, const struct timespec *duration) {
 
 /**
  * @brief Count every termination signal delivered and report the total
+ *
  * @param ready_path File created once the handlers are installed
+ * @param release_fd File descriptor the parent signals to release the child
+ *                   from waiting
  * @return Number of deliveries, SIGCOUNT_NO_HANDLER if a handler could
  *         not be installed
  *
@@ -7610,7 +7668,10 @@ static int run_count_child(const char *ready_path, int release_fd) {
 
 /**
  * @brief Fork a wrapper that runs the counting command under the seam
+ *
  * @param ready_path Ready file the command creates once it is listening
+ * @param release_fd File descriptor passed to the child so the parent can
+ *                   release it from waiting
  * @return Wrapper PID in the parent
  *
  * The child never returns. It arms a watchdog first, because the seam
@@ -7665,6 +7726,7 @@ static pid_t seam_fork_count_wrapper(char *ready_path, int release_fd) {
 
 /**
  * @brief Reap a wrapper, giving up instead of waiting for ever
+ *
  * @param wrapper_pid Wrapper to wait for
  * @param status Status out parameter, valid when this returns 1
  * @return 1 once the wrapper was reaped, 0 if it had to be killed
@@ -7691,13 +7753,13 @@ static int seam_wait_for_wrapper(pid_t wrapper_pid, int *status) {
     }
     kill(wrapper_pid, SIGKILL);
     while (waitpid(wrapper_pid, NULL, 0) == -1 && errno == EINTR) {
-        /* Retry on EINTR */
     }
     return 0;
 }
 
 /**
  * @brief Wait for the counting command to be listening
+ *
  * @param ready_path Ready file the command creates
  */
 static void seam_wait_for_count_child(const char *ready_path) {
@@ -7716,6 +7778,7 @@ static void seam_wait_for_count_child(const char *ready_path) {
 
 /**
  * @brief Assert that the wrapper forwarded the quit signal exactly once
+ *
  * @param wrapper_status Status reaped from the wrapper
  * @param what Label reported when the invariant is broken
  */
@@ -7738,6 +7801,7 @@ static void seam_assert_single_forward(int wrapper_status, const char *what) {
 
 /**
  * @brief Count SIGINT deliveries and report that count
+ *
  * @param ready_path File created once the limiter has been observed to
  *                   suspend and resume this process, so the driving test
  *                   can interrupt at a point where the limiter is running
@@ -7753,7 +7817,7 @@ static int run_sigcount_child(const char *ready_path) {
     /*
      * This child stands in for a user command, and it burns CPU for as
      * long as it takes the limiter to suspend and resume it once -- up to
-     * SIGCOUNT_HANDSHAKE_BURSTS rounds.  In the real-time class that is
+     * SIGCOUNT_HANDSHAKE_BURSTS rounds. In the real-time class that is
      * long enough to keep the limiter from ever running, so it burns in
      * the timeshare class like the command it replaces.
      */
@@ -7772,16 +7836,16 @@ static int run_sigcount_child(const char *ready_path) {
 
     /*
      * Burn CPU until the limiter suspends and resumes this process at
-     * least once.  That is the handshake: the driving test must not
+     * least once. That is the handshake: the driving test must not
      * interrupt before run_command_mode() has reached limit_process()
      * and started watching the command, and a resume is the only
-     * portable evidence that it has.  The first control cycle always
+     * portable evidence that it has. The first control cycle always
      * suspends -- it assumes maximum usage -- and every exit path from
      * limit_process() resumes the group, so the resume arrives on all
      * supported platforms.
      *
      * Creating the ready file as soon as the command has exec'd instead
-     * left the test guessing how far the limiter had got.  On fast
+     * left the test guessing how far the limiter had got. On fast
      * platforms the guess happened to land after limit_process() had
      * started; where exec and the process iterator are slower the
      * signal arrived before anything was watching, no forwarding was
@@ -7870,11 +7934,11 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
         struct cpulimit_cfg cfg;
         int mode_result;
         /*
-         * Redirect output instead of closing it.  The command is a full
+         * Redirect output instead of closing it. The command is a full
          * C program, so it needs open stdio descriptors, and closed
          * ones make pipe() inside run_command_mode() hand out fds 1 and
          * 2, which then alias the sync pipe and the command's own
-         * opens.  Redirecting keeps this test on the same fd layout
+         * opens. Redirecting keeps this test on the same fd layout
          * real invocations use.
          *
          * freopen() keeps the redirection on the existing descriptors,
@@ -7924,7 +7988,7 @@ static void test_limiter_run_command_mode_forwards_signal_once(void) {
      * the limiter never suspended it, 99 that it could not install a
      * handler, and 128+n that it was killed instead of told, which is
      * what a host too slow to forward inside the escalation window used
-     * to report as well.  Which of those it is decides where to look.
+     * to report as well. Which of those it is decides where to look.
      */
     if (w_exit_code != 1) {
         fprintf(stderr, "(command reported exit code %d)\n", w_exit_code);
@@ -8019,7 +8083,7 @@ static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
     /*
      * Report the code the command produced before asserting: 98 means it
      * could not leave the process group, 99 that it could not install a
-     * handler, and 128+n that it was killed instead of told.  Which of
+     * handler, and 128+n that it was killed instead of told. Which of
      * those it is decides where to look.
      */
     if (w_exit_code != FORWARD_DELIVERED) {
@@ -8031,6 +8095,7 @@ static void test_limiter_run_command_mode_forwards_signal_without_group(void) {
 /**
  * @brief Test run_command_mode with a script whose shebang interpreter
  *        does not exist
+ *
  * @note execvp returns ENOENT but the file itself exists; the parent
  *       should return shell code 126 (found but not executable / bad
  *       interpreter), not 127 (command not found)
@@ -8093,15 +8158,16 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
 
 /**
  * @brief A script resolved via PATH with a missing shebang interpreter must
- *        also report 126 (BUG-053)
+ *        also report 126
+ *
  * @note The pre-check that detects an inaccessible shebang interpreter used to
  *       run only for explicit (slash-containing) paths, so a script reached
  *       through PATH reported 127 instead of 126 for the very same condition.
  *       This test places a bad-shebang script in a directory on PATH and
  * invokes it by bare name; with the fix it resolves through PATH and returns
- * 126, matching the explicit-path case.  Without the fix execvp() fails with
+ * 126, matching the explicit-path case. Without the fix execvp() fails with
  *       ENOENT for the (found) script and the parent reports 127, so this
- *       assertion fails.  Verified by mutation: reverting the PATH branch of
+ *       assertion fails. Verified by mutation: reverting the PATH branch of
  * the pre-check makes exit_code == 127.
  */
 static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
@@ -8116,7 +8182,7 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     char *args[2];
 
     /*
-     * mkdtemp() is POSIX.1-2008; mkdir() is POSIX.1-2001.  The directory
+     * mkdtemp() is POSIX.1-2008; mkdir() is POSIX.1-2001. The directory
      * name carries this process's PID, which is unique among concurrent
      * runs, and an existing one (left by a crashed run) is reused.
      */
@@ -8154,7 +8220,7 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
         int mode_result, setenv_ret;
         /*
          * PATH is redirected inside the forked child only, so the parent
-         * needs no restore and holds nothing this child could inherit.  A
+         * needs no restore and holds nothing this child could inherit. A
          * heap buffer alive here would be reported as lost when the child
          * _exit()s, and valgrind's --error-exitcode would then replace the
          * very exit code this test asserts on.
@@ -8180,6 +8246,7 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
 
 /**
  * @brief Detect whether the test binary is running under valgrind
+ *
  * @return 1 when a valgrind preload library has been injected, 0 otherwise
  *
  * valgrind's execve() interception opens the executable to inspect it, and
@@ -8295,6 +8362,7 @@ static void test_limiter_run_command_mode_fifo(void) {
 
 /**
  * @brief Test run_command_mode with an inaccessible shebang interpreter path
+ *
  * @note The interpreter path uses a non-directory path component, so lookup
  *       fails with an inaccessible-path error and should still map to shell
  *       status 126 with an "inaccessible" diagnostic.
@@ -8424,6 +8492,7 @@ test_limiter_run_command_mode_shebang_interpreter_inaccessible(void) {
 
 /**
  * @brief Test run_command_mode with verbose=1 and a command that succeeds
+ *
  * @note Exercises the verbose printf branches in run_command_mode
  */
 static void test_limiter_run_command_mode_verbose(void) {
@@ -8465,6 +8534,7 @@ static void test_limiter_run_command_mode_verbose(void) {
 
 /**
  * @brief Test run_pid_or_exe_mode with a PID (pid_mode=1) that does not exist
+ *
  * @note Uses INT_MAX which is virtually guaranteed to be non-existent;
  *       lazy_mode=1 -> EXIT_FAILURE
  */
@@ -8501,6 +8571,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_not_found(void) {
 
 /**
  * @brief Test run_command_mode with a command that exits non-zero ('false')
+ *
  * @note Exit status of 'false' is 1; run_command_mode should propagate it
  */
 static void test_limiter_run_command_mode_false(void) {
@@ -8541,6 +8612,7 @@ static void test_limiter_run_command_mode_false(void) {
 
 /**
  * @brief Test run_command_mode exit status when command is killed by SIGTERM
+ *
  * @note Shell convention: exit status = 128 + signal_number
  *       'sh -c "kill -TERM $$"' causes the shell to send SIGTERM to itself;
  *       run_command_mode must propagate exit status 128 + SIGTERM.
@@ -8588,6 +8660,7 @@ static void test_limiter_run_command_mode_signal_term(void) {
 
 /**
  * @brief Test run_command_mode exit status when command is killed by SIGKILL
+ *
  * @note Shell convention: exit status = 128 + signal_number
  *       'sh -c "kill -KILL $$"' causes the shell to send SIGKILL to itself;
  *       run_command_mode must propagate exit status 128 + SIGKILL.
@@ -8635,6 +8708,7 @@ static void test_limiter_run_command_mode_signal_kill(void) {
 
 /**
  * @brief Test run_command_mode exit code 126 for a file without execute bit
+ *
  * @note The command is an absolute path that exists but carries no execute
  *       permission. execvp() fails with EACCES while access(F_OK) succeeds,
  *       which is exactly the "found but not executable" case the shell
@@ -8693,6 +8767,7 @@ static void test_limiter_run_command_mode_not_executable(void) {
 
 /**
  * @brief Test run_command_mode exit code 127 for a bare PATH-resolved name
+ *
  * @note argv[0] contains no '/', so execvp() performs a PATH search and the
  *       classification falls back to its errno (ENOENT here) rather than to
  *       access(F_OK). This is the second 127 path, distinct from the
@@ -8737,6 +8812,7 @@ static void test_limiter_run_command_mode_path_name_not_found(void) {
 
 /**
  * @brief Test run_command_mode exit status when command dies of SIGSEGV
+ *
  * @note Complements the SIGTERM and SIGKILL cases with another signal number,
  *       pinning the 128 + signal mapping rather than a specific signal.
  */
@@ -8783,9 +8859,10 @@ static void test_limiter_run_command_mode_signal_segv(void) {
 
 /**
  * @brief Test run_command_mode when the command forks a background grandchild
+ *
  * @note Verifies that run_command_mode exits correctly (with the shell's exit
  *       status) even when the executed command itself forks a child process
- *       that outlives it.  The grandchild is reparented to init and does not
+ *       that outlives it. The grandchild is reparented to init and does not
  *       affect the parent's wait loop, matching standard POSIX shell semantics.
  */
 static void test_limiter_run_command_mode_with_fork(void) {
@@ -8836,8 +8913,9 @@ static void test_limiter_run_command_mode_with_fork(void) {
 
 /**
  * @brief Test run_command_mode forwards SIGTERM when quit flag is set
+ *
  * @note Sends SIGTERM to the wrapper process while it is running a long-lived
- *       command ('sleep 60').  run_command_mode must forward SIGTERM to the
+ *       command ('sleep 60'). run_command_mode must forward SIGTERM to the
  *       command process group and exit with 128 + SIGTERM = 143.
  */
 static void test_limiter_run_command_mode_quit_signal(void) {
@@ -8913,6 +8991,7 @@ static void test_limiter_run_command_mode_quit_signal(void) {
 
 /**
  * @brief Test run_command_mode forwards the exact received signal (SIGINT)
+ *
  * @note Sends SIGINT to the wrapper process while it runs 'sleep 60'
  *       With correct signal forwarding, the command receives SIGINT and exits
  *       with 128 + SIGINT = 130 (matching standard shell Ctrl+C behavior).
@@ -8992,6 +9071,7 @@ static void test_limiter_run_command_mode_signal_forwarding(void) {
 /**
  * @brief Test run_pid_or_exe_mode with exe mode, non-lazy, immediate exit
  *  via quit flag (verifies the non-lazy quit-flag early-exit path)
+ *
  * @note Uses a nonexistent exe so proc_list stays empty, quit flag breaks loop
  */
 static void test_limiter_run_pid_or_exe_mode_quit(void) {
@@ -9032,6 +9112,7 @@ static void test_limiter_run_pid_or_exe_mode_quit(void) {
 
 /**
  * @brief Test run_pid_or_exe_mode with verbose=0 when process is found
+ *
  * @note Verifies that the non-verbose code path (verbose guard is false)
  *       works correctly when a process is found: the function limits it and
  *       exits with EXIT_SUCCESS when the target terminates naturally.
@@ -9081,6 +9162,7 @@ static void test_limiter_run_pid_or_exe_mode_pid_found(void) {
 
 /**
  * @brief Test run_pid_or_exe_mode exits with failure when target is self
+ *
  * @note When the found PID matches the calling process, run_pid_or_exe_mode
  *       must exit with EXIT_FAILURE to prevent cpulimit from limiting itself.
  */
@@ -9119,6 +9201,7 @@ static void test_limiter_run_pid_or_exe_mode_self(void) {
 
 /**
  * @brief Test run_pid_or_exe_mode with verbose=1 exercises the verbose path
+ *
  * @note Forks a short-lived target process, then calls run_pid_or_exe_mode
  *       with verbose=1 and lazy_mode=1. Suppresses output. Verifies the
  *       function exits cleanly when the target terminates, confirming the
@@ -9170,26 +9253,27 @@ static void test_limiter_run_pid_or_exe_mode_verbose(void) {
 
 /**
  * @brief Test run_pid_or_exe_mode always resumes the target before returning
+ *
  * @note Regression test for the missing-resume bug: run_pid_or_exe_mode must
  *       send SIGCONT to the target after limit_process() returns, mirroring
- *       the symmetric guard in run_command_mode().  Without it, a target that
+ *       the symmetric guard in run_command_mode(). Without it, a target that
  *       is still SIGSTOP-ped when limit_process() exits (e.g. because a stopped
  *       process is momentarily invisible to the process iterator, or because
  *       update_process_set() failed and cleared the process list) would be
  *       left permanently stopped.
  *
  *       The target installs a SIGCONT handler that increments a shared
- *       counter, then is pre-stopped by the test.  The wrapper drives
+ *       counter, then is pre-stopped by the test. The wrapper drives
  *       run_pid_or_exe_mode(); limit_process() must eventually SIGCONT the
  *       target, because only a resumed target can reach its own _exit() and
- *       make run_pid_or_exe_mode() return.  We assert the wrapper exits
+ *       make run_pid_or_exe_mode() return. We assert the wrapper exits
  *       EXIT_SUCCESS.
  *
  *       The target must announce through ready_pipe that its handlers are
  *       installed before the wrapper sends SIGSTOP: fork() gives no ordering
  *       guarantee between parent and child, and on FreeBSD the parent
  *       normally keeps running (unlike Linux, where the child is scheduled
- *       first).  A SIGSTOP that overtakes sigaction() freezes the target
+ *       first). A SIGSTOP that overtakes sigaction() freezes the target
  *       before it ever installed the handler, so the later SIGCONT is
  *       handled by the default disposition, resume_counter stays 0 and the
  *       target spins forever instead of terminating -- hanging the test.
@@ -9226,7 +9310,7 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
             ret = close(ready_pipe[0]);
             assert(ret == 0);
             /*
-             * Install a SIGCONT handler that records each resume.  The
+             * Install a SIGCONT handler that records each resume. The
              * resume count is reported back via the exit code (0 = resumed
              * at least once, 2 = never resumed / left permanently stopped).
              *
@@ -9244,7 +9328,7 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
             /*
              * Handshake: the SIGSTOP below must not overtake sigaction(),
              * or the resume would never be recorded (see the function
-             * documentation).  The write end is closed right afterwards so
+             * documentation). The write end is closed right afterwards so
              * that the wrapper also observes an EOF if this child dies
              * before it could report readiness.
              */
@@ -9254,9 +9338,9 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
             ret = close(ready_pipe[1]);
             assert(ret == 0);
             /*
-             * Spin until resumed at least once.  While the process is
+             * Spin until resumed at least once. While the process is
              * SIGSTOP-ped it cannot execute, so reaching the _exit() below
-             * proves it was resumed (received SIGCONT).  Bail out if the
+             * proves it was resumed (received SIGCONT). Bail out if the
              * parent disappears so we never spin forever.
              */
             while (resume_counter < 1 && getppid() != 1) {
@@ -9326,11 +9410,12 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
 /**
  * @brief Test run_command_mode when the quit flag is already set before
  *        limit_process is entered
+ *
  * @note Exercises the race where a termination signal (SIGTERM) arrives
  *       before run_command_mode is called, so quit_flag is true by the time
- *       limit_process is invoked.  limit_process must detect the preset quit
+ *       limit_process is invoked. limit_process must detect the preset quit
  *       flag, skip the control loop, resume any stopped processes, and return
- *       immediately.  run_command_mode then forwards the quit signal to the
+ *       immediately. run_command_mode then forwards the quit signal to the
  *       command process group and exits with 128 + SIGTERM.
  */
 static void test_limiter_race_quit_flag_preset_before_limit(void) {
@@ -9365,14 +9450,14 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
         /*
          * Deliver SIGTERM synchronously: the signal handler runs before
          * raise() returns, setting quit_flag without modifying the
-         * process signal mask.  This guarantees quit_flag is set before
+         * process signal mask. This guarantees quit_flag is set before
          * run_command_mode is entered.
          */
         if (raise(SIGTERM) != 0) {
             _exit(EXIT_FAILURE);
         }
         /*
-         * quit_flag is now set.  run_command_mode will fork the command
+         * quit_flag is now set. run_command_mode will fork the command
          * child, read the sync byte, call limit_process (which exits
          * immediately because quit_flag is set), then forward SIGTERM to
          * the child process group.
@@ -9387,7 +9472,7 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
     assert(w_exited);
     /*
      * run_command_mode forwards SIGTERM to 'sleep 60'; sleep exits with
-     * SIGTERM.  run_command_mode exits with 128 + SIGTERM.
+     * SIGTERM. run_command_mode exits with 128 + SIGTERM.
      */
     w_exit_code = WEXITSTATUS(wrapper_status);
     assert(w_exit_code == 128 + SIGTERM);
@@ -9395,9 +9480,10 @@ static void test_limiter_race_quit_flag_preset_before_limit(void) {
 
 /**
  * @brief Test run_command_mode when SIGTERM arrives during the sync pipe read
+ *
  * @note Exercises the SA_RESTART race in the sync pipe read: with SA_RESTART
  *       the underlying read() syscall is transparently restarted after signal
- *       delivery, so the parent does not observe EINTR.  The signal handler has
+ *       delivery, so the parent does not observe EINTR. The signal handler has
  *       already set quit_flag by the time the read completes, causing
  *       limit_process to return immediately and the command to receive the
  *       forwarded signal.
@@ -9447,9 +9533,9 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
 
         /*
          * run_command_mode will fork a child and block on read() waiting
-         * for the child's sync byte.  The parent sends SIGTERM during
-         * this window.  With SA_RESTART, read() is transparently
-         * restarted; quit_flag is set.  After reading the sync byte,
+         * for the child's sync byte. The parent sends SIGTERM during
+         * this window. With SA_RESTART, read() is transparently
+         * restarted; quit_flag is set. After reading the sync byte,
          * limit_process exits immediately and SIGTERM is forwarded.
          */
         mode_result = run_command_mode(&cfg);
@@ -9509,6 +9595,7 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
 /**
  * @brief Robust test function invocation
  * Ensures that the test function is called and cannot be inlined.
+ *
  * @param test_fn Pointer to the void(void) test function to invoke
  */
 static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
@@ -9543,8 +9630,10 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
     (*fn_slot_ptr)();
 }
 
-/** @def RUN_TEST(test_func)
+/**
+ * @def RUN_TEST(test_func)
  *  @brief Macro to run a test function and print its status
+ *
  *  @param test_func Name of the test function to run
  */
 #define RUN_TEST(test_func)                                                    \
@@ -9582,24 +9671,29 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  *
  * A consequence of the rename is that each replacement's only callers live in
  * other translation units, so cppcheck, which resolves one translation unit
- * at a time, reports every one of them as never used.  Each definition
+ * at a time, reports every one of them as never used. Each definition
  * therefore carries a single-line unusedFunction suppression, the narrowest
  * scope cppcheck offers; nothing else in this file is exempted.
  ***************************************************************************/
 
-/** @brief PID the seam scripts report; it never belongs to a real process. */
+/**
+ * @brief PID the seam scripts report; it never belongs to a real process. */
 #define SEAM_TARGET_PID 42424
 
-/** @brief Number of scripted snapshots the seam can hold. */
+/**
+ * @brief Number of scripted snapshots the seam can hold. */
 #define SEAM_MAX_FRAMES 32
 
-/** @brief Number of processes a single scripted snapshot can hold. */
+/**
+ * @brief Number of processes a single scripted snapshot can hold. */
 #define SEAM_MAX_FRAME_PROCS 8
 
-/** @brief Number of scripted limit_process() outcomes a test can queue. */
+/**
+ * @brief Number of scripted limit_process() outcomes a test can queue. */
 #define SEAM_STATUS_SCRIPT_MAX 32
 
-/** @brief Number of kill() calls the seam records. */
+/**
+ * @brief Number of kill() calls the seam records. */
 #define SEAM_MAX_SIGNALS 512
 
 /**
@@ -9610,10 +9704,12 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  */
 #define SEAM_MAX_SERVED_FRAMES 256
 
-/** @brief How many cycles the smoke script keeps the target visible. */
+/**
+ * @brief How many cycles the smoke script keeps the target visible. */
 #define SEAM_SMOKE_CYCLES 6
 
-/** @brief CPU time in milliseconds the smoke script adds per cycle. */
+/**
+ * @brief CPU time in milliseconds the smoke script adds per cycle. */
 #define SEAM_SMOKE_CPU_STEP 45.0
 
 /**
@@ -9633,32 +9729,43 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  */
 #define SEAM_RANDOM 500L
 
-/** @brief One process as reported by the scripted process iterator. */
+/**
+ * @brief One process as reported by the scripted process iterator. */
 struct seam_proc {
-    /** @brief Process ID. */
+    /**
+     * @brief Process ID. */
     pid_t pid;
-    /** @brief Parent process ID. */
+    /**
+     * @brief Parent process ID. */
     pid_t ppid;
-    /** @brief Cumulative CPU time in milliseconds. */
+    /**
+     * @brief Cumulative CPU time in milliseconds. */
     double cpu_time;
-    /** @brief Process start time in seconds, or UNKNOWN_START_TIME (<=0). */
+    /**
+     * @brief Process start time in seconds, or UNKNOWN_START_TIME (<=0). */
     double start_time;
-    /** @brief Command (argv[0] or path), used by name-based matching. */
+    /**
+     * @brief Command (argv[0] or path), used by name-based matching. */
     char command[CMD_BUFF_SIZE];
 };
 
-/** @brief One kill() call recorded by the seam. */
+/**
+ * @brief One kill() call recorded by the seam. */
 struct seam_signal {
-    /** @brief Target the call was made for; negative for a process group. */
+    /**
+     * @brief Target the call was made for; negative for a process group. */
     pid_t pid;
-    /** @brief Signal number. */
+    /**
+     * @brief Signal number. */
     int sig;
-    /** @brief Non-zero when the call was made to fail. */
+    /**
+     * @brief Non-zero when the call was made to fail. */
     int failed;
 };
 
 /**
  * @brief Allocate one area of seam storage
+ *
  * @param bytes Number of bytes to allocate
  * @return Pointer to the zero-filled area
  *
@@ -9678,44 +9785,55 @@ static void *seam_alloc_array(size_t bytes) {
     return ptr;
 }
 
-/** @brief Non-zero while a deterministic test owns clock, iterator, kill. */
+/**
+ * @brief Non-zero while a deterministic test owns clock, iterator, kill. */
 static int seam_active = 0;
 
-/** @brief Virtual monotonic clock in milliseconds. */
+/**
+ * @brief Virtual monotonic clock in milliseconds. */
 static double seam_clock_ms = 0.0;
 
-/** @brief Scripted snapshots served by the fake process iterator. */
+/**
+ * @brief Scripted snapshots served by the fake process iterator. */
 static struct seam_proc (*seam_frames)[SEAM_MAX_FRAME_PROCS];
 
-/** @brief Number of processes in each scripted snapshot. */
+/**
+ * @brief Number of processes in each scripted snapshot. */
 static size_t seam_frame_len[SEAM_MAX_FRAMES];
 
-/** @brief Number of scripted snapshots. */
+/**
+ * @brief Number of scripted snapshots. */
 static size_t seam_frame_count = 0;
 
-/** @brief Index of the next snapshot to serve. */
+/**
+ * @brief Index of the next snapshot to serve. */
 static size_t seam_frame_next = 0;
 
 /* @brief Index of the snapshot being served now; (size_t)-1 when none is left.
  * Counters are size_t on purpose: the seam machinery compares a counter and
  * then increments it, which at -O3 makes gcc's -Wstrict-overflow=5 assume a
- * signed counter cannot overflow (X + C1 cmp C2).  Unsigned overflow is
+ * signed counter cannot overflow (X + C1 cmp C2). Unsigned overflow is
  * well-defined, so the warning disappears without changing any behavior. */
 static size_t seam_frame_current = (size_t)-1;
 
-/** @brief Position within the snapshot being served. */
+/**
+ * @brief Position within the snapshot being served. */
 static size_t seam_frame_pos = 0;
 
-/** @brief Non-zero to keep serving the last snapshot once the script ends. */
+/**
+ * @brief Non-zero to keep serving the last snapshot once the script ends. */
 static int seam_repeat_last = 0;
 
-/** @brief Number of snapshots served in this session. */
+/**
+ * @brief Number of snapshots served in this session. */
 static size_t seam_frames_served = 0;
 
-/** @brief kill() calls recorded during this session, in order. */
+/**
+ * @brief kill() calls recorded during this session, in order. */
 static struct seam_signal *seam_signals;
 
-/** @brief Number of kill() calls recorded. */
+/**
+ * @brief Number of kill() calls recorded. */
 static size_t seam_signal_count = 0;
 
 /**
@@ -9726,7 +9844,8 @@ static size_t seam_signal_count = 0;
  */
 static struct seam_signal *seam_run_snapshot;
 
-/** @brief Number of kill() calls made so far. */
+/**
+ * @brief Number of kill() calls made so far. */
 static int seam_kill_calls = 0;
 
 /**
@@ -9752,43 +9871,52 @@ static int seam_limit_process_status = LIMIT_PROCESS_OK;
  *
  * A script rather than a single value so a test can drive a caller through
  * "fail, fail, succeed, fail" and check that a streak is measured from the
- * last success (N2) instead of over the whole run.  Once the script runs
+ * last success (N2) instead of over the whole run. Once the script runs
  * out its last entry repeats.
  */
 static int seam_limit_status_script[SEAM_STATUS_SCRIPT_MAX];
 /*
  * The consecutive-failure streak the caller passed to each scripted
- * limit_process() call, indexed by call number (one-based).  It is the only
+ * limit_process() call, indexed by call number (one-based). It is the only
  * way to see that a completed run resets the streak when limit_process()
  * itself is replaced by the script.
  */
 static unsigned int seam_limit_prior_failures[SEAM_STATUS_SCRIPT_MAX + 1];
 
-/** @brief Entries of @ref seam_limit_status_script that are armed; 0 = off. */
+/**
+ * @brief Entries of @ref seam_limit_status_script that are armed; 0 = off. */
 static int seam_limit_status_script_len = 0;
 
-/** @brief Next entry of @ref seam_limit_status_script to serve. */
+/**
+ * @brief Next entry of @ref seam_limit_status_script to serve. */
 static int seam_limit_status_script_next = 0;
 
-/** @brief Number of limit_process() calls the hook has served. */
+/**
+ * @brief Number of limit_process() calls the hook has served. */
 static int seam_limit_process_calls = 0;
 
-/** @brief Non-zero to park the first waitpid() call on a barrier. */
+/**
+ * @brief Non-zero to park the first waitpid() call on a barrier. */
 static int seam_hook_waitpid = 0;
 
-/** @brief Where the parked limit_process() announces that it is there. */
+/**
+ * @brief Where the parked limit_process() announces that it is there. */
 static int seam_limit_announce_fd = -1;
 
-/** @brief Where the parked limit_process() waits to be released. */
+/**
+ * @brief Where the parked limit_process() waits to be released. */
 static int seam_limit_go_fd = -1;
 
-/** @brief Where the parked waitpid() announces its first call. */
+/**
+ * @brief Where the parked waitpid() announces its first call. */
 static int seam_waitpid_announce_fd = -1;
 
-/** @brief Where the parked waitpid() waits to be released. */
+/**
+ * @brief Where the parked waitpid() waits to be released. */
 static int seam_waitpid_go_fd = -1;
 
-/** @brief Number of waitpid() calls made through the seam. */
+/**
+ * @brief Number of waitpid() calls made through the seam. */
 static int seam_waitpid_calls = 0;
 
 /**
@@ -9799,7 +9927,8 @@ static int seam_waitpid_calls = 0;
  */
 static int seam_waitpid_wnohang_calls = 0;
 
-/** @brief Number of waitpid() calls through the seam that could block. */
+/**
+ * @brief Number of waitpid() calls through the seam that could block. */
 static int seam_waitpid_blocking_calls = 0;
 
 /**
@@ -9811,9 +9940,11 @@ static int seam_waitpid_blocking_calls = 0;
  */
 static int seam_log_fd = -1;
 
-/** @brief Non-zero to park one sleep_timespec() call on a barrier. */
+/**
+ * @brief Non-zero to park one sleep_timespec() call on a barrier. */
 static int seam_hook_sleep = 0;
-/** @brief Non-zero to make the sleep_timespec() seam report failure. */
+/**
+ * @brief Non-zero to make the sleep_timespec() seam report failure. */
 static int seam_sleep_fails = 0;
 
 /*
@@ -9830,66 +9961,80 @@ extern int seam_getppid_fabricate;
 extern int seam_find_by_pid_override;
 #endif
 
-/** @brief Non-zero: getppid_of() seam fabricates a fixed ancestor chain
- * (BUG-043). */
+/**
+ * @brief Non-zero: getppid_of() seam fabricates a fixed ancestor chain.
+ */
 int seam_getppid_fabricate = 0;
 
-/** @brief Non-zero: find_process_by_pid() probes from the iterator seam
- * (BUG-055/056). */
+/**
+ * @brief Non-zero: find_process_by_pid() probes from the iterator seam.
+ */
 int seam_find_by_pid_override = 0;
 
 /**
  * @brief PIDs reported alive by cpulimit_test_find_by_pid() under override.
+ *
  * @note The iterator seam caps served snapshots (SEAM_MAX_SERVED_FRAMES), so
  *       find_process_by_name()'s final recheck (a second iterator use) can
- * never reach a scripted frame.  The recheck is therefore driven by this
+ * never reach a scripted frame. The recheck is therefore driven by this
  *       independent "alive set" instead of the scan frames.
  */
 static pid_t seam_alive[SEAM_MAX_FRAME_PROCS];
 static int seam_alive_count = 0;
-/** @brief PID whose getppid_of() lookup fails once (BUG-043 reproduction). */
+/**
+ * @brief PID whose getppid_of() lookup fails once. */
 static pid_t seam_getppid_fail_pid = 0;
-/** @brief Cleared after the one-shot failure above. */
+/**
+ * @brief Cleared after the one-shot failure above. */
 static int seam_getppid_failed_once = 0;
 
-/** @brief 1-based sleep call to park; the first is the work phase. */
+/**
+ * @brief 1-based sleep call to park; the first is the work phase. */
 static int seam_sleep_call = 0;
 
-/** @brief Number of sleep calls made so far. */
+/**
+ * @brief Number of sleep calls made so far. */
 static int seam_sleep_calls = 0;
 
-/** @brief Where the parked sleep announces itself. */
+/**
+ * @brief Where the parked sleep announces itself. */
 static int seam_sleep_announce_fd = -1;
 
-/** @brief Where the parked sleep waits to be released. */
+/**
+ * @brief Where the parked sleep waits to be released. */
 static int seam_sleep_go_fd = -1;
 
-/** @brief Records read back from a forked limiter. */
+/**
+ * @brief Records read back from a forked limiter. */
 static struct seam_signal *seam_child_log;
 
-/** @brief Number of entries in seam_child_log. */
+/**
+ * @brief Number of entries in seam_child_log. */
 static size_t seam_child_log_len = 0;
 
 /*
- * Start times scripted for the get_process_start_time() seam.  Kept on its own
+ * Start times scripted for the get_process_start_time() seam. Kept on its own
  * queue instead of riding the process-iterator frames because -e mode performs
  * that read on every run; letting it consume an iterator frame would shift
- * the frame accounting of every iterator-driven test.  A test that does not
+ * the frame accounting of every iterator-driven test. A test that does not
  * seed the queue leaves it empty, so a read falls back to UNKNOWN_START_TIME --
  * the safe "cannot tell" value that never suppresses a resume.
  */
 #define SEAM_START_TIME_QUEUE_MAX 8
-/** @brief Scripted start times for the get_process_start_time() seam. */
+/**
+ * @brief Scripted start times for the get_process_start_time() seam. */
 static double seam_start_time_queue[SEAM_START_TIME_QUEUE_MAX];
-/** @brief Number of armed entries in @ref seam_start_time_queue. */
+/**
+ * @brief Number of armed entries in @ref seam_start_time_queue. */
 static int seam_start_time_count = 0;
-/** @brief Next entry of @ref seam_start_time_queue to serve. */
+/**
+ * @brief Next entry of @ref seam_start_time_queue to serve. */
 static int seam_start_time_idx = 0;
 
 /**
  * @brief Allocate all seam storage areas
  *
- * Called once from main() before any test can fork.  Kept out of main()
+ * Called once from main() before any test can fork. Kept out of main()
  * because the test driver is already at the statement-count limit.
  */
 static void seam_alloc_storage(void) {
@@ -9903,7 +10048,8 @@ static void seam_alloc_storage(void) {
         SEAM_MAX_SIGNALS * sizeof(*seam_child_log));
 }
 
-/** @brief 1-based kill() call index that must fail; 0 disables failure. */
+/**
+ * @brief 1-based kill() call index that must fail; 0 disables failure. */
 static int seam_fail_call = 0;
 
 /**
@@ -9914,7 +10060,8 @@ static int seam_fail_call = 0;
  */
 static int seam_fail_span = 1;
 
-/** @brief errno the failing kill() call must report. */
+/**
+ * @brief errno the failing kill() call must report. */
 static int seam_fail_errno = 0;
 
 /**
@@ -9927,7 +10074,8 @@ static int seam_fail_errno = 0;
  */
 static int seam_fail_sig = 0;
 
-/** @brief Non-zero to make the get_current_time() seam report failure. */
+/**
+ * @brief Non-zero to make the get_current_time() seam report failure. */
 static int seam_clock_fails = 0;
 
 /**
@@ -9939,10 +10087,12 @@ static int seam_clock_fails = 0;
  */
 static int seam_clock_fail_on_call = 0;
 
-/** @brief Number of get_current_time() calls made through the seam. */
+/**
+ * @brief Number of get_current_time() calls made through the seam. */
 static int seam_clock_call_count = 0;
 
-/** @brief When set (and seam active), init_process_iterator() fails. */
+/**
+ * @brief When set (and seam active), init_process_iterator() fails. */
 static int seam_init_fails = 0;
 
 /**
@@ -9964,7 +10114,8 @@ static int seam_close_fails = 0;
  * no exit() that would strand a stopped process).
  */
 static int seam_fail_update_after = 0;
-/** @brief Success counter consumed by seam_fail_update_after. */
+/**
+ * @brief Success counter consumed by seam_fail_update_after. */
 static int seam_update_call_count = 0;
 
 /* Used by the iterator replacement below, which is defined further up. */
@@ -10069,13 +10220,14 @@ static void seam_reset(void) {
 
 /**
  * @brief Seed the get_process_start_time() seam queue
+ *
  * @param before Start time recorded before limiting (target_start_time)
  * @param after  Start time read after limiting (the closing comparison)
  *
  * The closing-resume tests drive run_pid_or_exe_mode()'s two
  * get_process_start_time() reads (one before limit_process(), one at cleanup)
  * through this queue so the decision does not depend on the order in which the
- * iterator seam serves its frames.  Two entries are all a single run needs; an
+ * iterator seam serves its frames. Two entries are all a single run needs; an
  * empty queue makes every read fall back to UNKNOWN_START_TIME.
  */
 static void seam_set_start_times(double before, double after) {
@@ -10087,9 +10239,10 @@ static void seam_set_start_times(double before, double after) {
 
 /**
  * @brief Test that find_process_by_pid() reports EACCES as "permission denied"
- *        (negative PID), not "not found" (BUG-075)
+ *        (negative PID), not "not found"
+ *
  * @note Some platforms (and certain seccomp / credential configurations) make
- *       kill(pid, 0) fail with EACCES instead of EPERM.  Both mean the process
+ *       kill(pid, 0) fail with EACCES instead of EPERM. Both mean the process
  *       exists but cannot be controlled, so the result must be -pid, not 0.
  *       The kill() seam is armed to fail the first call with EACCES.
  */
@@ -10110,7 +10263,8 @@ static void test_process_finder_find_by_pid_reports_eacces(void) {
 
 /**
  * @brief find_process_by_name() must report "permission denied" as a
- *        negative PID, like find_process_by_pid() (BUG-061)
+ *        negative PID, like find_process_by_pid()
+ *
  * @note The existence recheck used to treat find_process_by_pid()'s result
  *       as a boolean and returned the plain PID, so a candidate that
  *       exists but cannot be controlled was reported as a normal target.
@@ -10147,14 +10301,15 @@ static void test_process_finder_find_by_name_reports_permission_denied(void) {
 
 /**
  * @brief A failed iterator close must not skip the permission probe (T5)
+ *
  * @note find_process_by_name() used to return the plain PID as soon as
  *       close_process_iterator() failed, which skipped the existence recheck
- *       (BUG-056), the controllability probe (S1) and the -PID contract
- *       (BUG-061) all at once.  A match that exists but cannot be controlled
+ *, the controllability probe (S1) and the -PID contract
+ * all at once. A match that exists but cannot be controlled
  *       was then reported as a usable positive PID, so the limiter entered a
  *       run it could not enforce, warned about EPERM once per member per
- *       cycle and still exited 0 -- exactly what BUG-061 removed.  The scan
- *       is scripted and the probe fails with EPERM as in the BUG-061 test;
+ *       cycle and still exited 0 -- exactly the defective behaviour this test
+ *       guards against. The scan is scripted and the probe fails with EPERM;
  *       the difference is that the iterator now also fails to close.
  *       Verified by mutation: restoring the shortcut makes the result the
  *       positive PID.
@@ -10190,8 +10345,9 @@ static void test_find_by_name_probes_even_if_iterator_close_fails(void) {
 
 /**
  * @brief A failed iterator close must not skip the candidate fallback (T5)
+ *
  * @note The same shortcut dropped the fallback that lets a controllable match
- *       beat the preferred one (S1).  Two matches are scripted, the preferred
+ *       beat the preferred one (S1). Two matches are scripted, the preferred
  *       one probes as EPERM and the other is controllable, so the
  *       controllable candidate has to win here as well: failing to close the
  *       iterator says nothing about which candidate is actually usable.
@@ -10233,17 +10389,8 @@ static void test_find_by_name_prefers_controllable_if_close_fails(void) {
 }
 
 /**
- * @brief run_pid_or_exe_mode must exit with failure on a target that exists but
- *        cannot be controlled (EPERM) instead of looping or breaking silently
- *        (BUG-013)
- * @note The kill() seam makes the permission probe kill(pid, 0) fail with
- *       EPERM, so find_process_by_pid() reports the target as "permission
- *       denied" (-pid).  The limiter must then terminate with EXIT_FAILURE and
- * a clear message, never spin forever.  This locks in the already-correct
- *       behaviour (no source change required for BUG-013 itself).
- */
-/**
  * @brief Drive a run whose target exists but refuses every signal
+ *
  * @param write_fd Where the child's stderr and its final report go
  * @param announce_fd Where the parked wait announces itself
  * @param go_fd Where the parked wait waits to be released
@@ -10252,7 +10399,7 @@ static void test_find_by_name_prefers_controllable_if_close_fails(void) {
  * The kill seam refuses every signal with EPERM, so each lookup ends in
  * TARGET_UNCONTROLLABLE: either from the probe find_process_by_pid() makes for
  * a named PID, or from the probe find_process_by_name() makes for the single
- * candidate its frame serves.  The run parks on the third wait, so it can only
+ * candidate its frame serves. The run parks on the third wait, so it can only
  * announce itself if two refusals did not end it.
  */
 static void uncontrollable_target_driver_child(int write_fd, int announce_fd,
@@ -10315,15 +10462,16 @@ static void uncontrollable_target_driver_child(int write_fd, int announce_fd,
 
 /**
  * @brief Check that a refused target does not end a non-lazy search
+ *
  * @param exe_mode Non-zero to drive the -e lookup, zero to drive the -p one
  *
  * A refusal belongs to the process wearing that name or PID at this moment,
  * not to the search: the target may be restarted, and its replacement may be
- * one this process owns and can limit.  The run therefore parks on the third
+ * one this process owns and can limit. The run therefore parks on the third
  * wait, which only a run that kept looking after two refusals reaches; the
  * parent then asserts the diagnostic, its retrying suffix, the absence of the
  * per-signal warnings a doomed limit run would produce, and a clean exit once
- * it signals.  Verified by mutation: making the uncontrollable-target path end
+ * it signals. Verified by mutation: making the uncontrollable-target path end
  * the loop leaves the announcement read returning 0.
  */
 static void check_uncontrollable_target_keeps_waiting(int exe_mode) {
@@ -10362,7 +10510,7 @@ static void check_uncontrollable_target_keeps_waiting(int exe_mode) {
     /*
      * The barrier sits on the wait that follows two refused lookups: a run
      * that treated the first refusal as fatal never reaches it and the read
-     * returns 0 at EOF instead.  The parent then ends the run the only way an
+     * returns 0 at EOF instead. The parent then ends the run the only way an
      * unbounded search can be ended.
      */
     alarm(30);
@@ -10403,12 +10551,13 @@ static void check_uncontrollable_target_keeps_waiting(int exe_mode) {
 
 /**
  * @brief The PID lookup must not end a non-lazy search on a refusal either
+ *
  * @note Treating the refusal as fatal made a target that is restarted as a
  *       process this one owns unreachable, although sitting that out is what
- *       the mode is for.  -p implies -z at the command line, so this
+ *       the mode is for. -p implies -z at the command line, so this
  *       combination comes from the API rather than from the CLI; it is the
  *       same branch either way, and the PID path must reach it exactly as the
- *       name path does.  See check_uncontrollable_target_keeps_waiting().
+ *       name path does. See check_uncontrollable_target_keeps_waiting().
  */
 static void test_limiter_run_pid_or_exe_mode_waits_on_permission_denied(void) {
     check_uncontrollable_target_keeps_waiting(0);
@@ -10417,12 +10566,13 @@ static void test_limiter_run_pid_or_exe_mode_waits_on_permission_denied(void) {
 /**
  * @brief A non-lazy -e run must report an uncontrollable candidate once, then
  *        keep looking
+ *
  * @note find_process_by_name() has to keep the negative sign of its permission
  *       probe: dropping it made the limiter start a doomed limit run on an
  *       uncontrollable PID and flood stderr with per-signal warnings instead
- *       of one clear line.  Reporting the refusal is not the same as acting on
+ *       of one clear line. Reporting the refusal is not the same as acting on
  *       it, though -- the search continues, because the candidate may be
- *       restarted as a process this one owns.  See
+ *       restarted as a process this one owns. See
  *       check_uncontrollable_target_keeps_waiting().
  */
 static void test_limiter_run_exe_mode_reports_permission_denied(void) {
@@ -10431,19 +10581,20 @@ static void test_limiter_run_exe_mode_reports_permission_denied(void) {
 
 /**
  * @brief A non-lazy run must keep retrying when every lookup is stale
+ *
  * @note A name that keeps resolving to a recycled PID is one more target that
  *       has not started yet, so it must not end a non-lazy run: that mode
  *       exists for a process whose start time cannot be known, and it stops
  *       only on a quit signal, on a target it may not signal, or on an
- *       internal failure.  The seam scripts, per round, a scan frame matching
+ *       internal failure. The seam scripts, per round, a scan frame matching
  *       "busy" and a single-PID frame for the same PID whose command is
- *       "other", so every lookup is stale.  Sixteen rounds go past the
+ *       "other", so every lookup is stale. Sixteen rounds go past the
  *       fifteen a former cap would have stopped at, and the seam holds
  *       exactly the two frames each round needs, so the run stays on the
- *       stale path throughout.  It is then parked on the wait that follows
+ *       stale path throughout. It is then parked on the wait that follows
  *       those rounds, which only a run that kept going can reach: one that
  *       gave up would have exited and closed the pipe, so the parent's
- *       announcement read would return 0.  The parent then signals, and the
+ *       announcement read would return 0. The parent then signals, and the
  *       stale diagnostics and the absence of any give-up line are asserted.
  *       Verified by mutation: restoring a 15-attempt cap makes that read
  *       return 0 and fail the assert.
@@ -10498,7 +10649,7 @@ static void test_limiter_stale_pid_lookups_are_not_capped(void) {
         /*
          * One round consumes two snapshots: the name scan (the PID matches
          * "busy") and the single-PID scan inside process_has_other_name()
-         * (the same PID now runs "other"), so every round is stale.  Sixteen
+         * (the same PID now runs "other"), so every round is stale. Sixteen
          * rounds is one past the fifteen a former cap would have ended the
          * run at, and 2 * 16 is exactly what the seam holds -- so the run
          * never runs out of frames and falls back to the not-found path.
@@ -10598,14 +10749,15 @@ static void test_limiter_stale_pid_lookups_are_not_capped(void) {
 
 /**
  * @brief -z with a stale -e target must not report success (N1)
+ *
  * @note The stale branch only set EXIT_FAILURE in non-lazy mode, so
  *       `cpulimit -z -l 50 -e app` whose resolved PID had already been
  *       recycled printed "not limiting it" and exited 0: no signal was
- *       ever sent, yet the run claimed success.  The scan is scripted
+ *       ever sent, yet the run claimed success. The scan is scripted
  *       (frame 0 matches "busy", frame 1 shows the same PID running
  *       "other") and the recheck is kept alive by the seam, so the single
  *       lazy iteration must end with EXIT_FAILURE while still printing
- *       the stale diagnostic.  The non-lazy counterpart stays pinned by
+ *       the stale diagnostic. The non-lazy counterpart stays pinned by
  *       test_limiter_stale_pid_lookups_are_not_capped.
  */
 static void test_limiter_lazy_stale_pid_reports_failure(void) {
@@ -10642,7 +10794,7 @@ static void test_limiter_lazy_stale_pid_reports_failure(void) {
         cfg.lazy_mode = 1;
         seam_reset();
         /*
-         * Frame 0: the name scan matches "busy".  Frame 1: the recheck
+         * Frame 0: the name scan matches "busy". Frame 1: the recheck
          * inside process_has_other_name() sees the same PID running
          * "other", so the resolved target is stale.
          */
@@ -10704,12 +10856,13 @@ static void test_limiter_lazy_stale_pid_reports_failure(void) {
 
 /**
  * @brief A non-lazy run keeps retrying across failures and a success
+ *
  * @note A daemon that restarts periodically is the case this mode exists
  *       for, so a long stretch of misses must not wear the run down: after
  *       14 misses it attaches once, and after 14 more it must still be
- *       retrying.  The script drives exactly that and parks the 29th wait;
+ *       retrying. The script drives exactly that and parks the 29th wait;
  *       reaching that barrier is the proof, because a run that had stopped
- *       would have exited and closed the pipe.  The parent then shuts it
+ *       would have exited and closed the pipe. The parent then shuts it
  *       down with SIGTERM, and the scripted number of miss diagnostics,
  *       the clean exit, and the absence of any give-up line are asserted.
  */
@@ -10759,7 +10912,7 @@ static void test_limiter_retries_across_failures_and_success(void) {
         configure_signal_handler();
         seam_reset();
         /*
-         * 14 misses: the name scan finds no matching process.  Then one
+         * 14 misses: the name scan finds no matching process. Then one
          * success: a matching scan frame, a matching recheck frame for
          * process_has_other_name(), and two empty frames for
          * limit_process()'s initial scan plus its one control cycle.
@@ -10793,7 +10946,7 @@ static void test_limiter_retries_across_failures_and_success(void) {
         seam_alive_count = 1;
         /*
          * Park on the 29th sleep call: 14 misses + the success cycle +
-         * the 14 misses above each end in one wait.  By the time it
+         * the 14 misses above each end in one wait. By the time it
          * arrives both stretches of misses have been consumed, and the run
          * reaching it at all is what shows it never stopped trying.
          */
@@ -10868,6 +11021,7 @@ static void test_limiter_retries_across_failures_and_success(void) {
 
 /**
  * @brief Drive a -p run whose attempts keep ending because the target does
+ *
  * @param write_fd Where the child's stderr and its final report go
  * @param announce_fd Where the parked wait announces itself
  * @param go_fd Where the parked wait waits to be released
@@ -10875,7 +11029,7 @@ static void test_limiter_retries_across_failures_and_success(void) {
  * The lookup is served by the seam's alive set, so the target resolves on
  * every iteration; what makes the run take two attempts is the stubbed
  * limit_process(), which returns LIMIT_PROCESS_OK -- how an attempt ends when
- * the target it was limiting terminates.  The run is parked on the second
+ * the target it was limiting terminates. The run is parked on the second
  * wait that follows those attempts, so a run that stopped after the first one
  * never reports at all.
  */
@@ -10933,14 +11087,15 @@ static void pid_mode_reattach_driver_child(int write_fd, int announce_fd,
 /**
  * @brief A target that exits must not end a non-lazy run, and it must be
  *        limited again when it is there again
+ *
  * @note Non-lazy -p/-e mode is a watch rather than a single attempt: the
  *       target being limited, terminating, and being back is one attempt
- *       followed by another search, however often it repeats.  Two attempts
+ *       followed by another search, however often it repeats. Two attempts
  *       are scripted, each ending the way an attempt ends when its target
  *       terminates, and the run parks on the wait that follows the second.
  *       Reaching that barrier proves the first attempt's ending did not end
  *       the run, and CALLS=2 proves the target was limited a second time
- *       rather than merely waited out.  The parent ends the run with SIGTERM,
+ *       rather than merely waited out. The parent ends the run with SIGTERM,
  *       the only way a watch that never gives up can be ended: a run that
  *       stopped on its own would fail the exit-status assertion instead.
  *       Verified by mutation: making the LIMIT_PROCESS_OK path end the loop
@@ -10983,7 +11138,7 @@ static void test_pid_mode_reattaches_after_target_exits(void) {
     /*
      * The barrier sits on the wait that follows the second attempt, which a
      * run that stopped when the first attempt's target went away would never
-     * reach: the read would return 0 at EOF instead.  The parent then ends
+     * reach: the read would return 0 at EOF instead. The parent then ends
      * the run the only way an unbounded watch can be ended.
      */
     alarm(30);
@@ -11029,14 +11184,15 @@ static void test_pid_mode_reattaches_after_target_exits(void) {
 
 /**
  * @brief A non-lazy run must keep waiting for a target that has not appeared
+ *
  * @note This mode exists for a process whose start time cannot be known, so a
  *       target that is not running yet is not an error and must not end the
- *       run: the search continues until a quit signal arrives.  The seam
+ *       run: the search continues until a quit signal arrives. The seam
  *       serves an empty process table, so every lookup misses, and the run is
  *       parked on the fifth wait -- which only a run that kept going after
- *       four misses can reach.  The parent then signals, and the clean exit,
+ *       four misses can reach. The parent then signals, and the clean exit,
  *       the retry diagnostics and the absence of any give-up line are
- *       asserted.  Verified by mutation: restoring a 15-attempt cap makes the
+ *       asserted. Verified by mutation: restoring a 15-attempt cap makes the
  *       announcement read return 0 once the cap is spent early, and making
  *       the not-found path set EXIT_FAILURE flips the exit status.
  */
@@ -11145,9 +11301,10 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
 
 /**
  * @brief run_command_mode() must surface the command's real exit code on stderr
- *        when limiting never starts (LIMIT_PROCESS_ERROR) (BUG-018)
+ *        when limiting never starts (LIMIT_PROCESS_ERROR)
+ *
  * @note The init_process_iterator seam (seam_init_fails) makes limit_process()
- *       return LIMIT_PROCESS_ERROR.  The command child deliberately exits with
+ *       return LIMIT_PROCESS_ERROR. The command child deliberately exits with
  * a known non-zero code (42); before the fix cpulimit discarded that code and
  * only returned 1, so the diagnostic line was absent from stderr.
  */
@@ -11203,7 +11360,7 @@ test_limiter_run_command_mode_reports_child_exit_on_limit_failure(void) {
     /*
      * Allocate err_buf only now: 512 bytes exceeds the 256-byte per-object
      * stack limit, so it has to live on the heap, but the forked children
-     * inherit the heap and neither of them uses it.  Allocating before the
+     * inherit the heap and neither of them uses it. Allocating before the
      * fork leaves the block reachable at their exit and shows up in leak
      * reports.
      */
@@ -11246,14 +11403,11 @@ test_limiter_run_command_mode_reports_child_exit_on_limit_failure(void) {
 /**
  * @brief process_set_send_signal() must strongly warn (with a recovery hint)
  *        when the SIGCONT resuming a member this group suspended fails
- *        (BUG-049, BUG-051)
- * @note The kill() seam makes the SIGCONT delivery fail with EPERM.  Before
- *       the fix warn_signal_failure() gated all non-verbose warnings to the
- *       first one and never mentioned recovery, so a process left stopped by
- *       cpulimit produced no actionable message.  Since BUG-051 the
- *       recovery hint is reserved for members this group actually
- *       suspended, so the test suspends the member first; the SIGSTOP goes
- *       through the seam before any failure is armed, so it succeeds.
+ *
+ * @note The kill() seam makes the SIGCONT delivery fail with EPERM. The
+ *       recovery hint is reserved for members this group actually suspended,
+ *       so the test suspends the member first: the SIGSTOP goes through the
+ *       seam before any failure is armed, so it succeeds.
  */
 static void test_process_set_send_signal_reports_sigcont_failure(void) {
     int pipe_fds[2];
@@ -11280,7 +11434,7 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
         }
         close(pipe_fds[1]);
         /*
-         * Spawn a separate process to be the limiting target.  It must not be
+         * Spawn a separate process to be the limiting target. It must not be
          * the cpulimit process itself, which is excluded from its own group.
          */
         target = fork();
@@ -11298,8 +11452,8 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
             _exit(EXIT_FAILURE);
         }
         /*
-         * Suspend the member first (BUG-051): the recovery hint is only
-         * produced for a member this group actually suspended.  The kill()
+         * Suspend the member first: the recovery hint is only
+         * produced for a member this group actually suspended. The kill()
          * seam passes the SIGSTOP through because no failure is armed yet,
          * so the member becomes suspended-by-us without really being
          * stopped.
@@ -11352,7 +11506,7 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
     exited = WIFEXITED(status);
     assert(exited);
     assert(WEXITSTATUS(status) == EXIT_SUCCESS);
-    /* A failed resume must be reported with a recovery hint (BUG-049). */
+    /* A failed resume must be reported with a recovery hint. */
     assert(strstr(err_buf, "kill -CONT") != NULL);
     free(err_buf);
 }
@@ -11360,6 +11514,7 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
 /**
  * @brief Drive limit_process() through one real control cycle, then shut it
  *        down while the target is suspended
+ *
  * @param fail_call 1-based kill() delivery the seam starts failing at
  * @param expect_status Return value limit_process() must produce
  * @param needle Substring to look for in the child's stderr
@@ -11369,8 +11524,8 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
  * The control loop runs for real: the sleep barrier (seam_hook_sleep)
  * parks the limiter's second sleep call -- the sleep phase that follows
  * the first SIGSTOP delivery -- until this driver has set the quit flag
- * with SIGTERM and released the barrier.  seam_active stays 0 so the
- * iterator and the clock are real and the target is found.  The kill()
+ * with SIGTERM and released the barrier. seam_active stays 0 so the
+ * iterator and the clock are real and the target is found. The kill()
  * seam fails deliveries from fail_call on: with fail_call == 2 the first
  * SIGSTOP lands and only the shutdown SIGCONT fails, with fail_call == 1
  * every delivery fails and the member is never suspended at all.
@@ -11451,7 +11606,7 @@ static void test_drive_limit_process_shutdown(int fail_call, int expect_status,
 
     /*
      * Wait until the limiter is parked inside its sleep phase, past the
-     * first SIGSTOP delivery.  Bound the wait so a limiter that dies
+     * first SIGSTOP delivery. Bound the wait so a limiter that dies
      * early fails the test instead of hanging it.
      */
     alarm(30);
@@ -11505,15 +11660,16 @@ static void test_drive_limit_process_shutdown(int fail_call, int expect_status,
 /**
  * @brief limit_process() must report (and exit non-zero) when a process it
  *        suspended cannot be resumed at shutdown
+ *
  * @note The control loop really runs once: the first SIGSTOP lands, then
- *       the quit flag is set and the shutdown SIGCONT fails.  A member
+ *       the quit flag is set and the shutdown SIGCONT fails. A member
  *       this group suspended and cannot resume must produce the "left
  *       suspended at shutdown" report and LIMIT_PROCESS_STRANDED: the group
  *       was built and the limit was applied, so it is not
  *       LIMIT_PROCESS_ERROR, and no scan failed, so it is not
- *       LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED either.  A plain signal
+ *       LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED either. A plain signal
  *       failure must not report anything (that is the symmetric test
- *       below).  Verified by mutation: returning LIMIT_PROCESS_ERROR here
+ *       below). Verified by mutation: returning LIMIT_PROCESS_ERROR here
  *       makes this assertion fail.
  */
 static void test_limit_process_reports_resume_failure(void) {
@@ -11523,9 +11679,10 @@ static void test_limit_process_reports_resume_failure(void) {
 
 /**
  * @brief limit_process() must succeed when nothing was ever suspended
+ *
  * @note Symmetric counterpart of test_limit_process_reports_resume_failure
- *       (BUG-051): every delivery fails, so the SIGSTOP never lands and
- *       the member has been running the whole time.  The failed shutdown
+ *: every delivery fails, so the SIGSTOP never lands and
+ *       the member has been running the whole time. The failed shutdown
  *       SIGCONT is then an ordinary signal failure: limit_process() must
  *       return LIMIT_PROCESS_OK and stderr must not claim any process was
  *       left suspended.
@@ -11536,6 +11693,7 @@ static void test_limit_process_all_signals_fail_returns_ok(void) {
 
 /**
  * @brief Drive limit_process() through a suspension that left the group
+ *
  * @param inject_errno errno the shutdown SIGCONT must fail with
  * @param expect_status Return value limit_process() must produce
  * @param expect_report Non-zero when "left suspended" must appear on stderr
@@ -11543,7 +11701,7 @@ static void test_limit_process_all_signals_fail_returns_ok(void) {
  * The iterator seam scripts three snapshots: the target (initial scan),
  * the target again (first control cycle, whose sleep phase suspends it),
  * then an empty group (second cycle ends the loop with the target still
- * recorded as suspended).  The kill seam lets the SIGSTOP land and fails
+ * recorded as suspended). The kill seam lets the SIGSTOP land and fails
  * the shutdown SIGCONT; because the target is no longer in proc_list,
  * that resume goes through resume_stopped_pids() -- the deferred path
  * (R1) -- and its failure must reach the shutdown report exactly like a
@@ -11644,11 +11802,12 @@ static void test_drive_limit_process_left_group(int inject_errno,
 
 /**
  * @brief A failed deferred resume must fail the shutdown (R1)
+ *
  * @note resume_stopped_pids() handles PIDs that left the group while
- *       suspended, and every one of them was suspended by this group.  Its
+ *       suspended, and every one of them was suspended by this group. Its
  *       failure used to be printed but never counted, so the run returned
  *       success while a process stayed stopped -- inconsistent with the
- *       identical failure on a current member.  The value it produces is
+ *       identical failure on a current member. The value it produces is
  *       LIMIT_PROCESS_STRANDED, the same one a current member's failed
  *       resume produces: the limit was applied, and what the caller is owed
  *       is a repair rather than a retry.
@@ -11659,6 +11818,7 @@ static void test_limit_process_deferred_resume_failure(void) {
 
 /**
  * @brief A deferred resume that hits a dead PID stays a success (R1)
+ *
  * @note Symmetric case: ESRCH means the process is gone, so nothing was
  *       stranded; it must not count and must not fail the run.
  */
@@ -11667,11 +11827,12 @@ static void test_limit_process_deferred_resume_esrch_is_ok(void) {
 }
 
 /**
- * @brief CLI must accept "-p 1" (limiting PID 1 / container init) (BUG-008)
+ * @brief CLI must accept "-p 1" (limiting PID 1 / container init)
+ *
  * @note The legacy guard rejected any PID <= 1, so cpulimit refused to limit
- *       PID 1 even in containers where init is the only target.  After relaxing
+ *       PID 1 even in containers where init is the only target. After relaxing
  *       the guard to PID < 1, "-p 1" parses successfully while "-p 0" is still
- *       rejected.  Verified by mutation: reverting the guard (back to pid <= 1)
+ *       rejected. Verified by mutation: reverting the guard (back to pid <= 1)
  *       makes parse_arguments("-p 1") fail, so the assertion below fails.
  */
 static void test_cli_accepts_pid_one(void) {
@@ -11702,7 +11863,7 @@ static void test_cli_accepts_pid_one(void) {
     assert(parse_arguments(5, args, &cfg) == 0);
     assert(cfg.target_pid == 1);
     assert(cfg.cpu_limit >= 0.5 - 1e-9 && cfg.cpu_limit <= 0.5 + 1e-9);
-    /* PID 0 and negative values must still be rejected.  Parsed in a child
+    /* PID 0 and negative values must still be rejected. Parsed in a child
        whose stderr is closed so the expected rejection message stays out of
        the test log. */
     parse_ret = run_parse_in_child(5, args0);
@@ -11710,12 +11871,13 @@ static void test_cli_accepts_pid_one(void) {
 }
 
 /**
- * @brief CLI must reject numeric options with leading whitespace (BUG-035)
+ * @brief CLI must reject numeric options with leading whitespace
+ *
  * @note strtol()/strtod() silently skip leading whitespace, so "-l ' 50'" or
  *       "-p ' 5'" were accepted as 50 / 5, inconsistent with the strict
- *       trailing-character rejection.  After the fix, a leading space makes
+ *       trailing-character rejection. After the fix, a leading space makes
  *       parse_arguments() fail, while the same value without the space still
- *       parses.  Verified by mutation: reverting the isspace() guard makes the
+ *       parses. Verified by mutation: reverting the isspace() guard makes the
  *       two rejection assertions fail, confirming the test guards the fix.
  */
 static void test_cli_rejects_leading_whitespace_in_numbers(void) {
@@ -11751,8 +11913,7 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     no_space[4] = arg_one;
     no_space[5] = NULL;
 
-    /* "-l ' 50'" must be rejected.  Parsed in a child whose stderr is closed
-       so the expected rejection message stays out of the test log. */
+    /*        so the expected rejection message stays out of the test log. */
     parse_ret = run_parse_in_child(5, lead_space_limit);
     assert(parse_ret == EXIT_FAILURE);
 
@@ -11769,11 +11930,12 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
 }
 
 /**
- * @brief CLI must reject an empty command name (BUG-077)
+ * @brief CLI must reject an empty command name
+ *
  * @note `cpulimit -l 50 ''` entered command mode and then handed the empty
- *       string to execvp(), which fails with a confusing 126/127.  After the
+ *       string to execvp(), which fails with a confusing 126/127. After the
  *       fix, parse_arguments() rejects the empty command name with EXIT_FAILURE
- *       and a clear message.  A non-empty command still parses.  Verified by
+ *       and a clear message. A non-empty command still parses. Verified by
  *       mutation: reverting the `argv[optind][0] == '\0'` guard lets the empty
  *       command slip through (so this rejection assertion fails).
  */
@@ -11798,7 +11960,7 @@ static void test_cli_rejects_empty_command_name(void) {
     ok_cmd[3] = arg_busy;
     ok_cmd[4] = NULL;
 
-    /* An empty command name must be rejected.  Parsed in a child whose
+    /* An empty command name must be rejected. Parsed in a child whose
        stderr is closed so the expected rejection message stays out of the
        test log. */
     parse_ret = run_parse_in_child(4, empty_cmd);
@@ -11812,11 +11974,12 @@ static void test_cli_rejects_empty_command_name(void) {
 }
 
 /**
- * @brief CLI must reject a bare "/" as an executable match name (BUG-071)
+ * @brief CLI must reject a bare "/" as an executable match name
+ *
  * @note `cpulimit -l 50 -e /` set full_path_cmp with the root directory as the
  *       name; find_process_by_name() then never matches and, in non-lazy mode,
- *       retries forever.  parse_arguments() now rejects the bare root path up
- *       front with EXIT_FAILURE and a clear message.  A normal name still
+ *       retries forever. parse_arguments() now rejects the bare root path up
+ *       front with EXIT_FAILURE and a clear message. A normal name still
  * parses. Verified by mutation: reverting the `optarg[0] == '/' && optarg[1] ==
  * '\0'` guard lets "-e /" slip through (so this rejection assertion fails).
  */
@@ -11844,7 +12007,7 @@ static void test_cli_rejects_root_match_name(void) {
     ok_match[4] = arg_busy;
     ok_match[5] = NULL;
 
-    /* A bare "/" is not a usable match name and must be rejected.  Parsed
+    /* A bare "/" is not a usable match name and must be rejected. Parsed
        in a child whose stderr is closed so the expected rejection message
        stays out of the test log. */
     parse_ret = run_parse_in_child(5, root_match);
@@ -11859,6 +12022,7 @@ static void test_cli_rejects_root_match_name(void) {
 
 /**
  * @brief Parse an argument vector in a child, capturing its stderr
+ *
  * @param args Argument vector (NULL-terminated) to parse
  * @param err_out Buffer receiving the child's stderr
  * @param err_size Size of err_out
@@ -11867,7 +12031,7 @@ static void test_cli_rejects_root_match_name(void) {
  *
  * The child's stderr is redirected into a pipe so a rejection's error
  * text (followed by the usage dump) can be asserted on without polluting
- * the test log.  Only the first err_size-1 bytes are kept; the diagnostic
+ * the test log. Only the first err_size-1 bytes are kept; the diagnostic
  * line always comes first.
  */
 static int run_parse_capture_stderr(char **args, char *err_out,
@@ -11926,12 +12090,13 @@ static int run_parse_capture_stderr(char **args, char *err_out,
 
 /**
  * @brief -e must reject names that can never match a process (N7)
+ *
  * @note find_process_by_name() compares the basename for relative names
  *       and bails out on an empty one, so "//", "bin/", "a/b/" and
  *       "/tmp/" were structurally unmatchable yet accepted by the CLI:
  *       non-lazy mode retried every two seconds until the lookup cap and
  *       then reported "cannot be found", instead of one clear "invalid
- *       match name".  Usable relative and absolute names must still
+ *       match name". Usable relative and absolute names must still
  *       parse.
  */
 static void test_cli_rejects_unmatchable_names(void) {
@@ -11993,17 +12158,18 @@ static void test_cli_rejects_unmatchable_names(void) {
 }
 
 /**
- * @brief A repeated SIGCONT failure must not flood stderr (BUG-058)
+ * @brief A repeated SIGCONT failure must not flood stderr
+ *
  * @note A member that can never be resumed (EPERM) is retried every control
  *       cycle, so reporting each failure would print 40+ lines per second in
- *       --verbose.  The diagnostic is throttled to once per failure episode
- *       (cleared when a SIGCONT finally succeeds).  This test fires 100
+ *       --verbose. The diagnostic is throttled to once per failure episode
+ *       (cleared when a SIGCONT finally succeeds). This test fires 100
  *       identical SIGCONT failures and asserts the recovery hint appears at
- *       most a couple of times.  Verified by mutation: reverting the throttle
+ *       most a couple of times. Verified by mutation: reverting the throttle
  *       (back to warn_signal_failure every call) makes the assertion
  *       `warn_count <= 2` fail, since the hint is then emitted 100 times.
  */
-/* Send `n` identical SIGCONT signals to the process set.  Isolated in its own
+/* Send `n` identical SIGCONT signals to the process set. Isolated in its own
  * function so the analyzer's fd-state tracking stays scoped to the caller that
  * captured stderr (the grandchild loop is not on the child's direct path). */
 static void throttle_send_sigcont(struct process_set *proc_set, int n) {
@@ -12020,8 +12186,7 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     int ret;
     char *err_buf;
     size_t err_len;
-    /* unsigned: with a signed counter the asserts below are folded into the
-       counting loop as "X + 1 >= C", which -Wstrict-overflow=5 flags. */
+    /*        counting loop as "X + 1 >= C", which -Wstrict-overflow=5 flags. */
     unsigned int warn_count = 0;
     const char *p;
     const size_t BUFSZ = 262144;
@@ -12057,16 +12222,16 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
             _exit(EXIT_FAILURE);
         }
         /*
-         * Suspend the member first (BUG-051): the recovery hint counted
+         * Suspend the member first: the recovery hint counted
          * below is only produced for a member this group actually
-         * suspended.  The kill() seam passes the SIGSTOP through because
+         * suspended. The kill() seam passes the SIGSTOP through because
          * no failure is armed yet, so the member becomes suspended-by-us
          * without really being stopped.
          */
         seam_reset();
         seam_active = 1;
         process_set_send_signal(&proc_set, SIGSTOP, 0);
-        /* Make every SIGCONT to the target fail with EPERM (BUG-058). */
+        /* Make every SIGCONT to the target fail with EPERM. */
         seam_kill_calls = 0;
         seam_fail_call = 1;
         seam_fail_span = 100000;
@@ -12116,15 +12281,16 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
 
 /**
  * @brief A successful SIGSTOP must clear the SIGSTOP warning gate (N4)
+ *
  * @note stop_warned was set on the first SIGSTOP failure and never
  *       cleared, while its documented contract says the matching success
- *       path clears it so a later failure re-reports.  The member
+ *       path clears it so a later failure re-reports. The member
  *       therefore produced at most one SIGSTOP warning per session: a
  *       transient EPERM early on silenced a second, later failure,
  *       leaving a limit that had stopped being enforceable unreported.
  *
  *       The kill() seam injects failure / success / failure for three
- *       SIGSTOP deliveries on one member.  Verbose mode is used so the
+ *       SIGSTOP deliveries on one member. Verbose mode is used so the
  *       process-global once-only gate in warn_signal_failure() does not
  *       mask the member-level gate under test; with the fix stderr holds
  *       two "cannot send signal 19" warnings, without it only one.
@@ -12136,8 +12302,7 @@ static void test_process_set_reports_stop_failure_after_recovery(void) {
     int ret;
     char *err_buf;
     size_t err_len;
-    /* unsigned: folding the counting loop's bound into a signed counter
-       trips -Wstrict-overflow=5. */
+    /*        trips -Wstrict-overflow=5. */
     unsigned int warn_count = 0;
     const char *p;
     const size_t BUFSZ = 262144;
@@ -12224,7 +12389,7 @@ static void test_process_set_reports_stop_failure_after_recovery(void) {
     assert(waitpid(pid, &status, 0) == pid);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
     /*
-     * Both failures must be reported.  Count by the SIGSTOP-specific tail
+     * Both failures must be reported. Count by the SIGSTOP-specific tail
      * rather than the signal number, whose value is platform-dependent.
      */
     for (p = strstr(err_buf, "stays tracked but cannot be limited"); p != NULL;
@@ -12237,13 +12402,14 @@ static void test_process_set_reports_stop_failure_after_recovery(void) {
 
 /**
  * @brief Every member must be able to report its own SIGSTOP failure (R3)
+ *
  * @note warn_signal_failure() carried a process-global "once ever" static
  *       gate on top of the per-member stop_warned / cont_warned flags, so
  *       for the whole run only the very first SIGSTOP failure was printed:
  *       three uncontrollable members looked like one, and the struct
- *       process documentation promises they report independently.  Two
+ *       process documentation promises they report independently. Two
  *       members are scripted; the kill() seam fails their SIGSTOPs with
- *       EPERM in non-verbose mode.  Both must warn (the fix), and a
+ *       EPERM in non-verbose mode. Both must warn (the fix), and a
  *       second round must add nothing (the per-member flag still throttles
  *       repeats, so the anti-flood behavior is preserved).
  */
@@ -12254,8 +12420,7 @@ static void test_process_set_reports_each_member_stop_failure(void) {
     int ret;
     char *err_buf;
     size_t err_len;
-    /* unsigned: folding the counting loop's bound into a signed counter
-       trips -Wstrict-overflow=5. */
+    /*        trips -Wstrict-overflow=5. */
     unsigned int warn_count = 0;
     const char *p;
     const size_t BUFSZ = 262144;
@@ -12339,10 +12504,11 @@ static void test_process_set_reports_each_member_stop_failure(void) {
 
 /**
  * @brief An unrecorded suspension must not be flagged as ours (R4)
+ *
  * @note record_stopped_pid() ignored add_list_elem()'s NULL return: the
  *       record leaked and, worse, the suspension stayed unrecorded while
  *       process_set_send_signal() unconditionally set suspended_by_us, so
- *       once the member left the group nothing would ever resume it.  The
+ *       once the member left the group nothing would ever resume it. The
  *       function now reports failure and the caller only flags a recorded
  *       suspension.
  *
@@ -12376,7 +12542,7 @@ static void test_process_set_unrecorded_suspend_not_flagged(void) {
     /*
      * Make the suspension record unavailable: the group can no longer
      * record a suspension, so record_stopped_pid() must report failure
-     * and undo it.  Releasing the empty list structure keeps the
+     * and undo it. Releasing the empty list structure keeps the
      * ownership contract intact; close_process_set() tolerates the NULL
      * field.
      */
@@ -12400,23 +12566,24 @@ static void test_process_set_unrecorded_suspend_not_flagged(void) {
 }
 
 /**
- * @brief A recycled descendant PID must not be misattributed (BUG-004)
+ * @brief A recycled descendant PID must not be misattributed
+ *
  * @note update_existing_process_entry() used to detect PID reuse only from a
- *       decrease in cpu_time.  A freshly recycled PID often has a *higher*
+ *       decrease in cpu_time. A freshly recycled PID often has a *higher*
  *       cpu_time than the process it replaced (the old one had barely
  *       started), so the new process slipped past the check and was
  *       misattributed to the old group entry -- an innocent process stayed in
- *       the throttled set.  Using start_time as an identity signal recognises
+ *       the throttled set. Using start_time as an identity signal recognises
  *       the PID as a new process: its cpu_usage resets to -1 and the group
  *       aggregate no longer includes its stale contribution.
  *
  *       The test scripts a target plus one descendant that reuses its PID
  *       between two update cycles: cpu_time rises (100 -> 200) while start_time
- *       changes (20 -> 21).  With the fix, after the second cycle the group CPU
+ *       changes (20 -> 21). With the fix, after the second cycle the group CPU
  *       usage collapses to the target's alone (the descendant is -1 and
  * skipped, so the sum is ~0); without the fix the descendant's 1.0 sample is
- * summed in and the assert fails.  The (seam-controlled) clock is advanced
- * 100ms per cycle so a real delta is computed.  Verified by mutation: reverting
+ * summed in and the assert fails. The (seam-controlled) clock is advanced
+ * 100ms per cycle so a real delta is computed. Verified by mutation: reverting
  *       the start_time branch makes the descendant's 1.0 be counted.
  */
 static void test_process_set_detects_pid_reuse_by_start_time(void) {
@@ -12495,19 +12662,19 @@ static void test_process_set_detects_pid_reuse_by_start_time(void) {
 }
 
 /**
- * @brief Multiple unrelated same-name matches must resolve deterministically
- * (BUG-055)
+ * @brief Multiple unrelated same-name matches must resolve deterministically.
+ *
  * @note find_process_by_name() only replaced the current winner when the new
  *       candidate was a descendant of it, so when several matches are mutually
  *       unrelated the first one encountered won -- and the /proc enumeration
- *       order is unspecified, so the chosen target drifted across runs.  The
- *       fix breaks ties by smallest PID.  Two unrelated processes named "busy"
+ *       order is unspecified, so the chosen target drifted across runs. The
+ *       fix breaks ties by smallest PID. Two unrelated processes named "busy"
  *       (42424 and 42425) are scripted through the iterator seam in both
  *       (42424, 42425) and (42425, 42424) orders; the function must return the
- *       same PID (the smaller, 42424) either way.  Without the tie-break the
- *       second order keeps 42425 and the final assert fails.  Verified by
+ *       same PID (the smaller, 42424) either way. Without the tie-break the
+ *       second order keeps 42425 and the final assert fails. Verified by
  *       mutation: reverting the `unrelated && proc->pid < pid` branch makes the
- *       two orders disagree.  The recheck snapshot contains both PIDs so the
+ *       two orders disagree. The recheck snapshot contains both PIDs so the
  *       final find_process_by_pid() existence check succeeds for the winner.
  */
 static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
@@ -12582,18 +12749,18 @@ static void test_find_process_by_name_tie_breaks_by_smallest_pid(void) {
 }
 
 /**
- * @brief -e must fall back when the preferred match vanishes before recheck
- * (BUG-056)
+ * @brief -e must fall back when the preferred match vanishes before recheck.
+ *
  * @note find_process_by_name() picked the best match, then verified it with a
  *       single find_process_by_pid(): if that process had exited in the
  *       meantime the call returned 0 and the whole lookup reported "not
- *       found" -- even though other valid matches still existed.  The fix
- *       keeps every match and falls back to another live candidate.  Three
+ *       found" -- even though other valid matches still existed. The fix
+ *       keeps every match and falls back to another live candidate. Three
  *       same-name processes (42424, 42425, 42426) are scripted; the recheck
  *       snapshot drops 42424, so the function must return 42425 or 42426
- *       (the smallest survivor), not 0.  Without the fallback it returns 0 and
- *       the assert fails.  Verified by mutation: reverting the fallback loop
- *       makes result == 0.  seam_repeat_last lets the extra
+ *       (the smallest survivor), not 0. Without the fallback it returns 0 and
+ *       the assert fails. Verified by mutation: reverting the fallback loop
+ *       makes result == 0. seam_repeat_last lets the extra
  * find_process_by_pid() calls reuse the recheck snapshot.
  */
 static void test_find_process_by_name_falls_back_when_winner_gone(void) {
@@ -12645,13 +12812,14 @@ static void test_find_process_by_name_falls_back_when_winner_gone(void) {
 
 /**
  * @brief The candidate fallback must pick by PID, not scan order (N3)
+ *
  * @note The primary selection is deterministic (an ancestor wins,
  *       otherwise the smallest PID), but the fallback used to return the
  *       first surviving candidate in candidates[] order -- the platform's
- *       process enumeration order.  Three unrelated same-name matches are
+ *       process enumeration order. Three unrelated same-name matches are
  *       scripted in two different orders; the smallest (42424) wins the
  *       scan and then vanishes from the recheck, leaving 42425 as the
- *       smallest survivor.  Both runs must return 42425; a scan-order
+ *       smallest survivor. Both runs must return 42425; a scan-order
  *       fallback returns 42426 in the first run and 42425 in the second,
  *       so the two runs disagree.
  */
@@ -12718,17 +12886,18 @@ static void test_find_process_by_name_fallback_is_order_independent(void) {
 
 /**
  * @brief -e must fall through to a match it can actually control (S1)
+ *
  * @note find_process_by_pid() reports -PID for a process that exists but
  *       cannot be signalled (EPERM/EACCES), and find_process_by_name() used
  *       to treat any non-zero probe as a hit: the chosen candidate was
  *       returned even when it was out of reach, so `cpulimit -e myapp` gave
  *       up although another equally valid match could have been limited.
  *       Controllability now outranks both ancestry and the smaller-PID
- *       tie-break.  Two unrelated matches are scripted and the smaller one
+ *       tie-break. Two unrelated matches are scripted and the smaller one
  *       is made to fail its probe with EPERM, so the function must return
  *       the other one (42425); then an uncontrollable ancestor (60000) is
  *       scripted against its controllable child (50000), where ancestry
- *       would normally win and must not.  The kill() seam scripts the probe
+ *       would normally win and must not. The kill() seam scripts the probe
  *       results by call index: the first probe is always the primary match.
  *       Without the ranking, result is negative in both cases.
  *       Verified by mutation: restoring the `probe != 0` early return makes
@@ -12793,13 +12962,14 @@ static void test_find_process_by_name_prefers_controllable_match(void) {
 
 /**
  * @brief The two lower-ranked tiers must survive the new tier (S1)
+ *
  * @note Adding controllability on top must not disturb what the fallback
- *       already did.  Two cases: when every surviving match is
+ *       already did. Two cases: when every surviving match is
  *       uncontrollable the result must still be negative and must still be
  *       the smallest PID, so the caller reports "No permission" once for a
  *       specific process; and when the primary match has exited, an ancestor
  *       survivor (60000) must still beat another survivor that descends from
- *       it (50000) even though the descendant has the smaller PID.  The
+ *       it (50000) even though the descendant has the smaller PID. The
  *       primary match is scripted as gone by making its single probe fail
  *       with ESRCH, which find_process_by_pid() reports as 0.
  *       Verified by mutation: collapsing the adjudication to
@@ -12866,16 +13036,17 @@ static void test_find_process_by_name_ranking_keeps_lower_tiers(void) {
 }
 
 /**
- * @brief A PID appearing twice in one scan must not be double-counted (BUG-073)
+ * @brief A PID appearing twice in one scan must not be double-counted
+ *
  * @note update_process_set() clears the group list at the top of each cycle and
- *       rebuilds it from the iterator snapshot.  When the same PID shows up
+ *       rebuilds it from the iterator snapshot. When the same PID shows up
  * more than once in a single snapshot (a /proc race), the first occurrence is
  *       added to the table and the list, and the second is found in the table
  *       and "re-added" to the list -- appending the same process twice, so it
- *       would be signalled and accounted for twice.  The fix only re-adds when
- *       the PID is not already in the list this cycle.  The test scripts one
+ *       would be signalled and accounted for twice. The fix only re-adds when
+ *       the PID is not already in the list this cycle. The test scripts one
  *       target PID twice within a single snapshot and asserts the group list
- *       holds exactly one member; without the fix the count is 2.  Verified by
+ *       holds exactly one member; without the fix the count is 2. Verified by
  *       mutation: reverting the find_process_in_list_by_pid() guard makes the
  *       assert fail.
  */
@@ -12928,19 +13099,20 @@ static void test_process_set_does_not_duplicate_pid(void) {
 }
 
 /**
- * @brief A PID repeated in one snapshot must be measured only once (BUG-054)
- * @note Besides being added to the group list twice (BUG-073), a repeated
+ * @brief A PID repeated in one snapshot must be measured only once
+ *
+ * @note Besides being added to the group list twice, a repeated
  *       snapshot used to run update_existing_process_entry() a second time.
  *       By then cpu_time had already been refreshed by the first
  *       occurrence, so the second call computed a bogus near-zero sample
  *       and the EMA dragged the member's (and the group's) usage estimate
- *       down, relaxing the limit.  The fix runs the accounting only for
+ *       down, relaxing the limit. The fix runs the accounting only for
  *       the first occurrence of the PID within a cycle.
  *
  *       The test drives two identical scripted runs -- one with the PID
  *       reported twice in the middle snapshot, one with it reported once
  *       -- over the same clock script and asserts the final cpu_usage is
- *       exactly equal.  Verified by mutation: keeping the second
+ *       exactly equal. Verified by mutation: keeping the second
  *       update_existing_process_entry() call outside the first-occurrence
  *       branch makes the duplicated run end at 0.5032 instead of 0.54.
  */
@@ -13020,7 +13192,7 @@ static void test_process_set_duplicate_pid_measured_once(void) {
     seam_active = 0;
 
     /*
-     * The duplicate snapshot must not have skewed the estimate.  Both runs
+     * The duplicate snapshot must not have skewed the estimate. Both runs
      * feed the EMA the exact same sample sequence, so the results are
      * compared bit for bit: the doubles are memcpy'ed into byte arrays,
      * which is well defined and avoids -Wfloat-equal as well as
@@ -13041,9 +13213,10 @@ static void test_process_set_duplicate_pid_measured_once(void) {
 /**
  * @brief A member discovered mid-cycle must be sampled over its own
  *        interval (N5)
+ *
  * @note proc->cpu_time is baselined when the member is first seen, but
  *       the divisor used to be the elapsed time since the process set's
- *       last_update -- an earlier moment.  For a member discovered late
+ *       last_update -- an earlier moment. For a member discovered late
  *       in a cycle (typically a new descendant under -i) the denominator
  *       was therefore too large, the CPU estimate too low, and the
  *       derived work ratio too optimistic, silently relaxing the limit.
@@ -13138,6 +13311,7 @@ static void test_process_set_new_member_uses_own_interval(void) {
 
 /**
  * @brief Append one snapshot to the seam script
+ *
  * @param procs Processes the snapshot reports; may be NULL when empty
  * @param count Number of processes in procs; at most SEAM_MAX_FRAME_PROCS
  */
@@ -13149,7 +13323,7 @@ static void seam_push_frame(const struct seam_proc *procs, int count) {
     /*
      * memcpy() rather than a struct assignment: a seam_proc is one command
      * buffer (4 KiB), and compilers that materialise the copy create a
-     * temporary that trips -Wlarger-than.  An empty snapshot (procs NULL,
+     * temporary that trips -Wlarger-than. An empty snapshot (procs NULL,
      * count 0) takes neither the copy nor the dereference.
      */
     for (idx = 0; idx < count; idx++) {
@@ -13162,6 +13336,7 @@ static void seam_push_frame(const struct seam_proc *procs, int count) {
 
 /**
  * @brief Count the recorded signals of one kind sent to one target
+ *
  * @param log Recorded calls to search
  * @param count Number of entries in log
  * @param pid Target process ID, or minus a process group ID
@@ -13186,6 +13361,7 @@ static int seam_count_signals(const struct seam_signal *log, int count,
 
 /**
  * @brief Look up the last signal recorded for one target
+ *
  * @param log Recorded calls to search
  * @param count Number of entries in log
  * @param pid Target process ID, or minus a process group ID
@@ -13208,6 +13384,7 @@ static int seam_last_signal_to(const struct seam_signal *log, int count,
 
 /**
  * @brief Check that no target is suspended twice without being resumed
+ *
  * @param log Recorded calls to check
  * @param count Number of entries in log
  *
@@ -13243,6 +13420,7 @@ static void seam_assert_no_double_stop(const struct seam_signal *log,
 
 /**
  * @brief Replacement for get_current_time()
+ *
  * @param result_ts Timestamp to fill
  * @return 0 on success, -1 on failure
  */
@@ -13276,13 +13454,14 @@ int cpulimit_test_get_current_time(struct timespec *result_ts) {
 
 /**
  * @brief Replacement for get_process_start_time()
+ *
  * @param pid Process whose start time is wanted
  * @return Start time in seconds, or UNKNOWN_START_TIME on failure / unknown
  *
  * While the seam is inactive this is a straight passthrough to the real
- * implementation.  While active it drains a dedicated queue rather than the
+ * implementation. While active it drains a dedicated queue rather than the
  * process-iterator seam, so the extra bookkeeping read -e mode performs does
- * not steal a snapshot frame from iterator-driven tests.  An empty queue
+ * not steal a snapshot frame from iterator-driven tests. An empty queue
  * yields UNKNOWN_START_TIME, the safe "cannot compare" fallback that never
  * suppresses a closing resume.
  */
@@ -13299,6 +13478,7 @@ double cpulimit_test_get_process_start_time(pid_t pid) {
 
 /**
  * @brief Replacement for sleep_timespec()
+ *
  * @param duration Time to sleep
  * @return 0 on success, -1 on failure
  *
@@ -13342,6 +13522,7 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
 
 /**
  * @brief Replacement for kill()
+ *
  * @param pid Target process ID, or minus a process group ID
  * @param sig Signal number
  * @return 0 on success, -1 with errno set on failure
@@ -13354,8 +13535,8 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
  * Test seam for getppid_of(): when seam_getppid_fabricate is set it returns a
  * fixed ancestor chain (C=300 -> B=200 -> A=100 -> init=1) and fails the lookup
  * for seam_getppid_fail_pid exactly once, so is_child_of() can be exercised
- * without spawning real processes.  Otherwise it forwards to the real
- * getppid_of().  This is what makes BUG-043's "ancestor chain breaks mid-walk"
+ * without spawning real processes. Otherwise it forwards to the real
+ * getppid_of(). This is what makes the "ancestor chain breaks mid-walk"
  * scenario reproducible deterministically.
  */
 /*
@@ -13367,10 +13548,21 @@ int cpulimit_test_sleep_timespec(const struct timespec *duration) {
 pid_t cpulimit_test_getppid_of(pid_t pid);
 
 /* cppcheck-suppress unusedFunction */
+/**
+ * @brief Test seam backing getppid_of() inside is_child_of()
+ *
+ * @param pid Process whose parent PID is wanted
+ * @return The fabricated parent PID, or the real one when the seam is unarmed
+ *
+ * is_child_of() routes its parent-PID lookups through this function when
+ * seam_getppid_fabricate is set, so ancestor-chain breakage can be reproduced
+ * deterministically. Compiled only into the test build.
+ */
+
 pid_t cpulimit_test_getppid_of(pid_t pid) {
     /*
      * The chain that is_child_of() walks under seam_getppid_fabricate.
-     * The first four rows are BUG-043's C(300) -> B(200) -> A(100) -> init.
+     * The first four rows are the C(300) -> B(200) -> A(100) -> init chain.
      * The last two service the name-lookup ranking tests (S1), where the
      * ancestor deliberately carries the LARGER PID so that "ancestor wins"
      * and "smaller PID wins" can be told apart.
@@ -13400,15 +13592,35 @@ pid_t cpulimit_test_getppid_of(pid_t pid) {
 }
 
 /**
- * @brief Backing for find_process_by_pid() under seam_find_by_pid_override.
- * @note Reports a PID as alive only when it is present in the currently served
- *       iterator snapshot, so a candidate the test dropped from the recheck
- *       frame is seen as gone (BUG-056).  This avoids a real kill(pid, 0) that
- *       would otherwise depend on an arbitrary PID being alive on the host.
+ * @brief Test seam backing find_process_by_pid()'s existence probe
+ *
+ * @param pid Process whose liveness is being checked
+ * @return The PID while the seam reports it alive, 0 once it is gone
+ *
+ * find_process_by_pid() routes its liveness check through this function when
+ * seam_find_by_pid_override is set, instead of sending a real kill(pid, 0).
+ * The seam reads the currently selected iterator frame, so a candidate the
+ * scripted snapshot dropped reports as gone, which lets name-based lookup
+ * tests drive the final recheck deterministically. Compiled only into the
+ * test build.
  */
 pid_t cpulimit_test_find_by_pid(pid_t pid);
 
 /* cppcheck-suppress unusedFunction */
+/**
+ * @brief Test seam backing find_process_by_pid()'s existence probe
+ *
+ * @param pid Process whose liveness is being checked
+ * @return The PID while the seam reports it alive, 0 once it is gone
+ *
+ * find_process_by_pid() routes its liveness check through this function when
+ * seam_find_by_pid_override is set, instead of sending a real kill(pid, 0).
+ * The seam reads the currently selected iterator frame, so a candidate the
+ * scripted snapshot dropped reports as gone, which lets name-based lookup
+ * tests drive the final recheck deterministically. Compiled only into the
+ * test build.
+ */
+
 pid_t cpulimit_test_find_by_pid(pid_t pid) {
     int i;
     for (i = 0; i < seam_alive_count; i++) {
@@ -13423,10 +13635,12 @@ pid_t cpulimit_test_find_by_pid(pid_t pid) {
 }
 #endif
 
-/** * @brief Test that is_child_of() retries a transient getppid_of() failure
- *        instead of reporting a false negative (BUG-043)
+/**
+ * * @brief Test that is_child_of() retries a transient getppid_of() failure
+ *        instead of reporting a false negative
+ *
  * @note The getppid_of() seam fabricates the chain C(300)->B(200)->A(100)->1
- * and makes the lookup for B fail exactly once.  Without the retry fix
+ * and makes the lookup for B fail exactly once. Without the retry fix
  *       is_child_of(300, 100) returns 0 (the -1 breaks the chain); with the fix
  *       it retries and returns 1.
  */
@@ -13490,6 +13704,7 @@ int cpulimit_test_kill(pid_t pid, int sig) {
 
 /**
  * @brief Replacement for init_process_iterator()
+ *
  * @param iter Iterator to initialize
  * @param filter Filter criteria (ignored; membership is scripted instead)
  * @return 0 on success, -1 on failure
@@ -13523,6 +13738,7 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
 
 /**
  * @brief Replacement for get_next_process()
+ *
  * @param iter Iterator to read from
  * @param proc Process structure to fill
  * @return 0 when a process was filled, -1 when the snapshot is exhausted
@@ -13553,6 +13769,7 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
 
 /**
  * @brief Replacement for close_process_iterator()
+ *
  * @param iter Iterator to close
  * @return 0 on success, -1 on failure
  */
@@ -13596,6 +13813,7 @@ static void seam_mark_snapshot(void) {
 
 /**
  * @brief Replacement for random()
+ *
  * @return A constant while the seam is active, so the jitter is fixed
  */
 #ifdef __cplusplus
@@ -13612,6 +13830,7 @@ long cpulimit_test_random(void) {
 
 /**
  * @brief Replacement for getloadavg()
+ *
  * @param loadavg Array to fill
  * @param nelem Number of elements requested
  * @return Number of elements filled, or -1 on failure
@@ -13633,10 +13852,13 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem) {
 
 /**
  * @brief Replacement for limit_process() that parks on a barrier
+ *
  * @param pid Target PID (ignored while parked)
  * @param cpu_limit CPU limit (ignored while parked)
  * @param include_children Descendant flag (ignored while parked)
  * @param verbose Verbosity (ignored while parked)
+ * @param prior_scan_failures Number of pre-existing scan failures
+ *                           (ignored while parked)
  *
  * Announces itself, then blocks until the driving test releases it, so
  * the test can deliver a termination signal while the limiter is still
@@ -13708,6 +13930,7 @@ int cpulimit_test_update_process_set(struct process_set *proc_set) {
 
 /**
  * @brief Replacement for waitpid() that parks its first call on a barrier
+ *
  * @param pid Child to wait for
  * @param status Status out parameter
  * @param options waitpid() options
@@ -13750,6 +13973,7 @@ pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
 
 /**
  * @brief Drive limit_process() through the scripted smoke scenario
+ *
  * @return Number of kill() calls recorded; the log stays in seam_signals
  *
  * The log is left in the seam's own static buffer because a signal log
@@ -13787,11 +14011,13 @@ static int seam_run_smoke_limit(void) {
 
 /**
  * @brief Copy the current run's log into the snapshot buffer
+ *
  * @return Number of entries copied
  */
 static int seam_snapshot_run(void) {
     size_t idx;
-    /** @brief Number of entries copied into seam_run_snapshot, this run. */
+    /**
+     * @brief Number of entries copied into seam_run_snapshot, this run. */
     static size_t seam_run_snapshot_len = 0;
     seam_run_snapshot_len = seam_signal_count < SEAM_MAX_SIGNALS
                                 ? seam_signal_count
@@ -13802,10 +14028,12 @@ static int seam_snapshot_run(void) {
     return (int)seam_run_snapshot_len;
 }
 
-/** @brief Descendant PID the seam scripts report next to the target. */
+/**
+ * @brief Descendant PID the seam scripts report next to the target. */
 #define SEAM_CHILD_PID 42425
 
-/** @brief Number of cycles the group script keeps both processes visible. */
+/**
+ * @brief Number of cycles the group script keeps both processes visible. */
 #define SEAM_GROUP_CYCLES 4
 
 /**
@@ -13818,6 +14046,7 @@ static int seam_snapshot_run(void) {
 
 /**
  * @brief Drive limit_process() over a scripted target plus descendant
+ *
  * @param reuse_cycle Cycle at which the target's CPU time jumps backwards,
  *                    making the iterator report the PID as reused by a new
  *                    process; negative for no reuse
@@ -13834,8 +14063,7 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
     int cycle;
 
     assert(both != NULL && target_only != NULL);
-    /* As in seam_run_smoke_limit(): the fields the script does not fill
-     * are copied out by the iterator and must not be indeterminate. */
+    /* are copied out by the iterator and must not be indeterminate. */
     memset(both, 0, sizeof(struct seam_proc) * 2);
     memset(target_only, 0, sizeof(struct seam_proc) * 1);
     seam_reset();
@@ -13848,8 +14076,7 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
     target_only[0].pid = (pid_t)SEAM_TARGET_PID;
     target_only[0].ppid = (pid_t)1;
 
-    /* != rather than <: avoids the X + C1 <= C2 form that -Wstrict-overflow=5
-     * flags when the loop is fully unrolled at -O3. */
+    /* flags when the loop is fully unrolled at -O3. */
     for (cycle = 0; cycle != SEAM_GROUP_CYCLES; cycle++) {
         both[0].cpu_time = (cycle == reuse_cycle)
                                ? 10.0
@@ -13874,6 +14101,7 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
 
 /**
  * @brief Assert the suspension bookkeeping invariants over a seam run
+ *
  * @param count Number of recorded kill() calls to check
  * @param what Label reported when an invariant is broken
  *
@@ -13937,6 +14165,7 @@ static void seam_assert_bookkeeping(int count, const char *what) {
 
 /**
  * @brief Count the kill() calls that were made to fail
+ *
  * @param count Number of recorded kill() calls to check
  * @return Number of failed calls
  */
@@ -13952,6 +14181,8 @@ static int seam_count_failures(int count) {
 
 /**
  * @brief Assert that no PID is left suspended
+ *
+ * @param log Signal log recording the calls to inspect
  * @param count Number of recorded kill() calls to check
  * @param what Label reported when the invariant is broken
  *
@@ -14007,6 +14238,7 @@ static void seam_assert_nothing_left_stopped(const struct seam_signal *log,
 
 /**
  * @brief Assert that a PID is never signalled again once a signal failed
+ *
  * @param count Number of recorded kill() calls to check
  * @param what Label reported when the invariant is broken
  *
@@ -14379,6 +14611,7 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
 
 /**
  * @brief Read the records a forked limiter reported while it ran
+ *
  * @param fd Read end of the reporting pipe
  * @return Number of records read; they land in seam_child_log
  */
@@ -14399,6 +14632,7 @@ static int seam_read_child_log(int fd) {
 
 /**
  * @brief Fork a limiter that runs a scripted limit_process()
+ *
  * @param sleep_call 1-based sleep call to park on: 1 is the work phase,
  *                   2 the phase in which the target is suspended
  * @param announce_fd Where the parked sleep announces itself
@@ -14417,8 +14651,7 @@ static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
     int cycle;
     pid_t limiter_pid;
     assert(frame != NULL);
-    /* As in seam_run_smoke_limit(): the fields the script does not fill
-     * are copied out by the iterator and must not be indeterminate. */
+    /* are copied out by the iterator and must not be indeterminate. */
     memset(frame, 0, sizeof(struct seam_proc));
 
     seam_reset();
@@ -14473,8 +14706,7 @@ static void test_seam_quit_while_parked_in_sleep(void) {
     static const char *const phases[] = {"work phase", "suspension phase"};
     int phase;
 
-    /* != rather than < so the loop exit is not the X + C1 <= C2 form that
-     * -Wstrict-overflow=5 warns about; phase only ever takes 0 and 1. */
+    /* -Wstrict-overflow=5 warns about; phase only ever takes 0 and 1. */
     for (phase = 0; phase != 2; phase++) {
         int announce_pipe[2], go_pipe[2], log_pipe[2];
         pid_t limiter_pid, waited;
@@ -14532,6 +14764,7 @@ static void test_seam_quit_while_parked_in_sleep(void) {
 
 /**
  * @brief Fork a pid/exe mode limiter that parks in its retry wait
+ *
  * @param announce_fd Where the parked wait announces itself
  * @param go_fd Where the parked wait waits to be released
  * @return Limiter PID in the parent
@@ -14680,21 +14913,8 @@ static void seed_random(void) {
 }
 
 /**
- * @brief Main test function
- * @param argc Argument count
- * @param argv Argument vector
- * @return 0 on success
- * @note Runs all test functions organized by module and prints their results
- *       Installs signal handlers for SIGINT and SIGTERM to request graceful
- *       shutdown of the test run instead of abrupt termination.
- *       When argv[1] is SIGCOUNT_CHILD_ARG, runs as the SIGINT-counting
- *       command of the signal-forwarding test instead of the suite.
- *       When argv[1] is FORWARD_CHILD_ARG, runs as the out-of-group command
- *       of the forwarding fallback test instead of the suite.
- */
-
-/**
  * @brief Test that a child ignoring SIGTERM is escalated to SIGKILL
+ *
  * @note collect_child_exit_status() arms the SIGKILL escalation only once a
  *       termination request has been forwarded (signal_forwarded != 0); a
  *       command that is merely still running is waited for, not killed. The
@@ -14740,7 +14960,8 @@ static void test_child_wait_sigkill_escalation(void) {
 
 /**
  * @brief Test that collect_child_exit_status() resumes the child before
- *        bailing out on a get_current_time() failure (BUG-019)
+ *        bailing out on a get_current_time() failure
+ *
  * @note The clock seam is forced to fail. On that path the only signal the
  *       function must emit is a SIGCONT to child_pid; with the seam active no
  *       real signal is delivered, so we assert on the recorded log. Without
@@ -14795,6 +15016,7 @@ static void test_child_wait_resumes_on_clock_failure(void) {
 
 /**
  * @brief The SIGKILL escalation must fire once, not once per poll (S5)
+ *
  * @note Nothing latched the escalation, so every 50 ms poll after the timeout
  *       sent SIGKILL again to the child's process group: stale deliveries for
  *       the whole window in which the child has exited but is not reaped yet
@@ -14804,10 +15026,10 @@ static void test_child_wait_resumes_on_clock_failure(void) {
  *
  *       The clock and the sleeps are virtual, so the timeout is crossed after
  *       ~100 cheap polls instead of five real seconds, and kill() is only
- *       recorded.  The child watches that log and leaves shortly after the
+ *       recorded. The child watches that log and leaves shortly after the
  *       first SIGKILL, which gives the loop plenty of further polls in which
  *       to repeat itself if the latch is missing; one is what it must settle
- *       for.  Verified by mutation: sending on every poll makes the count
+ *       for. Verified by mutation: sending on every poll makes the count
  *       much greater than one.
  */
 static void test_child_wait_escalates_sigkill_once(void) {
@@ -14906,12 +15128,13 @@ static void test_child_wait_escalates_sigkill_once(void) {
 
 /**
  * @brief Wait for a child to have exited, and leave it unreaped
+ *
  * @param pid PID of a child of this process
  * @note Waiting is what makes test_child_wait_reaps_child_on_clock_failure()
  *       meaningful: the reap it exercises is deliberately non-blocking (T2),
  *       so it can only collect a child that has already become a zombie.
  *       The wait therefore has to observe a real state change and must not
- *       consume the child itself.  EOF on a pipe observes neither: the child
+ *       consume the child itself. EOF on a pipe observes neither: the child
  *       can close its end a moment before it exits, long enough to lose that
  *       race under valgrind.
  *
@@ -14920,7 +15143,7 @@ static void test_child_wait_escalates_sigkill_once(void) {
  *       those options export neither the options nor waitid() itself, so
  *       Linux is served by the 'Z' state in /proc/[pid]/stat and every other
  *       platform by a wait long enough for a child that has already called
- *       _exit().  Neither branch reaps anything.
+ *       _exit(). Neither branch reaps anything.
  */
 static void await_child_exit(pid_t pid) {
 #if defined(__linux__)
@@ -14959,18 +15182,19 @@ static void await_child_exit(pid_t pid) {
 
 /**
  * @brief collect_child_exit_status() must reap the child it gives up on (S4)
+ *
  * @note The three get_current_time() failure paths used to call exit() out of
  *       this function, so neither run_command_mode() nor run_pid_or_exe_mode()
  *       ever saw a return value: their own diagnosis and exit status were
- *       skipped and their cleanup never ran.  They now return EXIT_FAILURE,
+ *       skipped and their cleanup never ran. They now return EXIT_FAILURE,
  *       which is only safe because the child is collected first -- returning
  *       while leaving it unreaped would be a zombie, which AGENTS.md forbids.
  *
  *       The reap is deliberately non-blocking until something has asked the
  *       child to stop (T2), so it can only collect a child that has already
- *       gone.  The rendezvous below therefore lets the child exit first, and
+ *       gone. The rendezvous below therefore lets the child exit first, and
  *       the reap still has to collect it: waitpid() afterwards must find
- *       nothing left.  A child that is left running instead is the subject
+ *       nothing left. A child that is left running instead is the subject
  *       of test_child_wait_reap_does_not_block_before_quit().
  *       Verified by mutation: dropping the reap makes the child zombie and
  *       the ECHILD assertion fail.
@@ -15017,14 +15241,15 @@ static void test_child_wait_reaps_child_on_clock_failure(void) {
 
 /**
  * @brief The bail-out reap must not block before anything asked for it (T2)
+ *
  * @note collect_child_exit_status() gives up on its very first
  *       get_current_time() failure, at a point where nothing has asked the
- *       child to stop.  Waiting for it there would turn a nearly unreachable
+ *       child to stop. Waiting for it there would turn a nearly unreachable
  *       error branch into a hang: "cpulimit -l 50 -- sleep 100000" would
- *       simply wait for the sleep to end.  The child below is still running,
+ *       simply wait for the sleep to end. The child below is still running,
  *       which is exactly the case a blocking wait would get stuck on, so the
  *       reap has to take the single non-blocking answer and leave the child
- *       to the caller.  Counting the two waitpid() forms is what proves it,
+ *       to the caller. Counting the two waitpid() forms is what proves it,
  *       and needs no timing assumption.
  *       Verified by mutation: blocking there makes the call wait for the
  *       child's own long sleep instead of returning.
@@ -15070,12 +15295,13 @@ static void test_child_wait_reap_does_not_block_before_quit(void) {
 
 /**
  * @brief The bail-out reap must not block inside the polling loop either (T2)
+ *
  * @note The second failure path sits in the polling loop, on a child that has
  *       not changed state yet and has still not been told to stop: the quit
  *       signal is only forwarded further down, and the caller need not have
- *       forwarded it either (signal_forwarded is 0 here).  Blocking there has
+ *       forwarded it either (signal_forwarded is 0 here). Blocking there has
  *       the same consequence as at the top of the function, so the reap has
- *       to stay non-blocking.  The clock seam is made to fail on the second
+ *       to stay non-blocking. The clock seam is made to fail on the second
  *       call only, which is what steers the run into this path instead of the
  *       one at the top of the function.
  *       Verified by mutation: blocking there makes the call wait for the
@@ -15126,6 +15352,7 @@ static void test_child_wait_reap_does_not_block_in_poll(void) {
 
 /**
  * @brief Test that sleep_timespec() sleeps accurately despite an interruption
+ *
  * @note A signal interrupts the underlying clock_nanosleep()/nanosleep(). The
  *       sleep must still honor the full requested duration: the unslept
  *       remainder is resumed so the duty cycle is never cut short. The child
@@ -15217,6 +15444,7 @@ static void test_sleep_timespec_accurate_after_eintr(void) {
 
 /**
  * @brief Run the CLI module tests
+ *
  * @note Grouped in a helper rather than inlined in main() so that main()
  *       stays under the clang-tidy readability-function-size threshold; the
  *       suite had grown past it one test at a time.
@@ -15255,6 +15483,9 @@ static void run_cli_tests(void) {
 
 /**
  * @brief SIGCONT handler for the atexit victim: leaves at once
+ *
+ * @param sig Signal number that triggered the handler
+ *
  * @note Runs in the victim child only. _exit() is async-signal-safe, so the
  *       handler stays usable from a signal context.
  */
@@ -15265,6 +15496,7 @@ static void atexit_victim_on_sigcont(int sig) {
 
 /**
  * @brief Victim child that only leaves once it is continued
+ *
  * @note Suspended by the driver below. It never gets a chance to run its
  *       timeout loop while stopped, so a victim that is still stopped when
  *       the driver has exited proves no SIGCONT ever arrived.
@@ -15294,17 +15526,10 @@ static void atexit_victim_child(void) {
 }
 
 /**
- * @brief Test that limit_process() resumes a stopped group on its error path
- * @note The group is built and a member is stopped on the first cycle; the
- *       very next scan is forced to fail (update_process_set() returns -1 via
- *       the seam). limit_process() must then break its loop and run its own
- *       cleanup, which sends SIGCONT to the still-stopped member -- no atexit,
- *       and no exit() left in the loop that would strand the process. The
- *       victim leaves as soon as it is continued, so a victim still stopped
- *       afterwards means the cleanup never ran.
- */
-/**
  * @brief Driver child: run limit_process() until its scan fails, then exit
+ *
+ * @param victim PID of the group member the driver stops and reaps
+ *
  * @note Never returns. It forces update_process_set() to fail after one
  *       successful scan (which already stopped the victim) and lets
  *       limit_process()'s own cleanup resume the group before returning; the
@@ -15321,6 +15546,17 @@ static void loop_exit_driver_child(pid_t victim) {
     _exit(0);
 }
 
+/**
+ * @brief Test that limit_process() resumes a stopped group on its error path
+ *
+ * @note The group is built and a member is stopped on the first cycle; the
+ *       very next scan is forced to fail (update_process_set() returns -1 via
+ *       the seam). limit_process() must then break its loop and run its own
+ *       cleanup, which sends SIGCONT to the still-stopped member -- no atexit,
+ *       and no exit() left in the loop that would strand the process. The
+ *       victim leaves as soon as it is continued, so a victim still stopped
+ *       afterwards means the cleanup never ran.
+ */
 static void test_process_set_resumes_stopped_on_loop_exit(void) {
     pid_t victim, driver, waited;
     int status, resumed, victim_status, i;
@@ -15367,13 +15603,16 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
 
 /**
  * @brief limit_process() must report that limiting stopped on a bad scan (S2)
+ *
+ * @param write_fd Write end of the pipe the child's stderr is redirected to
+ *
  * @note A failed update_process_set() inside the control loop only broke out
- *       of it.  The cleanup then resumed the group and limit_process()
+ *       of it. The cleanup then resumed the group and limit_process()
  *       returned LIMIT_PROCESS_OK, so command mode printed nothing and passed
  *       the command's own exit status up: a run that looks successful and
- *       stopped limiting seconds after it started.  The fix prints a
+ *       stopped limiting seconds after it started. The fix prints a
  *       diagnostic and returns LIMIT_PROCESS_SCAN_FAILED, which callers can
- *       tell from a real success.  The second scan is forced to fail through
+ *       tell from a real success. The second scan is forced to fail through
  *       the seam and the child's stderr is captured, so both halves are
  *       asserted: the return value drives the child's exit status and the
  *       message is read back from the pipe.
@@ -15387,7 +15626,7 @@ static void scan_failure_driver_child(int write_fd) {
 
     /*
      * Do all setup (including the malloc and its assert) before the stderr
-     * redirect.  assert() can invoke a non-returning handler on failure,
+     * redirect. assert() can invoke a non-returning handler on failure,
      * so an assert placed after dup2() would leave the redirected
      * descriptor open on that path and the analyser would flag a leak;
      * before dup2() there is no descriptor to leak yet.
@@ -15409,9 +15648,9 @@ static void scan_failure_driver_child(int write_fd) {
 
     /*
      * Redirect stderr to the pipe so the child's diagnostics reach the
-     * parent's capture buffer.  The dup2'd descriptor is closed explicitly
+     * parent's capture buffer. The dup2'd descriptor is closed explicitly
      * before the child leaves via _exit(); the process also releases every
-     * descriptor on exit.  The redirect happens after all setup (including
+     * descriptor on exit. The redirect happens after all setup (including
      * the malloc/assert above) so an early abort there cannot leak a still-
      * open redirected descriptor.
      */
@@ -15486,6 +15725,7 @@ static void test_limit_process_reports_scan_failure(void) {
 
 /**
  * @brief Drive non-lazy mode over a target whose scans keep failing
+ *
  * @param write_fd Write end of the pipe the child's stderr is redirected to
  * @param announce_fd Where to announce that a scan failure was observed
  * @param go_fd Read end of the barrier that holds the run once announced
@@ -15493,7 +15733,7 @@ static void test_limit_process_reports_scan_failure(void) {
  *
  * The first cycle succeeds and every scan after it fails, so the run keeps
  * ending an attempt with LIMIT_PROCESS_SCAN_FAILED and, in non-lazy mode,
- * keeps re-attaching.  Parking on a wait is what lets a test observe a run
+ * keeps re-attaching. Parking on a wait is what lets a test observe a run
  * that is still retrying and then end it deterministically with a signal,
  * instead of depending on a retry bound to terminate the child.
  *
@@ -15508,7 +15748,7 @@ static void pid_mode_retry_driver_child(int write_fd, int announce_fd,
 
     /*
      * Do all setup (malloc, assert, cfg, signal handlers, seam) before the
-     * stderr redirect.  assert() can invoke a non-returning handler on
+     * stderr redirect. assert() can invoke a non-returning handler on
      * failure, so an assert placed after dup2() would leave the redirected
      * descriptor open on that path and the analyser would flag a leak.
      */
@@ -15547,9 +15787,9 @@ static void pid_mode_retry_driver_child(int write_fd, int announce_fd,
 
     /*
      * Redirect stderr to the pipe so the child's diagnostics reach the
-     * parent's capture buffer.  The dup2'd descriptor is closed explicitly
+     * parent's capture buffer. The dup2'd descriptor is closed explicitly
      * before the child leaves via _exit(); the process also releases every
-     * descriptor on exit.  The redirect happens after all setup (including
+     * descriptor on exit. The redirect happens after all setup (including
      * the malloc/assert above) so an early abort there cannot leak a still-
      * open redirected descriptor.
      */
@@ -15606,7 +15846,7 @@ static void test_pid_mode_retries_after_scan_failure(void) {
     /*
      * The barrier is the proof: it sits on the wait that follows the fourth
      * attempt, which a run that stopped at the first bad scan would never
-     * reach -- the announcement read would return 0 instead.  The parent then
+     * reach -- the announcement read would return 0 instead. The parent then
      * ends the run the only way an unbounded retry can be ended.
      */
     alarm(30);
@@ -15653,14 +15893,15 @@ static void test_pid_mode_retries_after_scan_failure(void) {
 /**
  * @brief The per-cycle scan diagnostic appears once per streak, not once per
  *        retry
+ *
  * @note Non-lazy mode re-resolves the target and retries a failed scan every
  *       two seconds for as long as the run lasts, so a diagnostic printed on
  *       every attempt would repeat the same line indefinitely and bury
  *       whatever followed -- notably the stranded-process hints that name the
- *       PID to recover by hand.  It is reported only on the first failure of a
- *       streak.  This drives the same run as the retry test above, parks on
+ *       PID to recover by hand. It is reported only on the first failure of a
+ *       streak. This drives the same run as the retry test above, parks on
  *       the wait that follows the fourth attempt, and counts the diagnostic in
- *       the captured stderr.  Verified by mutation: removing the throttle
+ *       the captured stderr. Verified by mutation: removing the throttle
  *       makes every attempt report and this assertion fail.
  */
 static void test_scan_failure_diagnostic_reported_once(void) {
@@ -15735,24 +15976,16 @@ static void test_scan_failure_diagnostic_reported_once(void) {
 
 /**
  * @brief Drive non-lazy mode through a scripted run of scan failures
- * @param write_fd Write end of the pipe the child's stderr is redirected to
  *
- * Script: ten scan failures, one run that limits to completion, ten more
- * failures, and then the last entry repeats forever.  The child reports how
- * many limit_process() calls it served, which is how the parent tells a
- * reset streak from a lifetime one.
- */
-/**
- * @brief Drive non-lazy mode through a scripted run of scan failures
  * @param write_fd Write end of the pipe the child's stderr is redirected to
  * @param announce_fd Where to announce that the script has been consumed
  * @param go_fd Read end of the barrier that holds the run once announced
  *
  * Script: ten scan failures, one run that limits to completion, ten more
- * failures.  The child reports how many limit_process() calls the run made,
+ * failures. The child reports how many limit_process() calls the run made,
  * and parks on the wait that follows the script, so a test can assert on the
  * counts and on the diagnostics without depending on a retry bound to end
- * the run.  Calling this function never returns.
+ * the run. Calling this function never returns.
  */
 static void scan_streak_driver_child(int write_fd, int announce_fd, int go_fd) {
     struct cpulimit_cfg cfg;
@@ -15789,7 +16022,7 @@ static void scan_streak_driver_child(int write_fd, int announce_fd, int go_fd) {
     /*
      * Park on the wait that follows the last scripted attempt: by then the
      * completed run has reset the streak and the ten failures after it have
-     * been served.  The seam clock makes those waits cost nothing.
+     * been served. The seam clock makes those waits cost nothing.
      */
     seam_hook_sleep = 1;
     seam_sleep_call = seam_limit_status_script_len + 1;
@@ -15812,7 +16045,7 @@ static void scan_streak_driver_child(int write_fd, int announce_fd, int go_fd) {
      * The array is indexed by the call counter before it is incremented, so
      * entry 10 belongs to call 11 -- the completed run, whose streak is
      * therefore non-zero -- and entry 11 belongs to call 12, the first
-     * failure after it, whose streak must be zero again.  That is the reset.
+     * failure after it, whose streak must be zero again. That is the reset.
      */
     fprintf(stderr, "CALLS=%d MID=%u AFTERRESET=%u\n", seam_limit_process_calls,
             seam_limit_prior_failures[10], seam_limit_prior_failures[11]);
@@ -15822,16 +16055,17 @@ static void scan_streak_driver_child(int write_fd, int announce_fd, int go_fd) {
 
 /**
  * @brief A completed run starts a new scan-failure streak
+ *
  * @note A target whose scanning fails now and then is not the same as one
  *       that can never be scanned, so the streak the diagnostic is throttled
- *       by must restart once a run limits to completion.  The script is ten
- *       failures, one success, ten more failures.  limit_process() is
+ *       by must restart once a run limits to completion. The script is ten
+ *       failures, one success, ten more failures. limit_process() is
  *       scripted here, so the streak is observed directly: the seam records
  *       the value the caller passed on each call, and the assertions are that
  *       it was still non-zero mid-streak and zero again on the first failure
- *       after the completed run.  The child parks on the wait that follows
+ *       after the completed run. The child parks on the wait that follows
  *       the script, which shows the run kept retrying instead of stopping on
- *       a failed scan.  Verified by mutation: dropping the reset leaves the
+ *       a failed scan. Verified by mutation: dropping the reset leaves the
  *       post-success value at 10, and ending the run on the first failure
  *       makes the barrier unreachable.
  */
@@ -15904,8 +16138,7 @@ static void test_pid_mode_scan_failure_streak_resets(void) {
     assert(exit_code == EXIT_SUCCESS);
     /* The whole script was served: nothing gave up on the way through it. */
     assert(calls >= 21);
-    /* Mid-streak the throttle sees a live streak, and the completed run
-     * ends it: the next failure starts counting from zero again. */
+    /* ends it: the next failure starts counting from zero again. */
     assert(mid > 0);
     assert(after_reset == 0);
     assert(strstr(capture, "Giving up") == NULL);
@@ -15914,14 +16147,17 @@ static void test_pid_mode_scan_failure_streak_resets(void) {
 
 /**
  * @brief Lazy mode must fail when limiting stops on a bad scan (T1)
+ *
+ * @param write_fd Write end of the pipe the child's stderr is redirected to
+ *
  * @note LIMIT_PROCESS_SCAN_FAILED deliberately is not a failure for
  *       non-lazy mode, which re-resolves its target and re-attaches.
  *       Lazy mode (-p, or -e with -z) has no such second chance: it ends
  *       after one attempt, so a limit that stopped mid-run is final and
  *       the target stays unlimited while cpulimit leaves successfully --
- *       the silent success S2 exists to remove.  The driver runs
+ *       the silent success S2 exists to remove. The driver runs
  *       run_pid_or_exe_mode() with lazy_mode set over a target whose first
- *       cycle works and whose second scan fails.  No signal is sent, so
+ *       cycle works and whose second scan fails. No signal is sent, so
  *       the child has to finish on its own and with EXIT_FAILURE: a run
  *       that merely fell out of the loop with EXIT_SUCCESS fails here.
  *       Verified by mutation: letting the scan failure fall through makes
@@ -15934,7 +16170,7 @@ static void lazy_mode_scan_failure_driver_child(int write_fd) {
     int err_fd;
 
     /*
-     * Do all setup before the stderr redirect.  assert() can invoke a
+     * Do all setup before the stderr redirect. assert() can invoke a
      * non-returning handler on failure, so an assert placed after dup2()
      * would leave the redirected descriptor open on that path.
      */
@@ -15965,7 +16201,7 @@ static void lazy_mode_scan_failure_driver_child(int write_fd) {
 
     /*
      * Redirect stderr to the pipe so the child's diagnostics reach the
-     * parent's capture buffer.  The dup2'd descriptor is closed explicitly
+     * parent's capture buffer. The dup2'd descriptor is closed explicitly
      * before the child leaves via _exit().
      */
     fflush(stderr);
@@ -16038,6 +16274,7 @@ static void test_lazy_mode_fails_after_scan_failure(void) {
 
 /**
  * @brief Run one command-mode run whose limit_process() reports a status
+ *
  * @param write_fd Where the run's stderr goes
  * @param limit_status Status the stubbed limit_process() reports
  *
@@ -16071,7 +16308,7 @@ static void command_status_driver_child(int write_fd, int limit_status) {
 
     /*
      * Redirect stderr to the pipe so the child's diagnostics reach the
-     * parent's capture buffer.  The dup2'd descriptor is closed explicitly
+     * parent's capture buffer. The dup2'd descriptor is closed explicitly
      * before the child leaves via _exit().
      */
     fflush(stdout);
@@ -16093,6 +16330,7 @@ static void command_status_driver_child(int write_fd, int limit_status) {
 /**
  * @brief Run one command-mode run with a scripted limit_process() status and
  *        check which summary it prints
+ *
  * @param limit_status Status the stubbed limit_process() reports
  * @param must_appear Substring the run's summary has to contain
  * @param forbidden_one Substring it must not contain
@@ -16157,11 +16395,12 @@ static void check_command_mode_summary(int limit_status,
 
 /**
  * @brief Command mode must not claim the limit was never applied (T3)
+ *
  * @note LIMIT_PROCESS_SCAN_FAILED means limiting did run and only stopped when
  *       a scan failed, so "CPU limit could not be applied" is simply wrong: it
  *       sends anyone debugging the run after permissions or target resolution
  *       instead of the failed scan, and hides the fact that the first cycles
- *       really were throttled.  Verified by mutation: printing the old wording
+ *       really were throttled. Verified by mutation: printing the old wording
  *       for every non-OK status makes the "could not be applied" assertion
  *       fail.
  */
@@ -16173,12 +16412,13 @@ static void test_command_mode_reports_stopped_limiting(void) {
 /**
  * @brief Command mode must report a stranded member as a repair owed, not as a
  *        limit that was never applied
+ *
  * @note The group was built and limiting did run; only the shutdown resume
- *       failed, so a member may be stopped still.  "CPU limit could not be
+ *       failed, so a member may be stopped still. "CPU limit could not be
  *       applied" would send the operator after permissions or target
  *       resolution instead of the PIDs named above the summary, and "limiting
  *       stopped early" would hide that the run did throttle its target and
- *       stopped for an unrelated reason.  Verified by mutation: reporting
+ *       stopped for an unrelated reason. Verified by mutation: reporting
  *       LIMIT_PROCESS_STRANDED with the wording of the never-applied case
  *       makes the assertions fail.
  */
@@ -16189,10 +16429,13 @@ static void test_command_mode_reports_stranded_run(void) {
 
 /**
  * @brief Run one lazy run_pid_or_exe_mode() iteration, counting its resumes
+ *
  * @param cfg Configuration to run with
  * @param frames One process per frame, served in order by the iterator seam
  * @param frame_count Number of frames
  * @param run_result Optional out parameter for the function's return value
+ * @param start_before Start time the iterator seam reports on the first read
+ * @param start_after Start time the iterator seam reports on the second read
  * @return Number of SIGCONT calls recorded for the target
  *
  * lazy_mode keeps this to a single iteration and the hooked limit_process()
@@ -16216,8 +16459,7 @@ static int seam_count_closing_sigcont(const struct cpulimit_cfg *cfg,
     seam_alive_count = 1;
     seam_hook_limit_process = 1;
     seam_limit_process_status = LIMIT_PROCESS_OK;
-    /* Drive the closing-resume start-time comparison off the dedicated queue,
-     * independently of the iterator frames. */
+    /* independently of the iterator frames. */
     seam_set_start_times(start_before, start_after);
 
     result = run_pid_or_exe_mode(cfg);
@@ -16233,12 +16475,13 @@ static int seam_count_closing_sigcont(const struct cpulimit_cfg *cfg,
 
 /**
  * @brief -p must not resume a PID recycled while limiting was running (T4)
+ *
  * @note limit_process() blocks for a long time, and the closing SIGCONT went
- *       to whatever that PID had become by then.  SIGCONT resumes a stopped
+ *       to whatever that PID had become by then. SIGCONT resumes a stopped
  *       process, so the damage is waking a process somebody else is holding
- *       stopped: job control, a debugger, another cpulimit instance.  The
+ *       stopped: job control, a debugger, another cpulimit instance. The
  *       target's start time is now recorded before limiting and compared
- *       afterwards, so a recycled PID is recognised and left alone.  The
+ *       afterwards, so a recycled PID is recognised and left alone. The
  *       iterator seam serves a different start time for the second read and
  *       the kill() seam counts the resumes.
  *       Verified by mutation: sending the resume unconditionally makes the
@@ -16276,12 +16519,13 @@ static void test_pid_mode_skips_resume_when_pid_reused(void) {
 
 /**
  * @brief An unknown start time must not suppress the closing resume (T4)
+ *
  * @note The recycle check may only skip the resume when it can prove the PID
- *       changed hands.  A platform that cannot report start times cannot
+ *       changed hands. A platform that cannot report start times cannot
  *       prove anything, and the reason the unconditional resume exists at all
  *       is that a stopped target may be invisible to the iterator (macOS
  *       10.7) or left untraversed when update_process_set() fails: skipping
- *       it there strands a stopped process.  So the fallback must survive.
+ *       it there strands a stopped process. So the fallback must survive.
  *       This is also the control for the test above -- the same scripted run
  *       does resume when nothing proves a recycle.
  */
@@ -16316,10 +16560,11 @@ static void test_pid_mode_resumes_when_start_time_unknown(void) {
 
 /**
  * @brief -e must still resume a target that only changed its name
+ *
  * @note A name is not an identity signal: an exec() rewrites argv[0] without
  *       changing the process, so a re-exec'd target must not be mistaken for a
- *       hand-off and left stopped forever.  Both modes judge identity by the
- *       start time instead, the same signal -p relies on.  Every frame here
+ *       hand-off and left stopped forever. Both modes judge identity by the
+ *       start time instead, the same signal -p relies on. Every frame here
  *       shares start time
  *       100.0 while the last frame's command is changed ("other") to simulate
  *       the exec; because the start time is unchanged the resume must happen.
@@ -16362,12 +16607,13 @@ static void test_exe_mode_resumes_when_only_name_changed(void) {
 
 /**
  * @brief -e must skip the closing resume only when the PID was recycled
+ *
  * @note The -p behaviour holds for the genuine recycle: when the start time
  *       read after limit_process() differs from the one recorded before it, the
  *       PID changed hands and resuming it would wake a process somebody else is
- *       holding stopped.  Only a changed start time triggers this (the queue is
+ *       holding stopped. Only a changed start time triggers this (the queue is
  *       seeded with 100.0 then 200.0); a name change alone no longer does,
- *       which the test above exercises.  Seeding the queue makes the decision
+ *       which the test above exercises. Seeding the queue makes the decision
  *       deterministic instead of depending on iterator-frame ordering.
  *       Verified by mutation: making the two start times equal makes it 1.
  */
@@ -16383,8 +16629,7 @@ static void test_exe_mode_skips_resume_when_pid_reused(void) {
     cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
-    /* The frames only drive the iterator seam (name lookup + stale check); the
-     * closing start-time comparison is seeded on the dedicated queue below. */
+    /* closing start-time comparison is seeded on the dedicated queue below. */
     frames = (struct seam_proc *)malloc(3 * sizeof(*frames));
     assert(frames != NULL);
     memset(frames, 0, 3 * sizeof(*frames));
@@ -16409,6 +16654,7 @@ static void test_exe_mode_skips_resume_when_pid_reused(void) {
 
 /**
  * @brief Test that the tracked group never contains cpulimit itself
+ *
  * @note With --include-children the target may be an ancestor of this very
  *       process, and is_child_of() then reports this process as a group
  *       member like any other descendant. Suspending it would freeze the
@@ -16462,6 +16708,7 @@ static void test_process_set_excludes_self_from_group(void) {
 
 /**
  * @brief Test that a group whose list is gone still resumes recorded PIDs
+ *
  * @note Processes that left the group are resumed from the record kept by
  *       record_stopped_pid(), not from proc_list, so dropping the list must
  *       not drop their SIGCONT with it. The resumption used to happen after
@@ -16533,6 +16780,7 @@ static void test_process_set_resumes_without_proc_list(void) {
 
 /**
  * @brief Test that a resume which cannot be delivered is reported
+ *
  * @note Resuming a process that has left the group is its last chance: the
  *       record is dropped afterwards, so a failure there used to leave the
  *       process suspended with nothing printed anywhere. The failure is
@@ -16604,6 +16852,7 @@ static void test_process_set_reports_failed_resume(void) {
 
 /**
  * @brief A member whose SIGCONT failed must stay recorded as suspended (S3)
+ *
  * @note resume_stopped_pids() skips members that are still in proc_list --
  *       the caller resumes them itself -- but then destroys the whole record
  *       list anyway. So when that member's own SIGCONT fails, it is left
@@ -16681,7 +16930,8 @@ static void test_process_set_rerecords_member_failed_resume(void) {
 }
 
 /**
- * @brief BUG-016: a recycled PID must not receive a deferred SIGCONT
+ * @brief a recycled PID must not receive a deferred SIGCONT
+ *
  * @note record_stopped_pid() stores the suspended process's start time.
  *       When that PID has left the group, resume_stopped_pids() re-queries
  *       its start time and skips the resume if a different process now
@@ -16729,7 +16979,7 @@ static void test_process_set_resume_skips_recycled_pid(void) {
     /*
      * resume_stopped_pids() re-queries the PID's start time through the
      * get_process_start_time() seam, which keeps that read on a dedicated
-     * queue decoupled from the iterator seam.  Seed it with the
+     * queue decoupled from the iterator seam. Seed it with the
      * replacement's start time so the recycle is detected and the resume
      * skipped.
      */
@@ -16752,10 +17002,11 @@ static void test_process_set_resume_skips_recycled_pid(void) {
 
 /**
  * @brief init_process_set() must return -1 (not exit) when a build step
- *        fails (BUG-062)
+ *        fails
+ *
  * @note The same never-exit contract covers the table allocation inside
  *       init_process_set(): a -1 there must arrive with the partially
- *       built set cleaned up.  The bucket calloc itself cannot be made to
+ *       built set cleaned up. The bucket calloc itself cannot be made to
  *       fail from outside (fixed 2048 buckets, no allocation seam), so
  *       this test drives the next failure source in the same build
  *       sequence -- the initial scan -- via seam_init_fails and asserts
@@ -16779,12 +17030,13 @@ static void test_process_set_init_fails_cleanly_on_scan_error(void) {
 }
 
 /**
- * @brief BUG-052: resuming a recorded PID whose process has exited must be
+ * @brief resuming a recorded PID whose process has exited must be
  *        silent
+ *
  * @note resume_stopped_pids() gives PIDs that left the group while
- *       suspended a last SIGCONT.  When that process has exited, kill()
+ *       suspended a last SIGCONT. When that process has exited, kill()
  *       fails with ESRCH: nothing is suspended any more, so warning "It
- *       may remain stopped" would be pure fiction.  The test suspends a
+ *       may remain stopped" would be pure fiction. The test suspends a
  *       real target, makes it exit, rescans the (now empty) group and
  *       runs the resume round: stderr must stay clean and the call must
  *       not report a failure.
@@ -16884,8 +17136,9 @@ static void test_process_set_resume_silent_when_pid_gone(void) {
 }
 
 /**
- * @brief BUG-017: find_process_by_name() must not abort on iterator-init
+ * @brief find_process_by_name() must not abort on iterator-init
  * failure
+ *
  * @note On a fatal error (here the process iterator cannot be initialized)
  *       find_process_by_name() used to call exit(EXIT_FAILURE). It now returns
  *       0 ("not found") so the caller (the -e non-lazy loop) can degrade. This
@@ -16924,6 +17177,7 @@ static void test_find_process_by_name_survives_iterator_init_failure(void) {
 
 /**
  * @brief Test that a target whose PID was recycled is no longer tracked
+ *
  * @note The old heuristic compared cpu_time only, so a replacement that had
  *       already burned more CPU than the original looked legitimate and was
  *       suspended for as long as cpulimit ran. The start time recorded when
@@ -16997,20 +17251,18 @@ static void test_process_set_rejects_recycled_target_pid(void) {
 
 /**
  * @brief Run the process-set module tests
+ *
  * @note Grouped in a helper for the same reason as run_cli_tests(): the
  *       driver is back over the readability-function-size threshold now that
  *       this module has grown past thirty tests.
  */
-/* Forward declaration so the RUN_TEST registration below can reference the
- * stopped_pids de-duplication test, which is defined later (next to main()). */
+/* stopped_pids de-duplication test, which is defined later (next to main()). */
 static void test_stopped_pids_record_does_not_duplicate(void);
 
-/* Forward declaration so the RUN_TEST registration below can reference the
- * combined scan-failure test, which is defined later (next to main()). */
+/* combined scan-failure test, which is defined later (next to main()). */
 static void test_limit_process_scan_failed_and_stranded(void);
 
-/* Forward declaration so the RUN_TEST registration below can reference the reap
- * test, which is defined later (next to main()). */
+/* test, which is defined later (next to main()). */
 static void test_reap_before_error_return_does_not_block(void);
 
 static void run_process_set_module_tests(void) {
@@ -17081,13 +17333,14 @@ static void run_process_set_module_tests(void) {
 
 /**
  * @brief Drive the benign-then-severe resume gate and capture its warnings
+ *
  * @param write_fd Write end of the pipe the child's stderr is redirected to
  *
  * Two members are built through the iterator seam so the run is fully
  * scripted, SIGCONT is made to fail with EPERM while SIGSTOP still succeeds,
  * and the control phases are replayed by hand: a SIGCONT while nothing is
  * suspended (benign), a SIGSTOP that suspends them, and a second SIGCONT once
- * they are suspended (severe).  The warnings land on the pipe for the parent.
+ * they are suspended (severe). The warnings land on the pipe for the parent.
  */
 static void resume_gate_driver_child(int write_fd) {
     struct process_set proc_set;
@@ -17140,14 +17393,15 @@ static void resume_gate_driver_child(int write_fd) {
 
 /**
  * @brief The resume warning must report severity, not just one gate (U2)
+ *
  * @note A member can fail a SIGCONT before this group ever suspends it (a
  *       benign, "it has been running all along" failure) and then fail again
- *       after suspension -- the emergency one.  Gating both on the same flag
+ *       after suspension -- the emergency one. Gating both on the same flag
  *       (cont_warned) meant the second, actionable message -- the PID to
  *       'kill -CONT' -- was never printed, so two members both left suspended
- *       showed up as one generic "N processes" line with no PIDs.  The driver
+ *       showed up as one generic "N processes" line with no PIDs. The driver
  *       scripts exactly that: each of two members takes one benign then one
- *       severe failure, and the parent counts the distinct warnings.  A fourth
+ *       severe failure, and the parent counts the distinct warnings. A fourth
  *       SIGCONT round in the same severe episode must not add a third, which
  *       is the anti-spam property: four distinct warnings, no more.
  *       Verified by mutation: gating the severe message on cont_warned makes
@@ -17227,31 +17481,19 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
 }
 
 /**
- * @brief reap_child_before_error_return() must not block on a child ignoring
- *        the termination signal
- * @note The reap helper is non-blocking (WNOHANG), so an internal
- *       error branch can no longer hang on a child that ignores SIGTERM -- the
- *       forwarded signal is ineffective and this path skips the polling loop's
- *       SIGKILL escalation.  Fork a child that ignores SIGTERM and sleeps,
- *       drive the reap, and assert it returns well before the child would
- *       exit.  Restoring the old blocking waitpid() makes the call wait for the
- *       child, so the elapsed time would approach the sleep and the assertion
- *       would fail.  The still-running child is killed afterwards; under the
- *       fix it is only reparented to init when this process exits.
- */
-/**
  * @brief record_stopped_pid() must de-duplicate a re-recorded PID
+ *
  * @note record_stopped_pid() folds a second recording of the same PID
- *       into the existing entry instead of appending a duplicate.  Without it,
+ *       into the existing entry instead of appending a duplicate. Without it,
  *       the SIGSTOP round re-records a member whose SIGCONT failed in the
  *       prior round (S3) and leaves two entries for one suspension, which
- *       resume_stopped_pids() would then walk twice.  Both halves are checked
+ *       resume_stopped_pids() would then walk twice. Both halves are checked
  *       through the public interface, with no accessor of the module's
  *       internals: first that one entry survives, then that it carries the
  *       latest start time -- resume_stopped_pids() re-reads that time and
  *       skips a PID whose start time moved on, so an entry left at the first
- *       value would be read as recycled and never resumed.  The seam supplies
- *       the current start time and records every signal.  Verified by
+ *       value would be read as recycled and never resumed. The seam supplies
+ *       the current start time and records every signal. Verified by
  *       mutation: removing the fold leaves two entries, so the count
  *       assertion fails, and keeping the first start time instead of the
  *       latest leaves the resume skipped, so the signal count fails.
@@ -17300,15 +17542,16 @@ static void test_stopped_pids_record_does_not_duplicate(void) {
 /**
  * @brief limit_process() must report a failed scan and a stranded member as
  *        both rather than as a run that never limited
+ *
  * @note When a run both stopped on a failed scan and then failed to resume a
  *       member, returning LIMIT_PROCESS_ERROR made command mode describe it as
  *       "CPU limit could not be applied" -- the wording reserved for a group
  *       that was never built -- even though limiting demonstrably ran.
  *       LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED exists for exactly that
- *       combination.  Drive the real limit_process() with a CPU-burning child:
+ *       combination. Drive the real limit_process() with a CPU-burning child:
  *       let a few cycles run so the group really gets suspended, make the next
  *       scan fail, and make every SIGCONT fail, then assert the combined
- *       status.  Verified by mutation: returning LIMIT_PROCESS_ERROR whenever
+ *       status. Verified by mutation: returning LIMIT_PROCESS_ERROR whenever
  *       a member could not be resumed makes this assertion fail.
  */
 static void test_limit_process_scan_failed_and_stranded(void) {
@@ -17324,7 +17567,7 @@ static void test_limit_process_scan_failed_and_stranded(void) {
     seam_reset();
     /*
      * seam_active stays 0 so the real iterator finds the child; only the
-     * two failures below are injected.  The scan fails after enough cycles
+     * two failures below are injected. The scan fails after enough cycles
      * have run for the loop to have suspended the group, which is what
      * makes the later failed resume a stranded process rather than a benign
      * one.
@@ -17344,6 +17587,20 @@ static void test_limit_process_scan_failed_and_stranded(void) {
     seam_reset();
 }
 
+/**
+ * @brief reap_child_before_error_return() must not block on a child ignoring
+ *        the termination signal
+ *
+ * @note The reap helper is non-blocking (WNOHANG), so an internal
+ *       error branch can no longer hang on a child that ignores SIGTERM -- the
+ *       forwarded signal is ineffective and this path skips the polling loop's
+ *       SIGKILL escalation. Fork a child that ignores SIGTERM and sleeps,
+ *       drive the reap, and assert it returns well before the child would
+ *       exit. Restoring the old blocking waitpid() makes the call wait for the
+ *       child, so the elapsed time would approach the sleep and the assertion
+ *       would fail. The still-running child is killed afterwards; under the
+ *       fix it is only reparented to init when this process exits.
+ */
 static void test_reap_before_error_return_does_not_block(void) {
     pid_t child;
     struct timespec before, after;
@@ -17352,8 +17609,7 @@ static void test_reap_before_error_return_does_not_block(void) {
     child = fork();
     assert(child >= 0);
     if (child == 0) {
-        /* Ignore the termination signal and sleep long; the reap must not
-         * wait for this to finish. */
+        /* wait for this to finish. */
         signal(SIGTERM, SIG_IGN);
         sleep(30);
         _exit(0);
@@ -17375,6 +17631,20 @@ static void test_reap_before_error_return_does_not_block(void) {
     waitpid(child, &status, 0);
 }
 
+/**
+ * @brief Main test function
+ *
+ * @param argc Argument count
+ * @param argv Argument vector
+ * @return 0 on success
+ * @note Runs all test functions organized by module and prints their results
+ *       Installs signal handlers for SIGINT and SIGTERM to request graceful
+ *       shutdown of the test run instead of abrupt termination.
+ *       When argv[1] is SIGCOUNT_CHILD_ARG, runs as the SIGINT-counting
+ *       command of the signal-forwarding test instead of the suite.
+ *       When argv[1] is FORWARD_CHILD_ARG, runs as the out-of-group command
+ *       of the forwarding fallback test instead of the suite.
+ */
 int main(int argc, char *argv[]) {
     assert(argc >= 1);
     argv0 = argv[0];

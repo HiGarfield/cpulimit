@@ -31,18 +31,10 @@
 #include <stdlib.h>
 
 int main(int argc, char *argv[]) {
-    /*
-     * Configuration structure to store parsed command line arguments
-     * including target specification, CPU limit, and behavior flags.
-     */
     struct cpulimit_cfg cfg;
     int parse_result;
     int status;
 
-    /*
-     * Parse and validate command line arguments.
-     * Returns 0 on success, EXIT_FAILURE on error, -1 when help was shown.
-     */
     parse_result = parse_arguments(argc, argv, &cfg);
     if (parse_result != 0) {
         if (parse_result < 0) {
@@ -52,24 +44,11 @@ int main(int argc, char *argv[]) {
     }
 
     if (cfg.verbose) {
-        /*
-         * Check for potential Y2038 risk.
-         */
         check_y2038();
     }
 
-    /*
-     * Install signal handlers for SIGTERM, SIGINT, SIGQUIT, SIGHUP, and
-     * SIGPIPE to ensure graceful cleanup when the program is interrupted.
-     */
     configure_signal_handler();
 
-    /*
-     * Dispatch to the appropriate execution mode:
-     * - Command mode: fork and execute a user-specified command,
-     *   then limit its CPU usage
-     * - PID/exe mode: search for an existing process and limit its CPU usage
-     */
     if (cfg.command_mode) {
         status = run_command_mode(&cfg);
     } else {
@@ -80,7 +59,7 @@ int main(int argc, char *argv[]) {
      * A run can end without ever reaching the limiting loop, and those paths --
      * searching for a target that has not appeared yet, or reaping a command's
      * child after limiting stopped early -- would otherwise leave the shell
-     * prompt on the line the terminal's keyboard-quit echo is on.  Calling this
+     * prompt on the line the terminal's keyboard-quit echo is on. Calling this
      * unconditionally is safe: it writes nothing unless the quit came from the
      * keyboard on a terminal, and never more than one newline per run, so the
      * loop's own call takes care of the runs that do reach it.

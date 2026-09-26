@@ -34,46 +34,25 @@ extern "C" {
 
 /**
  * @brief Execute and monitor a user-specified command with CPU limiting
- * @param cfg Pointer to configuration structure containing command and options
  *
- * This function implements command execution mode (COMMAND [ARG]...):
- * 1. Forks a child process to execute the specified command
- * 2. Creates a new process group for the child
- * 3. Applies CPU limiting to the command and optionally its descendants
- * 4. Waits for command completion and exits with the child's exit status
- *
- * The parent process monitors the child and handles:
- * - Normal exit (returns child's exit code)
- * - Signal termination (returns 128 + signal number)
- * - Timeout after termination request (sends SIGKILL)
- *
+ * @param cfg Pointer to configuration with command and options
  * @return Exit status code; the caller is responsible for calling exit()
+ *
+ * Forks a child into its own process group, applies the limit, and waits for
+ * completion, sending SIGKILL after a termination-request timeout.
  */
 int run_command_mode(const struct cpulimit_cfg *cfg);
 
 /**
  * @brief Search for and limit an existing process by PID or executable name
- * @param cfg Pointer to configuration structure containing target specification
  *
- * This function implements PID/exe search mode (-p PID or -e EXE):
- * 1. Continuously searches for the target process
- * 2. When found, applies CPU limiting
- * 3. Behavior depends on lazy_mode flag:
- *    - lazy_mode=1: one attempt, then exit with a failure if the attempt did
- *      not end because the target terminated
- *    - lazy_mode=0: a watch that lasts as long as the run.  Every attempt
- *      ends by searching again, so nothing about the target ends it: not
- *      being started yet, exiting (while running or while suspended by this
- *      run), reappearing on a recycled PID, and refusing every signal all
- *      keep it looking, because the target can come back and must be limited
- *      again when it does.  What does end it is a failure of the scanning
- *      machinery (allocation, clock or process-iterator initialisation),
- *      after which nothing can be searched with, or an attempt that left a
- *      member stopped and needing repair by hand
- * 4. A target that turns out to be cpulimit itself is refused outright in
- *    both modes, with a failure exit status
- *
+ * @param cfg Pointer to configuration with the target specification
  * @return Exit status code; the caller is responsible for calling exit()
+ *
+ * In lazy mode one attempt is made and the program exits on any non-target
+ * exit. Otherwise it watches until a scan failure or a stranded member stops
+ * it; a target reappearing on a recycled PID is re-limited. cpulimit itself is
+ * always refused as a target.
  */
 int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg);
 

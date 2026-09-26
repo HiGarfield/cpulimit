@@ -37,6 +37,7 @@ extern "C" {
 /**
  * @def MAX(a, b)
  * @brief Evaluate to the maximum of two values
+ *
  * @param a First value to compare
  * @param b Second value to compare
  * @return The greater of a and b
@@ -50,6 +51,7 @@ extern "C" {
 /**
  * @def MIN(a, b)
  * @brief Evaluate to the minimum of two values
+ *
  * @param a First value to compare
  * @param b Second value to compare
  * @return The lesser of a and b
@@ -63,6 +65,7 @@ extern "C" {
 /**
  * @def CLAMP(x, low, high)
  * @brief Constrain a value to a specified range
+ *
  * @param x Value to constrain
  * @param low Minimum allowed value (inclusive)
  * @param high Maximum allowed value (inclusive)
@@ -75,15 +78,10 @@ extern "C" {
 #endif /* CLAMP */
 
 /**
- * @brief Attempt to increase the scheduling priority of the current process
+ * @brief Raise the scheduling priority of the current process
  *
- * Tries to set the process nice value to -20 (highest priority) to minimize
- * scheduling latency when controlling target processes. Iterates through
- * priority values from -20 upward until one succeeds, skipping levels that
- * are denied by permissions (RLIMIT_NICE may allow a value less negative
- * than PRIO_MIN even without root). Silently continues if no priority
- * improvement is possible; cpulimit can function at normal priority, just
- * with potentially higher latency.
+ * Iterates nice values from PRIO_MIN upward until one succeeds, skipping levels
+ * denied by permissions (RLIMIT_NICE), then best-effort real-time promotion.
  */
 void increase_priority(void);
 
@@ -102,6 +100,7 @@ void increase_priority(void);
 #if defined(CPULIMIT_IMPL_GETLOADAVG)
 /**
  * @brief Get system load averages (custom implementation for old uClibc)
+ *
  * @param loadavg Array to receive load average values
  * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
  * @return Number of samples retrieved (nelem), or -1 on error
@@ -126,21 +125,12 @@ int getloadavg_impl(double *loadavg, int nelem);
 
 /**
  * @brief Safely convert long to pid_t with overflow detection
+ *
  * @param long_pid Long value to convert to pid_t
  * @return The pid_t value on success, or -1 if long_pid < 0 or overflow occurs
  *
- * Validates that the long value can be safely converted to pid_t without
- * overflow. Returns -1 if the input is negative or if the conversion would
- * result in data loss due to pid_t having a smaller range than long on the
- * platform. This prevents incorrect PID values on systems where pid_t is
- * smaller than long (e.g., 32-bit pid_t with 64-bit long).
- *
- * @note The conversion uses implementation-defined behavior when the value
- *       cannot be represented in pid_t (C89 section 3.2.1.2). However, the
- *       round-trip check correctly detects overflow on all common platforms
- *       (Linux, macOS, FreeBSD) where pid_t is a signed integer type. This
- *       approach is preferred over no overflow checking, as there is no
- *       portable way to check pid_t limits at compile time in C89/POSIX.1-2001.
+ * @note The cast is implementation-defined when out of pid_t range, but the
+ *       round-trip check detects overflow on Linux, macOS and FreeBSD.
  */
 pid_t long_to_pid_t(long long_pid);
 

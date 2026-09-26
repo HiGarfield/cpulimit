@@ -49,21 +49,15 @@
 #endif
 
 /**
- * @brief Initialize a process iterator with specified filter criteria
+ * @brief Initialize a process iterator with the given filter
+ *
  * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL iter or filter and
- *         out-of-memory); this function does not call exit()
+ * @return 0 on success, -1 on failure (including NULL iter/filter or OOM);
+ *         this function does not call exit()
  *
- * This function prepares the iterator for process enumeration. The behavior
- * varies by platform:
- * - Linux: Opens /proc directory, may skip if filtering single process
- * - FreeBSD: Opens kvm descriptor, retrieves process snapshot if needed
- * - macOS: Retrieves process ID list snapshot, may skip if filtering single
- *          process
- *
- * The filter pointer is stored and must remain valid until
- * close_process_iterator() is called.
+ * @note The filter pointer is stored and must remain valid until
+ *       close_process_iterator() is called.
  */
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
@@ -143,6 +137,7 @@ int init_process_iterator(struct process_iterator *iter,
 
 /**
  * @brief Convert Mach time units to milliseconds
+ *
  * @param platform_time Time value in Mach absolute time units
  * @return Time in milliseconds
  *
@@ -160,7 +155,7 @@ static double platform_time_to_ms(double platform_time) {
         mach_timebase_info_data_t timebase_info;
         /*
          * mach_timebase_info() is documented to always succeed on Apple
-         * platforms.  Check the return value defensively and keep the
+         * platforms. Check the return value defensively and keep the
          * safe default (1.0) if it ever fails.
          */
         if (mach_timebase_info(&timebase_info) == KERN_SUCCESS) {
@@ -175,6 +170,7 @@ static double platform_time_to_ms(double platform_time) {
 
 /**
  * @brief Retrieve argv[0] for a process
+ *
  * @param pid Process ID to query
  * @param buf Buffer to store argv[0]
  * @param bufsize Size of the buffer in bytes (must be > 0)
@@ -202,17 +198,16 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 
     mib[2] = (int)pid;
 
-    /* Get the maximum argument size */
     size = sizeof(argmax);
     if (sysctl(mib_argmax, 2, &argmax, &size, NULL, 0) != 0 || argmax <= 0) {
         return -1;
     }
 
     /*
-     * KERN_PROCARGS2 layout is [int argc][argument data...].  The kernel
+     * KERN_PROCARGS2 layout is [int argc][argument data...]. The kernel
      * writes sizeof(int) bytes for argc plus up to argmax bytes of argument
      * data, so the buffer must be argmax + sizeof(int) to hold the full
-     * payload.  Allocating only argmax bytes would truncate the payload and
+     * payload. Allocating only argmax bytes would truncate the payload and
      * make sysctl() return ENOMEM, which would make get_proc_argv0() fail
      * for processes whose command line is longer than argmax - sizeof(int).
      * That in turn makes the process invisible to find_process_by_name()
@@ -233,7 +228,6 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     sp = procargs + sizeof(int); /* skip argc field */
     end = procargs + size;
 
-    /* Skip exec_path */
     while (sp < end && *sp != '\0') {
         sp++;
     }
@@ -248,7 +242,7 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 
     /*
      * Verify argv[0] is NUL-terminated within the valid sysctl payload
-     * [sp, end) before copying.  If no NUL exists, the kernel data is
+     * [sp, end) before copying. If no NUL exists, the kernel data is
      * malformed; return -1 rather than reading past the payload.
      * Also return -1 when argv[0] is too long to fit in buf: the caller
      * relies on getting a complete, untruncated name for process matching.
@@ -276,6 +270,7 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 
 /**
  * @brief Convert macOS proc_taskallinfo to portable process structure
+ *
  * @param task_info Pointer to source proc_taskallinfo structure
  * @param proc Pointer to destination process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
@@ -307,6 +302,7 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
 
 /**
  * @brief Retrieve detailed task information for a process
+ *
  * @param pid Process ID to query
  * @param task_info Pointer to structure to populate with task information
  * @return 0 on success, -1 on failure or if process should be skipped
@@ -340,17 +336,12 @@ static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
 
 /**
  * @brief Retrieve the parent process ID for a given process
+ *
  * @param pid Process ID to query
  * @return Parent process ID on success, -1 on error
  *
- * Queries the system to determine the parent process ID of the specified
- * process. Implementation varies by platform:
- * - Linux: Parses /proc/[pid]/stat for PPID field
- * - FreeBSD: Uses kvm_getprocs() with KERN_PROC_PID
- * - macOS: Uses proc_pidinfo() with PROC_PIDTASKALLINFO
- *
- * Returns -1 if the process does not exist, is a zombie, or if system
- * call fails.
+ * @note Returns -1 if the process does not exist, is a zombie, or the lookup
+ *       fails (per-platform backend: /proc, kvm, or libproc).
  */
 pid_t getppid_of(pid_t pid) {
     struct proc_taskallinfo *task_info;
@@ -372,6 +363,7 @@ pid_t getppid_of(pid_t pid) {
 
 /**
  * @brief Determine if one process is a descendant of another
+ *
  * @param child_pid Process ID to check for descendant relationship
  * @param parent_pid Process ID of the potential ancestor
  * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
@@ -392,8 +384,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
         return 0;
     }
 #ifdef CPULIMIT_TEST_BUILD
-/* Opt-in: only route through the test seam when the harness arms it, so the
-   default path stays a direct call to the real getppid_of(). */
+/*    default path stays a direct call to the real getppid_of(). */
 #define GETPPID_OF(c)                                                          \
     (seam_getppid_fabricate ? cpulimit_test_getppid_of(c) : getppid_of(c))
 #else
@@ -436,6 +427,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 
 /**
  * @brief Retrieve process information for a specific PID
+ *
  * @param pid Process ID to query
  * @param proc Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
@@ -479,6 +471,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
 
 /**
  * @brief Retrieve the next process matching the filter criteria
+ *
  * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
  * @return 0 on success with process data in proc, -1 if no more processes or
@@ -500,7 +493,6 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     if (iter->current_index >= iter->proc_count) {
         return -1;
     }
-    /* Handle single process without children */
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         if (read_process_info(iter->filter->pid, proc,
                               iter->filter->read_cmd) != 0) {
@@ -530,6 +522,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
 
 /**
  * @brief Close the process iterator and release allocated resources
+ *
  * @param iter Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
  *

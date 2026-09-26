@@ -45,20 +45,20 @@ extern "C" {
  */
 struct list_node {
     /**
-     * Pointer to the user-provided data element.
+     * @brief Pointer to the user-provided data element.
      * The list stores only the pointer; memory management of the data
      * is the caller's responsibility unless using destroy operations.
      */
     void *data;
 
     /**
-     * Pointer to the previous node in the list.
+     * @brief Pointer to the previous node in the list.
      * NULL if this is the first node.
      */
     struct list_node *previous;
 
     /**
-     * Pointer to the next node in the list.
+     * @brief Pointer to the next node in the list.
      * NULL if this is the last node.
      */
     struct list_node *next;
@@ -74,19 +74,19 @@ struct list_node {
  */
 struct list {
     /**
-     * Pointer to the first node in the list.
+     * @brief Pointer to the first node in the list.
      * NULL if the list is empty.
      */
     struct list_node *first;
 
     /**
-     * Pointer to the last node in the list.
+     * @brief Pointer to the last node in the list.
      * NULL if the list is empty.
      */
     struct list_node *last;
 
     /**
-     * Number of elements currently in the list.
+     * @brief Number of elements currently in the list.
      * Maintained automatically during add and delete operations.
      */
     size_t count;
@@ -94,6 +94,7 @@ struct list {
 
 /**
  * @brief Initialize an empty doubly linked list
+ *
  * @param lst Pointer to the list structure to initialize
  *
  * Sets first and last pointers to NULL and count to 0, preparing the list
@@ -103,13 +104,14 @@ void init_list(struct list *lst);
 
 /**
  * @brief Append an element to the end of the list
+ *
  * @param lst Pointer to the list
  * @param elem Pointer to the data element to add
  * @return Pointer to the newly created node, or NULL if lst is NULL or
  *         memory allocation for the new node fails
  *
  * Creates a new node containing the data pointer and appends it to the end
- * of the list in O(1) time.  The list stores only the pointer; ownership of
+ * of the list in O(1) time. The list stores only the pointer; ownership of
  * the data remains with the caller.
  *
  * @note Returning NULL instead of terminating lets an out-of-memory condition
@@ -120,6 +122,7 @@ struct list_node *add_list_elem(struct list *lst, void *elem);
 
 /**
  * @brief Remove a node from the list without freeing its data
+ *
  * @param lst Pointer to the list
  * @param node Pointer to the node to remove
  *
@@ -133,6 +136,7 @@ void delete_list_node(struct list *lst, struct list_node *node);
 
 /**
  * @brief Remove a node from the list and free its data
+ *
  * @param lst Pointer to the list
  * @param node Pointer to the node to remove
  *
@@ -146,6 +150,7 @@ void destroy_list_node(struct list *lst, struct list_node *node);
 
 /**
  * @brief Check if the list is empty
+ *
  * @param lst Pointer to the list
  * @return 1 if the list is empty or NULL, 0 otherwise
  *
@@ -155,6 +160,7 @@ int is_empty_list(const struct list *lst);
 
 /**
  * @brief Get the first node in the list
+ *
  * @param lst Pointer to the list
  * @return Pointer to the first node, or NULL if list is empty or NULL
  *
@@ -164,6 +170,7 @@ struct list_node *first_list_node(const struct list *lst);
 
 /**
  * @brief Search for a process in the list by its PID
+ *
  * @param lst Pointer to the list to search
  * @param pid Process ID to search for
  * @return Pointer to the matching process structure, or NULL if not found
@@ -177,6 +184,7 @@ struct process *find_process_in_list_by_pid(const struct list *lst, pid_t pid);
 
 /**
  * @brief Remove all nodes from the list without freeing node data
+ *
  * @param lst Pointer to the list to clear
  *
  * Frees all node structures but leaves the data pointers intact. Use this
@@ -190,6 +198,7 @@ void clear_list(struct list *lst);
 
 /**
  * @brief Remove all nodes from the list and free their data
+ *
  * @param lst Pointer to the list to destroy
  *
  * Frees all node structures and their associated data pointers using free().

@@ -31,88 +31,49 @@ extern "C" {
 #endif
 
 /**
- * @brief Set up signal handlers for graceful program termination
+ * @brief Install the unified termination-signal handler
  *
- * Registers a unified signal handler for SIGINT (Ctrl+C), SIGQUIT (Ctrl+\),
- * SIGTERM, SIGHUP, and SIGPIPE signals. When any of these signals are
- * received, the handler sets a quit flag that can be checked via
- * is_quit_flag_set(). For terminal-originated signals (SIGINT, SIGQUIT),
- * also sets a flag indicating TTY termination. The handler uses SA_RESTART
- * to automatically restart interrupted system calls.
+ * Blocks all signals, clears the internal latch state, installs SA_RESTART
+ * handlers for SIGINT/SIGQUIT/SIGTERM/SIGHUP/SIGPIPE, then restores the mask.
  *
- * All signals are blocked at function entry (sigfillset + sigprocmask are
- * the very first operations) so that no termination signal can be delivered
- * before reset_signal_state() or the sigaction loop. The internal
- * signal-latch state (quit_flag, tty_quit_flag, quit_signal_num) is then
- * cleared, new handlers are installed, and the original mask is restored.
- * Any signal that becomes pending during the blocked window is delivered
- * through the new handlers once the mask is restored.
- *
- * The two scratch sigset_t objects are heap allocated before the mask is
- * raised, so no allocation happens in the window where a failure could not
- * be reported with the handlers already replaced.
- *
- * @note Exits with error if signal mask or handler registration fails
+ * @note Exits with error if the mask or registration fails
  */
 void configure_signal_handler(void);
 
 /**
  * @brief Check if a termination signal has been received
- * @return 1 if a termination signal was caught, 0 otherwise
  *
- * Returns the state of the quit flag, which is set by the signal handler
- * when SIGINT, SIGQUIT, SIGTERM, SIGHUP, or SIGPIPE is received.
- * The main program loop should periodically check this flag to initiate
- * graceful shutdown.
+ * @return 1 if a termination signal was caught, 0 otherwise
  */
 int is_quit_flag_set(void);
 
 /**
  * @brief Check if termination was triggered by terminal keyboard input
- * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
  *
- * Distinguishes between terminal-originated termination (Ctrl+C or Ctrl+\)
- * and other termination signals (SIGTERM, SIGHUP, SIGPIPE).
- * This can be used to customize shutdown behavior or messages based on how
- * termination occurred.
+ * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
  */
 int is_terminated_by_tty(void);
 
 /**
  * @brief End the terminal line a keyboard quit left the cursor on
  *
- * The terminal driver echoes the keyboard interrupt -- "^C" for Ctrl+C, and
- * the same shape for Ctrl+\ -- without a newline of its own, so a run stopped
- * by SIGINT or SIGQUIT has to write one, or the shell prompt starts on the
- * same line as that echo.  This writes it when the
- * quit came from the keyboard and both stdin and stdout are terminals, and
- * writes at most one newline per run.
- *
- * The callers are the two places a run can end: the limiting loop, which
- * writes it before its cleanup warnings so those do not start on the echo's
- * line, and main(), which covers the runs that never reach the limiting loop at
- * all -- searching for a target that has not appeared, or reaping a command's
- * child.  Because it is written once per run, both can call it unconditionally;
- * the second call does nothing.
+ * Writes at most one newline after a SIGINT/SIGQUIT, only when both stdin and
+ * stdout are terminals, so the shell prompt does not start on the echo's line.
  */
 void finish_tty_quit_line(void);
 
 /**
- * @brief Get the signal number that caused the quit flag to be set
- * @return Signal number (e.g. SIGTERM, SIGINT) of the first received
- *         termination signal, or 0 if no termination signal has been
- *         received yet
+ * @brief Get the signal number that set the quit flag
  *
- * Returns the signal number recorded when the first termination signal
- * was delivered to the process. This allows callers to forward the exact
- * received signal to child processes, ensuring consistent behavior with
- * a standard shell (e.g., Ctrl+C sends SIGINT to the child, not SIGTERM).
+ * @return Signal number (e.g. SIGTERM, SIGINT) of the first termination signal,
+ *         or 0 if none has been received
  */
 int get_quit_signal(void);
 
 /**
  * @brief Reset all signal handlers installed by configure_signal_handler()
  *        back to their default dispositions (SIG_DFL)
+ *
  * @return 0 on success, -1 on failure (errno set; error logged to stderr)
  *
  * Resets SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.

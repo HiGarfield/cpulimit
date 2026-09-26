@@ -35,55 +35,33 @@ extern "C" {
 #include <sys/types.h>
 
 /**
+ * @brief Resume and reap the command's child, without blocking on it
+ *
+ * @param child_pid PID of the child process to reap
+ *
+ * For failure paths that return EXIT_FAILURE: the child is still out there, so
+ * resume it (the caller already sent SIGCONT) and reap it with WNOHANG -- a
+ * blocking wait would hang on a child that ignores the signal, since this path
+ * skips the polling loop's SIGKILL escalation. A child that has not exited is
+ * reparented to init.
+ */
+void reap_child_before_error_return(pid_t child_pid);
+
+/**
  * @brief Wait for the child to exit and collect its exit status
+ *
  * @param child_pid PID of the child process to wait for
  * @param cfg Pointer to configuration structure (used for verbose output)
  * @param signal_forwarded Non-zero if the caller already forwarded the quit
  *                         signal to the child process group
- * @return The child's exit status if it was reaped, EXIT_FAILURE otherwise
+ * @return The child's exit status if reaped, EXIT_FAILURE otherwise
  *
- * Polls until the child exits, translating death by signal into the
- * shell-compatible 128 + signal number.  Once the quit signal has been
- * forwarded, a child that still has not exited after CHILD_KILL_TIMEOUT_MS is
- * killed, and that escalation fires once rather than once per poll: a child
- * that has exited but not yet been reaped is a zombie that still carries its
- * PID and PGID, so repeating the group kill would reach whatever else now
- * lives in that group.  The grace period starts when the signal is forwarded,
- * not at entry, so the child gets its full timeout measured from the moment
- * it first sees the signal; nothing is armed before that, because a command
- * that is merely not being watched is waited for rather than killed.
- *
- * A quit signal that arrives after run_command_mode()'s own check is handled
- * by forwarding the exact received signal -- but only once, since the caller
- * normally forwards first and a second SIGINT from one Ctrl+C would cut short
- * a handler a program installs to shut itself down cleanly.  SIGCONT is sent
- * first so a stopped child is resumed before the signal is delivered; on
- * macOS 10.7 a stopped process is invisible to the process iterator.
- *
- * An internal failure (an unreadable clock) does not end the process: the
- * child is resumed, waited for so it does not stay a zombie, and EXIT_FAILURE
- * is returned while the caller still produces its own diagnosis.
+ * Polls with WNOHANG, translating death by signal into 128 + signal. Once the
+ * quit signal is forwarded, escalates to SIGKILL after CHILD_KILL_TIMEOUT_MS
+ * (once, on the group); a late quit signal is forwarded here at most once. An
+ * unreadable clock does not end the process: the child is resumed and reaped
+ * first, then EXIT_FAILURE is returned.
  */
-/**
- * @brief Resume and reap the command's child, without blocking on it
- * @param child_pid PID of the child process to reap
- *
- * Meant for the internal failure paths, which hand EXIT_FAILURE back to
- * their caller instead of terminating the process underneath it: the child
- * is still out there and must not be left behind.  The caller sends SIGCONT
- * first so a child that was stopped -- by this program's own throttle or by
- * an earlier forwarded signal -- is resumed; this function only reaps, and
- * leaving a child stopped would be the real defect to avoid.
- *
- * The wait is always WNOHANG.  A blocking wait here would hang a run on a
- * child that ignores the termination signal, since this path bypasses the
- * polling loop's SIGKILL escalation that bounds the ordinary wait.
- * EINTR is retried because waitpid() is interruptible; any other error means
- * there is nothing left to collect.  A child that has not exited is
- * reparented to init when this process exits.
- */
-void reap_child_before_error_return(pid_t child_pid);
-
 int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                               int signal_forwarded);
 

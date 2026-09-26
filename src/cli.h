@@ -42,71 +42,65 @@ extern "C" {
  */
 struct cpulimit_cfg {
     /**
-     * Program name (basename of argv[0]) used in usage messages.
+     * @brief Program name (basename of argv[0]) used in usage messages.
      */
     const char *program_name;
 
     /**
-     * Target process ID when using -p/--pid option.
+     * @brief Target process ID when using -p/--pid option.
      * 0 if not specified.
      */
     pid_t target_pid;
 
     /**
-     * Executable name/path when using -e/--exe option.
+     * @brief Executable name/path when using -e/--exe option.
      * NULL if not specified.
      */
     const char *exe_name;
 
     /**
-     * CPU usage limit expressed in CPU cores (core equivalents), in
+     * @brief CPU usage limit expressed in CPU cores (core equivalents), in
      * the range (0, N_CPU].
      */
     double cpu_limit;
 
     /**
-     * Non-zero to apply the limit to the target and all descendants.
+     * @brief Non-zero to apply the limit to the target and all descendants.
      * Zero to limit only the target process.
      */
     int include_children;
 
     /**
-     * Non-zero to exit when the target terminates or is not found.
+     * @brief Non-zero to exit when the target terminates or is not found.
      * Zero to keep searching.
      */
     int lazy_mode;
 
     /**
-     * Non-zero to print CPU usage and control statistics.
+     * @brief Non-zero to print CPU usage and control statistics.
      * Zero for silent operation.
      */
     int verbose;
 
     /**
-     * Non-zero to fork and execute command_args.
+     * @brief Non-zero to fork and execute command_args.
      * Zero to search for an existing process.
      */
     int command_mode;
 
     /**
-     * Array of command-line arguments to execute (NULL-terminated) in command
-     * mode.
+     * @brief Array of command-line arguments to execute (NULL-terminated) in
+     * command mode.
      */
     char **command_args;
 };
 
 /**
  * @brief Parse command line arguments and populate configuration structure
+ *
  * @param argc Number of command-line arguments (from main)
  * @param argv Array of command-line argument strings (from main)
  * @param cfg Pointer to configuration structure to be filled with parsed values
- *
- * This function processes all command-line options and validates the input.
- * On success, cfg contains valid configuration and the function returns 0.
- * On validation failure, the function prints an error message and returns
- * EXIT_FAILURE. If help is requested, usage is printed and the function
- * returns -1 so the caller can exit with EXIT_SUCCESS.
- *
  * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested
  */
 int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg);

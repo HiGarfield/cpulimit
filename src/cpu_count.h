@@ -32,6 +32,7 @@ extern "C" {
 
 /**
  * @brief Get the number of online/available CPU cores
+ *
  * @return Number of CPUs available to the process (>= 1)
  *
  * Queries the system for the number of online CPUs using platform-specific
@@ -47,16 +48,15 @@ int get_ncpu(void);
 #if defined(__linux__)
 /**
  * @brief Parse a Linux sysfs CPU range string into a CPU count
+ *
  * @param str CPU range specification (e.g. "0-3", "0,2,4", "0-1,4-7")
  * @return Number of CPUs described by the range, or -1 on parse error
  *
  * Accepts single CPUs ("0"), inclusive ranges ("0-3" counts as four) and
  * comma-separated combinations ("0-3,8-11,15"); whitespace around the
- * numbers is tolerated.  Returns -1 for a NULL or empty string, invalid
+ * numbers is tolerated. Returns -1 for a NULL or empty string, invalid
  * syntax, a negative number, a reversed range (end < start), or a total that
  * would overflow int; a whitespace-only string is rejected as invalid syntax.
- *
- * Exposed so the unit tests can verify its boundary behaviour.
  */
 int parse_cpu_range(const char *str);
 #endif

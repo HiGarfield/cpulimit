@@ -32,22 +32,15 @@ extern "C" {
 
 /**
  * @brief Check whether a script shebang references an inaccessible interpreter
+ *
  * @param path Path to the file to inspect
- * @return 1 if the file begins with "#!" and the interpreter path in the
- *         shebang cannot be accessed; 0 otherwise.
+ * @return 1 if the file begins with "#!" and the interpreter path cannot be
+ *         accessed; 0 otherwise.
  *
- * This pre-exec check avoids calling execvp() on a script whose shebang
- * interpreter path cannot be accessed. Under normal execution execvp() would
- * fail, but under debugging tools such as valgrind the execve() interception
- * is unrecoverable on this path, so the check must be made before exec.
- *
- * The file is opened with O_NONBLOCK. argv[0] is not necessarily a regular
- * file: opening a FIFO that has no writer, or a character device that waits
- * for carrier, blocks until another process opens the other end. Blocking
- * here would strand this child before exec and, through the exec
- * synchronisation pipe, freeze the parent in a read that it cannot leave
- * even when asked to terminate. O_NONBLOCK is defined to have no effect on
- * regular files, so the check itself behaves exactly as before.
+ * Opens with O_NONBLOCK so argv[0] being a FIFO or device (which would block
+ * until a peer appears) cannot strand this child before exec and freeze the
+ * parent on the sync pipe; regular files are unaffected. Done before exec
+ * because under tools like valgrind the execve interception is unrecoverable.
  */
 int is_script_inaccessible_interpreter(const char *path);
 

@@ -35,18 +35,8 @@ extern "C" {
 /**
  * @brief Check for potential Y2038 risk based on platform and time_t size
  *
- * Performs a lightweight runtime assessment of potential Year 2038 (Y2038)
- * risk. The check is based on a combination of platform assumptions and the
- * size of time_t:
- *
- * - On Apple platforms, no check is performed (64-bit time_t is guaranteed).
- * - On POSIX systems with monotonic clock support, no check is performed,
- *   assuming a modern time implementation.
- * - Otherwise, if time_t is smaller than 64 bits, a warning is printed
- *   indicating possible Y2038-related limitations.
- *
- * It is recommended to call this function early during program startup
- * to surface potential portability or time representation issues.
+ * Prints a warning when time_t is narrower than 64 bits on a platform without
+ * monotonic-clock or Apple time guarantees; otherwise does nothing.
  *
  * @note This is a heuristic check and does not guarantee full compliance
  *       with 2038-safe time handling across all environments
@@ -55,51 +45,38 @@ void check_y2038(void);
 
 /**
  * @brief Convert nanoseconds to timespec structure
+ *
  * @param nsec Number of nanoseconds (can be >= 1 billion)
  * @param result_ts Pointer to timespec structure to populate
  *
- * Splits the nanosecond value into seconds and nanoseconds components.
- * The seconds component is the integer division by 1 billion, and the
- * nanoseconds component is the remainder. Adjusts tv_sec and tv_nsec
- * together to keep tv_nsec in [0, 999999999], guarding against
- * floating-point rounding errors.
+ * Splits into seconds (integer /1e9) and nanoseconds (remainder), adjusting
+ * tv_sec together with tv_nsec to keep it in [0, 999999999] against rounding.
  *
- * Y2038 note: on macOS this function is called from get_current_time() with
- * potentially large absolute-time values (seconds since boot), but since macOS
- * guarantees a 64-bit time_t there is no overflow risk there. When called from
- * sleep helpers the values are short sleep durations (sub-second intervals, up
- * to 0.5 s), so tv_sec is far below any 32-bit overflow threshold in that
- * context as well.
+ * Y2038: values are sub-second sleep durations (or macOS boot-time values,
+ * where time_t is 64-bit), so tv_sec never approaches a 32-bit overflow.
  */
 void nsec_to_timespec(double nsec, struct timespec *result_ts);
 
 /**
  * @brief Get a high-resolution timestamp, preferring a monotonic clock
+ *
  * @param result_ts Pointer to timespec structure to receive current time
  * @return 0 on success, -1 on failure
  *
- * Uses CLOCK_MONOTONIC if available (unaffected by system time changes) to
- * return a monotonic timestamp, otherwise falls back to CLOCK_REALTIME, or
- * gettimeofday() as a final fallback. Provides at least microsecond
+ * Uses CLOCK_MONOTONIC if available (immune to system time changes), else
+ * CLOCK_REALTIME, else gettimeofday(). Provides at least microsecond
  * resolution on all supported platforms.
  *
- * Y2038 note: CLOCK_MONOTONIC measures time elapsed since system boot and
- * is unaffected by the Unix epoch overflow; on a 32-bit system it would not
- * overflow until the system has been running continuously for ~68 years.
- * The gettimeofday() fallback (used only when neither CLOCK_MONOTONIC nor
- * CLOCK_REALTIME is available) stores a wall-clock time_t which would
- * overflow on a 32-bit system in 2038; however, since all callers use
- * timediff_in_ms() with difftime() for interval calculations rather than
- * comparing absolute timestamps, the computed differences remain correct
- * even after overflow. On glibc-based Linux builds, _TIME_BITS=64 can be
- * used at compile time to request a 64-bit time_t; on macOS and FreeBSD,
- * supported environments typically already provide a 64-bit time_t, so
- * this macro may be unnecessary or have no effect there.
+ * Y2038: CLOCK_MONOTONIC (preferred) counts from boot and never hits the 2038
+ * wall-clock overflow; the gettimeofday() fallback is only used when neither
+ * monotonic nor realtime clock exists, and callers use difftime() for interval
+ * math, so differences stay correct even past 2038.
  */
 int get_current_time(struct timespec *result_ts);
 
 /**
  * @brief Sleep for a specified duration
+ *
  * @param duration Pointer to timespec specifying sleep duration
  * @return 0 on success, -1 on error (errno set by underlying call)
  *
@@ -113,18 +90,16 @@ int sleep_timespec(const struct timespec *duration);
 
 /**
  * @brief Calculate elapsed time between two timestamps in milliseconds
+ *
  * @param later Pointer to the more recent timestamp
  * @param earlier Pointer to the older timestamp
  * @return Time difference in milliseconds (later - earlier)
  *
- * Computes the difference accounting for both seconds and nanoseconds fields.
- * Returns a positive value when later > earlier. The nanosecond component is
- * divided by 1e6, giving sub-microsecond precision in the returned value.
+ * Combines the seconds difference (via difftime) and the nanosecond delta.
  *
- * Y2038 note: difftime() is used for the seconds component because it avoids
- * overflow in direct subtraction of large time_t values by returning the
- * difference as a double. This helps when both timestamps are representable,
- * but it does not make results correct if time_t itself has overflowed.
+ * Y2038: difftime() yields the seconds difference as a double, avoiding
+ * overflow in direct time_t subtraction; results still assume representable
+ * timestamps.
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier);

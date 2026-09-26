@@ -39,6 +39,15 @@
 #include <sys/time.h>
 #endif
 
+/**
+ * @brief Check for potential Y2038 risk based on platform and time_t size
+ *
+ * Prints a warning when time_t is narrower than 64 bits on a platform without
+ * monotonic-clock or Apple time guarantees; otherwise does nothing.
+ *
+ * @note This is a heuristic check and does not guarantee full compliance
+ *       with 2038-safe time handling across all environments
+ */
 void check_y2038(void) {
 #if !defined(__APPLE__) &&                                                     \
     !(defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC))
@@ -48,6 +57,18 @@ void check_y2038(void) {
 #endif
 }
 
+/**
+ * @brief Convert nanoseconds to timespec structure
+ *
+ * @param nsec Number of nanoseconds (can be >= 1 billion)
+ * @param result_ts Pointer to timespec structure to populate
+ *
+ * Splits into seconds (integer /1e9) and nanoseconds (remainder), adjusting
+ * tv_sec together with tv_nsec to keep it in [0, 999999999] against rounding.
+ *
+ * Y2038: values are sub-second sleep durations (or macOS boot-time values,
+ * where time_t is 64-bit), so tv_sec never approaches a 32-bit overflow.
+ */
 void nsec_to_timespec(double nsec, struct timespec *result_ts) {
     result_ts->tv_sec = (time_t)(nsec / 1e9);
     result_ts->tv_nsec = (long)(nsec - (double)result_ts->tv_sec * 1e9);
@@ -64,6 +85,21 @@ void nsec_to_timespec(double nsec, struct timespec *result_ts) {
     }
 }
 
+/**
+ * @brief Get a high-resolution timestamp, preferring a monotonic clock
+ *
+ * @param result_ts Pointer to timespec structure to receive current time
+ * @return 0 on success, -1 on failure
+ *
+ * Uses CLOCK_MONOTONIC if available (immune to system time changes), else
+ * CLOCK_REALTIME, else gettimeofday(). Provides at least microsecond
+ * resolution on all supported platforms.
+ *
+ * Y2038: CLOCK_MONOTONIC (preferred) counts from boot and never hits the 2038
+ * wall-clock overflow; the gettimeofday() fallback is only used when neither
+ * monotonic nor realtime clock exists, and callers use difftime() for interval
+ * math, so differences stay correct even past 2038.
+ */
 int get_current_time(struct timespec *result_ts) {
 #if defined(__APPLE__)
     static long double factor = -1;
@@ -100,6 +136,18 @@ int get_current_time(struct timespec *result_ts) {
 #endif
 }
 
+/**
+ * @brief Sleep for a specified duration
+ *
+ * @param duration Pointer to timespec specifying sleep duration
+ * @return 0 on success, -1 on error (errno set by underlying call)
+ *
+ * Uses clock_nanosleep() with CLOCK_MONOTONIC when available, so the sleep is
+ * unaffected by system time changes, and falls back to nanosleep() otherwise.
+ * An early return caused by a signal (EINTR) is resumed for the remaining
+ * time, so the requested duration is always honored and the duty cycle never
+ * runs short; only other errors are reported to the caller.
+ */
 int sleep_timespec(const struct timespec *duration) {
     struct timespec request, remaining;
     request = *duration;
@@ -140,6 +188,20 @@ int sleep_timespec(const struct timespec *duration) {
     }
 #endif
 }
+
+/**
+ * @brief Calculate elapsed time between two timestamps in milliseconds
+ *
+ * @param later Pointer to the more recent timestamp
+ * @param earlier Pointer to the older timestamp
+ * @return Time difference in milliseconds (later - earlier)
+ *
+ * Combines the seconds difference (via difftime) and the nanosecond delta.
+ *
+ * Y2038: difftime() yields the seconds difference as a double, avoiding
+ * overflow in direct time_t subtraction; results still assume representable
+ * timestamps.
+ */
 
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier) {

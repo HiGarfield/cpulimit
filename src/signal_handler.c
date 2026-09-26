@@ -86,8 +86,8 @@ static volatile sig_atomic_t quit_signal_num = 0;
  *
  * One newline per run is enough, and a run can end by more than one route --
  * the limiting loop knows it is over, and so does main() -- so the callers ask
- * without having to find out whether the other already did.  Cleared with the
- * other per-run flags in reset_signal_state().  A plain int, not a
+ * without having to find out whether the other already did. Cleared with the
+ * other per-run flags in reset_signal_state(). A plain int, not a
  * sig_atomic_t: unlike the flags above, this one is only ever touched in
  * process context.
  */
@@ -110,6 +110,7 @@ static void reset_signal_state(void) {
 
 /**
  * @brief Unified signal handler for termination signals
+ *
  * @param sig Signal number that triggered this handler
  *
  * Handles SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE by setting the quit
@@ -119,7 +120,6 @@ static void reset_signal_state(void) {
  * forwarding. Uses only async-signal-safe operations.
  */
 static void sig_handler(int sig) {
-    /* Mark TTY-originated signals for special handling */
     switch (sig) {
     case SIGINT:  /* Ctrl+C */
     case SIGQUIT: /* Ctrl+\ */
@@ -128,16 +128,15 @@ static void sig_handler(int sig) {
     default:
         break;
     }
-    /* Record signal number of first received termination signal */
     if (quit_signal_num == 0) {
         quit_signal_num = (sig_atomic_t)sig;
     }
-    /* Set global quit flag to initiate graceful shutdown */
     quit_flag = 1;
 }
 
 /**
  * @brief Internal common routine to install a specific signal action
+ *
  * @param handler Handler to install (sig_handler or SIG_DFL)
  * @return 0 on success, -1 on failure (errno is set by underlying syscalls)
  *
@@ -145,7 +144,6 @@ static void sig_handler(int sig) {
  * delegated to the caller.
  */
 static int set_signal_action(void (*handler)(int)) {
-    /* Fixed list of termination signals handled by this module */
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     static const size_t num_sigs = sizeof(term_sigs) / sizeof(*term_sigs);
 
@@ -181,6 +179,14 @@ error:
     return -1;
 }
 
+/**
+ * @brief Install the unified termination-signal handler
+ *
+ * Blocks all signals, clears the internal latch state, installs SA_RESTART
+ * handlers for SIGINT/SIGQUIT/SIGTERM/SIGHUP/SIGPIPE, then restores the mask.
+ *
+ * @note Exits with error if the mask or registration fails
+ */
 void configure_signal_handler(void) {
     /* Initialize to NULL to make free(NULL) safe in error paths */
     sigset_t *block_mask = NULL, *old_mask = NULL;
@@ -219,28 +225,24 @@ void configure_signal_handler(void) {
 
     reset_signal_state();
 
-    /* Install handlers; jump to cleanup on failure */
     if (set_signal_action(sig_handler) != 0) {
         perror("Failed to set signal handler");
         goto error;
     }
 
-    /* Restore the original signal mask */
     if (sigprocmask(SIG_SETMASK, old_mask, NULL) != 0) {
         perror("sigprocmask restore");
         goto error;
     }
 
-    /* Normal execution path: clean up resources and return */
     free(block_mask);
     free(old_mask);
     return;
 
 error:
-    /* Centralized error handling */
     if (blocked) {
         /*
-         * Undo the all-signals block first.  Idempotent: the normal path
+         * Undo the all-signals block first. Idempotent: the normal path
          * jumping here after a failed restore simply restores once more.
          */
         if (sigprocmask(SIG_SETMASK, old_mask, NULL) != 0) {
@@ -252,14 +254,30 @@ error:
     exit(EXIT_FAILURE);
 }
 
+/**
+ * @brief Check if a termination signal has been received
+ *
+ * @return 1 if a termination signal was caught, 0 otherwise
+ */
 int is_quit_flag_set(void) {
     return !!quit_flag;
 }
 
+/**
+ * @brief Check if termination was triggered by terminal keyboard input
+ *
+ * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
+ */
 int is_terminated_by_tty(void) {
     return !!tty_quit_flag;
 }
 
+/**
+ * @brief End the terminal line a keyboard quit left the cursor on
+ *
+ * Writes at most one newline after a SIGINT/SIGQUIT, only when both stdin and
+ * stdout are terminals, so the shell prompt does not start on the echo's line.
+ */
 void finish_tty_quit_line(void) {
     if (tty_newline_written || !quit_flag || !is_terminated_by_tty()) {
         return;
@@ -272,10 +290,24 @@ void finish_tty_quit_line(void) {
     fflush(stdout);
 }
 
+/**
+ * @brief Get the signal number that set the quit flag
+ *
+ * @return Signal number (e.g. SIGTERM, SIGINT) of the first termination signal,
+ *         or 0 if none has been received
+ */
 int get_quit_signal(void) {
     return (int)quit_signal_num;
 }
 
+/**
+ * @brief Reset all signal handlers installed by configure_signal_handler()
+ *        back to their default dispositions (SIG_DFL)
+ *
+ * @return 0 on success, -1 on failure (errno set; error logged to stderr)
+ *
+ * Resets SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.
+ */
 int reset_signal_handlers_to_default(void) {
     if (set_signal_action(SIG_DFL) != 0) {
         perror("Failed to reset signal handlers");

@@ -44,21 +44,15 @@
 #include <unistd.h>
 
 /**
- * @brief Initialize a process iterator with specified filter criteria
+ * @brief Initialize a process iterator with the given filter
+ *
  * @param iter Pointer to the process_iterator structure to initialize
  * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL iter or filter and
- *         out-of-memory); this function does not call exit()
+ * @return 0 on success, -1 on failure (including NULL iter/filter or OOM);
+ *         this function does not call exit()
  *
- * This function prepares the iterator for process enumeration. The behavior
- * varies by platform:
- * - Linux: Opens /proc directory, may skip if filtering single process
- * - FreeBSD: Opens kvm descriptor, retrieves process snapshot if needed
- * - macOS: Retrieves process ID list snapshot, may skip if filtering single
- *          process
- *
- * The filter pointer is stored and must remain valid until
- * close_process_iterator() is called.
+ * @note The filter pointer is stored and must remain valid until
+ *       close_process_iterator() is called.
  */
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
@@ -75,7 +69,6 @@ int init_process_iterator(struct process_iterator *iter,
         iter->proc_dir = NULL;
         return 0;
     }
-    /* Open /proc directory for iterating process entries */
     iter->proc_dir = opendir("/proc");
     if (iter->proc_dir == NULL) {
         perror("opendir");
@@ -87,6 +80,7 @@ int init_process_iterator(struct process_iterator *iter,
 
 /**
  * @brief Extract process information from Linux /proc filesystem
+ *
  * @param pid Process ID to query
  * @param proc Pointer to process structure to populate
  * @param read_cmd Whether to read command path (0=skip, 1=read)
@@ -120,7 +114,6 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
 
-    /* Parse /proc/[pid]/stat for process state and timing information */
     if (snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid) >=
         (int)sizeof(statfile)) {
         return -1;
@@ -132,7 +125,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     /*
      * Find the last ')' to handle process names containing parentheses.
      * The whole file is read so a newline embedded in comm cannot hide
-     * the closing ')'.  Format: pid (comm) state ppid ... utime stime ...
+     * the closing ')'. Format: pid (comm) state ppid ... utime stime ...
      */
     p = strrchr(buffer, ')');
     if (p == NULL) {
@@ -166,7 +159,6 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (proc->ppid < 0) {
         return -1;
     }
-    /* Initialize clock ticks per second on first call */
     if (sc_clk_tck < 0) {
         errno = 0;
         sc_clk_tck = sysconf(_SC_CLK_TCK);
@@ -244,17 +236,12 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
 
 /**
  * @brief Retrieve the parent process ID for a given process
+ *
  * @param pid Process ID to query
  * @return Parent process ID on success, -1 on error
  *
- * Queries the system to determine the parent process ID of the specified
- * process. Implementation varies by platform:
- * - Linux: Parses /proc/[pid]/stat for PPID field
- * - FreeBSD: Uses kvm_getprocs() with KERN_PROC_PID
- * - macOS: Uses proc_pidinfo() with PROC_PIDTASKALLINFO
- *
- * Returns -1 if the process does not exist, is a zombie, or if system
- * call fails.
+ * @note Returns -1 if the process does not exist, is a zombie, or the lookup
+ *       fails (per-platform backend: /proc, kvm, or libproc).
  */
 pid_t getppid_of(pid_t pid) {
     char statfile[64];
@@ -263,7 +250,6 @@ pid_t getppid_of(pid_t pid) {
     char state;
     long ppid;
 
-    /* Parse /proc/[pid]/stat for parent process ID */
     if (snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid) >=
         (int)sizeof(statfile)) {
         return (pid_t)-1;
@@ -294,6 +280,7 @@ pid_t getppid_of(pid_t pid) {
 
 /**
  * @brief Determine if one process is a descendant of another
+ *
  * @param child_pid Process ID to check for descendant relationship
  * @param parent_pid Process ID of the potential ancestor
  * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
@@ -314,8 +301,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
         return 0;
     }
 #ifdef CPULIMIT_TEST_BUILD
-/* Opt-in: only route through the test seam when the harness arms it, so the
-   default path stays a direct call to the real getppid_of(). */
+/*    default path stays a direct call to the real getppid_of(). */
 #define GETPPID_OF(c)                                                          \
     (seam_getppid_fabricate ? cpulimit_test_getppid_of(c) : getppid_of(c))
 #else
@@ -358,6 +344,7 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 
 /**
  * @brief Retrieve the next process matching the filter criteria
+ *
  * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
  * @return 0 on success with process data in proc, -1 if no more processes or
@@ -382,7 +369,6 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         return -1;
     }
 
-    /* Handle single process without children */
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
         int ret =
             read_process_info(iter->filter->pid, proc, iter->filter->read_cmd);
@@ -413,7 +399,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
          *
          * d_type and the DT_* constants are a Linux/BSD extension, not
          * POSIX.1-2001; the equivalent POSIX call, stat() on every entry,
-         * would add one syscall per /proc entry to each scan.  This is the
+         * would add one syscall per /proc entry to each scan. This is the
          * Linux backend, where reading /proc is already outside POSIX.
          */
         if (dir_entry->d_type != DT_DIR && dir_entry->d_type != DT_UNKNOWN) {
@@ -430,11 +416,9 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         if (pid <= 0) {
             continue;
         }
-        /* Apply PID filter: match target PID or its descendants */
         if (!process_matches_filter(pid, iter->filter)) {
             continue;
         }
-        /* Read process info and skip on failure (e.g., process exited) */
         if (read_process_info(pid, proc, iter->filter->read_cmd) != 0) {
             continue;
         }
@@ -447,6 +431,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
 
 /**
  * @brief Close the process iterator and release allocated resources
+ *
  * @param iter Pointer to the process_iterator structure to close
  * @return 0 on success, -1 on failure
  *
