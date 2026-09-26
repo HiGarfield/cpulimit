@@ -315,13 +315,17 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          * ratio untouched until there is a real measurement to act on.
          */
         if (cpu_usage >= 0) {
-            work_ratio =
-                work_ratio * cpu_limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
             /*
-             * Ensure work_ratio stays in valid range, never exactly 0 or 1
+             * Gain cap (0.5..2.0): a plain multiplicative update
+             * work_ratio *= cpu_limit / cpu_usage slams work_ratio to
+             * saturation whenever cpu_usage dips toward zero, which is
+             * exactly what drives the 0%<->80% swings.  Capping the
+             * per-cycle gain keeps the correction bounded.
              */
-            work_ratio =
-                CLAMP(work_ratio, WORK_RATIO_EPSILON, 1 - WORK_RATIO_EPSILON);
+            double gain = cpu_limit / MAX(cpu_usage, WORK_RATIO_EPSILON);
+            gain = CLAMP(gain, 0.5, 2.0);
+            work_ratio = CLAMP(work_ratio * gain, WORK_RATIO_EPSILON,
+                               1 - WORK_RATIO_EPSILON);
         }
 
         /* Get time slot duration (may vary based on system load) */
