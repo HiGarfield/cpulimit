@@ -64,6 +64,26 @@ extern "C" {
  * child is resumed, waited for so it does not stay a zombie, and EXIT_FAILURE
  * is returned while the caller still produces its own diagnosis.
  */
+/**
+ * @brief Resume and reap the command's child, without blocking on it
+ * @param child_pid PID of the child process to reap
+ *
+ * Meant for the internal failure paths, which hand EXIT_FAILURE back to
+ * their caller instead of terminating the process underneath it: the child
+ * is still out there and must not be left behind.  The caller sends SIGCONT
+ * first so a child that was stopped -- by this program's own throttle or by
+ * an earlier forwarded signal -- is resumed; this function only reaps, and
+ * leaving a child stopped would be the real defect to avoid.
+ *
+ * The wait is always WNOHANG.  A blocking wait here would hang a run on a
+ * child that ignores the termination signal, since this path bypasses the
+ * polling loop's SIGKILL escalation that bounds the ordinary wait.
+ * EINTR is retried because waitpid() is interruptible; any other error means
+ * there is nothing left to collect.  A child that has not exited is
+ * reparented to init when this process exits.
+ */
+void reap_child_before_error_return(pid_t child_pid);
+
 int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                               int signal_forwarded);
 
