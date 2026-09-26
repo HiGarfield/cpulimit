@@ -34,7 +34,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-/* cppcheck-suppress-begin constParameter */
 /**
  * @brief CPU load generator using fork
  * @param argc Command line argument count
@@ -44,9 +43,13 @@
  * Creates a specified number of processes (default: CPU core count) that
  * each run a busy loop consuming CPU cycles for testing purposes. The
  * number of processes can be specified via argv[1].
+ *
+ * cppcheck's constParameter fires on main()'s argv, and that signature is
+ * fixed by the standard, so it cannot be acted on; the suppression below is
+ * scoped to this one definition.
  */
+/* cppcheck-suppress constParameter */
 int main(int argc, char *argv[]) {
-    /* cppcheck-suppress-end constParameter */
     int proc_idx, num_procs;
     pid_t pid = -1;
     configure_signal_handler();
