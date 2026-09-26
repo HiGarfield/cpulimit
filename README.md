@@ -22,6 +22,7 @@ or rescheduled.
 
   ```sh
   cpulimit OPTION... TARGET
+
   ```
 
 **`-l LIMIT` is required**, and it is a percentage of **one CPU core**: `-l 50`
@@ -29,30 +30,50 @@ is half a core, `-l 100` is one fully used core, and the maximum is
 `number_of_cores * 100` — `-l 250` on a 4-core machine allows about two and a
 half cores.
 
- | Option                  | Description                                     |
- | ----------------------- | ----------------------------------------------- |
- | -l LIMIT, --limit=LIMIT | CPU percentage limit, range (0, N_CPU*100]      |
- | -v, --verbose           | show control statistics                         |
- | -z, --lazy              | exit if the target process is not running       |
- | -i, --include-children  | limit total CPU usage of target and descendants |
- | -h, --help              | display the help message and exit               |
+| Option                  | Description                                     |
+| ----------------------- | ----------------------------------------------- |
+| -l LIMIT, --limit=LIMIT | CPU percentage limit, range (0, N_CPU*100]      |
+| -v, --verbose           | show control statistics                         |
+| -z, --lazy              | exit if the target process is not running       |
+| -i, --include-children  | limit total CPU usage of target and descendants |
+| -h, --help              | display the help message and exit               |
 
 Exactly one target must be given:
 
- | Target              | Description                                       |
- | ------------------- | ------------------------------------------------- |
- | -p PID, --pid=PID   | PID of the target process (implies -z)            |
- | -e FILE, --exe=FILE | executable name or path (matched against argv[0]) |
- | COMMAND [ARG]...    | run the command and limit CPU usage (implies -z)  |
+| Target              | Description                                       |
+| ------------------- | ------------------------------------------------- |
+| -p PID, --pid=PID   | PID of the target process (implies -z)            |
+| -e FILE, --exe=FILE | executable name or path (matched against argv[0]) |
+| COMMAND [ARG]...    | run the command and limit CPU usage (implies -z)  |
 
 Examples:
 
   ```sh
-  cpulimit -l 50 -p 1234              # PID 1234, at most 50% of one core
-  cpulimit -l 50 -e myapp             # process named myapp
-  cpulimit -l 50 -- myapp --option    # run a command under the limit
-  cpulimit -l 50 -i -e myapp          # myapp plus all its descendants
-  cpulimit -l 200 -v -i -- make -j8   # up to two cores, with statistics
+  # -l 50: limit to 50% of one core
+  # -p 1234: limit process by PID
+  cpulimit -l 50 -p 1234
+
+  # -l 50: limit to 50% of one core
+  # -e myapp: limit by executable name
+  cpulimit -l 50 -e myapp
+
+  # -l 50: limit to 50% of one core
+  # --: end of options
+  # command: myapp --option
+  cpulimit -l 50 -- myapp --option
+
+  # -l 50: limit to 50% of one core
+  # -i: include child processes
+  # -e myapp: limit by executable name
+  cpulimit -l 50 -i -e myapp
+
+  # -l 200: limit to 200% of one core
+  # -v: show statistics
+  # -i: include child processes
+  # --: end of options
+  # command: ffmpeg -i in.mkv -c:v libx264 out.mp4
+  cpulimit -l 200 -v -i -- ffmpeg -i in.mkv -c:v libx264 out.mp4
+
   ```
 
 ### Things to keep in mind
@@ -83,13 +104,13 @@ match it can control.
 
 ## Exit Codes
 
-| Exit Code | Description                                                 |
-| --------- | ----------------------------------------------------------- |
-| 0         | Success                                                     |
-| 1         | Error (invalid arguments, target not found in a mode that does not wait, internal error) |
-| 126       | Command found but not executable (command mode only)        |
-| 127       | Command not found (command mode only)                       |
-| 128+N     | Command terminated by signal N (command mode only)          |
+| Exit Code | Description                                            |
+| --------- | ------------------------------------------------------ |
+| 0         | Success                                                |
+| 1         | Bad args, target not found (nowait), internal error    |
+| 126       | Command found but not executable (command mode only)   |
+| 127       | Command not found (command mode only)                  |
+| 128+N     | Command terminated by signal N (command mode only)     |
 
 Use `-z` — or `-p`, which implies it — when the run should end as soon as the
 target is gone. Without it, `-e` keeps waiting and re-attaches whenever the
