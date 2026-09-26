@@ -471,24 +471,17 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
         pid_t found_pid;
         int resolved = resolve_target(cfg, pid_mode, &found_pid);
 
-        if (resolved == TARGET_UNCONTROLLABLE) {
+        if (resolved == TARGET_UNCONTROLLABLE || resolved == TARGET_NOT_FOUND) {
             /*
-             * Every signal the target was sent was refused, so nothing can be
-             * attached to right now.  Lazy mode has only this one attempt and
-             * ends with a failure.  A non-lazy run keeps looking: the refusal
-             * belongs to the process that currently wears that name or PID,
-             * and once the target is restarted its replacement may well be
-             * one this process owns and can limit.
-             */
-            if (cfg->lazy_mode) {
-                exit_status = EXIT_FAILURE;
-            }
-        } else if (resolved == TARGET_NOT_FOUND) {
-            /*
-             * Lazy mode treats a missing target as an error.  Non-lazy mode
-             * waits for it: a process that has not started yet is exactly
-             * what that mode is for, so the search continues for as long as
-             * the process keeps not being there.
+             * There is nothing to attach to right now: either the target was
+             * found but refused every signal, or no target was found at all.
+             * Lazy mode has only this one attempt and ends with a failure.
+             * A non-lazy run keeps looking, because both belong to the
+             * process that currently wears that name or PID -- or to its
+             * absence -- and once the target is restarted its replacement may
+             * well be one this process owns and can limit.  A process that
+             * has not started yet is exactly what that mode is for, so the
+             * search continues for as long as it keeps not being there.
              */
             if (cfg->lazy_mode) {
                 exit_status = EXIT_FAILURE;

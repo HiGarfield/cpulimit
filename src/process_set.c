@@ -885,7 +885,6 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
             /* Chosen by classify_signal_failure() below. */
             int *gate;
             int may_remain_stopped;
-            int kind;
             if (saved_errno == ESRCH) {
                 /*
                  * The process is gone. Drop the suspension record with
@@ -935,6 +934,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                  * anything suspended, because that member has been running
                  * all along.
                  */
+                int kind;
                 kind = classify_signal_failure(sig, proc, &gate,
                                                &may_remain_stopped);
                 /*
