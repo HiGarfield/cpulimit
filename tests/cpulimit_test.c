@@ -69,6 +69,15 @@
 #define PR_SET_NAME 15
 #endif
 #endif
+#if defined(__linux__) || defined(__FreeBSD__)
+/*
+ * sched_setscheduler()/sched_getscheduler() and SCHED_OTHER, used by
+ * test_leave_realtime() to take a test child out of the real-time class it
+ * inherited.  Not included on macOS, which has no POSIX real-time
+ * scheduler and therefore nothing to leave.
+ */
+#include <sched.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 
@@ -190,6 +199,27 @@ static void kill_and_wait(pid_t pid, int kill_signal) {
 }
 
 /**
+ * @brief Take the calling process out of the real-time scheduling class
+ *
+ * increase_priority() promotes cpulimit to SCHED_FIFO, and a child inherits
+ * that class across both fork() and exec().  The CPU-burning children below
+ * never block, so as many of them as there are CPUs -- exactly what
+ * test_limit_process_basic() forks -- leave nothing of a lower class
+ * runnable, the test process included.  Linux caps real-time tasks at 95%
+ * of each period and so still lets the test process run; FreeBSD has no such
+ * cap, and there the whole machine stopped answering instead of one test
+ * failing.  Every child that burns CPU therefore drops to the timeshare
+ * class first.  No-op where the platform has no POSIX real-time scheduler.
+ */
+static void test_leave_realtime(void) {
+#if defined(__linux__) || defined(__FreeBSD__)
+    struct sched_param sp;
+    sp.sched_priority = 0;
+    (void)sched_setscheduler(0, SCHED_OTHER, &sp);
+#endif
+}
+
+/**
  * @brief Suspend the calling test child process until it is killed
  * @note Children that suspend indefinitely become permanent orphans if the
  *       test process aborts (e.g., a failed assertion).  An orphan keeps the
@@ -225,6 +255,7 @@ static void test_suspend_until_killed(void) {
 static void test_burn_until_killed(void) {
     pid_t parent_pid;
 
+    test_leave_realtime();
     parent_pid = getppid();
     for (;;) {
         volatile int spin;
@@ -755,6 +786,126 @@ static void test_util_increase_priority_retries_lower_levels(void) {
         printf("(skipped: no nicer level permitted here)\n");
     }
     assert(new_nice <= permitted_nice);
+}
+
+/**
+ * @brief A CPU-burning test child must not keep the real-time class
+ * @note increase_priority() promotes cpulimit to SCHED_FIFO and a child
+ *       inherits that class across fork().  num_procs of the children
+ *       test_limit_process_basic() forks -- one per CPU, and none of them
+ *       ever blocks -- then leave nothing of a lower class runnable, the
+ *       test process included.  Linux caps real-time tasks at 95% of every
+ *       period, so the test process still gets CPU there; FreeBSD has no
+ *       such cap, and the machine stopped answering instead of one test
+ *       failing.  The child below promotes itself on purpose, then calls
+ *       test_leave_realtime(), so the assertion bites exactly where the
+ *       promotion is possible and stays out of the way where it is not.
+ *       Verified by mutation: emptying test_leave_realtime() leaves the
+ *       child in SCHED_FIFO and this assertion fails on a host that grants
+ *       the promotion.
+ */
+static void test_util_burner_leaves_realtime_class(void) {
+#if defined(__linux__) || defined(__FreeBSD__)
+    int policy[2];
+    int pipe_fds[2];
+    ssize_t got;
+    pid_t child, waited;
+    int status, exited;
+
+    assert(pipe(pipe_fds) == 0);
+    fflush(stdout);
+    fflush(stderr);
+    child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        struct sched_param sp;
+        close(pipe_fds[0]);
+        sp.sched_priority = 1;
+        if (sched_setscheduler(0, SCHED_FIFO, &sp) == 0) {
+            policy[0] = SCHED_FIFO;
+        } else {
+            policy[0] = sched_getscheduler(0);
+        }
+        test_leave_realtime();
+        policy[1] = sched_getscheduler(0);
+        if (write(pipe_fds[1], policy, sizeof(policy)) !=
+            (ssize_t)sizeof(policy)) {
+            _exit(EXIT_FAILURE);
+        }
+        _exit(EXIT_SUCCESS);
+    }
+    close(pipe_fds[1]);
+    got = read(pipe_fds[0], policy, sizeof(policy));
+    close(pipe_fds[0]);
+    waited = waitpid(child, &status, 0);
+    assert(waited == child);
+    exited = WIFEXITED(status);
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert(got == (ssize_t)sizeof(policy));
+    /* Where the promotion was granted, the child must have left it. */
+    if (policy[0] == SCHED_FIFO) {
+        assert(policy[1] != SCHED_FIFO);
+    }
+#else
+    printf("(skipped: no POSIX real-time scheduler here)\n");
+#endif
+}
+
+/**
+ * @brief The real-time class must not reach a child of this process
+ * @note increase_priority() promotes cpulimit to SCHED_FIFO, and without a
+ *       guard a forked child inherits that class: one that burns CPU without
+ *       ever blocking then outranks everything else on the machine.  Linux
+ *       can close that hole in the kernel, so try_become_realtime() asks for
+ *       SCHED_RESET_ON_FORK there and the child below must come back in
+ *       SCHED_OTHER.  The check is conditional because the promotion only
+ *       happens where the privilege is granted; where it is not there is
+ *       nothing to leak and nothing to assert.  Verified by mutation:
+ *       dropping SCHED_RESET_ON_FORK leaves the child in SCHED_FIFO and this
+ *       assertion fails on a host that grants the promotion.
+ */
+static void test_util_realtime_does_not_reach_children(void) {
+#if defined(__linux__)
+    int pipe_fds[2];
+    ssize_t got;
+    pid_t child, waited;
+    int status, exited;
+    int parent_policy, child_policy;
+
+    increase_priority();
+    parent_policy = sched_getscheduler(0);
+    child_policy = SCHED_OTHER;
+
+    assert(pipe(pipe_fds) == 0);
+    fflush(stdout);
+    fflush(stderr);
+    child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        int policy = sched_getscheduler(0);
+        close(pipe_fds[0]);
+        if (write(pipe_fds[1], &policy, sizeof(policy)) !=
+            (ssize_t)sizeof(policy)) {
+            _exit(EXIT_FAILURE);
+        }
+        _exit(EXIT_SUCCESS);
+    }
+    close(pipe_fds[1]);
+    got = read(pipe_fds[0], &child_policy, sizeof(child_policy));
+    close(pipe_fds[0]);
+    waited = waitpid(child, &status, 0);
+    assert(waited == child);
+    exited = WIFEXITED(status);
+    assert(exited);
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert(got == (ssize_t)sizeof(child_policy));
+    if (parent_policy == SCHED_FIFO || parent_policy == SCHED_RR) {
+        assert(child_policy != SCHED_FIFO && child_policy != SCHED_RR);
+    }
+#else
+    printf("(skipped: SCHED_RESET_ON_FORK is Linux only)\n");
+#endif
 }
 
 /**
@@ -5613,6 +5764,12 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
          * find_process_by_name() scans and can hang the suite.
          */
         setpgid(0, 0);
+        /*
+         * The helper burns CPU in every process it forks, and execv() keeps
+         * the scheduling class, so it has to be back in the timeshare class
+         * before it starts.
+         */
+        test_leave_realtime();
         child_argv[0] = mpb_path;
         child_argv[1] = proc_count;
         child_argv[2] = NULL;
@@ -5684,6 +5841,7 @@ static void test_process_set_cpu_usage(void) {
     if (child_pid == 0) {
         /* Child process - busy loop */
         volatile int keep_running = 1;
+        test_leave_realtime();
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
             for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
@@ -5821,6 +5979,7 @@ static void test_process_set_single(int include_children) {
     if (child_pid == 0) {
         /* Child process: busy loop until killed */
         volatile int keep_running = 1;
+        test_leave_realtime();
         while (keep_running && !is_quit_flag_set()) {
             volatile int dummy_var;
             for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
@@ -6538,6 +6697,13 @@ static void test_limit_process_basic(void) {
         volatile int keep_running = 1;
         ssize_t nwritten;
 
+        /*
+         * Before forking the rest of the group, so every descendant
+         * inherits the timeshare class too: num_procs of these never
+         * block, which is one per CPU.
+         */
+        test_leave_realtime();
+
         /* Create new process group */
         setpgid(0, 0);
 
@@ -6748,6 +6914,7 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
         if (child_pid == 0) {
             ret = close(info[1]);
             assert(ret == 0);
+            test_leave_realtime();
             for (;;) {
                 volatile int spin;
                 for (spin = 0; spin < 20000; spin = spin + 1) {
@@ -7586,6 +7753,15 @@ static int run_sigcount_child(const char *ready_path) {
     const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
     struct sigaction sa_int, sa_cont;
     int ready_fd, slot;
+
+    /*
+     * This child stands in for a user command, and it burns CPU for as
+     * long as it takes the limiter to suspend and resume it once -- up to
+     * SIGCOUNT_HANDSHAKE_BURSTS rounds.  In the real-time class that is
+     * long enough to keep the limiter from ever running, so it burns in
+     * the timeshare class like the command it replaces.
+     */
+    test_leave_realtime();
 
     memset(&sa_int, 0, sizeof(sa_int));
     sa_int.sa_handler = count_sigint_delivery;
@@ -17213,6 +17389,8 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_util_get_ncpu);
     RUN_TEST(test_util_increase_priority);
     RUN_TEST(test_util_increase_priority_retries_lower_levels);
+    RUN_TEST(test_util_burner_leaves_realtime_class);
+    RUN_TEST(test_util_realtime_does_not_reach_children);
     RUN_TEST(test_util_long_to_pid_t);
 #if defined(__linux__)
     RUN_TEST(test_util_read_file_contents);
