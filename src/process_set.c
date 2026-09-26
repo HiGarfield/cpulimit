@@ -352,10 +352,15 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
  *
  * Value range: (0, 1)
  * - Lower values (e.g., 0.05): more smoothing, slower response to changes
- * - Higher values (e.g., 0.2): less smoothing, faster response to changes
+ * - Higher values (e.g., 0.4): less smoothing, faster response to changes
+ *
+ * Set to 0.4 to keep the measurement lag small (~0.2-0.3s at the 100ms time
+ * slot) so the limit-cycle controller can react to current CPU usage instead
+ * of ~1.2s-stale data, letting the duty-cycle deadband engage and hold steady
+ * on coarse-grained kernels (e.g. 2.6.9 without hrtimers).
  * Formula: new_value = (1-CPU_EMA_ALPHA) * old_value + CPU_EMA_ALPHA * sample
  */
-#define CPU_EMA_ALPHA 0.08
+#define CPU_EMA_ALPHA 0.4
 
 /**
  * @def CPU_MIN_DELTA_MS
