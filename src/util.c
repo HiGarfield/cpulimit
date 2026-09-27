@@ -95,45 +95,26 @@ static void try_become_realtime(void) {
 /**
  * @brief Raise the scheduling priority of the current process
  *
- * Iterates nice values from PRIO_MIN upward until one succeeds, skipping levels
- * denied by permissions (RLIMIT_NICE), then best-effort real-time promotion.
+ * Best-effort real-time promotion first (see try_become_realtime()); then the
+ * nice ladder is climbed one level at a time from the current priority down to
+ * PRIO_MIN, retrying levels denied by permissions (EPERM/EACCES, e.g.
+ * RLIMIT_NICE) and stopping only on a non-permission error.
  */
 void increase_priority(void) {
     int old_priority, priority;
+    try_become_realtime();
     errno = 0;
     old_priority = getpriority(PRIO_PROCESS, 0);
     if (old_priority == -1 && errno != 0) {
         /* Error getting current priority, assume default priority */
         old_priority = 0;
     }
-    /* Best-effort real-time promotion so SIGSTOP is prompt; see
-       try_become_realtime() above. No-op without sufficient privilege, in
-       which case the portable nice() ladder below remains the only lever. */
-    try_become_realtime();
-    for (priority = PRIO_MIN; priority < old_priority; priority++) {
+    for (priority = old_priority - 1; priority >= PRIO_MIN; priority--) {
         errno = 0;
-        if (setpriority(PRIO_PROCESS, 0, priority) == 0) {
+        if (setpriority(PRIO_PROCESS, 0, priority) != 0 && errno != EPERM &&
+            errno != EACCES) {
             break;
         }
-        /*
-         * Permission denied at this level. Continue to the next
-         * (less aggressive) priority: RLIMIT_NICE may allow a
-         * value less negative than PRIO_MIN even without root.
-         *
-         * Both EPERM and EACCES mean "not allowed to raise the
-         * priority this far" and POSIX permits either, so both must
-         * be retried: Linux reports EACCES when CAP_SYS_NICE is
-         * missing (and EPERM when RLIMIT_NICE is exceeded), while
-         * the BSDs report EACCES precisely for the "lower the nice
-         * value" denial. Retrying only EPERM aborted the ladder on
-         * its very first rung on Linux, leaving cpulimit at default
-         * priority even when a milder level would have been
-         * accepted.
-         */
-        if (errno == EPERM || errno == EACCES) {
-            continue;
-        }
-        break;
     }
 }
 
