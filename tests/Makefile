@@ -50,11 +50,8 @@ busy multi_process_busy: %: %.o $(LOAD_OBJS)
 # test's replacement. Every source therefore receives all renames except
 # the ones it defines; the lists below are the definers.
 #
-# CPULIMIT_TEST_BUILD renames nothing: it opts the platform is_child_of()
-# implementations into the getppid_of() test seam (BUG-043).  Without it the
-# seam is compiled out and the BUG-043 regression test fails in this build.
 SEAM_ALL_FLAGS := -Dkill=cpulimit_test_kill -Drandom=cpulimit_test_random \
-	-Dgetloadavg=cpulimit_test_getloadavg -Dwaitpid=cpulimit_test_waitpid -DCPULIMIT_TEST_BUILD
+	-Dgetloadavg=cpulimit_test_getloadavg -Dwaitpid=cpulimit_test_waitpid 
 SEAM_TIME_ITER_FLAGS := -Dget_current_time=cpulimit_test_get_current_time \
 	-Dsleep_timespec=cpulimit_test_sleep_timespec \
 	-Dinit_process_iterator=cpulimit_test_init_process_iterator \

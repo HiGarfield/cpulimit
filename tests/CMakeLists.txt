@@ -54,8 +54,7 @@ set(CPULIMIT_TEST_SEAM_ALL
     kill=cpulimit_test_kill
     random=cpulimit_test_random
     getloadavg=cpulimit_test_getloadavg
-    waitpid=cpulimit_test_waitpid
-    CPULIMIT_TEST_BUILD)
+    waitpid=cpulimit_test_waitpid)
 
 set(CPULIMIT_TEST_SEAM_TIME_ITER
     get_current_time=cpulimit_test_get_current_time
