@@ -48,14 +48,6 @@ pid_t find_process_by_pid(pid_t pid) {
     if (pid <= 0) {
         return 0;
     }
-#ifdef CPULIMIT_TEST_BUILD
-    /* When the harness arms it, probe existence from the scripted iterator
-     * seam instead of a real kill(pid, 0) so name-based lookup tests can drive
-     * the final recheck deterministically. */
-    if (seam_find_by_pid_override) {
-        return cpulimit_test_find_by_pid(pid);
-    }
-#endif
     /* kill(pid, 0): existence + permission probe without signalling */
     if (kill(pid, 0) == 0) {
         return pid;

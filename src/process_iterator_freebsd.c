@@ -310,14 +310,7 @@ static int is_child_via_kvm(kvm_t *kvm_descriptor, pid_t child_pid,
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
-#ifdef CPULIMIT_TEST_BUILD
-/*    default path stays a direct call to the real getppid_via_kvm(). */
-#define GETPPID_OF(c)                                                          \
-    (seam_getppid_fabricate ? cpulimit_test_getppid_of(c)                      \
-                            : getppid_via_kvm(kvm_descriptor, c))
-#else
 #define GETPPID_OF(c) getppid_via_kvm(kvm_descriptor, c)
-#endif
     /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
         pid_t next_ppid;
