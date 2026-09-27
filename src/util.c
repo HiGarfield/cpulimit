@@ -62,7 +62,7 @@
 static void try_become_realtime(void) {
     struct sched_param sp;
     int policy = SCHED_FIFO;
-    sp.sched_priority = 1;
+    sp.sched_priority = sched_get_priority_max(SCHED_FIFO);
 #ifdef SCHED_RESET_ON_FORK
     policy |= SCHED_RESET_ON_FORK;
 #endif
