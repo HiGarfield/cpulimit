@@ -53,46 +53,27 @@
 #endif
 
 #if defined(__linux__) || defined(__FreeBSD__)
-/*
- * Best-effort: raise cpulimit to SCHED_FIFO (lowest RT priority) so it can
- * deliver SIGSTOP the instant the target wakes from nanosleep, instead of
- * waiting for it to yield. On a non-fully-preemptible kernel a busy-looping
- * target otherwise starves cpulimit and the duty cycle oscillates.
+/**
+ * @brief Attempt to raise the current process to real-time priority
  *
- * cpulimit sleeps between signals, so RT only matters during the brief
- * wakeup-to-signal window and never monopolizes the CPU; if the privilege is
- * unavailable the call fails silently and the nice() ladder remains.
- *
- * The class must not outlive this process: an RT task outranks every ordinary
- * one, so an inheriting child that never blocks starves the machine. Linux
- * bounds this with sched_rt_runtime and SCHED_RESET_ON_FORK; elsewhere the only
- * guard is ordering, since the program's only fork() is before this promotion.
+ * @note This is a best-effort attempt; if the privilege is unavailable, the
+ *       call fails silently.
  */
 static void try_become_realtime(void) {
     struct sched_param sp;
     int policy = SCHED_FIFO;
     sp.sched_priority = 1;
 #ifdef SCHED_RESET_ON_FORK
-    /*
-     * Linux 2.6.32 and later: a child created by fork() starts in
-     * SCHED_OTHER with nice 0 instead of inheriting this class, and the flag
-     * is cleared in that child, so cpulimit alone stays real-time. It also
-     * keeps the boosted priority away from a command-mode target, which is
-     * the process being slowed down. FreeBSD and macOS have no equivalent.
-     */
     policy |= SCHED_RESET_ON_FORK;
 #endif
     (void)sched_setscheduler(0, policy, &sp);
 }
 #elif defined(__APPLE__)
-/*
- * macOS/Darwin has no POSIX SCHED_FIFO/SCHED_RR, so the equivalent real-time
- * lever is the Mach THREAD_TIME_CONSTRAINT_POLICY: it schedules the calling
- * thread with a bounded time constraint so it can preempt the throttled busy
- * loop promptly and deliver SIGSTOP. cpulimit sleeps between signals, so the
- * thread is only "real-time" during the brief wakeup-to-signal window and does
- * not monopolize the CPU. If the policy cannot be applied the call is silently
- * ignored and the portable nice() ladder below remains the only lever.
+/**
+ * @brief Attempt to raise the current process to real-time priority
+ *
+ * @note This is a best-effort attempt; if the privilege is unavailable, the
+ *       call fails silently.
  */
 static void try_become_realtime(void) {
     thread_time_constraint_policy_data_t policy;
