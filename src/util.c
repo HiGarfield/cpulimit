@@ -107,9 +107,9 @@ void increase_priority(void) {
         /* Error getting current priority, assume default priority */
         old_priority = 0;
     }
-    for (priority = old_priority - 1; priority >= PRIO_MIN; priority--) {
+    for (priority = old_priority; priority > PRIO_MIN; priority--) {
         errno = 0;
-        if (setpriority(PRIO_PROCESS, 0, priority) != 0 && errno != EPERM &&
+        if (setpriority(PRIO_PROCESS, 0, priority - 1) != 0 && errno != EPERM &&
             errno != EACCES) {
             break;
         }
