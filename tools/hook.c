@@ -60,6 +60,7 @@
 
 /**
  * @brief Interposed kill() implementing the configured rejection policy
+ *
  * @param pid Target process or process group
  * @param sig Signal number to deliver
  * @return 0 when the call succeeded, -1 with errno set otherwise

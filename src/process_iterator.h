@@ -372,7 +372,8 @@ pid_t getppid_of(pid_t pid);
 pid_t cpulimit_test_getppid_of(pid_t pid);
 
 /**
- * @brief Non-zero: is_child_of() should use the getppid_of() seam. */
+ * @brief Non-zero: is_child_of() should use the getppid_of() seam.
+ */
 extern int seam_getppid_fabricate;
 
 /**
@@ -391,7 +392,8 @@ extern int seam_getppid_fabricate;
 pid_t cpulimit_test_find_by_pid(pid_t pid);
 
 /**
- * @brief Non-zero: find_process_by_pid() should use the seam probe. */
+ * @brief Non-zero: find_process_by_pid() should use the seam probe.
+ */
 extern int seam_find_by_pid_override;
 #endif
 
