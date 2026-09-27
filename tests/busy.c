@@ -34,6 +34,7 @@
 
 /**
  * @brief Busy loop thread function
+ *
  * @param arg Thread argument (unused)
  * @return NULL
  *
@@ -52,6 +53,7 @@ static void *busy_loop(void *arg) {
 
 /**
  * @brief Main function for CPU load generator
+ *
  * @param argc Argument count
  * @param argv Argument vector
  * @return 0 on success

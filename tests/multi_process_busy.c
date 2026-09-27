@@ -36,6 +36,7 @@
 
 /**
  * @brief CPU load generator using fork
+ *
  * @param argc Command line argument count
  * @param argv Command line arguments (optional: number of processes)
  * @return 0 on success

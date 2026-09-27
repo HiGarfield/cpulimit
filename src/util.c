@@ -78,9 +78,7 @@ static void try_become_realtime(void) {
 static void try_become_realtime(void) {
     thread_time_constraint_policy_data_t policy;
     mach_port_t thread = mach_thread_self();
-    /* period/computation/constraint are in AbsoluteTime (ns on modern Darwin).
-       A modest, preemptible budget: 100us period, 50us computation, 100us
-       constraint. */
+    /* Mach budget: 100us period, 50us computation, 100us constraint. */
     policy.period = 100000;
     policy.computation = 50000;
     policy.constraint = 100000;

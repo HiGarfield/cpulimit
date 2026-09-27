@@ -7411,7 +7411,8 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 #define SIGCOUNT_CHILD_ARG "--cpulimit-test-sigcount-child"
 
 /**
- * @brief CPU bursts spent waiting for the limiter to suspend this process. */
+ * @brief CPU bursts spent waiting for the limiter to suspend this process.
+ */
 #define SIGCOUNT_HANDSHAKE_BURSTS 100000
 
 /**
@@ -7426,11 +7427,13 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 #define SIGCOUNT_LINGER_SLOTS 30
 
 /**
- * @brief Reported when the limiter never suspended the counting command. */
+ * @brief Reported when the limiter never suspended the counting command.
+ */
 #define SIGCOUNT_NOT_SUSPENDED 98
 
 /**
- * @brief Reported when a signal handler could not be installed. */
+ * @brief Reported when a signal handler could not be installed.
+ */
 #define SIGCOUNT_NO_HANDLER 99
 
 /**
@@ -7455,11 +7458,13 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 #define EXIT_CHILD_ARG "--cpulimit-test-exit-child"
 
 /**
- * @brief Reported when the forwarded signal reached that command. */
+ * @brief Reported when the forwarded signal reached that command.
+ */
 #define FORWARD_DELIVERED 42
 
 /**
- * @brief Reported when that command could not leave its process group. */
+ * @brief Reported when that command could not leave its process group.
+ */
 #define FORWARD_NO_GROUP 98
 
 /**
@@ -7473,15 +7478,18 @@ static void test_limiter_run_command_mode_nonexistent(void) {
 #define COUNT_CHILD_ARG "--cpulimit-test-count-child"
 
 /**
- * @brief How many 10 ms slots it lingers, so a duplicate shows up. */
+ * @brief How many 10 ms slots it lingers, so a duplicate shows up.
+ */
 #define COUNT_LINGER_SLOTS 30
 
 /**
- * @brief Number of SIGINTs received by the counting command. */
+ * @brief Number of SIGINTs received by the counting command.
+ */
 static volatile sig_atomic_t sigint_delivery_count = 0;
 
 /**
- * @brief Number of SIGCONTs received by the counting command. */
+ * @brief Number of SIGCONTs received by the counting command.
+ */
 static volatile sig_atomic_t sigcont_delivery_count = 0;
 
 /**
@@ -7505,7 +7513,8 @@ static void count_sigcont_delivery(int sig) {
 }
 
 /**
- * @brief Number of SIGTERMs received by the out-of-group command. */
+ * @brief Number of SIGTERMs received by the out-of-group command.
+ */
 static volatile sig_atomic_t forward_delivery_count = 0;
 
 /**
@@ -9677,23 +9686,28 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  ***************************************************************************/
 
 /**
- * @brief PID the seam scripts report; it never belongs to a real process. */
+ * @brief PID the seam scripts report; it never belongs to a real process.
+ */
 #define SEAM_TARGET_PID 42424
 
 /**
- * @brief Number of scripted snapshots the seam can hold. */
+ * @brief Number of scripted snapshots the seam can hold.
+ */
 #define SEAM_MAX_FRAMES 32
 
 /**
- * @brief Number of processes a single scripted snapshot can hold. */
+ * @brief Number of processes a single scripted snapshot can hold.
+ */
 #define SEAM_MAX_FRAME_PROCS 8
 
 /**
- * @brief Number of scripted limit_process() outcomes a test can queue. */
+ * @brief Number of scripted limit_process() outcomes a test can queue.
+ */
 #define SEAM_STATUS_SCRIPT_MAX 32
 
 /**
- * @brief Number of kill() calls the seam records. */
+ * @brief Number of kill() calls the seam records.
+ */
 #define SEAM_MAX_SIGNALS 512
 
 /**
@@ -9705,11 +9719,13 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
 #define SEAM_MAX_SERVED_FRAMES 256
 
 /**
- * @brief How many cycles the smoke script keeps the target visible. */
+ * @brief How many cycles the smoke script keeps the target visible.
+ */
 #define SEAM_SMOKE_CYCLES 6
 
 /**
- * @brief CPU time in milliseconds the smoke script adds per cycle. */
+ * @brief CPU time in milliseconds the smoke script adds per cycle.
+ */
 #define SEAM_SMOKE_CPU_STEP 45.0
 
 /**
@@ -9730,36 +9746,46 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
 #define SEAM_RANDOM 500L
 
 /**
- * @brief One process as reported by the scripted process iterator. */
+ * @brief One process as reported by the scripted process iterator.
+ */
 struct seam_proc {
     /**
-     * @brief Process ID. */
+     * @brief Process ID.
+     */
     pid_t pid;
     /**
-     * @brief Parent process ID. */
+     * @brief Parent process ID.
+     */
     pid_t ppid;
     /**
-     * @brief Cumulative CPU time in milliseconds. */
+     * @brief Cumulative CPU time in milliseconds.
+     */
     double cpu_time;
     /**
-     * @brief Process start time in seconds, or UNKNOWN_START_TIME (<=0). */
+     * @brief Process start time in seconds, or UNKNOWN_START_TIME (<=0).
+     */
     double start_time;
     /**
-     * @brief Command (argv[0] or path), used by name-based matching. */
+     * @brief Command (argv[0] or path), used by name-based matching.
+     */
     char command[CMD_BUFF_SIZE];
 };
 
 /**
- * @brief One kill() call recorded by the seam. */
+ * @brief One kill() call recorded by the seam.
+ */
 struct seam_signal {
     /**
-     * @brief Target the call was made for; negative for a process group. */
+     * @brief Target the call was made for; negative for a process group.
+     */
     pid_t pid;
     /**
-     * @brief Signal number. */
+     * @brief Signal number.
+     */
     int sig;
     /**
-     * @brief Non-zero when the call was made to fail. */
+     * @brief Non-zero when the call was made to fail.
+     */
     int failed;
 };
 
@@ -9786,27 +9812,33 @@ static void *seam_alloc_array(size_t bytes) {
 }
 
 /**
- * @brief Non-zero while a deterministic test owns clock, iterator, kill. */
+ * @brief Non-zero while a deterministic test owns clock, iterator, kill.
+ */
 static int seam_active = 0;
 
 /**
- * @brief Virtual monotonic clock in milliseconds. */
+ * @brief Virtual monotonic clock in milliseconds.
+ */
 static double seam_clock_ms = 0.0;
 
 /**
- * @brief Scripted snapshots served by the fake process iterator. */
+ * @brief Scripted snapshots served by the fake process iterator.
+ */
 static struct seam_proc (*seam_frames)[SEAM_MAX_FRAME_PROCS];
 
 /**
- * @brief Number of processes in each scripted snapshot. */
+ * @brief Number of processes in each scripted snapshot.
+ */
 static size_t seam_frame_len[SEAM_MAX_FRAMES];
 
 /**
- * @brief Number of scripted snapshots. */
+ * @brief Number of scripted snapshots.
+ */
 static size_t seam_frame_count = 0;
 
 /**
- * @brief Index of the next snapshot to serve. */
+ * @brief Index of the next snapshot to serve.
+ */
 static size_t seam_frame_next = 0;
 
 /* @brief Index of the snapshot being served now; (size_t)-1 when none is left.
@@ -9817,23 +9849,28 @@ static size_t seam_frame_next = 0;
 static size_t seam_frame_current = (size_t)-1;
 
 /**
- * @brief Position within the snapshot being served. */
+ * @brief Position within the snapshot being served.
+ */
 static size_t seam_frame_pos = 0;
 
 /**
- * @brief Non-zero to keep serving the last snapshot once the script ends. */
+ * @brief Non-zero to keep serving the last snapshot once the script ends.
+ */
 static int seam_repeat_last = 0;
 
 /**
- * @brief Number of snapshots served in this session. */
+ * @brief Number of snapshots served in this session.
+ */
 static size_t seam_frames_served = 0;
 
 /**
- * @brief kill() calls recorded during this session, in order. */
+ * @brief kill() calls recorded during this session, in order.
+ */
 static struct seam_signal *seam_signals;
 
 /**
- * @brief Number of kill() calls recorded. */
+ * @brief Number of kill() calls recorded.
+ */
 static size_t seam_signal_count = 0;
 
 /**
@@ -9845,7 +9882,8 @@ static size_t seam_signal_count = 0;
 static struct seam_signal *seam_run_snapshot;
 
 /**
- * @brief Number of kill() calls made so far. */
+ * @brief Number of kill() calls made so far.
+ */
 static int seam_kill_calls = 0;
 
 /**
@@ -9884,39 +9922,48 @@ static int seam_limit_status_script[SEAM_STATUS_SCRIPT_MAX];
 static unsigned int seam_limit_prior_failures[SEAM_STATUS_SCRIPT_MAX + 1];
 
 /**
- * @brief Entries of @ref seam_limit_status_script that are armed; 0 = off. */
+ * @brief Entries of @ref seam_limit_status_script that are armed; 0 = off.
+ */
 static int seam_limit_status_script_len = 0;
 
 /**
- * @brief Next entry of @ref seam_limit_status_script to serve. */
+ * @brief Next entry of @ref seam_limit_status_script to serve.
+ */
 static int seam_limit_status_script_next = 0;
 
 /**
- * @brief Number of limit_process() calls the hook has served. */
+ * @brief Number of limit_process() calls the hook has served.
+ */
 static int seam_limit_process_calls = 0;
 
 /**
- * @brief Non-zero to park the first waitpid() call on a barrier. */
+ * @brief Non-zero to park the first waitpid() call on a barrier.
+ */
 static int seam_hook_waitpid = 0;
 
 /**
- * @brief Where the parked limit_process() announces that it is there. */
+ * @brief Where the parked limit_process() announces that it is there.
+ */
 static int seam_limit_announce_fd = -1;
 
 /**
- * @brief Where the parked limit_process() waits to be released. */
+ * @brief Where the parked limit_process() waits to be released.
+ */
 static int seam_limit_go_fd = -1;
 
 /**
- * @brief Where the parked waitpid() announces its first call. */
+ * @brief Where the parked waitpid() announces its first call.
+ */
 static int seam_waitpid_announce_fd = -1;
 
 /**
- * @brief Where the parked waitpid() waits to be released. */
+ * @brief Where the parked waitpid() waits to be released.
+ */
 static int seam_waitpid_go_fd = -1;
 
 /**
- * @brief Number of waitpid() calls made through the seam. */
+ * @brief Number of waitpid() calls made through the seam.
+ */
 static int seam_waitpid_calls = 0;
 
 /**
@@ -9928,7 +9975,8 @@ static int seam_waitpid_calls = 0;
 static int seam_waitpid_wnohang_calls = 0;
 
 /**
- * @brief Number of waitpid() calls through the seam that could block. */
+ * @brief Number of waitpid() calls through the seam that could block.
+ */
 static int seam_waitpid_blocking_calls = 0;
 
 /**
@@ -9941,10 +9989,12 @@ static int seam_waitpid_blocking_calls = 0;
 static int seam_log_fd = -1;
 
 /**
- * @brief Non-zero to park one sleep_timespec() call on a barrier. */
+ * @brief Non-zero to park one sleep_timespec() call on a barrier.
+ */
 static int seam_hook_sleep = 0;
 /**
- * @brief Non-zero to make the sleep_timespec() seam report failure. */
+ * @brief Non-zero to make the sleep_timespec() seam report failure.
+ */
 static int seam_sleep_fails = 0;
 
 /*
@@ -9982,34 +10032,42 @@ int seam_find_by_pid_override = 0;
 static pid_t seam_alive[SEAM_MAX_FRAME_PROCS];
 static int seam_alive_count = 0;
 /**
- * @brief PID whose getppid_of() lookup fails once. */
+ * @brief PID whose getppid_of() lookup fails once.
+ */
 static pid_t seam_getppid_fail_pid = 0;
 /**
- * @brief Cleared after the one-shot failure above. */
+ * @brief Cleared after the one-shot failure above.
+ */
 static int seam_getppid_failed_once = 0;
 
 /**
- * @brief 1-based sleep call to park; the first is the work phase. */
+ * @brief 1-based sleep call to park; the first is the work phase.
+ */
 static int seam_sleep_call = 0;
 
 /**
- * @brief Number of sleep calls made so far. */
+ * @brief Number of sleep calls made so far.
+ */
 static int seam_sleep_calls = 0;
 
 /**
- * @brief Where the parked sleep announces itself. */
+ * @brief Where the parked sleep announces itself.
+ */
 static int seam_sleep_announce_fd = -1;
 
 /**
- * @brief Where the parked sleep waits to be released. */
+ * @brief Where the parked sleep waits to be released.
+ */
 static int seam_sleep_go_fd = -1;
 
 /**
- * @brief Records read back from a forked limiter. */
+ * @brief Records read back from a forked limiter.
+ */
 static struct seam_signal *seam_child_log;
 
 /**
- * @brief Number of entries in seam_child_log. */
+ * @brief Number of entries in seam_child_log.
+ */
 static size_t seam_child_log_len = 0;
 
 /*
@@ -10022,13 +10080,16 @@ static size_t seam_child_log_len = 0;
  */
 #define SEAM_START_TIME_QUEUE_MAX 8
 /**
- * @brief Scripted start times for the get_process_start_time() seam. */
+ * @brief Scripted start times for the get_process_start_time() seam.
+ */
 static double seam_start_time_queue[SEAM_START_TIME_QUEUE_MAX];
 /**
- * @brief Number of armed entries in @ref seam_start_time_queue. */
+ * @brief Number of armed entries in @ref seam_start_time_queue.
+ */
 static int seam_start_time_count = 0;
 /**
- * @brief Next entry of @ref seam_start_time_queue to serve. */
+ * @brief Next entry of @ref seam_start_time_queue to serve.
+ */
 static int seam_start_time_idx = 0;
 
 /**
@@ -10049,7 +10110,8 @@ static void seam_alloc_storage(void) {
 }
 
 /**
- * @brief 1-based kill() call index that must fail; 0 disables failure. */
+ * @brief 1-based kill() call index that must fail; 0 disables failure.
+ */
 static int seam_fail_call = 0;
 
 /**
@@ -10061,7 +10123,8 @@ static int seam_fail_call = 0;
 static int seam_fail_span = 1;
 
 /**
- * @brief errno the failing kill() call must report. */
+ * @brief errno the failing kill() call must report.
+ */
 static int seam_fail_errno = 0;
 
 /**
@@ -10075,7 +10138,8 @@ static int seam_fail_errno = 0;
 static int seam_fail_sig = 0;
 
 /**
- * @brief Non-zero to make the get_current_time() seam report failure. */
+ * @brief Non-zero to make the get_current_time() seam report failure.
+ */
 static int seam_clock_fails = 0;
 
 /**
@@ -10088,11 +10152,13 @@ static int seam_clock_fails = 0;
 static int seam_clock_fail_on_call = 0;
 
 /**
- * @brief Number of get_current_time() calls made through the seam. */
+ * @brief Number of get_current_time() calls made through the seam.
+ */
 static int seam_clock_call_count = 0;
 
 /**
- * @brief When set (and seam active), init_process_iterator() fails. */
+ * @brief When set (and seam active), init_process_iterator() fails.
+ */
 static int seam_init_fails = 0;
 
 /**
@@ -10115,7 +10181,8 @@ static int seam_close_fails = 0;
  */
 static int seam_fail_update_after = 0;
 /**
- * @brief Success counter consumed by seam_fail_update_after. */
+ * @brief Success counter consumed by seam_fail_update_after.
+ */
 static int seam_update_call_count = 0;
 
 /* Used by the iterator replacement below, which is defined further up. */
@@ -14017,7 +14084,8 @@ static int seam_run_smoke_limit(void) {
 static int seam_snapshot_run(void) {
     size_t idx;
     /**
-     * @brief Number of entries copied into seam_run_snapshot, this run. */
+     * @brief Number of entries copied into seam_run_snapshot, this run.
+     */
     static size_t seam_run_snapshot_len = 0;
     seam_run_snapshot_len = seam_signal_count < SEAM_MAX_SIGNALS
                                 ? seam_signal_count
@@ -14029,11 +14097,13 @@ static int seam_snapshot_run(void) {
 }
 
 /**
- * @brief Descendant PID the seam scripts report next to the target. */
+ * @brief Descendant PID the seam scripts report next to the target.
+ */
 #define SEAM_CHILD_PID 42425
 
 /**
- * @brief Number of cycles the group script keeps both processes visible. */
+ * @brief Number of cycles the group script keeps both processes visible.
+ */
 #define SEAM_GROUP_CYCLES 4
 
 /**

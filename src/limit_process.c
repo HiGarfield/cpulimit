@@ -117,14 +117,16 @@ int cpulimit_test_getloadavg(double *loadavg, int nelem);
  */
 struct dynamic_time_slot_ctx {
     /**
-     * @brief Current smoothed time slot in microseconds. */
+     * @brief Current smoothed time slot in microseconds.
+     */
     double time_slot;
     /**
      * @brief Non-zero after the first call has seeded the timestamp and PRNG.
      */
     int initialized;
     /**
-     * @brief Timestamp of the most recent load-based adjustment. */
+     * @brief Timestamp of the most recent load-based adjustment.
+     */
     struct timespec last_update;
 };
 
