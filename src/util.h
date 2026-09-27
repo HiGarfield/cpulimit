@@ -80,8 +80,10 @@ extern "C" {
 /**
  * @brief Raise the scheduling priority of the current process
  *
- * Iterates nice values from PRIO_MIN upward until one succeeds, skipping levels
- * denied by permissions (RLIMIT_NICE), then best-effort real-time promotion.
+ * Best-effort real-time promotion first (see try_become_realtime()); then the
+ * nice ladder is climbed one level at a time from the current priority down to
+ * PRIO_MIN, retrying levels denied by permissions (EPERM/EACCES, e.g.
+ * RLIMIT_NICE) and stopping only on a non-permission error.
  */
 void increase_priority(void);
 
