@@ -15078,7 +15078,7 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
     assert(child_pid >= 0);
     if (child_pid == 0) {
         char *child_argv[6];
-        int devnull;
+        int devnull, out_fd, err_fd;
         char arg_l[] = "-l";
         char arg_50[] = "50";
         char arg_e[] = "-e";
@@ -15087,9 +15087,16 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
         if (devnull < 0) {
             _exit(127);
         }
-        /* The watch reports every miss; keep that out of the test output. */
-        if (dup2(devnull, STDOUT_FILENO) < 0 ||
-            dup2(devnull, STDERR_FILENO) < 0) {
+        /*
+         * The watch reports every miss; keep that out of the test output.
+         * The two descriptors are kept in variables rather than compared
+         * away: a discarded dup2() result is reported by -Wanalyzer-fd-leak
+         * as leaked on the exec path, where both are deliberately left open
+         * so the child inherits them.
+         */
+        out_fd = dup2(devnull, STDOUT_FILENO);
+        err_fd = dup2(devnull, STDERR_FILENO);
+        if (out_fd < 0 || err_fd < 0) {
             _exit(127);
         }
         if (devnull > STDERR_FILENO) {
