@@ -80,6 +80,21 @@ extern "C" {
 #define LIMIT_PROCESS_STRANDED 3
 
 /**
+ * @def LIMIT_PROCESS_NO_TARGET
+ * @brief limit_process() found no limitable target for the PID it was given
+ *
+ * The group was built but stayed empty because the named PID was a zombie not
+ * yet reaped, already gone, PID 1 (init), or cpulimit itself -- none of which
+ * can be limited. This is distinct from LIMIT_PROCESS_OK: a run that actually
+ * suspended a target which then exited had a non-empty group at least once, so
+ * reporting it as a success would be a silent false success. Callers use it to
+ * tell a target that was never present apart from a completed limit; command
+ * mode ignores it and returns the command's own exit status, while -p/-e mode
+ * reports failure.
+ */
+#define LIMIT_PROCESS_NO_TARGET 4
+
+/**
  * @brief Enforce a CPU usage limit on a process or process set
  *
  * @param pid Process ID of the target process to limit
@@ -92,9 +107,11 @@ extern "C" {
  *        than per retry; it does not change the return value
  * @return One of the LIMIT_PROCESS_* codes: OK when finished with everything
  *         resumed; SCAN_FAILED (or _AND_STRANDED if not all resumed) on a
- * failed scan; STRANDED when the run ended but a member could not be resumed;
- *         ERROR when the group could not be built. Every non-OK value means
- * the target is no longer limited.
+ *         failed scan; STRANDED when the run ended but a member could not be
+ *         resumed; NO_TARGET when the named PID was never limitable (zombie,
+ *         gone, PID 1, or self) so nothing was ever suspended; ERROR when the
+ *         group could not be built. Every non-OK value means the target is no
+ *         longer limited.
  *
  * @note Blocks until the target terminates or is_quit_flag_set() is true; every
  *       suspended process is resumed before returning.

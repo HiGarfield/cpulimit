@@ -14645,6 +14645,102 @@ static void test_limit_process_reports_scan_failure(void) {
     assert(seen);
 }
 
+#ifdef __linux__
+/**
+ * @brief Determine whether a PID is currently a zombie process
+ *
+ * Reads /proc/<pid>/stat and inspects the state field. Returns 1 if the
+ * process is a zombie ('Z'), 0 otherwise or if it cannot be observed. Used by
+ * the zombie-target regression test to confirm the fixture before it asserts
+ * on limit_process().
+ */
+static int test_is_zombie(pid_t pid) {
+    char path[64];
+    char *buffer;
+    const char *p;
+    char state;
+    int parsed;
+    if (snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid)
+        >= (int)sizeof(path)) {
+        return 0;
+    }
+    buffer = read_file_contents(path);
+    if (buffer == NULL) {
+        return 0;
+    }
+    p = strrchr(buffer, ')');
+    if (p == NULL) {
+        free(buffer);
+        return 0;
+    }
+    parsed = sscanf(p + 1, " %c", &state);
+    free(buffer);
+    if (parsed != 1 || state < 'A' || state > 'Z') {
+        return 0;
+    }
+    return state == 'Z' ? 1 : 0;
+}
+#endif
+
+/**
+ * @brief Zombie target: limit_process() must report a non-OK status
+ *
+ * @note A zombie (a child that exited but has not been reaped) is not yet gone,
+ *       so kill(pid,0) still reports it present and it looks like a valid
+ *       target. But the process iterator refuses to add a zombie to the group,
+ *       so the group is empty from the first scan and nothing is ever limited.
+ *       limit_process() must report that (LIMIT_PROCESS_NO_TARGET) rather than
+ *       LIMIT_PROCESS_OK, otherwise cpulimit exits 0 having limited nothing.
+ *       Verified by mutation: reverting the target_pid>0 && member_count==0
+ *       guard in limit_process() makes this assertion fail.
+ */
+static void test_limit_process_rejects_zombie_target(void) {
+    pid_t child_pid;
+    pid_t waited;
+    int status;
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+#ifdef __linux__
+        pid_t zombie;
+        int limit_ret;
+        int tries;
+        struct timespec zsleep;
+        zombie = fork();
+        assert(zombie >= 0);
+        if (zombie == 0) {
+            _exit(0);
+        }
+        zsleep.tv_sec = 0;
+        zsleep.tv_nsec = 1000000L;
+        tries = 0;
+        while (tries < 200 && !test_is_zombie(zombie)) {
+            nanosleep(&zsleep, NULL);
+            tries++;
+        }
+        if (!test_is_zombie(zombie)) {
+            printf("(skipped: could not observe a zombie for the test)\n");
+            fflush(stdout);
+            waitpid(zombie, NULL, 0);
+            _exit(EXIT_SUCCESS);
+        }
+        seam_reset();
+        configure_signal_handler();
+        limit_ret = limit_process(zombie, 0.5, 0, 0, 1);
+        waitpid(zombie, NULL, 0);
+        _exit(limit_ret != LIMIT_PROCESS_OK ? EXIT_SUCCESS : EXIT_FAILURE);
+#else
+        printf("(skipped: zombie observation needs /proc)\n");
+        fflush(stdout);
+        _exit(EXIT_SUCCESS);
+#endif
+    }
+    waited = waitpid(child_pid, &status, 0);
+    assert(waited == child_pid);
+    assert(WIFEXITED(status));
+    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+}
+
 /**
  * @brief Run one command-mode run whose limit_process() reports a status
  *
@@ -15437,6 +15533,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
     RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
     RUN_TEST(test_limit_process_reports_scan_failure);
+    RUN_TEST(test_limit_process_rejects_zombie_target);
 
     RUN_TEST(test_command_mode_reports_stopped_limiting);
     RUN_TEST(test_command_mode_reports_stranded_run);
