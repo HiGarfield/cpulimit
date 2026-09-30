@@ -135,7 +135,8 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
      * Reap the child either way; when limiting never engaged, discard its
      * status so the run is not reported as a successful limited one.
      */
-    if (limit_status != LIMIT_PROCESS_OK) {
+    if (limit_status != LIMIT_PROCESS_OK &&
+        limit_status != LIMIT_PROCESS_NO_TARGET) {
         /*
          * Limit_process() did not limit to completion; surface the child's
          * real exit status so the operator sees why, not just cpulimit's

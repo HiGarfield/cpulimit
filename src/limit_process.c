@@ -231,6 +231,20 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     }
 
     /*
+     * The target was named explicitly but never made it into the group: it is
+     * a zombie that has not been reaped, already gone, PID 1 (init), or
+     * cpulimit itself -- every one of those is un-limitable, so the group
+     * stays empty. Reporting success here would be a silent false success:
+     * the run never suspended anything. This is distinct from a target that
+     * was limited and then exited, which had a non-empty group at least once.
+     * Command mode ignores this and returns the command's own exit status;
+     * -p/-e mode reports it as a failure.
+     */
+    if (proc_set.target_pid > 0 && process_set_member_count(&proc_set) == 0) {
+        return LIMIT_PROCESS_NO_TARGET;
+    }
+
+    /*
      * Main control loop: alternate between allowing execution and suspending
      * processes to maintain target CPU usage.
      */
