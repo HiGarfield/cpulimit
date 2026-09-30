@@ -56,6 +56,18 @@ int run_command_mode(const struct cpulimit_cfg *cfg);
  */
 int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg);
 
+/**
+ * @brief Number of short slices the watch loop sleeps per ~2s poll interval
+ *
+ * run_pid_or_exe_mode() splits its 2s watch interval into this many slices so
+ * a termination signal ends the run within one slice instead of after the
+ * whole interval. The slice duration is the interval divided by this count, so
+ * the total poll cadence is unchanged. The test suite multiplies its
+ * sleep-seam trigger by this so the announce lands on the intended watch
+ * iteration rather than an arbitrary slice.
+ */
+#define CPULIMIT_WATCH_SLICES 20
+
 #ifdef __cplusplus
 }
 #endif
