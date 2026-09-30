@@ -14887,6 +14887,130 @@ static void test_find_process_by_name_reports_init_exclusion(void) {
 #endif
 
 /**
+ * @brief Run find_process_by_name() in this process, capturing its diagnostic
+ *
+ * @param name Name to look up
+ * @param out Out: a heap buffer holding what the lookup printed on stderr,
+ *        owned by the caller
+ * @return What find_process_by_name() returned: 0 means no target was
+ *         selected
+ *
+ * @note Unlike test_capture_find_by_name() this does not fork. The callers
+ *       script the scan through the iterator seam, and that script lives in a
+ *       heap snapshot a forked child would inherit and leave behind on
+ *       _exit() as still reachable under valgrind. Redirecting this
+ *       process's own stderr keeps the script in one process and still
+ *       captures the diagnostic, which is the only observable difference
+ *       between the two outcomes these tests separate.
+ */
+static pid_t test_capture_find_by_name_message(const char *name, char **out) {
+    int saved_stderr;
+    int err_pipe[2];
+    char *capture;
+    ssize_t n_read;
+    pid_t found;
+
+    assert(pipe(err_pipe) == 0);
+    saved_stderr = dup(STDERR_FILENO);
+    assert(saved_stderr >= 0);
+    fflush(stderr);
+    assert(dup2(err_pipe[1], STDERR_FILENO) == STDERR_FILENO);
+    close(err_pipe[1]);
+    found = find_process_by_name(name);
+    fflush(stderr);
+    assert(dup2(saved_stderr, STDERR_FILENO) == STDERR_FILENO);
+    close(saved_stderr);
+
+    capture = (char *)malloc(TEST_CAPTURE_SIZE);
+    assert(capture != NULL);
+    n_read = read(err_pipe[0], capture, TEST_CAPTURE_SIZE - 1);
+    close(err_pipe[0]);
+    if (n_read < 0) {
+        n_read = 0;
+    }
+    capture[n_read] = '\0';
+    *out = capture;
+    return found;
+}
+
+/**
+ * @brief A genuine miss says "cannot be found" even when the scan lists PID 1
+ *
+ * @note find_process_by_name() set its "init was excluded" flag for any PID 1
+ *       the iterator happened to report, before comparing names, so a lookup
+ *       that matched nothing at all was reported as matching init. Whether
+ *       PID 1 is reported is platform-dependent: /proc rejects it while its
+ *       ppid is 0, which is why a plain Linux host never showed this, while
+ *       proc_listpids() and kvm_getprocs() list it. The scan is therefore
+ *       scripted, which puts PID 1 in the snapshot on every platform.
+ *       Verified by mutation: setting the flag for any PID 1 again makes this
+ *       lookup report an init match.
+ */
+static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
+    struct seam_proc *frame;
+    char *capture = NULL;
+    pid_t found;
+
+    frame = (struct seam_proc *)malloc(sizeof(*frame));
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(*frame));
+    frame->pid = (pid_t)1;
+    frame->ppid = (pid_t)0;
+    strcpy(frame->command, "init");
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_active = 1;
+    found = test_capture_find_by_name_message("nosuch_zz_xyz_nonexistent",
+                                              &capture);
+    seam_active = 0;
+    free(frame);
+
+    assert(found == 0);
+    assert(capture != NULL);
+    assert(strstr(capture, "cannot be found") != NULL);
+    assert(strstr(capture, "PID 1 (init)") == NULL);
+    free(capture);
+}
+
+/**
+ * @brief The init diagnostic still appears when PID 1 really matches
+ *
+ * @note The counterpart of the test above: the flag must survive for a name
+ *       that PID 1 itself carries, otherwise excluding init would go
+ *       unreported and the operator would only see a plain miss. Same
+ *       scripted scan, so it holds wherever PID 1 is enumerable.
+ *       Verified by mutation: dropping the flag makes this lookup report
+ *       "cannot be found" instead.
+ */
+static void test_find_process_by_name_reports_enumerated_init_exclusion(void) {
+    struct seam_proc *frame;
+    char *capture = NULL;
+    pid_t found;
+
+    frame = (struct seam_proc *)malloc(sizeof(*frame));
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(*frame));
+    frame->pid = (pid_t)1;
+    frame->ppid = (pid_t)0;
+    strcpy(frame->command, "init");
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_active = 1;
+    found = test_capture_find_by_name_message("init", &capture);
+    seam_active = 0;
+    free(frame);
+
+    /* init is excluded, so it is never returned as a target either. */
+    assert(found == 0);
+    assert(capture != NULL);
+    assert(strstr(capture, "PID 1 (init)") != NULL);
+    assert(strstr(capture, "cannot be found") == NULL);
+    free(capture);
+}
+
+/**
  * @brief Watch-mode run exits promptly after a termination signal
  *
  * @note run_pid_or_exe_mode() waits out the whole 2s watch interval in one
@@ -15824,6 +15948,8 @@ static void run_process_set_module_tests(void) {
 #if defined(__linux__)
     RUN_TEST(test_find_process_by_name_reports_init_exclusion);
 #endif
+    RUN_TEST(test_find_process_by_name_miss_ignores_enumerated_init);
+    RUN_TEST(test_find_process_by_name_reports_enumerated_init_exclusion);
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);
 
     RUN_TEST(test_command_mode_reports_stopped_limiting);
