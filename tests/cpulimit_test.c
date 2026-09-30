@@ -9692,6 +9692,11 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
 #define SEAM_TARGET_PID 42424
 
 /**
+ * @brief Size of the buffer holding a captured child's stderr text.
+ */
+#define TEST_CAPTURE_SIZE 8192
+
+/**
  * @brief Number of scripted snapshots the seam can hold.
  */
 #define SEAM_MAX_FRAMES 32
@@ -14747,23 +14752,28 @@ static void test_limit_process_rejects_zombie_target(void) {
  * @brief Run find_process_by_name() in a child with stderr captured
  *
  * @param name Name to look up
- * @param out Caller-supplied buffer for the captured stderr text
- * @param out_size Size of out
+ * @param out Out: a heap buffer holding the captured stderr text, owned by
+ *        the caller
  * @return The child's exit code: EXIT_SUCCESS when find_process_by_name()
  *         returned 0 (no target), 42 when it returned a PID so the scenario
  *         under test was not isolated, another value on a child failure
  *
  * The child redirects its stderr to a pipe so the caller can inspect the
  * diagnostic find_process_by_name() prints when it finds nothing.
+ *
+ * @note The buffer is allocated only after the fork. One that already existed
+ *       would be inherited by the child, which leaves through _exit() without
+ *       freeing it, and valgrind reports the copy as still reachable in the
+ *       child -- the same trap err_buf hit.
  */
-static int test_capture_find_by_name(const char *name, char *out,
-                                     size_t out_size) {
+static int test_capture_find_by_name(const char *name, char **out) {
     int err_pipe[2];
     pid_t driver;
     pid_t waited;
     int status;
     size_t total = 0;
     int result;
+    char *capture;
     assert(pipe(err_pipe) == 0);
     fflush(stdout);
     fflush(stderr);
@@ -14779,9 +14789,12 @@ static int test_capture_find_by_name(const char *name, char *out,
         _exit(found == 0 ? EXIT_SUCCESS : 42);
     }
     close(err_pipe[1]);
-    while (total < out_size - 1) {
+    capture = (char *)malloc(TEST_CAPTURE_SIZE);
+    assert(capture != NULL);
+    while (total < TEST_CAPTURE_SIZE - 1) {
         ssize_t n_read;
-        n_read = read(err_pipe[0], out + total, out_size - 1 - total);
+        n_read =
+            read(err_pipe[0], capture + total, TEST_CAPTURE_SIZE - 1 - total);
         if (n_read < 0 && errno == EINTR) {
             continue;
         }
@@ -14790,12 +14803,13 @@ static int test_capture_find_by_name(const char *name, char *out,
         }
         total += (size_t)n_read;
     }
-    out[total] = '\0';
+    capture[total] = '\0';
     close(err_pipe[0]);
     waited = waitpid(driver, &status, 0);
     assert(waited == driver);
     assert(WIFEXITED(status));
     result = WEXITSTATUS(status);
+    *out = capture;
     return result;
 }
 
@@ -14808,11 +14822,10 @@ static int test_capture_find_by_name(const char *name, char *out,
  */
 static void test_find_process_by_name_cannot_be_found_text(void) {
     int code;
-    char *capture = (char *)malloc(8192);
-    assert(capture != NULL);
-    code =
-        test_capture_find_by_name("nosuch_zz_xyz_nonexistent", capture, 8192);
+    char *capture = NULL;
+    code = test_capture_find_by_name("nosuch_zz_xyz_nonexistent", &capture);
     assert(code == EXIT_SUCCESS);
+    assert(capture != NULL);
     assert(strstr(capture, "cannot be found") != NULL);
     assert(strstr(capture, "PID 1 (init)") == NULL);
     free(capture);
@@ -14830,9 +14843,11 @@ static void test_find_process_by_name_cannot_be_found_text(void) {
  */
 static void test_find_process_by_name_reports_init_exclusion(void) {
     char *cmdline;
-    char *init_name;
+    /* Stack, not heap: a heap name would be inherited by the helper's
+     * forked child and reported as still reachable there. */
+    char init_name[128];
     int code;
-    char *capture;
+    char *capture = NULL;
     if (getppid_of(1) <= 0) {
         printf("(skipped: PID 1 not enumerable on this platform)\n");
         fflush(stdout);
@@ -14844,14 +14859,15 @@ static void test_find_process_by_name_reports_init_exclusion(void) {
         fflush(stdout);
         return;
     }
-    init_name = (char *)malloc(strlen(cmdline) + 1);
-    assert(init_name != NULL);
+    if (strlen(cmdline) >= sizeof(init_name)) {
+        printf("(skipped: PID 1 name longer than the lookup buffer)\n");
+        fflush(stdout);
+        free(cmdline);
+        return;
+    }
     strcpy(init_name, cmdline);
     free(cmdline);
-    capture = (char *)malloc(8192);
-    assert(capture != NULL);
-    code = test_capture_find_by_name(init_name, capture, 8192);
-    free(init_name);
+    code = test_capture_find_by_name(init_name, &capture);
     if (code == 42) {
         printf("(skipped: PID 1 not the sole match for its name)\n");
         fflush(stdout);
@@ -14859,6 +14875,7 @@ static void test_find_process_by_name_reports_init_exclusion(void) {
         return;
     }
     assert(code == EXIT_SUCCESS);
+    assert(capture != NULL);
     assert(strstr(capture, "PID 1 (init)") != NULL);
     assert(strstr(capture, "cannot be found") == NULL);
     free(capture);

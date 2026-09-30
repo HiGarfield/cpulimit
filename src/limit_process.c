@@ -241,6 +241,15 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
      * -p/-e mode reports it as a failure.
      */
     if (proc_set.target_pid > 0 && process_set_member_count(&proc_set) == 0) {
+        /*
+         * Nothing was ever suspended, so there is nothing to resume; the
+         * group still owns the table, the list and the stopped-PID list
+         * from init_process_set(), and this return bypasses the cleanup at
+         * the end of the loop. A watch-mode run reaches it on every poll
+         * while its target is absent, so leaving it for the process to
+         * clean up at exit would leak ~16KB per iteration.
+         */
+        close_process_set(&proc_set);
         return LIMIT_PROCESS_NO_TARGET;
     }
 
