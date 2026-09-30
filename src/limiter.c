@@ -353,6 +353,7 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
  * always refused as a target.
  */
 int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
+    const struct timespec wait_time = {2, 0};
     int pid_mode = cfg->target_pid > 0, exit_status = EXIT_SUCCESS;
     /*
      * Consecutive scan failures: limit_process() prints the diagnostic once
@@ -371,8 +372,6 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     while (!is_quit_flag_set()) {
         pid_t found_pid;
         int resolved = resolve_target(cfg, pid_mode, &found_pid);
-        struct timespec slice;
-        int ticks;
 
         if (resolved == TARGET_UNCONTROLLABLE || resolved == TARGET_NOT_FOUND) {
             /*
@@ -404,19 +403,11 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
         }
 
         /*
-         * Wait out the 2s watch interval in 100ms slices, re-checking the quit
-         * flag between them, so a termination signal ends the run promptly
-         * instead of after the whole interval. sleep_timespec() itself is left
-         * untouched -- the throttle loop relies on it sleeping the requested
-         * time in full -- and the 20 slices still total ~2s when no signal
-         * arrives, preserving the polling cadence.
+         * One sleep for the whole interval: sleep_timespec() returns early on a
+         * termination signal instead of resuming the remainder, so the quit
+         * flag is re-checked right away without slicing the wait.
          */
-        slice.tv_sec = 0;
-        slice.tv_nsec = 2000000000L / CPULIMIT_WATCH_SLICES;
-        for (ticks = 0; ticks < CPULIMIT_WATCH_SLICES && !is_quit_flag_set();
-             ticks++) {
-            sleep_timespec(&slice);
-        }
+        sleep_timespec(&wait_time);
     }
     return exit_status;
 }

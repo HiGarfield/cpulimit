@@ -82,9 +82,11 @@ int get_current_time(struct timespec *result_ts);
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC when available, so the sleep is
  * unaffected by system time changes, and falls back to nanosleep() otherwise.
- * An early return caused by a signal (EINTR) is resumed for the remaining
- * time, so the requested duration is always honored and the duty cycle never
- * runs short; only other errors are reported to the caller.
+ * Neither is restarted by SA_RESTART: a delivered signal ends the sleep early
+ * with -1 and errno EINTR, and the remainder is not resumed, so a wait of any
+ * length ends as soon as the user asks cpulimit to quit. With no signal
+ * pending the full duration is slept, so the duty cycle is unchanged. Callers
+ * treat EINTR as a wake-up and re-check their termination condition.
  */
 int sleep_timespec(const struct timespec *duration);
 
