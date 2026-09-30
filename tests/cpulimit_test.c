@@ -10460,7 +10460,7 @@ static void uncontrollable_target_driver_child(int write_fd, int announce_fd,
     seam_fail_span = 1000000;
     seam_fail_errno = EPERM;
     seam_hook_sleep = 1;
-    seam_sleep_call = 3 * CPULIMIT_WATCH_SLICES;
+    seam_sleep_call = 3;
     seam_sleep_announce_fd = announce_fd;
     seam_sleep_go_fd = go_fd;
 
@@ -10649,7 +10649,7 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
         seam_reset();
         seam_active = 1;
         seam_hook_sleep = 1;
-        seam_sleep_call = 5 * CPULIMIT_WATCH_SLICES;
+        seam_sleep_call = 5;
         seam_sleep_announce_fd = announce_pipe[1];
         seam_sleep_go_fd = go_pipe[0];
         configure_signal_handler();
@@ -14274,27 +14274,29 @@ static void test_child_wait_reap_does_not_block_in_poll(void) {
 }
 
 /**
- * @brief Test that sleep_timespec() sleeps accurately despite an interruption
+ * @brief Test that sleep_timespec() returns early when a signal interrupts it
  *
  * @note A signal interrupts the underlying clock_nanosleep()/nanosleep(). The
- *       sleep must still honor the full requested duration: the unslept
- *       remainder is resumed so the duty cycle is never cut short. The child
- *       reports the elapsed time it measured and whether it really saw the
- *       signal, so a run in which no interruption happened cannot pass
- *       trivially.
+ *       unslept remainder must NOT be resumed: a wait of any length has to end
+ *       as soon as the user asks cpulimit to quit, otherwise a termination
+ *       signal is not honored until the whole requested duration has elapsed.
+ *       The child reports the elapsed time it measured and whether it really
+ *       saw the signal, so neither a run in which no interruption happened nor
+ *       one that topped the sleep back up can pass. Verified by mutation:
+ *       resuming the remainder after EINTR makes the child sleep the full
+ *       requested duration and fails the elapsed bound.
  */
-
-static void test_sleep_timespec_accurate_after_eintr(void) {
+static void test_sleep_timespec_returns_early_on_signal(void) {
     int report_pipe[2];
     pid_t child_pid, waited;
     int status, ret;
     int exited, exit_code;
-    double elapsed_ms, min_elapsed_ms;
+    double elapsed_ms;
     ssize_t n_read, expected_bytes;
     char ready_byte;
-    const double requested_ms = 400.0;
-    const double tolerance_ms = 80.0;
-    const struct timespec settle = {0, 100000000L};
+    const double max_elapsed_ms = 600.0;
+    /* Signal lands at ~300ms into a 900ms sleep. */
+    const struct timespec settle = {0, 300000000L};
 
     ret = pipe(report_pipe);
     assert(ret == 0);
@@ -14305,7 +14307,7 @@ static void test_sleep_timespec_accurate_after_eintr(void) {
     assert(child_pid >= 0);
     if (child_pid == 0) {
         struct timespec before, after;
-        const struct timespec duration = {0, 400000000L};
+        const struct timespec duration = {0, 900000000L};
         double measured_ms;
 
         close(report_pipe[0]);
@@ -14339,7 +14341,6 @@ static void test_sleep_timespec_accurate_after_eintr(void) {
 
     close(report_pipe[1]);
     expected_bytes = (ssize_t)sizeof(elapsed_ms);
-    min_elapsed_ms = requested_ms - tolerance_ms;
     do {
         n_read = read(report_pipe[0], &ready_byte, 1);
     } while (n_read < 0 && errno == EINTR);
@@ -14361,8 +14362,8 @@ static void test_sleep_timespec_accurate_after_eintr(void) {
     assert(exited);
     /* The signal must have been delivered while the child was sleeping. */
     assert(exit_code == EXIT_SUCCESS);
-    /* The full duration must still have been honored. */
-    assert(elapsed_ms >= min_elapsed_ms);
+    /* The sleep must have ended with the signal, not run its full course. */
+    assert(elapsed_ms < max_elapsed_ms);
 }
 
 /**
@@ -14661,8 +14662,8 @@ static int test_is_zombie(pid_t pid) {
     const char *p;
     char state;
     int parsed;
-    if (snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid)
-        >= (int)sizeof(path)) {
+    if (snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid) >=
+        (int)sizeof(path)) {
         return 0;
     }
     buffer = read_file_contents(path);
@@ -14762,7 +14763,6 @@ static int test_capture_find_by_name(const char *name, char *out,
     pid_t waited;
     int status;
     size_t total = 0;
-    ssize_t n_read;
     int result;
     assert(pipe(err_pipe) == 0);
     fflush(stdout);
@@ -14780,6 +14780,7 @@ static int test_capture_find_by_name(const char *name, char *out,
     }
     close(err_pipe[1]);
     while (total < out_size - 1) {
+        ssize_t n_read;
         n_read = read(err_pipe[0], out + total, out_size - 1 - total);
         if (n_read < 0 && errno == EINTR) {
             continue;
@@ -14809,7 +14810,8 @@ static void test_find_process_by_name_cannot_be_found_text(void) {
     int code;
     char *capture = (char *)malloc(8192);
     assert(capture != NULL);
-    code = test_capture_find_by_name("nosuch_zz_xyz_nonexistent", capture, 8192);
+    code =
+        test_capture_find_by_name("nosuch_zz_xyz_nonexistent", capture, 8192);
     assert(code == EXIT_SUCCESS);
     assert(strstr(capture, "cannot be found") != NULL);
     assert(strstr(capture, "PID 1 (init)") == NULL);
@@ -14820,15 +14822,15 @@ static void test_find_process_by_name_cannot_be_found_text(void) {
  * @brief A name matched only by PID 1 reports the exclusion, not "not found"
  *
  * @note When the only match for a name is PID 1, find_process_by_name() must
- *       explain that init is excluded rather than claim it is "not found". PID 1
- *       is only enumerable (and therefore only matchable) when its ppid is
- *       positive -- inside a container where init's parent is the runtime. On
- *       hosts where PID 1 has ppid 0 it is filtered out before reaching the
- *       name resolver, so this test skips there.
+ *       explain that init is excluded rather than claim it is "not found". PID
+ * 1 is only enumerable (and therefore only matchable) when its ppid is positive
+ * -- inside a container where init's parent is the runtime. On hosts where PID
+ * 1 has ppid 0 it is filtered out before reaching the name resolver, so this
+ * test skips there.
  */
 static void test_find_process_by_name_reports_init_exclusion(void) {
     char *cmdline;
-    char *argv0;
+    char *init_name;
     int code;
     char *capture;
     if (getppid_of(1) <= 0) {
@@ -14842,14 +14844,14 @@ static void test_find_process_by_name_reports_init_exclusion(void) {
         fflush(stdout);
         return;
     }
-    argv0 = (char *)malloc(strlen(cmdline) + 1);
-    assert(argv0 != NULL);
-    strcpy(argv0, cmdline);
+    init_name = (char *)malloc(strlen(cmdline) + 1);
+    assert(init_name != NULL);
+    strcpy(init_name, cmdline);
     free(cmdline);
     capture = (char *)malloc(8192);
     assert(capture != NULL);
-    code = test_capture_find_by_name(argv0, capture, 8192);
-    free(argv0);
+    code = test_capture_find_by_name(init_name, capture, 8192);
+    free(init_name);
     if (code == 42) {
         printf("(skipped: PID 1 not the sole match for its name)\n");
         fflush(stdout);
@@ -14865,21 +14867,24 @@ static void test_find_process_by_name_reports_init_exclusion(void) {
 /**
  * @brief Watch-mode run exits promptly after a termination signal
  *
- * @note run_pid_or_exe_mode() used to sleep the whole 2s watch interval with a
- *       single sleep_timespec() call. That call, by design, resumes the full
- *       remaining time after EINTR, so a SIGINT arriving mid-interval could be
- *       delayed by up to ~2s before the quit flag was re-checked and the run
- *       ended. The interval is now split into 100ms slices with the quit flag
- *       re-checked between them, so the run ends within ~100ms of the signal.
- *       This test spawns the real cpulimit binary in non-lazy mode against an
- *       absent target (so it sits in the watch loop), sends SIGINT, and asserts
- *       the process is gone well before the old ~2s bound. Verified by
- *       mutation: reverting the slice loop back to a single sleep_timespec()
- *       makes the signal-to-exit time exceed the threshold, failing this.
+ * @note run_pid_or_exe_mode() waits out the whole 2s watch interval in one
+ *       sleep_timespec() call. That call used to resume the unslept remainder
+ *       after EINTR, so a SIGINT arriving mid-interval was ignored until the
+ *       full 2s had passed and the quit flag was re-checked at the top of the
+ *       loop. sleep_timespec() now returns as soon as a signal interrupts it,
+ *       so the run ends with the signal while still polling every 2s when
+ *       nothing arrives -- no slicing, and no wake-ups in between. This test
+ *       spawns the real cpulimit binary in non-lazy mode against an absent
+ *       target (so it sits in the watch loop), sends SIGINT, and asserts the
+ *       process is gone well before the old ~2s bound. Verified by mutation:
+ *       resuming the remainder after EINTR delays the exit past the threshold
+ *       and fails this. The target is named with -e and not -p because a PID
+ *       target forces lazy mode, which gives up on a missing target at once --
+ *       there would be no watch loop left to time.
  */
 static void test_watch_mode_exits_promptly_on_signal(void) {
     char *bin_path;
-    pid_t child_pid;
+    pid_t child_pid, probe;
     int child_status;
     int wait_tries;
     struct timeval t0, t1;
@@ -14888,7 +14893,7 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
     const struct timespec poll_sleep = {0, 20000000L}; /* 20 ms */
     const char *dir;
     size_t dir_len;
-    char *slash;
+    const char *slash;
 
     bin_path = (char *)malloc(PATH_MAX);
     if (bin_path == NULL) {
@@ -14901,9 +14906,10 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
      */
     slash = strrchr(argv0, '/');
     if (slash == NULL) {
-        dir = (getenv("CPULIMIT_BUILD_DIR") != NULL)
-                  ? getenv("CPULIMIT_BUILD_DIR")
-                  : ".";
+        const char *build_dir;
+        /* Read it once: two getenv() calls are two chances to disagree. */
+        build_dir = getenv("CPULIMIT_BUILD_DIR");
+        dir = (build_dir != NULL) ? build_dir : ".";
         dir_len = strlen(dir);
     } else {
         dir = argv0;
@@ -14925,16 +14931,30 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
-        char *child_argv[5];
+        char *child_argv[6];
+        int devnull;
         char arg_l[] = "-l";
         char arg_50[] = "50";
-        char arg_p[] = "-p";
-        char arg_absent[] = "999999";
+        char arg_e[] = "-e";
+        char arg_absent[] = "cpulimit_test_no_such_process_xyz";
+        devnull = open("/dev/null", O_WRONLY);
+        if (devnull < 0) {
+            _exit(127);
+        }
+        /* The watch reports every miss; keep that out of the test output. */
+        if (dup2(devnull, STDOUT_FILENO) < 0 ||
+            dup2(devnull, STDERR_FILENO) < 0) {
+            _exit(127);
+        }
+        if (devnull > STDERR_FILENO) {
+            close(devnull);
+        }
         child_argv[0] = bin_path;
         child_argv[1] = arg_l;
         child_argv[2] = arg_50;
-        child_argv[3] = arg_p;
+        child_argv[3] = arg_e;
         child_argv[4] = arg_absent;
+        child_argv[5] = NULL;
         execv(bin_path, child_argv);
         _exit(127);
     }
@@ -14945,6 +14965,14 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
      * mirrors the acceptance scenario ("sleep 0.6; kill -INT").
      */
     nanosleep(&pre_sleep, NULL);
+
+    /*
+     * It must still be waiting now. A run that had already given up would be
+     * reaped here, and a timing measured against a corpse proves nothing.
+     */
+    probe = waitpid(child_pid, &child_status, WNOHANG);
+    assert(probe == 0);
+
     gettimeofday(&t0, NULL);
     assert(kill(child_pid, SIGINT) == 0);
 
@@ -14967,12 +14995,12 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
         wait_tries++;
     }
     gettimeofday(&t1, NULL);
-    elapsed = (double)(t1.tv_sec - t0.tv_sec)
-            + (double)(t1.tv_usec - t0.tv_usec) / 1000000.0;
+    elapsed = (double)(t1.tv_sec - t0.tv_sec) +
+              (double)(t1.tv_usec - t0.tv_usec) / 1000000.0;
 
     /*
-     * Fixed behavior ends within ~100ms of the signal; the old code could take
-     * up to ~2s. A bound safely below the bug's worst case.
+     * The signal ends the wait immediately; the buggy code slept out the rest
+     * of the 2s interval first. A bound safely below that worst case.
      */
     assert(elapsed < 1.0);
 }
@@ -16312,7 +16340,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_child_wait_reap_does_not_block_before_quit);
     RUN_TEST(test_child_wait_reap_does_not_block_in_poll);
     RUN_TEST(test_child_wait_escalates_sigkill_once);
-    RUN_TEST(test_sleep_timespec_accurate_after_eintr);
+    RUN_TEST(test_sleep_timespec_returns_early_on_signal);
 
     /* Deterministic timing seam tests */
     printf("\n=== TIMING SEAM TESTS ===\n");

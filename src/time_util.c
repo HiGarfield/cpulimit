@@ -144,48 +144,43 @@ int get_current_time(struct timespec *result_ts) {
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC when available, so the sleep is
  * unaffected by system time changes, and falls back to nanosleep() otherwise.
- * An early return caused by a signal (EINTR) is resumed for the remaining
- * time, so the requested duration is always honored and the duty cycle never
- * runs short; only other errors are reported to the caller.
+ *
+ * Neither call is restarted by SA_RESTART: a delivered signal ends the sleep
+ * early with -1 and errno EINTR, and the unslept remainder is deliberately not
+ * resumed. That is what lets a wait of any length -- the watch interval
+ * between target lookups, or a throttle phase -- end as soon as the user asks
+ * cpulimit to quit, instead of finishing its full duration first. Callers
+ * re-check the quit flag (or waitpid()) right after the call, so an early
+ * return only costs one extra loop turn; with no signal pending the whole
+ * duration is still slept, so the duty cycle is unchanged.
+ *
+ * EINTR is therefore a wake-up, not a failure: callers that must distinguish
+ * it from a real error test errno.
  */
 int sleep_timespec(const struct timespec *duration) {
-    struct timespec request, remaining;
-    request = *duration;
 #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(_POSIX_CLOCK_SELECTION) && _POSIX_CLOCK_SELECTION > 0 &&           \
     defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC) && \
     (defined(__linux__) || defined(__FreeBSD__))
     /*
-     * Use monotonic clock sleep if available.
-     * clock_nanosleep returns 0 on success or a positive error number
-     * on failure. Convert to -1/errno convention for consistency with
-     * nanosleep and the documented return value contract. On EINTR it
-     * writes the unslept remainder to 'remaining', which we feed back in.
+     * Use monotonic clock sleep if available. clock_nanosleep returns 0 on
+     * success or a positive error number on failure, so convert to the
+     * -1/errno convention shared with nanosleep and the documented return
+     * value contract. 'remaining' is not requested: an interrupted sleep is
+     * meant to end the wait, not to be topped up.
      */
-    for (;;) {
-        int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, &request, &remaining);
-        if (ret == 0) {
-            return 0;
-        }
-        if (ret == EINTR) {
-            request = remaining;
-            continue;
-        }
-        errno = ret;
-        return -1;
+    int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, duration, NULL);
+    if (ret == 0) {
+        return 0;
     }
+    errno = ret;
+    return -1;
 #else
-    /* Fall back to standard nanosleep, resuming on EINTR. */
-    for (;;) {
-        if (nanosleep(&request, &remaining) == 0) {
-            return 0;
-        }
-        if (errno == EINTR) {
-            request = remaining;
-            continue;
-        }
-        return -1;
+    /* Fall back to standard nanosleep; it too is not restarted on EINTR. */
+    if (nanosleep(duration, NULL) == 0) {
+        return 0;
     }
+    return -1;
 #endif
 }
 
