@@ -5284,11 +5284,34 @@ static void test_process_finder_find_by_pid(void) {
     assert(result == 0);
 }
 
+/* Defined further below, next to the tests that inspect the diagnostic. */
+static pid_t test_capture_find_by_name_message(const char *name, char **out);
+
+/**
+ * @brief Run find_process_by_name() for a name that is meant to miss
+ *
+ * @param name Name to look up
+ * @return What find_process_by_name() returned
+ *
+ * The result is what the callers assert on; the diagnostic the resolver
+ * prints for a miss says nothing more, and a single line carries the whole
+ * name, which dwarfs the test log when the test binary has a long name.
+ * The text is captured and dropped rather than left on stderr.
+ */
+static pid_t test_find_process_by_name_muted(const char *name) {
+    char *capture = NULL;
+    pid_t found = test_capture_find_by_name_message(name, &capture);
+    free(capture);
+    return found;
+}
+
 /**
  * @brief Test find_process_by_name function
  *
  * @note Tests finding processes by name including wrong names, absolute
- *       paths, NULL, empty string, and trailing slash
+ *       paths, NULL, empty string, and trailing slash. The names that are
+ *       meant to miss run muted: each one would otherwise print the name
+ *       it was given.
  */
 static void test_process_finder_find_by_name(void) {
     char *self_cmd;
@@ -5345,7 +5368,7 @@ static void test_process_finder_find_by_name(void) {
      */
     strcpy(wrong_name, self_command); /* Copy the OS-visible command */
     strcat(wrong_name, "x");          /* Append 'x' to make it non-matching */
-    found_pid = find_process_by_name(wrong_name);
+    found_pid = test_find_process_by_name_muted(wrong_name);
     assert(found_pid == 0);
 
     /*
@@ -5356,7 +5379,7 @@ static void test_process_finder_find_by_name(void) {
     strcpy(wrong_name, self_command); /* Copy the OS-visible command */
     len = strlen(wrong_name);
     wrong_name[len - 1] = '\0'; /* Remove the last character */
-    found_pid = find_process_by_name(wrong_name);
+    found_pid = test_find_process_by_name_muted(wrong_name);
     assert(found_pid == 0);
 
 #if defined(__linux__)
@@ -5369,7 +5392,7 @@ static void test_process_finder_find_by_name(void) {
      */
     snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
              (long)getpid());
-    found_pid = find_process_by_name(abs_path);
+    found_pid = test_find_process_by_name_muted(abs_path);
     assert(found_pid == 0);
 #endif /* __linux__ */
 
@@ -5489,6 +5512,24 @@ static void test_process_finder_find_by_name_symlink(void) {
     if (child_pid == 0) {
         char sleep_arg[] = "100";
         char *child_argv[3];
+        int devnull, out_fd, err_fd;
+        /*
+         * Mute the helper: a multicall /bin/sleep reports the argv[0] it
+         * does not recognise on its stderr before it exits, and that
+         * complaint is not part of what this test reports.
+         */
+        devnull = open("/dev/null", O_WRONLY);
+        if (devnull < 0) {
+            _exit(1);
+        }
+        out_fd = dup2(devnull, STDOUT_FILENO);
+        err_fd = dup2(devnull, STDERR_FILENO);
+        if (out_fd < 0 || err_fd < 0) {
+            _exit(1);
+        }
+        if (devnull > STDERR_FILENO) {
+            close(devnull);
+        }
         child_argv[0] = sym_path;
         child_argv[1] = sleep_arg;
         child_argv[2] = NULL;
@@ -5504,6 +5545,18 @@ static void test_process_finder_find_by_name_symlink(void) {
     found_pid = 0;
     for (i = 0; i < 50 && found_pid == 0; i++) {
         sleep_timespec(&poll_wait);
+        /*
+         * A child that is already gone can never appear, and asking again
+         * only prints another miss: a multicall /bin/sleep (coreutils on
+         * newer distributions) rejects an unrecognised argv[0] and exits
+         * at once, which makes the symlink lookup impossible by design.
+         * Reaping it here also ends the wait five seconds early.
+         */
+        if (waitpid(child_pid, &child_status, WNOHANG) == child_pid) {
+            unlink(sym_path);
+            free(sym_path);
+            return;
+        }
         found_pid = find_process_by_name(sym_name);
     }
 
