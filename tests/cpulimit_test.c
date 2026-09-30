@@ -14831,6 +14831,10 @@ static void test_find_process_by_name_cannot_be_found_text(void) {
     free(capture);
 }
 
+/* Linux only: the name of PID 1 is read from /proc/1/cmdline, and
+ * read_file_contents() -- the reader that survives a comm field containing a
+ * newline -- exists only where /proc does. */
+#if defined(__linux__)
 /**
  * @brief A name matched only by PID 1 reports the exclusion, not "not found"
  *
@@ -14880,6 +14884,7 @@ static void test_find_process_by_name_reports_init_exclusion(void) {
     assert(strstr(capture, "cannot be found") == NULL);
     free(capture);
 }
+#endif
 
 /**
  * @brief Watch-mode run exits promptly after a termination signal
@@ -15816,7 +15821,9 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_limit_process_reports_scan_failure);
     RUN_TEST(test_limit_process_rejects_zombie_target);
     RUN_TEST(test_find_process_by_name_cannot_be_found_text);
+#if defined(__linux__)
     RUN_TEST(test_find_process_by_name_reports_init_exclusion);
+#endif
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);
 
     RUN_TEST(test_command_mode_reports_stopped_limiting);
