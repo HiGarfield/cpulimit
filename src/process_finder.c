@@ -144,9 +144,20 @@ pid_t find_process_by_name(const char *process_name) {
          * set, from which no kill must ever be sent. Skipping it here keeps
          * the name resolver consistent with the PID-input rejection and the
          * process-set guard, on every platform.
+         *
+         * Only a PID 1 that actually matches the requested name sets
+         * excluded_init: the flag picks the diagnostic below, so setting it
+         * for an init that merely happens to be enumerated turns every
+         * unrelated miss into "matches PID 1 (init)". Whether init is
+         * enumerated at all is platform-dependent -- /proc skips it while
+         * its ppid is 0, proc_listpids() and kvm_getprocs() list it -- so
+         * without the name check the same lookup would report a different
+         * reason per host.
          */
         if (proc->pid == 1) {
-            excluded_init = 1;
+            if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
+                excluded_init = 1;
+            }
             continue;
         }
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
