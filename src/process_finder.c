@@ -97,6 +97,7 @@ pid_t find_process_by_name(const char *process_name) {
     struct process *proc;
     int full_path_cmp;
     const char *process_cmp_name;
+    int excluded_init = 0;
 
     if (process_name == NULL || process_name[0] == '\0') {
         return 0;
@@ -145,6 +146,7 @@ pid_t find_process_by_name(const char *process_name) {
          * process-set guard, on every platform.
          */
         if (proc->pid == 1) {
+            excluded_init = 1;
             continue;
         }
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
@@ -217,6 +219,19 @@ pid_t find_process_by_name(const char *process_name) {
      * to be controllable.
      */
     if (n_candidates == 0) {
+        /*
+         * No limitable target was found. When the only match was PID 1 (init),
+         * say so: the safety rule excludes init, it is not "not found". A
+         * genuine miss keeps the unchanged "cannot be found" message.
+         */
+        if (excluded_init) {
+            fprintf(stderr,
+                    "Process '%s' matches PID 1 (init), which is never a "
+                    "valid target; no limitable target found\n",
+                    process_cmp_name);
+        } else {
+            fprintf(stderr, "Process '%s' cannot be found\n", process_cmp_name);
+        }
         return 0;
     }
     probe = find_process_by_pid(pid);

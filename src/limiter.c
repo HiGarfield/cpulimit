@@ -208,12 +208,15 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
     *found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
                           : find_process_by_name(cfg->exe_name);
     if (*found_pid == 0) {
+        /*
+         * find_process_by_name() already printed the accurate reason (either
+         * "cannot be found" or "matches PID 1 (init) ... no limitable target
+         * found"); find_process_by_pid() has none to print. Non-lazy mode
+         * keeps retrying from the caller, which appends ", retrying...".
+         */
         if (pid_mode) {
             fprintf(stderr, "Process with PID %ld cannot be found%s\n",
                     (long)cfg->target_pid,
-                    cfg->lazy_mode ? "" : ", retrying...");
-        } else {
-            fprintf(stderr, "Process '%s' cannot be found%s\n", cfg->exe_name,
                     cfg->lazy_mode ? "" : ", retrying...");
         }
         return TARGET_NOT_FOUND;
