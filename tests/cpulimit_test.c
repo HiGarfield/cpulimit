@@ -14842,6 +14842,7 @@ static void test_find_process_by_name_cannot_be_found_text(void) {
  * test skips there.
  */
 static void test_find_process_by_name_reports_init_exclusion(void) {
+#if defined(__linux__)
     char *cmdline;
     /* Stack, not heap: a heap name would be inherited by the helper's
      * forked child and reported as still reachable there. */
@@ -14879,6 +14880,10 @@ static void test_find_process_by_name_reports_init_exclusion(void) {
     assert(strstr(capture, "PID 1 (init)") != NULL);
     assert(strstr(capture, "cannot be found") == NULL);
     free(capture);
+#else
+    printf("(skipped: requires Linux /proc/1/cmdline)\n");
+    fflush(stdout);
+#endif
 }
 
 /**
