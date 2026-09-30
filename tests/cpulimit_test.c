@@ -54,6 +54,7 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #if defined(__APPLE__)
@@ -10459,7 +10460,7 @@ static void uncontrollable_target_driver_child(int write_fd, int announce_fd,
     seam_fail_span = 1000000;
     seam_fail_errno = EPERM;
     seam_hook_sleep = 1;
-    seam_sleep_call = 3;
+    seam_sleep_call = 3 * CPULIMIT_WATCH_SLICES;
     seam_sleep_announce_fd = announce_fd;
     seam_sleep_go_fd = go_fd;
 
@@ -10648,7 +10649,7 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
         seam_reset();
         seam_active = 1;
         seam_hook_sleep = 1;
-        seam_sleep_call = 5;
+        seam_sleep_call = 5 * CPULIMIT_WATCH_SLICES;
         seam_sleep_announce_fd = announce_pipe[1];
         seam_sleep_go_fd = go_pipe[0];
         configure_signal_handler();
@@ -14862,6 +14863,121 @@ static void test_find_process_by_name_reports_init_exclusion(void) {
 }
 
 /**
+ * @brief Watch-mode run exits promptly after a termination signal
+ *
+ * @note run_pid_or_exe_mode() used to sleep the whole 2s watch interval with a
+ *       single sleep_timespec() call. That call, by design, resumes the full
+ *       remaining time after EINTR, so a SIGINT arriving mid-interval could be
+ *       delayed by up to ~2s before the quit flag was re-checked and the run
+ *       ended. The interval is now split into 100ms slices with the quit flag
+ *       re-checked between them, so the run ends within ~100ms of the signal.
+ *       This test spawns the real cpulimit binary in non-lazy mode against an
+ *       absent target (so it sits in the watch loop), sends SIGINT, and asserts
+ *       the process is gone well before the old ~2s bound. Verified by
+ *       mutation: reverting the slice loop back to a single sleep_timespec()
+ *       makes the signal-to-exit time exceed the threshold, failing this.
+ */
+static void test_watch_mode_exits_promptly_on_signal(void) {
+    char *bin_path;
+    pid_t child_pid;
+    int child_status;
+    int wait_tries;
+    struct timeval t0, t1;
+    double elapsed;
+    const struct timespec pre_sleep = {0, 600000000L}; /* 600 ms */
+    const struct timespec poll_sleep = {0, 20000000L}; /* 20 ms */
+    const char *dir;
+    size_t dir_len;
+    char *slash;
+
+    bin_path = (char *)malloc(PATH_MAX);
+    if (bin_path == NULL) {
+        return;
+    }
+    /*
+     * Locate the real cpulimit binary relative to this test binary's own
+     * directory ($BUILD/tests -> $BUILD/src), so the path resolves under both
+     * the ctest (build/tests) and valgrind (build root) layouts.
+     */
+    slash = strrchr(argv0, '/');
+    if (slash == NULL) {
+        dir = (getenv("CPULIMIT_BUILD_DIR") != NULL)
+                  ? getenv("CPULIMIT_BUILD_DIR")
+                  : ".";
+        dir_len = strlen(dir);
+    } else {
+        dir = argv0;
+        dir_len = (size_t)(slash - argv0);
+    }
+    if (dir_len + 17 > PATH_MAX) {
+        free(bin_path);
+        return;
+    }
+    memcpy(bin_path, dir, dir_len);
+    strcpy(bin_path + dir_len, "/../src/cpulimit");
+    if (access(bin_path, X_OK) != 0) {
+        printf("(skipped: real cpulimit binary not found at %s)\n", bin_path);
+        fflush(stdout);
+        free(bin_path);
+        return;
+    }
+
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        char *child_argv[5];
+        char arg_l[] = "-l";
+        char arg_50[] = "50";
+        char arg_p[] = "-p";
+        char arg_absent[] = "999999";
+        child_argv[0] = bin_path;
+        child_argv[1] = arg_l;
+        child_argv[2] = arg_50;
+        child_argv[3] = arg_p;
+        child_argv[4] = arg_absent;
+        execv(bin_path, child_argv);
+        _exit(127);
+    }
+    free(bin_path);
+
+    /*
+     * Let the child reach the watch loop's long sleep before signalling;
+     * mirrors the acceptance scenario ("sleep 0.6; kill -INT").
+     */
+    nanosleep(&pre_sleep, NULL);
+    gettimeofday(&t0, NULL);
+    assert(kill(child_pid, SIGINT) == 0);
+
+    /* Reap with a bounded poll so a stuck child cannot hang the suite. */
+    wait_tries = 0;
+    for (;;) {
+        pid_t w = waitpid(child_pid, &child_status, WNOHANG);
+        if (w == child_pid) {
+            break;
+        }
+        if (w < 0 && errno == ECHILD) {
+            break;
+        }
+        if (wait_tries > 250) { /* ~5s at 20ms */
+            kill(child_pid, SIGKILL);
+            waitpid(child_pid, &child_status, 0);
+            break;
+        }
+        nanosleep(&poll_sleep, NULL);
+        wait_tries++;
+    }
+    gettimeofday(&t1, NULL);
+    elapsed = (double)(t1.tv_sec - t0.tv_sec)
+            + (double)(t1.tv_usec - t0.tv_usec) / 1000000.0;
+
+    /*
+     * Fixed behavior ends within ~100ms of the signal; the old code could take
+     * up to ~2s. A bound safely below the bug's worst case.
+     */
+    assert(elapsed < 1.0);
+}
+
+/**
  * @brief Run one command-mode run whose limit_process() reports a status
  *
  * @param write_fd Where the run's stderr goes
@@ -15656,6 +15772,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_limit_process_rejects_zombie_target);
     RUN_TEST(test_find_process_by_name_cannot_be_found_text);
     RUN_TEST(test_find_process_by_name_reports_init_exclusion);
+    RUN_TEST(test_watch_mode_exits_promptly_on_signal);
 
     RUN_TEST(test_command_mode_reports_stopped_limiting);
     RUN_TEST(test_command_mode_reports_stranded_run);
