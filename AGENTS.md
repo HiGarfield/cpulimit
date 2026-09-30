@@ -80,6 +80,13 @@ descendants.
   - PID, or
   - executable name, or
   - command line pattern.
+- cpulimit MUST NOT send any signal to PID 1 (the init/systemd process) on any
+  platform, in any mode, and with no exception (no container carve-out). This
+  applies to `SIGSTOP`/`SIGCONT` and to the `kill(pid,0)` existence probe alike.
+  PID 1 MUST be rejected at input when supplied as `-p 1`, MUST be excluded when
+  resolving a name with `-e`, and MUST be skipped in the process-set enforcement
+  path so a descendant of init is never signalled either, because suspending or
+  interfering with PID 1 would freeze or crash the system.
 - Input validation MUST reject invalid, inconsistent, or out-of-range values.
 - CPU usage calculation MUST be correct for the selected target set.
 - CPU usage MUST be sampled periodically.

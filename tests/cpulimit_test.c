@@ -4098,9 +4098,9 @@ static void test_cli_invalid_pids(void) {
     assert(parse_ret == EXIT_FAILURE);
 
     test_argv[4] =
-        arg_pid1; /* PID 1 is valid (container init); accepted, not rejected */
+        arg_pid1; /* PID 1 (init) is forbidden on every platform; rejected */
     parse_ret = run_parse_in_child(5, test_argv);
-    assert(parse_ret == 99);
+    assert(parse_ret == EXIT_FAILURE);
 
     test_argv[4] = arg_pidneg;
     parse_ret = run_parse_in_child(5, test_argv);
@@ -5255,7 +5255,7 @@ static void test_process_table_ops_after_destroy(void) {
  * @brief Test find_process_by_pid function
  *
  * @note Tests finding processes by PID including invalid PIDs, boundary
- *       values, and init process
+ *       values, and that PID 1 (init) is never probed
  */
 static void test_process_finder_find_by_pid(void) {
     pid_t self_pid;
@@ -5278,9 +5278,9 @@ static void test_process_finder_find_by_pid(void) {
     result = find_process_by_pid((pid_t)INT_MAX);
     assert(result == 0);
 
-    /* PID 1 (init/systemd) always exists */
+    /* PID 1 (init/systemd) is never signalled; the probe rejects it */
     result = find_process_by_pid((pid_t)1);
-    assert(result != 0);
+    assert(result == 0);
 }
 
 /**
@@ -11244,16 +11244,16 @@ static void test_limit_process_deferred_resume_esrch_is_ok(void) {
 }
 
 /**
- * @brief CLI must accept "-p 1" (limiting PID 1 / container init)
+ * @brief CLI must reject "-p 1" (PID 1 / init is never a target)
  *
- * @note The legacy guard rejected any PID <= 1, so cpulimit refused to limit
- *       PID 1 even in containers where init is the only target. After relaxing
- *       the guard to PID < 1, "-p 1" parses successfully while "-p 0" is still
- *       rejected. Verified by mutation: reverting the guard (back to pid <= 1)
- *       makes parse_arguments("-p 1") fail, so the assertion below fails.
+ * @note cpulimit must never send a kill to PID 1 on any platform, so the input
+ *       parser rejects "-p 1" up front instead of letting it reach the signal
+ *       path. The legacy behavior accepted PID 1 (to throttle a container's
+ *       init); that is now forbidden with no exception. Verified by mutation:
+ *       reverting the pid == 1 guard in parse_pid_option() makes
+ *       parse_arguments("-p 1") succeed, so the assertion below fails.
  */
-static void test_cli_accepts_pid_one(void) {
-    struct cpulimit_cfg cfg;
+static void test_cli_rejects_pid_one(void) {
     char arg0[] = "cpulimit";
     char arg_l[] = "-l";
     char arg_50[] = "50";
@@ -11275,14 +11275,11 @@ static void test_cli_accepts_pid_one(void) {
     args0[3] = arg_p;
     args0[4] = arg_0;
     args0[5] = NULL;
-    memset(&cfg, 0, sizeof(cfg));
-    cfg.program_name = "cpulimit";
-    assert(parse_arguments(5, args, &cfg) == 0);
-    assert(cfg.target_pid == 1);
-    assert(cfg.cpu_limit >= 0.5 - 1e-9 && cfg.cpu_limit <= 0.5 + 1e-9);
-    /* PID 0 and negative values must still be rejected. Parsed in a child
-       whose stderr is closed so the expected rejection message stays out of
-       the test log. */
+    /* "-p 1" must be rejected at input on every platform. */
+    parse_ret = run_parse_in_child(5, args);
+    assert(parse_ret == EXIT_FAILURE);
+    /* PID 0 must still be rejected. Parsed in a child whose stderr is closed
+       so the expected rejection message stays out of the test log. */
     parse_ret = run_parse_in_child(5, args0);
     assert(parse_ret == EXIT_FAILURE);
 }
@@ -11301,7 +11298,7 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     struct cpulimit_cfg cfg;
     char arg0[] = "cpulimit";
     char arg_p[] = "-p";
-    char arg_one[] = "1";
+    char arg_one[] = "2";
     char arg_l[] = "-l";
     char arg_space50[] = " 50";
     char arg_50[] = "50";
@@ -11342,7 +11339,7 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "cpulimit";
     assert(parse_arguments(5, no_space, &cfg) == 0);
-    assert(cfg.target_pid == 1);
+    assert(cfg.target_pid == 2);
     assert(cfg.cpu_limit >= 0.5 - 1e-9 && cfg.cpu_limit <= 0.5 + 1e-9);
 }
 
@@ -14386,7 +14383,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_missing_limit);
     RUN_TEST(test_cli_invalid_limits);
     RUN_TEST(test_cli_invalid_pids);
-    RUN_TEST(test_cli_accepts_pid_one);
+    RUN_TEST(test_cli_rejects_pid_one);
     RUN_TEST(test_cli_rejects_leading_whitespace_in_numbers);
     RUN_TEST(test_cli_rejects_empty_command_name);
     RUN_TEST(test_cli_rejects_root_match_name);
