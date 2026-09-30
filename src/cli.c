@@ -106,13 +106,22 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     pid = strtol(pid_str, &endptr, 10);
     /*
      * Validate conversion: check for errors, empty strings, and trailing
-     * characters. PID 1 is allowed (it is the only reserved PID worth
-     * rejecting indirectly) so that cpulimit can throttle PID 1 inside a
-     * container where the target process is init; only PID 0 and
-     * negative values are invalid.
+     * characters. PID 0 and negative values are invalid.
      */
     if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid < 1) {
         fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
+        print_usage(stderr, cfg);
+        return EXIT_FAILURE;
+    }
+    /*
+     * PID 1 (init/systemd) is never a valid target on any platform. No kill
+     * -- not even the kill(pid,0) existence probe used elsewhere -- may be
+     * sent to it, because suspending or interfering with init would freeze
+     * or crash the whole system. There is no container or OS exception, so
+     * it is rejected at input exactly like an out-of-range PID.
+     */
+    if (pid == 1) {
+        fprintf(stderr, "Error: PID 1 (init) is not allowed as a target\n\n");
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }

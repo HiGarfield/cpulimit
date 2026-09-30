@@ -85,6 +85,10 @@ Examples:
   I/O while stopped, so interactive and networked services gain latency.
 - **Very short-lived children can be missed** and then run unthrottled.
 - **Cpulimit can only control processes you own.**
+- **PID 1 (init) is never limited.** Targeting it directly (`-p 1`), by name
+  (`-e` matching init), or as a discovered descendant is refused on every
+  platform; sending it `SIGSTOP`/`SIGCONT` would freeze or crash the system, so
+  there is no exception.
 
 ## Choosing a Target
 

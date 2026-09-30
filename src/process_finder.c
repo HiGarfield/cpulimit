@@ -45,7 +45,15 @@
  *         denied (EPERM/EACCES), 0 if it does not exist or the PID is invalid
  */
 pid_t find_process_by_pid(pid_t pid) {
-    if (pid <= 0) {
+    /*
+     * Reject non-positive PIDs and PID 1 (init) before any kill() call.
+     * PID 1 must never be signalled on any platform -- a kill to it, even
+     * the kill(pid,0) existence probe, is forbidden because suspending or
+     * interfering with init would freeze or crash the system. This guard
+     * therefore covers the probe too, so no code path reaches kill() with
+     * pid 1; there is no container or OS exception.
+     */
+    if (pid <= 0 || pid == 1) {
         return 0;
     }
     /* kill(pid, 0): existence + permission probe without signalling */
@@ -129,6 +137,16 @@ pid_t find_process_by_name(const char *process_name) {
     while (get_next_process(&iter, proc) != -1) {
         const char *cmd_cmp_name =
             full_path_cmp ? proc->command : get_file_basename(proc->command);
+        /*
+         * Never select PID 1 (init) by name: -e init would otherwise
+         * resolve to the system's init process and route it into the limit
+         * set, from which no kill must ever be sent. Skipping it here keeps
+         * the name resolver consistent with the PID-input rejection and the
+         * process-set guard, on every platform.
+         */
+        if (proc->pid == 1) {
+            continue;
+        }
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
             /*
              * Select this PID if:

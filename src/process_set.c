@@ -510,6 +510,15 @@ int update_process_set(struct process_set *proc_set) {
             continue;
         }
         /*
+         * Never track PID 1 (init): like cpulimit itself it must never
+         * receive a kill. This guard holds for every mode (PID, name,
+         * command) and every platform, with no exception, so even a target
+         * that resolves to or spawns init cannot be suspended.
+         */
+        if (scan_proc->pid == 1) {
+            continue;
+        }
+        /*
          * The target's PID was recycled: this group was built around the
          * process that started at target_start_time, but here is a different
          * one wearing the same PID, so the scan no longer matches the
