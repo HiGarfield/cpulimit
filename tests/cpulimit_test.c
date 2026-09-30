@@ -14742,6 +14742,126 @@ static void test_limit_process_rejects_zombie_target(void) {
 }
 
 /**
+ * @brief Run find_process_by_name() in a child with stderr captured
+ *
+ * @param name Name to look up
+ * @param out Caller-supplied buffer for the captured stderr text
+ * @param out_size Size of out
+ * @return The child's exit code: EXIT_SUCCESS when find_process_by_name()
+ *         returned 0 (no target), 42 when it returned a PID so the scenario
+ *         under test was not isolated, another value on a child failure
+ *
+ * The child redirects its stderr to a pipe so the caller can inspect the
+ * diagnostic find_process_by_name() prints when it finds nothing.
+ */
+static int test_capture_find_by_name(const char *name, char *out,
+                                     size_t out_size) {
+    int err_pipe[2];
+    pid_t driver;
+    pid_t waited;
+    int status;
+    size_t total = 0;
+    ssize_t n_read;
+    int result;
+    assert(pipe(err_pipe) == 0);
+    fflush(stdout);
+    fflush(stderr);
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        pid_t found;
+        close(err_pipe[0]);
+        dup2(err_pipe[1], 2);
+        close(err_pipe[1]);
+        found = find_process_by_name(name);
+        fflush(stderr);
+        _exit(found == 0 ? EXIT_SUCCESS : 42);
+    }
+    close(err_pipe[1]);
+    while (total < out_size - 1) {
+        n_read = read(err_pipe[0], out + total, out_size - 1 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    out[total] = '\0';
+    close(err_pipe[0]);
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+    assert(WIFEXITED(status));
+    result = WEXITSTATUS(status);
+    return result;
+}
+
+/**
+ * @brief Genuine miss keeps the unchanged "cannot be found" message
+ *
+ * @note BUG-A only changed the diagnostic for a name whose only match is PID 1;
+ *       a real miss must still say "cannot be found". This guards that text
+ *       against accidental corruption.
+ */
+static void test_find_process_by_name_cannot_be_found_text(void) {
+    int code;
+    char *capture = (char *)malloc(8192);
+    assert(capture != NULL);
+    code = test_capture_find_by_name("nosuch_zz_xyz_nonexistent", capture, 8192);
+    assert(code == EXIT_SUCCESS);
+    assert(strstr(capture, "cannot be found") != NULL);
+    assert(strstr(capture, "PID 1 (init)") == NULL);
+    free(capture);
+}
+
+/**
+ * @brief A name matched only by PID 1 reports the exclusion, not "not found"
+ *
+ * @note When the only match for a name is PID 1, find_process_by_name() must
+ *       explain that init is excluded rather than claim it is "not found". PID 1
+ *       is only enumerable (and therefore only matchable) when its ppid is
+ *       positive -- inside a container where init's parent is the runtime. On
+ *       hosts where PID 1 has ppid 0 it is filtered out before reaching the
+ *       name resolver, so this test skips there.
+ */
+static void test_find_process_by_name_reports_init_exclusion(void) {
+    char *cmdline;
+    char *argv0;
+    int code;
+    char *capture;
+    if (getppid_of(1) <= 0) {
+        printf("(skipped: PID 1 not enumerable on this platform)\n");
+        fflush(stdout);
+        return;
+    }
+    cmdline = read_file_contents("/proc/1/cmdline");
+    if (cmdline == NULL) {
+        printf("(skipped: could not read /proc/1/cmdline)\n");
+        fflush(stdout);
+        return;
+    }
+    argv0 = (char *)malloc(strlen(cmdline) + 1);
+    assert(argv0 != NULL);
+    strcpy(argv0, cmdline);
+    free(cmdline);
+    capture = (char *)malloc(8192);
+    assert(capture != NULL);
+    code = test_capture_find_by_name(argv0, capture, 8192);
+    free(argv0);
+    if (code == 42) {
+        printf("(skipped: PID 1 not the sole match for its name)\n");
+        fflush(stdout);
+        free(capture);
+        return;
+    }
+    assert(code == EXIT_SUCCESS);
+    assert(strstr(capture, "PID 1 (init)") != NULL);
+    assert(strstr(capture, "cannot be found") == NULL);
+    free(capture);
+}
+
+/**
  * @brief Run one command-mode run whose limit_process() reports a status
  *
  * @param write_fd Where the run's stderr goes
@@ -15534,6 +15654,8 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
     RUN_TEST(test_limit_process_reports_scan_failure);
     RUN_TEST(test_limit_process_rejects_zombie_target);
+    RUN_TEST(test_find_process_by_name_cannot_be_found_text);
+    RUN_TEST(test_find_process_by_name_reports_init_exclusion);
 
     RUN_TEST(test_command_mode_reports_stopped_limiting);
     RUN_TEST(test_command_mode_reports_stranded_run);
