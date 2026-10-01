@@ -237,8 +237,7 @@ static void test_suspend_until_killed(void) {
             _exit(EXIT_FAILURE);
         }
         remaining = poll_interval;
-        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
-        }
+        sleep_timespec(&remaining);
     }
 }
 
@@ -5712,10 +5711,9 @@ static void reap_all_by_name(const char *comm) {
         char *endptr;
         long pid_l;
         char cmdline_path[64];
-        char name[64];
-        FILE *fp;
+        char *name;
         pid_t pid;
-        size_t n_read, idx;
+        size_t idx;
 
         if (entry->d_type != DT_DIR && entry->d_type != DT_UNKNOWN) {
             continue;
@@ -5733,24 +5731,19 @@ static void reap_all_by_name(const char *comm) {
                      pid_l) >= (int)sizeof(cmdline_path)) {
             continue;
         }
-        fp = fopen(cmdline_path, "rb");
-        if (fp == NULL) {
-            continue;
-        }
-        n_read = fread(name, 1, sizeof(name) - 1, fp);
-        fclose(fp);
-        if (n_read == 0) {
+        name = read_file_contents(cmdline_path);
+        if (name == NULL) {
             continue;
         }
         /* argv[0] ends at the first NUL; the remaining arguments follow. */
-        for (idx = 0; idx < n_read && name[idx] != '\0'; idx++) {
+        for (idx = 0; name[idx] != '\0'; idx++) {
             ;
         }
-        name[idx] = '\0';
         if (name[0] != '\0' && strcmp(get_file_basename(name), wanted) == 0) {
             /* Same-named process: kill it for a clean scan. */
             kill(pid, SIGKILL);
         }
+        free(name);
     }
     closedir(proc_dir);
 }
@@ -9408,7 +9401,7 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
              */
             while (resume_counter < 1 && getppid() != 1) {
                 struct timespec tiny = {0, 1000000L};
-                nanosleep(&tiny, NULL);
+                sleep_timespec(&tiny);
             }
             _exit(resume_counter >= 1 ? EXIT_SUCCESS : 2);
         }
@@ -14070,9 +14063,7 @@ static void test_child_wait_escalates_sigkill_once(void) {
                     break;
                 }
             }
-            while (nanosleep(&tick, &tick) != 0 && errno == EINTR) {
-                ;
-            }
+            sleep_timespec(&tick);
             rounds++;
         }
         close(log_pipe[0]);
@@ -14500,9 +14491,7 @@ static void atexit_victim_child(void) {
 
     for (i = 0; i < 40; i++) {
         remaining = tick;
-        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
-            ;
-        }
+        sleep_timespec(&remaining);
     }
     _exit(EXIT_FAILURE);
 }
@@ -14570,9 +14559,7 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
             resumed = 1;
             break;
         }
-        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
-            ;
-        }
+        sleep_timespec(&remaining);
     }
 
     if (!resumed) {
@@ -14775,7 +14762,7 @@ static void test_limit_process_rejects_zombie_target(void) {
         zsleep.tv_nsec = 1000000L;
         tries = 0;
         while (tries < 200 && !test_is_zombie(zombie)) {
-            nanosleep(&zsleep, NULL);
+            sleep_timespec(&zsleep);
             tries++;
         }
         if (!test_is_zombie(zombie)) {
@@ -15054,7 +15041,7 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
     pid_t child_pid, probe;
     int child_status;
     int wait_tries;
-    struct timeval t0, t1;
+    struct timespec t0, t1;
     double elapsed;
     const struct timespec pre_sleep = {0, 600000000L}; /* 600 ms */
     const struct timespec poll_sleep = {0, 20000000L}; /* 20 ms */
@@ -15113,7 +15100,7 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
      * Let the child reach the watch loop's long sleep before signalling;
      * mirrors the acceptance scenario ("sleep 0.6; kill -INT").
      */
-    nanosleep(&pre_sleep, NULL);
+    sleep_timespec(&pre_sleep);
 
     /*
      * It must still be waiting now. A run that had already given up would be
@@ -15122,7 +15109,7 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
     probe = waitpid(child_pid, &child_status, WNOHANG);
     assert(probe == 0);
 
-    gettimeofday(&t0, NULL);
+    get_current_time(&t0);
     assert(kill(child_pid, SIGINT) == 0);
 
     /* Reap with a bounded poll so a stuck child cannot hang the suite. */
@@ -15140,12 +15127,12 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
             waitpid(child_pid, &child_status, 0);
             break;
         }
-        nanosleep(&poll_sleep, NULL);
+        sleep_timespec(&poll_sleep);
         wait_tries++;
     }
-    gettimeofday(&t1, NULL);
+    get_current_time(&t1);
     elapsed = (double)(t1.tv_sec - t0.tv_sec) +
-              (double)(t1.tv_usec - t0.tv_usec) / 1000000.0;
+              (double)(t1.tv_nsec - t0.tv_nsec) / 1000000000.0;
 
     /*
      * The signal ends the wait immediately; the buggy code slept out the rest
@@ -15390,9 +15377,7 @@ static void test_process_set_resumes_without_proc_list(void) {
 
     remaining.tv_sec = 0;
     remaining.tv_nsec = 200000000L;
-    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
-        ;
-    }
+    sleep_timespec(&remaining);
 
     assert(kill(victim, SIGSTOP) == 0);
     /* Heap-allocated: the group keeps the frame within the stack budget. */
@@ -15419,9 +15404,7 @@ static void test_process_set_resumes_without_proc_list(void) {
             break;
         }
         remaining = poll_wait;
-        while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
-            ;
-        }
+        sleep_timespec(&remaining);
     }
 
     close_process_set(ps);

@@ -105,11 +105,9 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char state;
     long ppid;
     double user_time, sys_time;
-    double start_time = -1.0;
+    double start_time = UNKNOWN_START_TIME;
     int parsed;
     static long sc_clk_tck = -1;
-    int cmdline_fd;
-    size_t total_read;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -177,53 +175,31 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         return 0;
     }
     /*
-     * Read argv[0] from /proc/[pid]/cmdline using read() to avoid
-     * allocating a buffer for the entire argument list. The cmdline file
-     * uses NUL bytes as argument separators (no newlines), so string
-     * functions naturally stop at the first NUL, giving only argv[0].
+     * Read argv[0] from /proc/[pid]/cmdline. The file uses NUL bytes as
+     * argument separators (no newlines), so only the first token -- argv[0] --
+     * is needed by callers; copy it (stopping at the first NUL) into
+     * proc->command. The whole file is read through read_file_contents()
+     * rather than a bare open()/read(), matching the /proc/stat read above.
+     * A missing or empty cmdline (read_file_contents() returns NULL) is
+     * rejected, as is an empty argv[0].
      */
     if (snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%ld/cmdline",
                  (long)pid) >= (int)sizeof(cmdline_path)) {
         return -1;
     }
-    cmdline_fd = open(cmdline_path, O_RDONLY);
-    if (cmdline_fd < 0) {
+    buffer = read_file_contents(cmdline_path);
+    if (buffer == NULL) {
         return -1;
     }
-    /*
-     * Accumulate reads into proc->command with an advancing offset. The
-     * kernel may return a short count (e.g. when the cmdline exceeds the
-     * buffer, or via proc_pid_cmdline_read partial returns), so we must loop
-     * until EOF/error and advance the write offset rather than re-reading
-     * from the start, which would overwrite and corrupt the command string.
-     */
-    total_read = 0;
-    while (total_read < sizeof(proc->command) - 1) {
-        ssize_t bytes_read;
-        bytes_read = read(cmdline_fd, proc->command + total_read,
-                          sizeof(proc->command) - 1 - total_read);
-        if (bytes_read < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            break;
+    {
+        size_t i = 0;
+        while (i < sizeof(proc->command) - 1 && buffer[i] != '\0') {
+            proc->command[i] = buffer[i];
+            i++;
         }
-        if (bytes_read == 0) {
-            break;
-        }
-        total_read += (size_t)bytes_read;
+        proc->command[i] = '\0';
     }
-    if (close(cmdline_fd) != 0) {
-        perror("close");
-        /*
-         * Even if close() fails, any data already read into
-         * proc->command remains valid.
-         */
-    }
-    if ((ssize_t)total_read <= 0) {
-        return -1;
-    }
-    proc->command[total_read] = '\0';
+    free(buffer);
     /*
      * Reject processes with empty command names (e.g. execve with
      * argv[0]=="").
