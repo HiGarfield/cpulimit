@@ -199,9 +199,12 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
  *        TARGET_UNCONTROLLABLE)
  * @return TARGET_RESOLVED, TARGET_NOT_FOUND or TARGET_UNCONTROLLABLE
  *
- * Both failure diagnostics are printed here because they follow from what the
- * lookup found, not from the caller's policy; non-lazy mode appends ",
- * retrying...".
+ * The PID-mode "cannot be found" diagnostic is printed here because it follows
+ * from what the lookup found, not from the caller's policy; non-lazy mode
+ * appends ", retrying...". The name-mode "cannot be found" message is printed
+ * by find_process_by_name() itself. A name that resolves only to PID 1 is
+ * refused once at argument-checking time (cli.c) before the limiter starts, so
+ * it is never reported here.
  */
 static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
                           pid_t *found_pid) {
@@ -209,10 +212,9 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
                           : find_process_by_name(cfg->exe_name);
     if (*found_pid == 0) {
         /*
-         * find_process_by_name() already printed the accurate reason (either
-         * "cannot be found" or "matches PID 1 (init) ... no limitable target
-         * found"); find_process_by_pid() has none to print. Non-lazy mode
-         * keeps retrying from the caller, which appends ", retrying...".
+         * find_process_by_name() already printed "cannot be found";
+         * find_process_by_pid() has nothing to print. Non-lazy mode keeps
+         * retrying from the caller, which appends ", retrying...".
          */
         if (pid_mode) {
             fprintf(stderr, "Process with PID %ld cannot be found%s\n",

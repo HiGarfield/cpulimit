@@ -14884,58 +14884,184 @@ static void test_find_process_by_name_cannot_be_found_text(void) {
     free(capture);
 }
 
-/* Linux only: the name of PID 1 is read from /proc/1/cmdline, and
- * read_file_contents() -- the reader that survives a comm field containing a
- * newline -- exists only where /proc does. */
+/* Linux only: PID 1's argv[0] is read from /proc/1/cmdline, and the rejection
+ * now lives at argument-checking time (cli.c), so this drives the real binary
+ * rather than find_process_by_name(). */
 #if defined(__linux__)
 /**
- * @brief A name matched only by PID 1 reports the exclusion, not "not found"
+ * @brief A name that resolves to PID 1 is refused before the limiter starts
  *
- * @note When the only match for a name is PID 1, find_process_by_name() must
- *       explain that init is excluded rather than claim it is "not found". PID
- * 1 is only enumerable (and therefore only matchable) when its ppid is positive
- * -- inside a container where init's parent is the runtime. On hosts where PID
- * 1 has ppid 0 it is filtered out before reaching the name resolver, so this
- * test skips there.
+ * @note -e init (or any name matching init's argv[0]) must be rejected at
+ *        argument-checking time with "PID 1 (init)", never reach the limiter,
+ *        and never print the per-scan "cannot be found" loop. This runs the
+ *        real cpulimit binary so the rejection path in cli.c is exercised, the
+ *        same path every operator hits.
  */
-static void test_find_process_by_name_reports_init_exclusion(void) {
+static void test_exe_name_matching_init_rejected_at_argument_check(void) {
     char *cmdline;
-    /* Stack, not heap: a heap name would be inherited by the helper's
-     * forked child and reported as still reachable there. */
-    char init_name[128];
-    int code;
-    char *capture = NULL;
-    if (getppid_of(1) <= 0) {
-        printf("(skipped: PID 1 not enumerable on this platform)\n");
-        fflush(stdout);
-        return;
-    }
+    char *bin_path;
+    char *init_arg;
+    pid_t child_pid;
+    int child_status;
+    int err_pipe[2];
+    char *buf;
+    size_t total = 0;
+    struct timeval t0, t1;
+    double elapsed;
+    const struct timespec poll_sleep = {0, 20000000L}; /* 20 ms */
+    int wait_tries;
+    const char *dir;
+    size_t dir_len;
+    const char *slash;
+
     cmdline = read_file_contents("/proc/1/cmdline");
     if (cmdline == NULL) {
         printf("(skipped: could not read /proc/1/cmdline)\n");
         fflush(stdout);
         return;
     }
-    if (strlen(cmdline) >= sizeof(init_name)) {
-        printf("(skipped: PID 1 name longer than the lookup buffer)\n");
+    /* argv[0] is the first NUL-delimited token of /proc/1/cmdline. */
+    init_arg = cmdline;
+    if (init_arg[0] == '\0') {
+        printf("(skipped: PID 1 has an empty command line)\n");
         fflush(stdout);
         free(cmdline);
         return;
     }
-    strcpy(init_name, cmdline);
-    free(cmdline);
-    code = test_capture_find_by_name(init_name, &capture);
-    if (code == 42) {
-        printf("(skipped: PID 1 not the sole match for its name)\n");
-        fflush(stdout);
-        free(capture);
+
+    bin_path = (char *)malloc(PATH_MAX);
+    if (bin_path == NULL) {
+        free(cmdline);
         return;
     }
-    assert(code == EXIT_SUCCESS);
-    assert(capture != NULL);
-    assert(strstr(capture, "PID 1 (init)") != NULL);
-    assert(strstr(capture, "cannot be found") == NULL);
-    free(capture);
+    /*
+     * Locate the real cpulimit binary relative to this test binary's own
+     * directory ($BUILD/tests -> $BUILD/src), so the path resolves under both
+     * the ctest (build/tests) and valgrind (build root) layouts.
+     */
+    slash = strrchr(argv0, '/');
+    if (slash == NULL) {
+        const char *build_dir = getenv("CPULIMIT_BUILD_DIR");
+        dir = (build_dir != NULL) ? build_dir : ".";
+        dir_len = strlen(dir);
+    } else {
+        dir = argv0;
+        dir_len = (size_t)(slash - argv0);
+    }
+    if (dir_len + 17 > PATH_MAX) {
+        free(bin_path);
+        free(cmdline);
+        return;
+    }
+    memcpy(bin_path, dir, dir_len);
+    strcpy(bin_path + dir_len, "/../src/cpulimit");
+    if (access(bin_path, X_OK) != 0) {
+        printf("(skipped: real cpulimit binary not found at %s)\n", bin_path);
+        fflush(stdout);
+        free(bin_path);
+        free(cmdline);
+        return;
+    }
+
+    /* Heap, not stack: the capture buffer is larger than the per-function
+     * frame budget, and a heap block is not inherited by the forked child. */
+    buf = (char *)malloc(TEST_CAPTURE_SIZE);
+    if (buf == NULL) {
+        free(bin_path);
+        free(cmdline);
+        return;
+    }
+
+    assert(pipe(err_pipe) == 0);
+    fflush(stdout);
+    fflush(stderr);
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        char *child_argv[7];
+        char arg_l[] = "-l";
+        char arg_50[] = "50";
+        char arg_e[] = "-e";
+        int devnull, out_fd, err_fd;
+        devnull = open("/dev/null", O_WRONLY);
+        if (devnull < 0) {
+            _exit(127);
+        }
+        /* stdout to /dev/null; stderr to the pipe so we can inspect the
+         * rejection message. Both descriptors are kept in variables rather
+         * than compared away: a discarded dup2() result is reported by
+         * -Wanalyzer-fd-leak as leaked on the exec path. */
+        out_fd = dup2(devnull, STDOUT_FILENO);
+        err_fd = dup2(err_pipe[1], STDERR_FILENO);
+        if (out_fd < 0 || err_fd < 0) {
+            _exit(127);
+        }
+        if (devnull > STDERR_FILENO) {
+            close(devnull);
+        }
+        close(err_pipe[0]);
+        close(err_pipe[1]);
+        child_argv[0] = bin_path;
+        child_argv[1] = arg_l;
+        child_argv[2] = arg_50;
+        child_argv[3] = arg_e;
+        child_argv[4] = init_arg;
+        child_argv[5] = NULL;
+        execv(bin_path, child_argv);
+        _exit(127);
+    }
+    free(bin_path);
+    free(cmdline);
+    close(err_pipe[1]);
+
+    /*
+     * The child must reject at argument-checking time, well before the 2s
+     * watch interval, and exit with a failure. Bounded poll so a stuck child
+     * cannot hang the suite.
+     */
+    gettimeofday(&t0, NULL);
+    wait_tries = 0;
+    for (;;) {
+        pid_t w = waitpid(child_pid, &child_status, WNOHANG);
+        if (w == child_pid) {
+            break;
+        }
+        if (w < 0 && errno == ECHILD) {
+            break;
+        }
+        if (wait_tries > 250) { /* ~5s at 20ms */
+            kill(child_pid, SIGKILL);
+            waitpid(child_pid, &child_status, 0);
+            break;
+        }
+        nanosleep(&poll_sleep, NULL);
+        wait_tries++;
+    }
+    gettimeofday(&t1, NULL);
+    elapsed = (double)(t1.tv_sec - t0.tv_sec) +
+              (double)(t1.tv_usec - t0.tv_usec) / 1000000.0;
+
+    total = 0;
+    while (total < TEST_CAPTURE_SIZE - 1) {
+        ssize_t n_read =
+            read(err_pipe[0], buf + total, TEST_CAPTURE_SIZE - 1 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    buf[total] = '\0';
+    close(err_pipe[0]);
+
+    assert(WIFEXITED(child_status));
+    assert(WEXITSTATUS(child_status) != EXIT_SUCCESS);
+    /* Rejected up front, not after a 2s watch sleep. */
+    assert(elapsed < 1.0);
+    assert(strstr(buf, "PID 1 (init)") != NULL);
+    free(buf);
 }
 #endif
 
@@ -14989,15 +15115,14 @@ static pid_t test_capture_find_by_name_message(const char *name, char **out) {
 /**
  * @brief A genuine miss says "cannot be found" even when the scan lists PID 1
  *
- * @note find_process_by_name() set its "init was excluded" flag for any PID 1
- *       the iterator happened to report, before comparing names, so a lookup
- *       that matched nothing at all was reported as matching init. Whether
- *       PID 1 is reported is platform-dependent: /proc rejects it while its
- *       ppid is 0, which is why a plain Linux host never showed this, while
- *       proc_listpids() and kvm_getprocs() list it. The scan is therefore
- *       scripted, which puts PID 1 in the snapshot on every platform.
- *       Verified by mutation: setting the flag for any PID 1 again makes this
- *       lookup report an init match.
+ * @note find_process_by_name() skips PID 1 silently no matter what name it
+ *       carries, so an unrelated miss must never be reported as matching init.
+ *       Whether PID 1 is reported by the iterator is platform-dependent: /proc
+ *       rejects it while its ppid is 0, which is why a plain Linux host never
+ *       showed this, while proc_listpids() and kvm_getprocs() list it. The scan
+ *       is therefore scripted, which puts PID 1 in the snapshot on every
+ *       platform. Verified by mutation: making the skip conditional on the name
+ *       would turn this lookup into an init match.
  */
 static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
     struct seam_proc *frame;
@@ -15023,43 +15148,6 @@ static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
     assert(capture != NULL);
     assert(strstr(capture, "cannot be found") != NULL);
     assert(strstr(capture, "PID 1 (init)") == NULL);
-    free(capture);
-}
-
-/**
- * @brief The init diagnostic still appears when PID 1 really matches
- *
- * @note The counterpart of the test above: the flag must survive for a name
- *       that PID 1 itself carries, otherwise excluding init would go
- *       unreported and the operator would only see a plain miss. Same
- *       scripted scan, so it holds wherever PID 1 is enumerable.
- *       Verified by mutation: dropping the flag makes this lookup report
- *       "cannot be found" instead.
- */
-static void test_find_process_by_name_reports_enumerated_init_exclusion(void) {
-    struct seam_proc *frame;
-    char *capture = NULL;
-    pid_t found;
-
-    frame = (struct seam_proc *)malloc(sizeof(*frame));
-    assert(frame != NULL);
-    memset(frame, 0, sizeof(*frame));
-    frame->pid = (pid_t)1;
-    frame->ppid = (pid_t)0;
-    strcpy(frame->command, "init");
-
-    seam_reset();
-    seam_push_frame(frame, 1);
-    seam_active = 1;
-    found = test_capture_find_by_name_message("init", &capture);
-    seam_active = 0;
-    free(frame);
-
-    /* init is excluded, so it is never returned as a target either. */
-    assert(found == 0);
-    assert(capture != NULL);
-    assert(strstr(capture, "PID 1 (init)") != NULL);
-    assert(strstr(capture, "cannot be found") == NULL);
     free(capture);
 }
 
@@ -16006,10 +16094,9 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_limit_process_rejects_zombie_target);
     RUN_TEST(test_find_process_by_name_cannot_be_found_text);
 #if defined(__linux__)
-    RUN_TEST(test_find_process_by_name_reports_init_exclusion);
+    RUN_TEST(test_exe_name_matching_init_rejected_at_argument_check);
 #endif
     RUN_TEST(test_find_process_by_name_miss_ignores_enumerated_init);
-    RUN_TEST(test_find_process_by_name_reports_enumerated_init_exclusion);
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);
 
     RUN_TEST(test_command_mode_reports_stopped_limiting);

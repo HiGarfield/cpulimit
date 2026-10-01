@@ -97,7 +97,6 @@ pid_t find_process_by_name(const char *process_name) {
     struct process *proc;
     int full_path_cmp;
     const char *process_cmp_name;
-    int excluded_init = 0;
 
     if (process_name == NULL || process_name[0] == '\0') {
         return 0;
@@ -142,22 +141,14 @@ pid_t find_process_by_name(const char *process_name) {
          * Never select PID 1 (init) by name: -e init would otherwise
          * resolve to the system's init process and route it into the limit
          * set, from which no kill must ever be sent. Skipping it here keeps
-         * the name resolver consistent with the PID-input rejection and the
-         * process-set guard, on every platform.
+         * the name resolver consistent with the PID-input rejection in cli.c
+         * and the process-set guard, on every platform.
          *
-         * Only a PID 1 that actually matches the requested name sets
-         * excluded_init: the flag picks the diagnostic below, so setting it
-         * for an init that merely happens to be enumerated turns every
-         * unrelated miss into "matches PID 1 (init)". Whether init is
-         * enumerated at all is platform-dependent -- /proc skips it while
-         * its ppid is 0, proc_listpids() and kvm_getprocs() list it -- so
-         * without the name check the same lookup would report a different
-         * reason per host.
+         * This branch is silent on purpose: the operator-visible "this name
+         * is PID 1" refusal is emitted once at argument-checking time
+         * (cli.c, before the limiter starts), not on every watch-loop scan.
          */
         if (proc->pid == 1) {
-            if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
-                excluded_init = 1;
-            }
             continue;
         }
         if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
@@ -230,19 +221,7 @@ pid_t find_process_by_name(const char *process_name) {
      * to be controllable.
      */
     if (n_candidates == 0) {
-        /*
-         * No limitable target was found. When the only match was PID 1 (init),
-         * say so: the safety rule excludes init, it is not "not found". A
-         * genuine miss keeps the unchanged "cannot be found" message.
-         */
-        if (excluded_init) {
-            fprintf(stderr,
-                    "Process '%s' matches PID 1 (init), which is never a "
-                    "valid target; no limitable target found\n",
-                    process_cmp_name);
-        } else {
-            fprintf(stderr, "Process '%s' cannot be found\n", process_cmp_name);
-        }
+        fprintf(stderr, "Process '%s' cannot be found\n", process_cmp_name);
         return 0;
     }
     probe = find_process_by_pid(pid);
