@@ -26,6 +26,7 @@
 #include "cli.h"
 
 #include "cpu_count.h"
+#include "file_io.h"
 #include "path_util.h"
 #include "util.h"
 
@@ -206,6 +207,63 @@ static int validate_target_options(const struct cpulimit_cfg *cfg) {
     }
     return 0;
 }
+
+#if defined(__linux__)
+/**
+ * @brief Refuse a name target that resolves to PID 1 (init) at argument time
+ *
+ * @param cfg Pointer to the configuration naming the target
+ * @return 0 when the target is not init, EXIT_FAILURE when -e named init
+ *
+ * PID 1 is never a valid target on any platform, and that rejection must
+ * happen here -- before the limiter starts -- not deep in
+ * find_process_by_name() where it would run on every watch-loop scan. We read
+ * init's argv[0] once from /proc/1/cmdline and compare it the same way
+ * find_process_by_name() does (full path for an absolute name, basename
+ * otherwise), so a name that would only ever resolve to init is refused up
+ * front with one clear error. The finder still skips PID 1 silently as a
+ * defense-in-depth guard; this is the operator-visible refusal. macOS and
+ * FreeBSD have no /proc/1/cmdline, so the finder's silent exclusion is their
+ * only guard and this check is compiled out there.
+ */
+static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
+    char *cmdline;
+    const char *init_argv0;
+    const char *cmp_name;
+    int full_path_cmp;
+
+    if (cfg->exe_name == NULL) {
+        return 0;
+    }
+    cmdline = read_file_contents("/proc/1/cmdline");
+    if (cmdline == NULL) {
+        return 0;
+    }
+    /*
+     * /proc/1/cmdline is argv[0]\0argv[1]\0...; compare only argv[0].
+     * init_argv0 points into cmdline, which is NUL-terminated after argv[0],
+     * so strcmp()/get_file_basename() stop at the first NUL as required.
+     */
+    init_argv0 = cmdline;
+    full_path_cmp = cfg->exe_name[0] == '/';
+    cmp_name = full_path_cmp ? cfg->exe_name : get_file_basename(cfg->exe_name);
+    if (cmp_name[0] != '\0') {
+        const char *init_cmp =
+            full_path_cmp ? init_argv0 : get_file_basename(init_argv0);
+        if (init_cmp[0] != '\0' && strcmp(init_cmp, cmp_name) == 0) {
+            fprintf(stderr,
+                    "Error: target name '%s' resolves to PID 1 (init), "
+                    "which is never a valid target\n\n",
+                    cfg->exe_name);
+            print_usage(stderr, cfg);
+            free(cmdline);
+            return EXIT_FAILURE;
+        }
+    }
+    free(cmdline);
+    return 0;
+}
+#endif
 
 /**
  * @brief Parse command line arguments and populate configuration structure
@@ -420,6 +478,16 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
+
+    /*
+     * Reject a name target that resolves to PID 1 (init) here, before the
+     * limiter ever starts, rather than discovering it deep in the watch loop.
+     */
+#if defined(__linux__)
+    if (reject_init_name_target(cfg) != 0) {
+        return EXIT_FAILURE;
+    }
+#endif
 
     if (cfg->verbose) {
         printf("%d CPU%s detected\n", ncpu, ncpu > 1 ? "s" : "");
