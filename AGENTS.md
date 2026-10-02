@@ -79,14 +79,19 @@ descendants.
 - The program MUST accept a target process by:
   - PID, or
   - executable name, or
-  - command line pattern.
+  - command (`COMMAND [ARG]...`).
 - cpulimit MUST NOT send any signal to PID 1 (the init/systemd process) on any
   platform, in any mode, and with no exception (no container carve-out). This
   applies to `SIGSTOP`/`SIGCONT` and to the `kill(pid,0)` existence probe alike.
   PID 1 MUST be rejected at input when supplied as `-p 1`, MUST be excluded when
   resolving a name with `-e`, and MUST be skipped in the process-set enforcement
-  path so a descendant of init is never signalled either, because suspending or
-  interfering with PID 1 would freeze or crash the system.
+  path, so it is never signalled even when it is discovered as a member of the
+  target's group, because suspending or interfering with PID 1 would freeze or
+  crash the system. Excluding it from `-e` resolution is what every platform
+  guarantees; refusing such a name at argument-check time with a dedicated
+  message is a Linux-only addition, because only Linux exposes the init command
+  line (`/proc/1/cmdline`) needed to recognise it. On macOS and FreeBSD the
+  same name matches nothing and is reported as not found.
 - Input validation MUST reject invalid, inconsistent, or out-of-range values.
 - CPU usage calculation MUST be correct for the selected target set.
 - CPU usage MUST be sampled periodically.
@@ -104,14 +109,17 @@ descendants.
   - short-lived descendants SHOULD be missed as rarely as reasonably possible.
 - Non-lazy mode (`-e` without `-z`) MUST keep searching for as long as it runs:
   a target that has not started yet, one that has exited (whether it was
-  running or suspended when it did), one that is restarted on a recycled PID,
-  a process scan that fails, and a target that may not be signalled MUST each
-  end the attempt and never the run, because the target can come back and MUST
-  be limited again when it does. Only a termination signal, a failure of the
-  scanning machinery (allocation, clock, process-iterator initialisation), or a
-  member left stopped that only a manual `kill -CONT` recovers may end it.
-  Lazy mode (`-p`, or `-e` with `-z`) MUST exit instead, so this MUST NOT be
-  implemented by making every mode wait.
+  running or suspended when it did), one that is restarted on a recycled PID, a
+  scan that fails while the group is already being limited, and a target that
+  may not be signalled MUST each end the attempt and never the run, because the
+  target can come back and MUST be limited again when it does. Only a
+  termination signal, a failure to build the process group in the first place
+  (process-table, list or stopped-PID-list allocation, the initial clock read,
+  or the initial scan), or a member left stopped that only a manual `kill -CONT`
+  recovers may end it. A scan that fails once limiting is under way is a
+  per-attempt failure like any other: it is reported once per streak and then
+  retried. Lazy mode (`-p`, or `-e` with `-z`) MUST exit instead, so this MUST
+  NOT be implemented by making every mode wait.
 - Exit codes MUST be documented and meaningful:
   - `0` on success,
   - non-zero on error.
@@ -228,7 +236,7 @@ be altered, simplified, or "modernized" under any circumstances:
 - Complex algorithms and non-obvious logic SHOULD include explanatory comments.
 - Public API declarations and definitions MUST stay semantically synchronized.
 - Comments MUST use consistent C-style block formatting (`/* ... */`).
-- Formatting MUST follow `/.clang-format`.
+- Formatting MUST follow `.clang-format`.
 
 ### Prohibition of Standalone Scoping Blocks (STYLE)
 
@@ -352,9 +360,12 @@ Before suggesting or modifying code, verify ALL of:
 
 - Required tools for full build + analysis verification MUST include: `gcc`,
   `clang`, `make`, `cmake`, `clang-format`, `cppcheck`, `clang-tidy`,
-  `valgrind`.
+  `valgrind`, `bear`.
 - On Ubuntu, required tools SHOULD be installed with:
-  - `sudo apt-get update && sudo apt-get -qqy install build-essential clang-format cppcheck clang-tidy valgrind`
+  - `sudo apt-get update && sudo apt-get -qqy install build-essential clang-format cppcheck clang-tidy valgrind bear`
+- `bear` is needed only by the legacy `make check` targets, which use it to
+  produce the `compile_commands.json` that `cppcheck` consumes; the CMake
+  `check` target generates that database itself and does not need it.
 
 ## Build Requirements
 
@@ -364,6 +375,10 @@ Before suggesting or modifying code, verify ALL of:
 - The legacy Make path MUST build too, because `/README.md` documents it as a
   supported way to build and install: `make && make -C tests all`, then
   `make test`.
+- Both Release builds MUST complete with no compiler warning at all.
+  `CPULIMIT_WERROR` is `OFF` by default, so this is established by inspecting
+  the build output rather than by the build failing; configure with
+  `-DCPULIMIT_WERROR=ON` when a hard failure is preferable.
 - New warnings introduced by a change MUST be resolved before submission.
 
 ## Test and Analysis Requirements
@@ -378,7 +393,10 @@ For each compiler (`gcc`, then `clang`), checks MUST run in this order:
        - `src/clang-tidy-report.txt`
        - `tests/cppcheck-report.txt`
        - `tests/clang-tidy-report.txt`
-3. The workflow MUST run dynamic checks:
+3. The workflow MUST verify formatting:
+   - `clang-format --dry-run --Werror` over the sources of `src/` and `tests/`
+     (`cmake --build build --target format` rewrites them in place)
+4. The workflow MUST run dynamic checks:
    - `cmake --build build --target valgrind`
 
 Additional requirements MUST be enforced:
@@ -407,15 +425,21 @@ Additional requirements MUST be enforced:
 
 ## Continuous Integration
 
-- `.github/workflows/CI.yml` automates cross-platform builds only: the OS
-  matrix (Ubuntu, macOS, FreeBSD) builds release binaries and, outside pull
-  requests, publishes them. It runs no tests, no `check` and no `valgrind`.
+- `.github/workflows/CI.yml` covers the OS matrix (Ubuntu, macOS, FreeBSD). It
+  builds release binaries with both compilers and, outside pull requests,
+  publishes them. Each matrix job also runs the whole `cpulimit_test` suite
+  once, as root, from a randomly named copy of the binary placed under
+  `tests/`, so a test failure fails the build job. It runs no `check` and no
+  `valgrind`.
 - The checks in "Test and Analysis Requirements" MUST therefore be run
-  locally and MUST pass before a change is proposed; the build workflow
-  succeeding is not evidence that they do. On Linux, `make test` MUST be run
-  as well, for the reason given under Repository Structure: it and `ctest`
-  do not exercise the same scenarios.
-- Pull requests with failing required checks MUST NOT be merged.
+  locally and MUST pass before a change is proposed; the CI job succeeding is
+  not evidence that they do, and its run of the suite is a third working
+  directory rather than either of the two described under Repository Structure.
+  On Linux, `make test` MUST be run as well, for the reason given there: it and
+  `ctest` do not exercise the same scenarios.
+- Pull requests with failing required checks MUST NOT be merged. Note what
+  those checks cover: a green CI job means both Release builds succeeded and
+  the suite passed, not that `check`, `valgrind` or `make test` did.
 
 ## Commit Policy
 
@@ -461,7 +485,8 @@ Additional requirements MUST be enforced:
 - `main.c`: entry point and top-level control flow
 - `cli.[ch]`: CLI parsing and config creation
 - `limiter.[ch]`: mode orchestration (`run_command_mode` /
-  `run_pid_or_exe_mode`); owns no subprocess machinery of its own
+  `run_pid_or_exe_mode`); owns the exec-synchronization pipe and the `fork()`
+  that starts a command, but none of the subprocess machinery around them
 - `child_exec.[ch]`: child setup after fork: `setpgid`, handler reset,
   `execvp`, and the shell 126/127 exit-code mapping
 - `exec_sync.[ch]`: parent/child exec synchronization pipe protocol
