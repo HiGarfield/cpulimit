@@ -12099,8 +12099,7 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     char *err_buf;
     size_t err_len;
     pid_t assert_pid;
-    int assert_rc;
-    int assert_rc2;
+    int assert_rc, assert_rc2;
     /*        counting loop as "X + 1 >= C", which -Wstrict-overflow=5 flags. */
     unsigned int warn_count = 0;
     const char *p;
@@ -12221,8 +12220,7 @@ static void test_process_set_reports_stop_failure_after_recovery(void) {
     char *err_buf;
     size_t err_len;
     pid_t assert_pid;
-    int assert_rc;
-    int assert_rc2;
+    int assert_rc, assert_rc2;
     /*        trips -Wstrict-overflow=5. */
     unsigned int warn_count = 0;
     const char *p;
@@ -12345,8 +12343,7 @@ static void test_process_set_reports_each_member_stop_failure(void) {
     char *err_buf;
     size_t err_len;
     pid_t assert_pid;
-    int assert_rc;
-    int assert_rc2;
+    int assert_rc, assert_rc2;
     /*        trips -Wstrict-overflow=5. */
     unsigned int warn_count = 0;
     const char *p;
@@ -14460,8 +14457,7 @@ static void test_child_wait_resumes_on_clock_failure(void) {
     struct cpulimit_cfg cfg;
     int log_pipe[2];
     int status, count;
-    int assert_rc;
-    int assert_rc2;
+    int assert_rc, assert_rc2;
     const pid_t target = (pid_t)SEAM_TARGET_PID;
 
     memset(&cfg, 0, sizeof(cfg));
