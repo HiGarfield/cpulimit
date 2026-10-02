@@ -96,6 +96,20 @@ struct process_set {
 };
 
 /**
+ * @brief Compare two process start times for approximate equality
+ *
+ * @param a First start time, or UNKNOWN_START_TIME
+ * @param b Second start time, or UNKNOWN_START_TIME
+ * @return 1 if the values are approximately equal, 0 otherwise
+ *
+ * The single definition of "still the same process" that the PID-reuse checks
+ * in process_set.c and the closing-resume check in limiter.c share. Callers
+ * must test for UNKNOWN_START_TIME themselves: this only says whether two
+ * readings are the same value, not whether either is usable.
+ */
+int start_time_matches(double a, double b);
+
+/**
  * @brief Initialize a process set for monitoring and CPU limiting
  *
  * @param proc_set Pointer to uninitialized process_set structure to set up

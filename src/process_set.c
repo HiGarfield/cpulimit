@@ -46,8 +46,14 @@
  * @param a First double value
  * @param b Second double value
  * @return 1 if the values are approximately equal, 0 otherwise
+ *
+ * Exported because PID-reuse detection spans two modules: the group compares
+ * a member's recorded start time before resuming it, and the limiter compares
+ * the target's before its closing SIGCONT. A second, independent comparison in
+ * the limiter would be free to drift from this one, and a drifted definition
+ * of "same process" is exactly the bug both call sites exist to prevent.
  */
-static int start_time_matches(double a, double b) {
+int start_time_matches(double a, double b) {
     return a - b >= -DBL_EPSILON && a - b <= DBL_EPSILON;
 }
 
