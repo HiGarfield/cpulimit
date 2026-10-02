@@ -266,7 +266,10 @@ static void handle_stale_target(const struct cpulimit_cfg *cfg, pid_t found_pid,
  * @param scan_failures In/out: consecutive scan-failure streak
  *
  * Blocks inside limit_process(), then resumes the target unless its PID was
- * recycled, and sets *exit_status to end the run on any non-OK outcome.
+ * recycled, and sets *exit_status on the outcomes that end the whole run: a
+ * group that could not be built, a stranded member needing a manual 'kill
+ * -CONT', and -- in lazy mode, which makes one attempt and reports whatever
+ * it produced -- a target that could not be limited at all.
  */
 static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
                                     pid_t found_pid, int *exit_status,
@@ -329,11 +332,17 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
     /*
      * A bad scan ends the run in lazy mode (one attempt, then done) but only
      * ends the attempt in non-lazy mode, which keeps re-resolving and
-     * re-attaching -- that is what the watch mode is for.
+     * re-attaching -- that is what the watch mode is for. An empty group
+     * (LIMIT_PROCESS_NO_TARGET) says nothing about the search either: it is
+     * what a target that turned into a zombie between the lookup and the
+     * first scan looks like, and such a target may be restarted as a process
+     * this run can limit, so non-lazy keeps watching and only lazy mode ends
+     * on it.
      */
     if (limit_status == LIMIT_PROCESS_SCAN_FAILED && !cfg->lazy_mode) {
         (*scan_failures)++;
-    } else if (limit_status != LIMIT_PROCESS_OK) {
+    } else if (limit_status != LIMIT_PROCESS_OK &&
+               (limit_status != LIMIT_PROCESS_NO_TARGET || cfg->lazy_mode)) {
         /*
          * Everything here ends the run: a group that could not be built
          * (LIMIT_PROCESS_ERROR, the one reason a non-lazy search gives up),
