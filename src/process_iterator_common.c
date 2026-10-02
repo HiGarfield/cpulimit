@@ -26,6 +26,7 @@
 #include "process_iterator.h"
 
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -72,6 +73,10 @@ int process_matches_filter(pid_t pid, const struct process_filter *filter) {
  * before acting on it (e.g. sending a deferred signal to a PID that may have
  * been recycled). Callers must treat UNKNOWN_START_TIME as "cannot compare"
  * and fall back to acting on the PID.
+ *
+ * @note A failed iterator close is reported but does not change the result:
+ *       the reading was already taken, and reporting it is preferable to
+ *       downgrading a known start time to "cannot compare".
  */
 double get_process_start_time(pid_t pid) {
     struct process_iterator iter;
@@ -98,7 +103,18 @@ double get_process_start_time(pid_t pid) {
             break;
         }
     }
-    close_process_iterator(&iter);
+    if (close_process_iterator(&iter) != 0) {
+        /*
+         * The reading is already taken, and every backend has released what
+         * it allocated by the time it reports a failed close, so the value
+         * still stands. Reporting it is the whole remedy: downgrading to
+         * UNKNOWN_START_TIME here would tell both callers "cannot compare",
+         * and each answers that by signalling the PID on guesswork -- the
+         * first by resuming a recycled one, the second by suspending whatever
+         * inherited it. A close failure says nothing about the reading.
+         */
+        fprintf(stderr, "Failed to close process iterator\n");
+    }
     free(proc);
     return result;
 }
