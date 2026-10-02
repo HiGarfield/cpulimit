@@ -85,10 +85,14 @@ Examples:
   I/O while stopped, so interactive and networked services gain latency.
 - **Very short-lived children can be missed** and then run unthrottled.
 - **Cpulimit can only control processes you own.**
-- **PID 1 (init) is never limited.** Targeting it directly (`-p 1`), by name
-  (`-e` matching init), or as a discovered descendant is refused on every
-  platform; sending it `SIGSTOP`/`SIGCONT` would freeze or crash the system, so
-  there is no exception.
+- **PID 1 (init) is never limited.** Sending it `SIGSTOP`/`SIGCONT`, or even
+  probing it with `kill(1, 0)`, would freeze or crash the system, so there is no
+  exception on any platform. `-p 1` is rejected outright, and init is skipped
+  both when a name is resolved with `-e` and when a process group is built, so
+  it is never signalled as a discovered descendant either. On Linux, where
+  `/proc/1/cmdline` is available to recognise it, a name that would resolve to
+  init is refused up front; on macOS and FreeBSD the same name simply matches
+  nothing and is reported as not found.
 
 ## Choosing a Target
 
@@ -111,7 +115,7 @@ match it can control.
 | Exit Code | Description                                            |
 | --------- | ------------------------------------------------------ |
 | 0         | Success                                                |
-| 1         | Bad args, target not found (nowait), internal error    |
+| 1         | Bad args, target not found (-z), internal error         |
 | 126       | Command found but not executable (command mode only)   |
 | 127       | Command not found (command mode only)                  |
 | 128+N     | Command terminated by signal N (command mode only)     |
@@ -120,11 +124,18 @@ Use `-z` — or `-p`, which implies it — when the run should end as soon as th
 target is gone. Without it, `-e` keeps waiting and re-attaches whenever the
 target reappears, so a program that starts later is still limited.
 
-A run that did not limit its target to completion reports which of three things
-happened: `CPU limit could not be applied` (nothing was throttled — check
-permissions and how the target was named), `CPU limiting stopped early` (the
-command ran unthrottled from that point on), or `left stopped` (the target
-stayed suspended — release the PIDs named above it with `kill -CONT`).
+In command mode, a run that did not limit its command to completion reports
+which of three things happened: `CPU limit could not be applied` (nothing was
+throttled — check permissions and how the target was named), `CPU limiting
+stopped early` (the command ran unthrottled from that point on), or
+`left stopped` (the target stayed suspended — release the PIDs named above it
+with `kill -CONT`).
+
+With `-p` or `-e` there is no command to report on, so the same three outcomes
+are conveyed by the exit status plus the per-attempt diagnostics instead:
+`cannot be found`, `No permission to control process N`, `is no longer the
+target`, `Process group scan failed`, and `N process(es) left suspended at
+shutdown`.
 
 ## Installation
 
