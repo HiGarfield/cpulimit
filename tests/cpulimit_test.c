@@ -549,12 +549,14 @@ static void test_apple_proc_argv0_buffer_sizing(void) {
     size_t required_size;
     char *buf_fixed;
     char *buf_old;
+    int assert_rc;
 
     /* Query the maximum argument data size. */
     mib_argmax[0] = CTL_KERN;
     mib_argmax[1] = KERN_ARGMAX;
     argmax_size = sizeof(argmax);
-    assert(sysctl(mib_argmax, 2, &argmax, &argmax_size, NULL, 0) == 0);
+    assert_rc = sysctl(mib_argmax, 2, &argmax, &argmax_size, NULL, 0);
+    assert(assert_rc == 0);
     assert(argmax > 0);
 
     /* Target the current test process. */
@@ -571,7 +573,8 @@ static void test_apple_proc_argv0_buffer_sizing(void) {
     buf_fixed = (char *)malloc((size_t)argmax + sizeof(int));
     assert(buf_fixed != NULL);
     required_size = (size_t)argmax + sizeof(int);
-    assert(sysctl(mib, 3, buf_fixed, &required_size, NULL, 0) == 0);
+    assert_rc = sysctl(mib, 3, buf_fixed, &required_size, NULL, 0);
+    assert(assert_rc == 0);
     /* The kernel never needs more than the amount we provided. */
     assert(required_size <= (size_t)argmax + sizeof(int));
     free(buf_fixed);
@@ -789,8 +792,10 @@ static void test_util_burner_leaves_realtime_class(void) {
     ssize_t got;
     pid_t child, waited;
     int status, exited;
+    int assert_rc;
 
-    assert(pipe(pipe_fds) == 0);
+    assert_rc = pipe(pipe_fds);
+    assert(assert_rc == 0);
     fflush(stdout);
     fflush(stderr);
     child = fork();
@@ -819,7 +824,8 @@ static void test_util_burner_leaves_realtime_class(void) {
     assert(waited == child);
     exited = WIFEXITED(status);
     assert(exited);
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == EXIT_SUCCESS);
     assert(got == (ssize_t)sizeof(policy));
     /* Where the promotion was granted, the child must have left it. */
     if (policy[0] == SCHED_FIFO) {
@@ -851,12 +857,14 @@ static void test_util_realtime_does_not_reach_children(void) {
     pid_t child, waited;
     int status, exited;
     int parent_policy, child_policy;
+    int assert_rc;
 
     increase_priority();
     parent_policy = sched_getscheduler(0);
     child_policy = SCHED_OTHER;
 
-    assert(pipe(pipe_fds) == 0);
+    assert_rc = pipe(pipe_fds);
+    assert(assert_rc == 0);
     fflush(stdout);
     fflush(stderr);
     child = fork();
@@ -877,7 +885,8 @@ static void test_util_realtime_does_not_reach_children(void) {
     assert(waited == child);
     exited = WIFEXITED(status);
     assert(exited);
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == EXIT_SUCCESS);
     assert(got == (ssize_t)sizeof(child_policy));
     if (parent_policy == SCHED_FIFO || parent_policy == SCHED_RR) {
         assert(child_policy != SCHED_FIFO && child_policy != SCHED_RR);
@@ -1104,36 +1113,59 @@ static void test_util_read_file_contents(void) {
  */
 static void test_util_parse_cpu_range(void) {
     char near_max[64], reversed[64];
+    int assert_rc;
 
     /* Single CPU and simple ranges map to their element counts */
-    assert(parse_cpu_range("0") == 1);
-    assert(parse_cpu_range("3") == 1);
-    assert(parse_cpu_range("0-3") == 4);
-    assert(parse_cpu_range("0-1") == 2);
-    assert(parse_cpu_range("4-7") == 4);
+    assert_rc = parse_cpu_range("0");
+    assert(assert_rc == 1);
+    assert_rc = parse_cpu_range("3");
+    assert(assert_rc == 1);
+    assert_rc = parse_cpu_range("0-3");
+    assert(assert_rc == 4);
+    assert_rc = parse_cpu_range("0-1");
+    assert(assert_rc == 2);
+    assert_rc = parse_cpu_range("4-7");
+    assert(assert_rc == 4);
 
     /* Comma-separated combinations accumulate correctly */
-    assert(parse_cpu_range("0-3,8-11") == 8);
-    assert(parse_cpu_range("0,2,4") == 3);
-    assert(parse_cpu_range("0-1,4-7,15") == 2 + 4 + 1);
+    assert_rc = parse_cpu_range("0-3,8-11");
+    assert(assert_rc == 8);
+    assert_rc = parse_cpu_range("0,2,4");
+    assert(assert_rc == 3);
+    assert_rc = parse_cpu_range("0-1,4-7,15");
+    assert(assert_rc == 2 + 4 + 1);
 
     /* Whitespace around numbers and separators is tolerated */
-    assert(parse_cpu_range(" 0 - 3 ") == 4);
-    assert(parse_cpu_range("0, 2 , 4") == 3);
+    assert_rc = parse_cpu_range(" 0 - 3 ");
+    assert(assert_rc == 4);
+    assert_rc = parse_cpu_range("0, 2 , 4");
+    assert(assert_rc == 3);
 
     /* Error cases must return -1 (never a bogus positive count) */
-    assert(parse_cpu_range(NULL) == -1);
-    assert(parse_cpu_range("") == -1);
-    assert(parse_cpu_range("   ") == -1);    /* whitespace-only */
-    assert(parse_cpu_range("abc") == -1);    /* non-numeric */
-    assert(parse_cpu_range("0-3,") == -1);   /* trailing comma */
-    assert(parse_cpu_range("0-3,4-") == -1); /* open-ended range */
-    assert(parse_cpu_range("0--3") == -1);   /* malformed dash */
-    assert(parse_cpu_range("3-0") == -1);    /* reversed range */
-    assert(parse_cpu_range("-1") == -1);     /* negative start */
-    assert(parse_cpu_range("0-") == -1);     /* missing end */
-    assert(parse_cpu_range("0x1") == -1);    /* hex rejected */
-    assert(parse_cpu_range("0,1,2,3,4,5,6,7,8,9") == 10);
+    assert_rc = parse_cpu_range(NULL);
+    assert(assert_rc == -1);
+    assert_rc = parse_cpu_range("");
+    assert(assert_rc == -1);
+    assert_rc = parse_cpu_range("   ");
+    assert(assert_rc == -1); /* whitespace-only */
+    assert_rc = parse_cpu_range("abc");
+    assert(assert_rc == -1); /* non-numeric */
+    assert_rc = parse_cpu_range("0-3,");
+    assert(assert_rc == -1); /* trailing comma */
+    assert_rc = parse_cpu_range("0-3,4-");
+    assert(assert_rc == -1); /* open-ended range */
+    assert_rc = parse_cpu_range("0--3");
+    assert(assert_rc == -1); /* malformed dash */
+    assert_rc = parse_cpu_range("3-0");
+    assert(assert_rc == -1); /* reversed range */
+    assert_rc = parse_cpu_range("-1");
+    assert(assert_rc == -1); /* negative start */
+    assert_rc = parse_cpu_range("0-");
+    assert(assert_rc == -1); /* missing end */
+    assert_rc = parse_cpu_range("0x1");
+    assert(assert_rc == -1); /* hex rejected */
+    assert_rc = parse_cpu_range("0,1,2,3,4,5,6,7,8,9");
+    assert(assert_rc == 10);
 
     /*
      * Overflow guard: a range whose length would push the running
@@ -1142,11 +1174,13 @@ static void test_util_parse_cpu_range(void) {
      */
     snprintf(near_max, sizeof(near_max), "%d-%d", INT_MAX - 2, INT_MAX);
     /* range_len = 2, cpu_count starts 0, 0 + 3 <= INT_MAX: ok = 3 */
-    assert(parse_cpu_range(near_max) == 3);
+    assert_rc = parse_cpu_range(near_max);
+    assert(assert_rc == 3);
 
     /* A reversed/huge range must still be rejected */
     snprintf(reversed, sizeof(reversed), "%d-%d", INT_MAX, 0);
-    assert(parse_cpu_range(reversed) == -1);
+    assert_rc = parse_cpu_range(reversed);
+    assert(assert_rc == -1);
 }
 #endif /* __linux__ */
 
@@ -1990,6 +2024,7 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     int pipe_fds[2];
     const char *slave_name;
     pid_t pid, waited;
+    int assert_rc;
     int status = 0, exited, exit_code;
     char capture[64];
     size_t total, idx, newlines, others;
@@ -2013,8 +2048,10 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     master_fd = posix_openpt(O_RDWR | O_NOCTTY);
 #endif
     assert(master_fd >= 0);
-    assert(grantpt(master_fd) == 0);
-    assert(unlockpt(master_fd) == 0);
+    assert_rc = grantpt(master_fd);
+    assert(assert_rc == 0);
+    assert_rc = unlockpt(master_fd);
+    assert(assert_rc == 0);
     slave_name = ptsname(master_fd);
     assert(slave_name != NULL);
 
@@ -2107,7 +2144,8 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     assert(others == 0);
 
     /* Sub-test 2: with stdout not a terminal, nothing is written at all. */
-    assert(pipe(pipe_fds) == 0);
+    assert_rc = pipe(pipe_fds);
+    assert(assert_rc == 0);
     fflush(stdout);
     fflush(stderr);
     pid = fork();
@@ -2946,6 +2984,7 @@ static void test_is_child_of_kernel_thread_not_child_of_init(void) {
     struct process_iterator iter;
     struct process *proc;
     struct process_filter filter;
+    int assert_rc;
     pid_t kthread_child = (pid_t)0;
 
     proc = (struct process *)malloc(sizeof(struct process));
@@ -2977,7 +3016,8 @@ static void test_is_child_of_kernel_thread_not_child_of_init(void) {
      * PID 1 (init/systemd); walking the chain reaches kthreadd whose own
      * ppid is 0, so the loop must stop and return 0.
      */
-    assert(is_child_of(kthread_child, (pid_t)1) == 0);
+    assert_rc = is_child_of(kthread_child, (pid_t)1);
+    assert(assert_rc == 0);
 #endif /* __linux__ */
 }
 
@@ -2999,6 +3039,9 @@ static void test_process_iterator_newline_comm(void) {
     struct process_filter filter;
     struct process *proc;
     int pipe_fds[2];
+    int assert_rc;
+    ssize_t assert_got;
+    pid_t assert_pid;
     char sync_byte = 0;
     int count, found, ret;
 
@@ -3010,7 +3053,8 @@ static void test_process_iterator_newline_comm(void) {
         exit(EXIT_FAILURE);
     }
 
-    assert(pipe(pipe_fds) == 0);
+    assert_rc = pipe(pipe_fds);
+    assert(assert_rc == 0);
 
     child_pid = fork();
     assert(child_pid >= 0);
@@ -3037,7 +3081,8 @@ static void test_process_iterator_newline_comm(void) {
 
     /* Parent: wait until the child has set its newline-containing comm */
     close(pipe_fds[1]);
-    assert(read(pipe_fds[0], &sync_byte, 1) == 1);
+    assert_got = read(pipe_fds[0], &sync_byte, 1);
+    assert(assert_got == 1);
     close(pipe_fds[0]);
     assert(sync_byte == 'R');
 
@@ -3058,8 +3103,10 @@ static void test_process_iterator_newline_comm(void) {
     assert(ret == 0);
 
     /* getppid_of() and is_child_of() must also work on this process */
-    assert(getppid_of(child_pid) == parent_pid);
-    assert(is_child_of(child_pid, parent_pid) == 1);
+    assert_pid = getppid_of(child_pid);
+    assert(assert_pid == parent_pid);
+    assert_rc = is_child_of(child_pid, parent_pid);
+    assert(assert_rc == 1);
 
     /* Scan path: include-children filter must discover the child too */
     filter.pid = parent_pid;
@@ -4644,8 +4691,11 @@ static void test_process_table_add_contract(void) {
     struct process_table proc_table;
     struct process *proc, *proc2;
     int ret;
+    int assert_rc;
+    const struct process *assert_proc;
 
-    assert(init_process_table(&proc_table, 16) == 0);
+    assert_rc = init_process_table(&proc_table, 16);
+    assert(assert_rc == 0);
     proc = (struct process *)malloc(sizeof(struct process));
     assert(proc != NULL);
     memset(proc, 0, sizeof(struct process));
@@ -4654,7 +4704,8 @@ static void test_process_table_add_contract(void) {
     /* A fresh append succeeds and owns nothing beyond the node. */
     ret = add_to_process_table(&proc_table, proc);
     assert(ret == 0);
-    assert(find_in_process_table(&proc_table, (pid_t)777000) == proc);
+    assert_proc = find_in_process_table(&proc_table, (pid_t)777000);
+    assert(assert_proc == proc);
 
     /*
      * The same PID again: a 0-return no-op. A separate record is offered
@@ -4667,7 +4718,8 @@ static void test_process_table_add_contract(void) {
     proc2->pid = (pid_t)777000;
     ret = add_to_process_table(&proc_table, proc2);
     assert(ret == 0);
-    assert(find_in_process_table(&proc_table, (pid_t)777000) == proc);
+    assert_proc = find_in_process_table(&proc_table, (pid_t)777000);
+    assert(assert_proc == proc);
     assert(proc_table.buckets[777000 % 16]->count == 1);
     free(proc2);
 
@@ -4677,7 +4729,8 @@ static void test_process_table_add_contract(void) {
 
     /* Destroyed table (and NULL record): still a 0-return no-op. */
     destroy_process_table(&proc_table);
-    assert(add_to_process_table(&proc_table, NULL) == 0);
+    assert_rc = add_to_process_table(&proc_table, NULL);
+    assert(assert_rc == 0);
 }
 
 /**
@@ -5756,6 +5809,7 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
     pid_t found_pid;
     unsigned int i;
     int child_status;
+    pid_t assert_pid;
     const struct timespec poll_wait = {0, 100000000L}; /* 100 ms */
 
     /* Locate the multi_process_busy helper built alongside the tests.
@@ -5876,7 +5930,8 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
      * not one of its descendants and not our own test process.
      */
     assert(found_pid == child_pid || found_pid == -child_pid);
-    assert(found_pid != getpid());
+    assert_pid = getpid();
+    assert(found_pid != assert_pid);
     free(mpb_path);
 }
 
@@ -6492,6 +6547,7 @@ static void test_process_set_purges_exited_descendants(void) {
     pid_t spawner_pid, child_pids[4], waited;
     int child_idx, update_idx, ret, spawner_status;
     int sync_pipe[2];
+    ssize_t assert_got;
 
     ret = pipe(sync_pipe);
     assert(ret == 0);
@@ -6534,8 +6590,8 @@ static void test_process_set_purges_exited_descendants(void) {
 
     close(sync_pipe[1]);
     /* Receive the PIDs of the now-exited grandchildren */
-    assert(read(sync_pipe[0], child_pids, sizeof(child_pids)) ==
-           (ssize_t)sizeof(child_pids));
+    assert_got = read(sync_pipe[0], child_pids, sizeof(child_pids));
+    assert(assert_got == (ssize_t)sizeof(child_pids));
     close(sync_pipe[0]);
 
     ret = init_process_set(&proc_set, spawner_pid, 1);
@@ -6565,9 +6621,11 @@ static void test_process_set_purges_exited_descendants(void) {
      */
     for (node = first_list_node(proc_set.proc_list); node != NULL;
          node = node->next) {
+        const struct process *assert_proc;
         const struct process *live = (const struct process *)node->data;
         assert(live != NULL);
-        assert(find_in_process_table(proc_set.proc_table, live->pid) == live);
+        assert_proc = find_in_process_table(proc_set.proc_table, live->pid);
+        assert(assert_proc == live);
     }
 
     ret = close_process_set(&proc_set);
@@ -6942,6 +7000,7 @@ static int drain_heartbeats(int fd) {
  * a pipe. Once the limiter has exited, heartbeats must reappear.
  */
 static void test_limit_process_resumes_orphaned_descendant(void) {
+    int assert_rc;
     const double cpu_usage_limit = 0.001;
     const struct timespec settle_time = {1, 0};
     const struct timespec poll_time = {0, 20000000L}; /* 20 ms */
@@ -7086,7 +7145,8 @@ static void test_limit_process_resumes_orphaned_descendant(void) {
      */
     drain_heartbeats(heartbeat[0]);
     sleep_timespec(&settle_time);
-    assert(drain_heartbeats(heartbeat[0]) > 0);
+    assert_rc = drain_heartbeats(heartbeat[0]);
+    assert(assert_rc > 0);
 
     /* The descendant was re-parented away, so it can only be killed. */
     kill(descendant_pid, SIGKILL);
@@ -8236,6 +8296,7 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     char script_path[sizeof(dir) + 32];
     char name_buf[] = "badsh_cpulimit_xyz";
     char *args[2];
+    int assert_rc;
 
     /*
      * mkdtemp() is POSIX.1-2008; mkdir() is POSIX.1-2001. The directory
@@ -8245,7 +8306,8 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
     len = snprintf(dir, sizeof(dir), "/tmp/cpulimit_test_shdir_%ld",
                    (long)getpid());
     assert(len > 0 && (size_t)len < sizeof(dir));
-    assert(mkdir(dir, 0700) == 0 || errno == EEXIST);
+    assert_rc = mkdir(dir, 0700);
+    assert(assert_rc == 0 || errno == EEXIST);
     len = snprintf(script_path, sizeof(script_path), "%s/badsh_cpulimit_xyz",
                    dir);
     assert(len > 0 && (size_t)len < sizeof(script_path));
@@ -8778,11 +8840,13 @@ static void test_limiter_run_command_mode_not_executable(void) {
     char path[] = "/tmp/cpulimit_test_noexec_XXXXXX";
     char *args[2];
     ssize_t nwritten;
+    size_t assert_len;
 
     fd = mkstemp(path);
     assert(fd >= 0);
     nwritten = write(fd, script_body, strlen(script_body));
-    assert(nwritten == (ssize_t)strlen(script_body));
+    assert_len = strlen(script_body);
+    assert(nwritten == (ssize_t)assert_len);
     ret = close(fd);
     assert(ret == 0);
     /* Present but deliberately not executable. */
@@ -10557,15 +10621,20 @@ static void check_uncontrollable_target_keeps_waiting(int exe_mode) {
     int announce_pipe[2];
     int go_pipe[2];
     pid_t driver, waited;
+    int assert_rc;
+    const char *assert_hit;
     int status = 0, exited, exit_code;
     char announce;
     char *capture;
     size_t total;
     ssize_t parked;
 
-    assert(pipe(err_pipe) == 0);
-    assert(pipe(announce_pipe) == 0);
-    assert(pipe(go_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
 
     fflush(stdout);
     fflush(stderr);
@@ -10597,9 +10666,13 @@ static void check_uncontrollable_target_keeps_waiting(int exe_mode) {
     parked = read(announce_pipe[0], &announce, 1);
     alarm(0);
     if (exe_mode) {
+        int assert_rc2;
+        ssize_t assert_got;
         assert(parked == 1);
-        assert(kill(driver, SIGTERM) == 0);
-        assert(write(go_pipe[1], "G", 1) == 1);
+        assert_rc2 = kill(driver, SIGTERM);
+        assert(assert_rc2 == 0);
+        assert_got = write(go_pipe[1], "G", 1);
+        assert(assert_got == 1);
     } else {
         /* One attempt, so the run ended without ever reaching the barrier. */
         assert(parked == 0);
@@ -10628,17 +10701,23 @@ static void check_uncontrollable_target_keeps_waiting(int exe_mode) {
 
     assert(exited);
     /* One clear diagnostic per attempt, saying what the mode does about it. */
-    assert(strstr(capture, "No permission to control process") != NULL);
-    assert(strstr(capture, "Warning: cannot send signal") == NULL);
+    assert_hit = strstr(capture, "No permission to control process");
+    assert(assert_hit != NULL);
+    assert_hit = strstr(capture, "Warning: cannot send signal");
+    assert(assert_hit == NULL);
     if (exe_mode) {
+        const char *assert_hit2;
         /* The quit signal ended the watch; the refusal did not. */
         assert(exit_code == EXIT_SUCCESS);
-        assert(strstr(capture, "retrying...") != NULL);
+        assert_hit2 = strstr(capture, "retrying...");
+        assert(assert_hit2 != NULL);
     } else {
+        const char *assert_hit3;
         /* A PID run is one attempt, so the refusal ends it as a failure and
          * no retry follows it. */
         assert(exit_code == EXIT_FAILURE);
-        assert(strstr(capture, "retrying...") == NULL);
+        assert_hit3 = strstr(capture, "retrying...");
+        assert(assert_hit3 == NULL);
     }
     free(capture);
 }
@@ -10691,6 +10770,9 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
     int announce_pipe[2];
     int go_pipe[2];
     pid_t pid, waited;
+    int assert_rc;
+    ssize_t assert_got;
+    const char *assert_hit;
     int status = 0, exited, exit_code, misses;
     struct cpulimit_cfg cfg;
     size_t total = 0;
@@ -10698,9 +10780,12 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
     char *capture;
     const char *walk;
 
-    assert(pipe(err_pipe) == 0);
-    assert(pipe(announce_pipe) == 0);
-    assert(pipe(go_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -10751,9 +10836,12 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
 
     /* EOF here means the run stopped instead of waiting for the target. */
     alarm(30);
-    assert(read(announce_pipe[0], &announce, 1) == 1);
-    assert(kill(pid, SIGTERM) == 0);
-    assert(write(go_pipe[1], "G", 1) == 1);
+    assert_got = read(announce_pipe[0], &announce, 1);
+    assert(assert_got == 1);
+    assert_rc = kill(pid, SIGTERM);
+    assert(assert_rc == 0);
+    assert_got = write(go_pipe[1], "G", 1);
+    assert(assert_got == 1);
     alarm(0);
     close(announce_pipe[0]);
     close(go_pipe[1]);
@@ -10785,7 +10873,8 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
     /* The quit signal ended it; the missing target did not. */
     assert(exit_code == EXIT_SUCCESS);
     assert(misses >= 4);
-    assert(strstr(capture, "Giving up") == NULL);
+    assert_hit = strstr(capture, "Giving up");
+    assert(assert_hit == NULL);
     free(capture);
 }
 
@@ -10836,15 +10925,19 @@ static void test_limiter_non_lazy_keeps_watching_after_no_target(void) {
     int announce_pipe[2];
     int go_pipe[2];
     pid_t driver, waited;
+    int assert_rc;
     int status = 0, exited, exit_code;
     int alarm_armed, alarm_restored;
     char announce;
     ssize_t announced;
     struct cpulimit_cfg cfg;
 
-    assert(pipe(err_pipe) == 0);
-    assert(pipe(announce_pipe) == 0);
-    assert(pipe(go_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -10920,8 +11013,12 @@ static void test_limiter_non_lazy_keeps_watching_after_no_target(void) {
     alarm(0);
     alarm_restored = signal(SIGALRM, SIG_DFL) != SIG_ERR;
     if (announced == 1) {
-        assert(kill(driver, SIGTERM) == 0);
-        assert(write(go_pipe[1], "G", 1) == 1);
+        int assert_rc2;
+        ssize_t assert_got;
+        assert_rc2 = kill(driver, SIGTERM);
+        assert(assert_rc2 == 0);
+        assert_got = write(go_pipe[1], "G", 1);
+        assert(assert_got == 1);
     }
     close(announce_pipe[0]);
     close(go_pipe[1]);
@@ -10970,15 +11067,19 @@ static void test_limiter_pid_mode_is_always_lazy(void) {
     int announce_pipe[2];
     int go_pipe[2];
     pid_t driver, waited;
+    int assert_rc;
     int status = 0, exited, exit_code;
     int alarm_armed, alarm_restored;
     char announce;
     ssize_t announced;
     struct cpulimit_cfg cfg;
 
-    assert(pipe(err_pipe) == 0);
-    assert(pipe(announce_pipe) == 0);
-    assert(pipe(go_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -11047,10 +11148,14 @@ static void test_limiter_pid_mode_is_always_lazy(void) {
     alarm(0);
     alarm_restored = signal(SIGALRM, SIG_DFL) != SIG_ERR;
     if (announced == 1) {
+        ssize_t assert_got;
+        int assert_rc2;
         /* It parked, so release it: the child can then be reaped and
          * reported instead of being left behind. */
-        assert(write(go_pipe[1], "G", 1) == 1);
-        assert(kill(driver, SIGTERM) == 0);
+        assert_got = write(go_pipe[1], "G", 1);
+        assert(assert_got == 1);
+        assert_rc2 = kill(driver, SIGTERM);
+        assert(assert_rc2 == 0);
     }
     close(announce_pipe[0]);
     close(go_pipe[1]);
@@ -11099,6 +11204,7 @@ test_limiter_run_command_mode_reports_child_exit_on_limit_failure(void) {
     char child_arg[] = EXIT_CHILD_ARG;
     char code_arg[8];
     char *args[4];
+    const char *assert_hit;
 
     memset(&cfg, 0, sizeof(struct cpulimit_cfg));
     cfg.program_name = "test";
@@ -11175,7 +11281,8 @@ test_limiter_run_command_mode_reports_child_exit_on_limit_failure(void) {
     /* Limiting never started, so cpulimit still reports its own failure. */
     assert(exit_code == EXIT_FAILURE);
     /* The command's real exit code (42) must appear in the diagnostic line. */
-    assert(strstr(err_buf, "exited with status 42") != NULL);
+    assert_hit = strstr(err_buf, "exited with status 42");
+    assert(assert_hit != NULL);
     free(err_buf);
 }
 
@@ -11196,6 +11303,8 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
     char *err_buf;
     size_t err_len;
     struct process_set proc_set;
+    int assert_rc;
+    const char *assert_hit;
 
     ret = pipe(pipe_fds);
     assert(ret == 0);
@@ -11284,9 +11393,11 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
     assert(waited == pid);
     exited = WIFEXITED(status);
     assert(exited);
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == EXIT_SUCCESS);
     /* A failed resume must be reported with a recovery hint. */
-    assert(strstr(err_buf, "kill -CONT") != NULL);
+    assert_hit = strstr(err_buf, "kill -CONT");
+    assert(assert_hit != NULL);
     free(err_buf);
 }
 
@@ -11321,6 +11432,7 @@ static void test_drive_limit_process_shutdown(int fail_call, int expect_status,
     char *err_buf;
     size_t err_len;
     char announce;
+    int assert_rc;
 
     ret = pipe(pipe_fds);
     assert(ret == 0);
@@ -11427,11 +11539,16 @@ static void test_drive_limit_process_shutdown(int fail_call, int expect_status,
     assert(waited == pid);
     exited = WIFEXITED(status);
     assert(exited);
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == EXIT_SUCCESS);
     if (needle_present) {
-        assert(strstr(err_buf, needle) != NULL);
+        const char *assert_hit;
+        assert_hit = strstr(err_buf, needle);
+        assert(assert_hit != NULL);
     } else {
-        assert(strstr(err_buf, needle) == NULL);
+        const char *assert_hit2;
+        assert_hit2 = strstr(err_buf, needle);
+        assert(assert_hit2 == NULL);
     }
     free(err_buf);
 }
@@ -11495,6 +11612,7 @@ static void test_drive_limit_process_left_group(int inject_errno,
     int status;
     char *err_buf;
     size_t err_len;
+    int assert_rc;
 
     ret = pipe(pipe_fds);
     assert(ret == 0);
@@ -11569,12 +11687,18 @@ static void test_drive_limit_process_left_group(int inject_errno,
     assert(waited == pid);
     exited = WIFEXITED(status);
     assert(exited);
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == EXIT_SUCCESS);
     if (expect_report) {
-        assert(strstr(err_buf, "left suspended") != NULL);
+        const char *assert_hit;
+        assert_hit = strstr(err_buf, "left suspended");
+        assert(assert_hit != NULL);
     } else {
-        assert(strstr(err_buf, "left suspended") == NULL);
-        assert(strstr(err_buf, "cannot resume") == NULL);
+        const char *assert_hit2;
+        assert_hit2 = strstr(err_buf, "left suspended");
+        assert(assert_hit2 == NULL);
+        assert_hit2 = strstr(err_buf, "cannot resume");
+        assert(assert_hit2 == NULL);
     }
     free(err_buf);
 }
@@ -11669,6 +11793,7 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     char *lead_space_pid[6];
     char *no_space[6];
     int parse_ret;
+    int assert_rc;
 
     lead_space_limit[0] = arg0;
     lead_space_limit[1] = arg_p;
@@ -11700,7 +11825,8 @@ static void test_cli_rejects_leading_whitespace_in_numbers(void) {
     /* Without leading space, parsing still succeeds. */
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "cpulimit";
-    assert(parse_arguments(5, no_space, &cfg) == 0);
+    assert_rc = parse_arguments(5, no_space, &cfg);
+    assert(assert_rc == 0);
     assert(cfg.target_pid == 2);
     assert(cfg.cpu_limit >= 0.5 - 1e-9 && cfg.cpu_limit <= 0.5 + 1e-9);
 }
@@ -11725,6 +11851,7 @@ static void test_cli_rejects_empty_command_name(void) {
     char *empty_cmd[5];
     char *ok_cmd[5];
     int parse_ret;
+    int assert_rc;
     empty_cmd[0] = arg0;
     empty_cmd[1] = arg_l;
     empty_cmd[2] = arg_50;
@@ -11745,7 +11872,8 @@ static void test_cli_rejects_empty_command_name(void) {
     /* A non-empty command still parses and enables command mode. */
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "cpulimit";
-    assert(parse_arguments(5, ok_cmd, &cfg) == 0);
+    assert_rc = parse_arguments(5, ok_cmd, &cfg);
+    assert(assert_rc == 0);
     assert(cfg.command_mode == 1);
 }
 
@@ -11770,6 +11898,7 @@ static void test_cli_rejects_root_match_name(void) {
     char *root_match[6];
     char *ok_match[6];
     int parse_ret;
+    int assert_rc;
     root_match[0] = arg0;
     root_match[1] = arg_l;
     root_match[2] = arg_50;
@@ -11792,7 +11921,8 @@ static void test_cli_rejects_root_match_name(void) {
     /* A normal name still parses. */
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "cpulimit";
-    assert(parse_arguments(5, ok_match, &cfg) == 0);
+    assert_rc = parse_arguments(5, ok_match, &cfg);
+    assert(assert_rc == 0);
     assert(cfg.exe_name != NULL);
 }
 
@@ -11890,6 +12020,7 @@ static void test_cli_rejects_unmatchable_names(void) {
     char *args[6];
     char err_buf[160];
     int parse_ret;
+    const char *assert_hit;
 
     args[0] = arg0;
     args[1] = arg_l;
@@ -11901,28 +12032,33 @@ static void test_cli_rejects_unmatchable_names(void) {
     args[4] = arg_slash2;
     parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
     assert(parse_ret == EXIT_FAILURE);
-    assert(strstr(err_buf, "invalid match name") != NULL);
+    assert_hit = strstr(err_buf, "invalid match name");
+    assert(assert_hit != NULL);
 
     args[4] = arg_dir;
     parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
     assert(parse_ret == EXIT_FAILURE);
-    assert(strstr(err_buf, "invalid match name") != NULL);
+    assert_hit = strstr(err_buf, "invalid match name");
+    assert(assert_hit != NULL);
 
     args[4] = arg_nested;
     parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
     assert(parse_ret == EXIT_FAILURE);
-    assert(strstr(err_buf, "invalid match name") != NULL);
+    assert_hit = strstr(err_buf, "invalid match name");
+    assert(assert_hit != NULL);
 
     args[4] = arg_absdir;
     parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
     assert(parse_ret == EXIT_FAILURE);
-    assert(strstr(err_buf, "invalid match name") != NULL);
+    assert_hit = strstr(err_buf, "invalid match name");
+    assert(assert_hit != NULL);
 
     /* Usable names still parse, without any diagnostic. */
     args[4] = arg_name;
     parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
     assert(parse_ret == EXIT_SUCCESS);
-    assert(strstr(err_buf, "invalid") == NULL);
+    assert_hit = strstr(err_buf, "invalid");
+    assert(assert_hit == NULL);
 
     args[4] = arg_rel;
     parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
@@ -11962,6 +12098,9 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     int ret;
     char *err_buf;
     size_t err_len;
+    pid_t assert_pid;
+    int assert_rc;
+    int assert_rc2;
     /*        counting loop as "X + 1 >= C", which -Wstrict-overflow=5 flags. */
     unsigned int warn_count = 0;
     const char *p;
@@ -12043,8 +12182,11 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
     }
     err_buf[err_len] = '\0';
     close(pipe_fds[0]);
-    assert(waitpid(pid, &status, 0) == pid);
-    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_pid = waitpid(pid, &status, 0);
+    assert(assert_pid == pid);
+    assert_rc = WIFEXITED(status);
+    assert_rc2 = WEXITSTATUS(status);
+    assert(assert_rc && assert_rc2 == EXIT_SUCCESS);
     /* Count how many times the SIGCONT recovery hint was emitted. */
     for (p = strstr(err_buf, "kill -CONT"); p != NULL;
          p = strstr(p + 1, "kill -CONT")) {
@@ -12078,6 +12220,9 @@ static void test_process_set_reports_stop_failure_after_recovery(void) {
     int ret;
     char *err_buf;
     size_t err_len;
+    pid_t assert_pid;
+    int assert_rc;
+    int assert_rc2;
     /*        trips -Wstrict-overflow=5. */
     unsigned int warn_count = 0;
     const char *p;
@@ -12162,8 +12307,11 @@ static void test_process_set_reports_stop_failure_after_recovery(void) {
     }
     err_buf[err_len] = '\0';
     close(pipe_fds[0]);
-    assert(waitpid(pid, &status, 0) == pid);
-    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_pid = waitpid(pid, &status, 0);
+    assert(assert_pid == pid);
+    assert_rc = WIFEXITED(status);
+    assert_rc2 = WEXITSTATUS(status);
+    assert(assert_rc && assert_rc2 == EXIT_SUCCESS);
     /*
      * Both failures must be reported. Count by the SIGSTOP-specific tail
      * rather than the signal number, whose value is platform-dependent.
@@ -12196,6 +12344,9 @@ static void test_process_set_reports_each_member_stop_failure(void) {
     int ret;
     char *err_buf;
     size_t err_len;
+    pid_t assert_pid;
+    int assert_rc;
+    int assert_rc2;
     /*        trips -Wstrict-overflow=5. */
     unsigned int warn_count = 0;
     const char *p;
@@ -12210,6 +12361,7 @@ static void test_process_set_reports_each_member_stop_failure(void) {
     if (pid == 0) {
         struct process_set proc_set;
         struct seam_proc *frame;
+        int assert_rc3;
         close(STDOUT_FILENO);
         close(pipe_fds[0]);
         ret = dup2(pipe_fds[1], STDERR_FILENO);
@@ -12230,7 +12382,8 @@ static void test_process_set_reports_each_member_stop_failure(void) {
         seam_reset();
         seam_push_frame(frame, 2);
         seam_active = 1;
-        assert(init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1) == 0);
+        assert_rc3 = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
+        assert(assert_rc3 == 0);
         /* Every SIGSTOP delivery fails with EPERM, for both members. */
         seam_kill_calls = 0;
         seam_fail_call = 1;
@@ -12267,8 +12420,11 @@ static void test_process_set_reports_each_member_stop_failure(void) {
     }
     err_buf[err_len] = '\0';
     close(pipe_fds[0]);
-    assert(waitpid(pid, &status, 0) == pid);
-    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_pid = waitpid(pid, &status, 0);
+    assert(assert_pid == pid);
+    assert_rc = WIFEXITED(status);
+    assert_rc2 = WEXITSTATUS(status);
+    assert(assert_rc && assert_rc2 == EXIT_SUCCESS);
     /* One warning per member, and no more from the repeated round. */
     for (p = strstr(err_buf, "stays tracked but cannot be limited"); p != NULL;
          p = strstr(p + 1, "stays tracked but cannot be limited")) {
@@ -12296,6 +12452,7 @@ static void test_process_set_reports_each_member_stop_failure(void) {
 static void test_process_set_unrecorded_suspend_not_flagged(void) {
     struct process_set proc_set;
     const struct process *tracked;
+    int assert_rc;
     struct seam_proc *frame =
         (struct seam_proc *)malloc(sizeof(struct seam_proc));
     int ret;
@@ -12337,7 +12494,8 @@ static void test_process_set_unrecorded_suspend_not_flagged(void) {
     assert(tracked->suspended_by_us == 0);
 
     seam_active = 0;
-    assert(close_process_set(&proc_set) == 0);
+    assert_rc = close_process_set(&proc_set);
+    assert(assert_rc == 0);
     free(frame);
 }
 
@@ -12636,6 +12794,7 @@ static void test_process_set_new_member_uses_own_interval(void) {
     unsigned char target_bytes[sizeof(double)];
     unsigned char child_bytes[sizeof(double)];
     unsigned char expected_bytes[sizeof(double)];
+    int assert_rc;
     double expected_target = 1.0, expected_child = 0.5;
     struct seam_proc *frame0 =
         (struct seam_proc *)malloc(sizeof(struct seam_proc) * 1);
@@ -12701,10 +12860,12 @@ static void test_process_set_new_member_uses_own_interval(void) {
     /* Bit-exact comparisons (a plain == would trip -Wfloat-equal). */
     memcpy(target_bytes, &usage_target, sizeof(double));
     memcpy(expected_bytes, &expected_target, sizeof(double));
-    assert(memcmp(target_bytes, expected_bytes, sizeof(double)) == 0);
+    assert_rc = memcmp(target_bytes, expected_bytes, sizeof(double));
+    assert(assert_rc == 0);
     memcpy(child_bytes, &usage_child, sizeof(double));
     memcpy(expected_bytes, &expected_child, sizeof(double));
-    assert(memcmp(child_bytes, expected_bytes, sizeof(double)) == 0);
+    assert_rc = memcmp(child_bytes, expected_bytes, sizeof(double));
+    assert(assert_rc == 0);
 
     free(frame0);
     free(frame1);
@@ -13398,6 +13559,7 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
 static void seam_assert_bookkeeping(int count, const char *what) {
     int idx;
     int stops_target, conts_target, stops_child, conts_child;
+    int assert_rc;
 
     stops_target = seam_count_signals(seam_signals, count,
                                       (pid_t)SEAM_TARGET_PID, SIGSTOP);
@@ -13441,10 +13603,11 @@ static void seam_assert_bookkeeping(int count, const char *what) {
 
     /* Nothing is left stopped, and never stopped twice in a row. */
     seam_assert_no_double_stop(seam_signals, count);
-    assert(seam_last_signal_to(seam_signals, count, (pid_t)SEAM_TARGET_PID) ==
-           SIGCONT);
-    assert(seam_last_signal_to(seam_signals, count, (pid_t)SEAM_CHILD_PID) ==
-           SIGCONT);
+    assert_rc =
+        seam_last_signal_to(seam_signals, count, (pid_t)SEAM_TARGET_PID);
+    assert(assert_rc == SIGCONT);
+    assert_rc = seam_last_signal_to(seam_signals, count, (pid_t)SEAM_CHILD_PID);
+    assert(assert_rc == SIGCONT);
 }
 
 /**
@@ -13667,6 +13830,8 @@ static void test_seam_quit_in_limit_process_forwards_once(void) {
     int status, ready_fd, close_ret;
     ssize_t n_read;
     char byte;
+    int assert_rc;
+    ssize_t assert_got;
 
     ready_fd = mkstemp(ready_path);
     assert(ready_fd >= 0);
@@ -13674,8 +13839,10 @@ static void test_seam_quit_in_limit_process_forwards_once(void) {
     assert(close_ret == 0);
     unlink(ready_path);
 
-    assert(pipe(announce_pipe) == 0);
-    assert(pipe(go_pipe) == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
 
     seam_reset();
     seam_hook_limit_process = 1;
@@ -13695,7 +13862,8 @@ static void test_seam_quit_in_limit_process_forwards_once(void) {
 
     /* Deliver the quit signal while the limiter is parked there. */
     kill(wrapper_pid, SIGTERM);
-    assert(write(go_pipe[1], "G", 1) == 1);
+    assert_got = write(go_pipe[1], "G", 1);
+    assert(assert_got == 1);
 
     waited = waitpid(wrapper_pid, &status, 0);
     assert(waited == wrapper_pid);
@@ -13728,6 +13896,8 @@ static void test_seam_quit_in_collect_forwards_once(void) {
     int status, ready_fd, close_ret;
     ssize_t n_read;
     char byte;
+    int assert_rc;
+    ssize_t assert_got;
 
     ready_fd = mkstemp(ready_path);
     assert(ready_fd >= 0);
@@ -13735,8 +13905,10 @@ static void test_seam_quit_in_collect_forwards_once(void) {
     assert(close_ret == 0);
     unlink(ready_path);
 
-    assert(pipe(announce_pipe) == 0);
-    assert(pipe(go_pipe) == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
 
     seam_reset();
     /*
@@ -13761,7 +13933,8 @@ static void test_seam_quit_in_collect_forwards_once(void) {
 
     /* The wrapper has already decided not to forward; deliver it now. */
     kill(wrapper_pid, SIGTERM);
-    assert(write(go_pipe[1], "G", 1) == 1);
+    assert_got = write(go_pipe[1], "G", 1);
+    assert(assert_got == 1);
 
     waited = waitpid(wrapper_pid, &status, 0);
     assert(waited == wrapper_pid);
@@ -13795,6 +13968,8 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     ssize_t n_read;
     char byte;
     struct seam_signal record;
+    int assert_rc;
+    ssize_t assert_got;
 
     ready_fd = mkstemp(ready_path);
     assert(ready_fd >= 0);
@@ -13802,10 +13977,14 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     assert(close_ret == 0);
     unlink(ready_path);
 
-    assert(pipe(announce_pipe) == 0);
-    assert(pipe(go_pipe) == 0);
-    assert(pipe(log_pipe) == 0);
-    assert(pipe(release_pipe) == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(log_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(release_pipe);
+    assert(assert_rc == 0);
 
     seam_reset();
     seam_hook_limit_process = 1;
@@ -13837,7 +14016,8 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     assert(n_read == 1 && byte == 'L');
 
     kill(wrapper_pid, SIGTERM);
-    assert(write(go_pipe[1], "G", 1) == 1);
+    assert_got = write(go_pipe[1], "G", 1);
+    assert(assert_got == 1);
 
     /*
      * Let the limiter finish trying before the command is allowed to go.
@@ -13860,7 +14040,8 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     }
 
     /* Only now that the limiter is done may the command stop waiting. */
-    assert(write(release_pipe[1], "R", 1) == 1);
+    assert_got = write(release_pipe[1], "R", 1);
+    assert(assert_got == 1);
     close(release_pipe[1]);
 
     waited = waitpid(wrapper_pid, &status, 0);
@@ -13871,12 +14052,14 @@ static void test_seam_undeliverable_forward_is_not_retried(void) {
     close(go_pipe[1]);
 
     /* The command never saw the signal, so it reports no deliveries. */
-    assert(WIFEXITED(status));
+    assert_rc = WIFEXITED(status);
+    assert(assert_rc);
     if (WEXITSTATUS(status) != 0) {
         fprintf(stderr, "(command reported %d deliveries)\n",
                 WEXITSTATUS(status));
     }
-    assert(WEXITSTATUS(status) == 0);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == 0);
 
     /* And nothing tried again once the delivery had been refused. */
     do {
@@ -13998,10 +14181,15 @@ static void test_seam_quit_while_parked_in_sleep(void) {
         int status, close_ret, count, sleep_call = phase + 1;
         ssize_t n_read;
         char byte;
+        int assert_rc;
+        ssize_t assert_got;
 
-        assert(pipe(announce_pipe) == 0);
-        assert(pipe(go_pipe) == 0);
-        assert(pipe(log_pipe) == 0);
+        assert_rc = pipe(announce_pipe);
+        assert(assert_rc == 0);
+        assert_rc = pipe(go_pipe);
+        assert(assert_rc == 0);
+        assert_rc = pipe(log_pipe);
+        assert(assert_rc == 0);
 
         limiter_pid = seam_fork_scripted_limiter(sleep_call, announce_pipe[1],
                                                  go_pipe[0], log_pipe[1]);
@@ -14017,11 +14205,13 @@ static void test_seam_quit_while_parked_in_sleep(void) {
 
         /* Interrupt while the limiter is suspended inside that sleep. */
         kill(limiter_pid, SIGTERM);
-        assert(write(go_pipe[1], "G", 1) == 1);
+        assert_got = write(go_pipe[1], "G", 1);
+        assert(assert_got == 1);
 
         waited = waitpid(limiter_pid, &status, 0);
         assert(waited == limiter_pid);
-        assert(WIFEXITED(status));
+        assert_rc = WIFEXITED(status);
+        assert(assert_rc);
 
         count = seam_read_child_log(log_pipe[0]);
         close(announce_pipe[0]);
@@ -14034,10 +14224,13 @@ static void test_seam_quit_while_parked_in_sleep(void) {
          * only there can the duty cycle be required to have run.
          */
         if (sleep_call == 2) {
-            assert(seam_count_signals(seam_child_log, count,
-                                      (pid_t)SEAM_TARGET_PID, SIGSTOP) > 0);
-            assert(seam_last_signal_to(seam_child_log, count,
-                                       (pid_t)SEAM_TARGET_PID) == SIGCONT);
+            int assert_rc2;
+            assert_rc2 = seam_count_signals(seam_child_log, count,
+                                            (pid_t)SEAM_TARGET_PID, SIGSTOP);
+            assert(assert_rc2 > 0);
+            assert_rc2 = seam_last_signal_to(seam_child_log, count,
+                                             (pid_t)SEAM_TARGET_PID);
+            assert(assert_rc2 == SIGCONT);
         }
         seam_assert_nothing_left_stopped(seam_child_log, count, phases[phase]);
         seam_assert_no_double_stop(seam_child_log, count);
@@ -14105,9 +14298,13 @@ static void test_seam_quit_while_pid_mode_retries(void) {
     int status, close_ret;
     ssize_t n_read;
     char byte;
+    int assert_rc;
+    ssize_t assert_got;
 
-    assert(pipe(announce_pipe) == 0);
-    assert(pipe(go_pipe) == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
 
     limiter_pid = seam_fork_exe_limiter(announce_pipe[1], go_pipe[0]);
     close_ret = close(announce_pipe[1]);
@@ -14120,15 +14317,18 @@ static void test_seam_quit_while_pid_mode_retries(void) {
 
     /* Interrupt while the limiter waits before retrying the scan. */
     kill(limiter_pid, SIGTERM);
-    assert(write(go_pipe[1], "G", 1) == 1);
+    assert_got = write(go_pipe[1], "G", 1);
+    assert(assert_got == 1);
 
     waited = waitpid(limiter_pid, &status, 0);
     assert(waited == limiter_pid);
-    assert(WIFEXITED(status));
+    assert_rc = WIFEXITED(status);
+    assert(assert_rc);
     if (WEXITSTATUS(status) != EXIT_SUCCESS) {
         fprintf(stderr, "(pid/exe mode reported %d)\n", WEXITSTATUS(status));
     }
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == EXIT_SUCCESS);
 
     close(announce_pipe[0]);
     close(go_pipe[0]);
@@ -14146,6 +14346,7 @@ static void test_seam_quit_while_pid_mode_retries(void) {
  */
 static void test_seam_limit_process_is_deterministic(void) {
     int first_count, second_count, idx;
+    int assert_rc;
 
     /* The run leaves its log in the seam; the snapshot copies it out. */
     seam_run_smoke_limit();
@@ -14156,17 +14357,20 @@ static void test_seam_limit_process_is_deterministic(void) {
     assert(first_count < SEAM_MAX_SIGNALS);
 
     /* Invariant: the target was suspended at least once. */
-    assert(seam_count_signals(seam_run_snapshot, first_count,
-                              (pid_t)SEAM_TARGET_PID, SIGSTOP) > 0);
+    assert_rc = seam_count_signals(seam_run_snapshot, first_count,
+                                   (pid_t)SEAM_TARGET_PID, SIGSTOP);
+    assert(assert_rc > 0);
 
     /*
      * Invariant: it was resumed at least once, and the run ends on a
      * resume -- the limiter never leaves a target suspended.
      */
-    assert(seam_count_signals(seam_run_snapshot, first_count,
-                              (pid_t)SEAM_TARGET_PID, SIGCONT) > 0);
-    assert(seam_last_signal_to(seam_run_snapshot, first_count,
-                               (pid_t)SEAM_TARGET_PID) == SIGCONT);
+    assert_rc = seam_count_signals(seam_run_snapshot, first_count,
+                                   (pid_t)SEAM_TARGET_PID, SIGCONT);
+    assert(assert_rc > 0);
+    assert_rc = seam_last_signal_to(seam_run_snapshot, first_count,
+                                    (pid_t)SEAM_TARGET_PID);
+    assert(assert_rc == SIGCONT);
 
     /* Invariant: no double suspension without an intervening resume. */
     seam_assert_no_double_stop(seam_run_snapshot, first_count);
@@ -14256,13 +14460,16 @@ static void test_child_wait_resumes_on_clock_failure(void) {
     struct cpulimit_cfg cfg;
     int log_pipe[2];
     int status, count;
+    int assert_rc;
+    int assert_rc2;
     const pid_t target = (pid_t)SEAM_TARGET_PID;
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "test";
     cfg.cpu_limit = 0.5;
 
-    assert(pipe(log_pipe) == 0);
+    assert_rc = pipe(log_pipe);
+    assert(assert_rc == 0);
 
     fflush(stdout);
     fflush(stderr);
@@ -14290,12 +14497,15 @@ static void test_child_wait_resumes_on_clock_failure(void) {
     waited = waitpid(child_pid, &status, 0);
     assert(waited == child_pid);
     /* The clock failure must reach the caller as an error return. */
-    assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+    assert_rc = WIFEXITED(status);
+    assert_rc2 = WEXITSTATUS(status);
+    assert(assert_rc && assert_rc2 == EXIT_FAILURE);
 
     count = seam_read_child_log(log_pipe[0]);
     close(log_pipe[0]);
     /* The child must have been sent a resume before the bail-out. */
-    assert(seam_count_signals(seam_child_log, count, target, SIGCONT) >= 1);
+    assert_rc = seam_count_signals(seam_child_log, count, target, SIGCONT);
+    assert(assert_rc >= 1);
 }
 
 /**
@@ -14322,12 +14532,14 @@ static void test_child_wait_escalates_sigkill_once(void) {
     int log_pipe[2];
     int status, result, escalations = 0, reaped_already;
     size_t idx;
+    int assert_rc;
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "test";
     cfg.cpu_limit = 0.5;
 
-    assert(pipe(log_pipe) == 0);
+    assert_rc = pipe(log_pipe);
+    assert(assert_rc == 0);
 
     fflush(stdout);
     fflush(stderr);
@@ -14954,9 +15166,11 @@ static void test_limit_process_reports_scan_failure(void) {
     int err_pipe[2];
     pid_t driver, waited;
     int status, exited, exit_code, seen;
+    int assert_rc;
     size_t total = 0;
     char *capture;
-    assert(pipe(err_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
 
     fflush(stdout);
     fflush(stderr);
@@ -15055,6 +15269,7 @@ static void test_limit_process_rejects_zombie_target(void) {
     pid_t child_pid;
     pid_t waited;
     int status;
+    int assert_rc;
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
@@ -15094,8 +15309,10 @@ static void test_limit_process_rejects_zombie_target(void) {
     }
     waited = waitpid(child_pid, &status, 0);
     assert(waited == child_pid);
-    assert(WIFEXITED(status));
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
+    assert_rc = WIFEXITED(status);
+    assert(assert_rc);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == EXIT_SUCCESS);
 }
 
 /**
@@ -15121,10 +15338,12 @@ static int test_capture_find_by_name(const char *name, char **out) {
     pid_t driver;
     pid_t waited;
     int status;
+    int assert_rc;
     size_t total = 0;
     int result;
     char *capture;
-    assert(pipe(err_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
     fflush(stdout);
     fflush(stderr);
     driver = fork();
@@ -15157,7 +15376,8 @@ static int test_capture_find_by_name(const char *name, char **out) {
     close(err_pipe[0]);
     waited = waitpid(driver, &status, 0);
     assert(waited == driver);
-    assert(WIFEXITED(status));
+    assert_rc = WIFEXITED(status);
+    assert(assert_rc);
     result = WEXITSTATUS(status);
     *out = capture;
     return result;
@@ -15172,12 +15392,15 @@ static int test_capture_find_by_name(const char *name, char **out) {
  */
 static void test_find_process_by_name_cannot_be_found_text(void) {
     int code;
+    const char *assert_hit;
     char *capture = NULL;
     code = test_capture_find_by_name("nosuch_zz_xyz_nonexistent", &capture);
     assert(code == EXIT_SUCCESS);
     assert(capture != NULL);
-    assert(strstr(capture, "cannot be found") != NULL);
-    assert(strstr(capture, "PID 1 (init)") == NULL);
+    assert_hit = strstr(capture, "cannot be found");
+    assert(assert_hit != NULL);
+    assert_hit = strstr(capture, "PID 1 (init)");
+    assert(assert_hit == NULL);
     free(capture);
 }
 
@@ -15263,16 +15486,20 @@ static pid_t test_capture_find_by_name_message(const char *name, char **out) {
     char *capture;
     ssize_t n_read;
     pid_t found;
+    int assert_rc;
 
-    assert(pipe(err_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
     saved_stderr = dup(STDERR_FILENO);
     assert(saved_stderr >= 0);
     fflush(stderr);
-    assert(dup2(err_pipe[1], STDERR_FILENO) == STDERR_FILENO);
+    assert_rc = dup2(err_pipe[1], STDERR_FILENO);
+    assert(assert_rc == STDERR_FILENO);
     close(err_pipe[1]);
     found = find_process_by_name(name);
     fflush(stderr);
-    assert(dup2(saved_stderr, STDERR_FILENO) == STDERR_FILENO);
+    assert_rc = dup2(saved_stderr, STDERR_FILENO);
+    assert(assert_rc == STDERR_FILENO);
     close(saved_stderr);
 
     capture = (char *)malloc(TEST_CAPTURE_SIZE);
@@ -15301,6 +15528,7 @@ static pid_t test_capture_find_by_name_message(const char *name, char **out) {
  */
 static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
     struct seam_proc *frame;
+    const char *assert_hit;
     char *capture = NULL;
     pid_t found;
 
@@ -15321,8 +15549,10 @@ static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
 
     assert(found == 0);
     assert(capture != NULL);
-    assert(strstr(capture, "cannot be found") != NULL);
-    assert(strstr(capture, "PID 1 (init)") == NULL);
+    assert_hit = strstr(capture, "cannot be found");
+    assert(assert_hit != NULL);
+    assert_hit = strstr(capture, "PID 1 (init)");
+    assert(assert_hit == NULL);
     free(capture);
 }
 
@@ -15353,6 +15583,7 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
     int wait_tries;
     struct timespec t0, t1;
     double elapsed;
+    int assert_rc;
     const struct timespec pre_sleep = {0, 600000000L}; /* 600 ms */
     const struct timespec poll_sleep = {0, 20000000L}; /* 20 ms */
 
@@ -15420,7 +15651,8 @@ static void test_watch_mode_exits_promptly_on_signal(void) {
     assert(probe == 0);
 
     get_current_time(&t0);
-    assert(kill(child_pid, SIGINT) == 0);
+    assert_rc = kill(child_pid, SIGINT);
+    assert(assert_rc == 0);
 
     /* Reap with a bounded poll so a stuck child cannot hang the suite. */
     wait_tries = 0;
@@ -15526,10 +15758,13 @@ static void check_command_mode_summary(int limit_status,
     int err_pipe[2];
     pid_t driver, waited;
     int status, exited, exit_code;
+    int assert_rc;
+    const char *assert_hit;
     size_t total = 0;
     char *capture;
 
-    assert(pipe(err_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
 
     fflush(stdout);
     fflush(stderr);
@@ -15566,9 +15801,12 @@ static void check_command_mode_summary(int limit_status,
 
     assert(exited);
     assert(exit_code == EXIT_FAILURE);
-    assert(strstr(capture, must_appear) != NULL);
-    assert(strstr(capture, forbidden_one) == NULL);
-    assert(strstr(capture, forbidden_two) == NULL);
+    assert_hit = strstr(capture, must_appear);
+    assert(assert_hit != NULL);
+    assert_hit = strstr(capture, forbidden_one);
+    assert(assert_hit == NULL);
+    assert_hit = strstr(capture, forbidden_two);
+    assert(assert_hit == NULL);
     free(capture);
 }
 
@@ -15623,6 +15861,7 @@ static void test_command_mode_reports_stranded_run(void) {
 static void test_process_set_excludes_self_from_group(void) {
     pid_t target, waited;
     int status, verdict;
+    int assert_rc;
 
     fflush(stdout);
     fflush(stderr);
@@ -15654,7 +15893,8 @@ static void test_process_set_excludes_self_from_group(void) {
 
     waited = waitpid(target, &status, 0);
     assert(waited == target);
-    assert(WIFEXITED(status));
+    assert_rc = WIFEXITED(status);
+    assert(assert_rc);
 
     verdict = WEXITSTATUS(status);
     assert(verdict == 0);
@@ -15674,6 +15914,7 @@ static void test_process_set_resumes_without_proc_list(void) {
     struct timespec remaining;
     pid_t victim;
     int status, resumed, victim_status, i;
+    int assert_rc;
     const struct timespec poll_wait = {0, 100000000L};
 
     fflush(stdout);
@@ -15689,11 +15930,13 @@ static void test_process_set_resumes_without_proc_list(void) {
     remaining.tv_nsec = 200000000L;
     sleep_timespec(&remaining);
 
-    assert(kill(victim, SIGSTOP) == 0);
+    assert_rc = kill(victim, SIGSTOP);
+    assert(assert_rc == 0);
     /* Heap-allocated: the group keeps the frame within the stack budget. */
     ps = (struct process_set *)malloc(sizeof(*ps));
     assert(ps != NULL);
-    assert(init_process_set(ps, victim, 0) == 0);
+    assert_rc = init_process_set(ps, victim, 0);
+    assert(assert_rc == 0);
     record_stopped_pid(ps, victim, UNKNOWN_START_TIME);
 
     /* The state in question: no list left, records still held. */
@@ -15748,15 +15991,19 @@ static void test_process_set_reports_failed_resume(void) {
      */
     char err_buf[64];
     ssize_t got;
+    int assert_rc;
     size_t err_len = 0;
 
-    assert(pipe(fds) == 0);
+    assert_rc = pipe(fds);
+    assert(assert_rc == 0);
     fflush(stderr);
     saved_stderr = dup(STDERR_FILENO);
     assert(saved_stderr >= 0);
-    assert(dup2(fds[1], STDERR_FILENO) != -1);
+    assert_rc = dup2(fds[1], STDERR_FILENO);
+    assert(assert_rc != -1);
 
-    assert(init_process_set(&ps, getpid(), 0) == 0);
+    assert_rc = init_process_set(&ps, getpid(), 0);
+    assert(assert_rc == 0);
     /*
      * cpulimit is never a member of its own group, so this reads as a PID
      * that has left the group and is still owed a SIGCONT. No start time is
@@ -15775,7 +16022,8 @@ static void test_process_set_reports_failed_resume(void) {
     seam_fail_errno = 0;
 
     fflush(stderr);
-    assert(dup2(saved_stderr, STDERR_FILENO) != -1);
+    assert_rc = dup2(saved_stderr, STDERR_FILENO);
+    assert(assert_rc != -1);
     close(saved_stderr);
     close(fds[1]);
 
@@ -15820,6 +16068,7 @@ static void test_process_set_reports_failed_resume(void) {
  */
 static void test_process_set_rerecords_member_failed_resume(void) {
     struct process_set ps;
+    int assert_rc;
     struct seam_proc *scan =
         (struct seam_proc *)malloc(sizeof(struct seam_proc));
     int stop_failed, cont_failed, later_failed;
@@ -15837,7 +16086,8 @@ static void test_process_set_rerecords_member_failed_resume(void) {
     seam_push_frame(scan, 1);
     seam_active = 1;
 
-    assert(init_process_set(&ps, (pid_t)SEAM_TARGET_PID, 0) == 0);
+    assert_rc = init_process_set(&ps, (pid_t)SEAM_TARGET_PID, 0);
+    assert(assert_rc == 0);
 
     /* One successful stop round: the suspension is on the books. */
     stop_failed = process_set_send_signal(&ps, SIGSTOP, 0);
@@ -15858,8 +16108,10 @@ static void test_process_set_rerecords_member_failed_resume(void) {
     /* The member leaves the group while it is still stopped. */
     seam_push_frame(NULL, 0);
     seam_repeat_last = 1;
-    assert(update_process_set(&ps) == 0);
-    assert(process_set_is_empty(&ps));
+    assert_rc = update_process_set(&ps);
+    assert(assert_rc == 0);
+    assert_rc = process_set_is_empty(&ps);
+    assert(assert_rc);
 
     from_call = seam_signal_count;
     later_failed = process_set_send_signal(&ps, SIGCONT, 0);
@@ -15889,6 +16141,7 @@ static void test_process_set_rerecords_member_failed_resume(void) {
  */
 static void test_process_set_resume_skips_recycled_pid(void) {
     struct process_set proc_set;
+    int assert_rc;
     struct seam_proc *frame =
         (struct seam_proc *)malloc(sizeof(struct seam_proc));
     const pid_t child = 4242;
@@ -15904,7 +16157,8 @@ static void test_process_set_resume_skips_recycled_pid(void) {
      * the real scan yields an empty group. The seam stays off here to avoid
      * driving get_current_time; the verification below runs with the seam on.
      */
-    assert(init_process_set(&proc_set, child, 0) == 0);
+    assert_rc = init_process_set(&proc_set, child, 0);
+    assert(assert_rc == 0);
 
     /*
      * Record the suspension with the process's real start time. With the
@@ -15946,7 +16200,8 @@ static void test_process_set_resume_skips_recycled_pid(void) {
 
     seam_active = 0;
     seam_reset();
-    assert(close_process_set(&proc_set) == 0);
+    assert_rc = close_process_set(&proc_set);
+    assert(assert_rc == 0);
     free(frame);
 }
 
@@ -15999,6 +16254,8 @@ static void test_process_set_resume_silent_when_pid_gone(void) {
     char *err_buf;
     size_t err_len;
     struct process_set proc_set;
+    int assert_rc;
+    const char *assert_hit;
 
     ret = pipe(pipe_fds);
     assert(ret == 0);
@@ -16079,9 +16336,12 @@ static void test_process_set_resume_silent_when_pid_gone(void) {
     exited = WIFEXITED(status);
     assert(exited);
     /* The ESRCH resume must neither warn nor pollute the exit status. */
-    assert(WEXITSTATUS(status) == EXIT_SUCCESS);
-    assert(strstr(err_buf, "remain stopped") == NULL);
-    assert(strstr(err_buf, "cannot resume") == NULL);
+    assert_rc = WEXITSTATUS(status);
+    assert(assert_rc == EXIT_SUCCESS);
+    assert_hit = strstr(err_buf, "remain stopped");
+    assert(assert_hit == NULL);
+    assert_hit = strstr(err_buf, "cannot resume");
+    assert(assert_hit == NULL);
     free(err_buf);
 }
 
@@ -16144,6 +16404,7 @@ static void test_process_set_rejects_recycled_target_pid(void) {
     int ret, idle_status;
     const struct process *tracked;
     double original_start;
+    const struct process *assert_proc;
 
     fflush(stdout);
     fflush(stderr);
@@ -16169,7 +16430,8 @@ static void test_process_set_rejects_recycled_target_pid(void) {
     /* A normal cycle keeps the process. */
     ret = update_process_set(&proc_set);
     assert(ret == 0);
-    assert(find_process_in_list_by_pid(proc_set.proc_list, idle_pid) != NULL);
+    assert_proc = find_process_in_list_by_pid(proc_set.proc_list, idle_pid);
+    assert(assert_proc != NULL);
 
     /*
      * Recycle the PID. Only the start time changes: cpu_time keeps rising,
@@ -16178,7 +16440,8 @@ static void test_process_set_rejects_recycled_target_pid(void) {
     proc_set.target_start_time = original_start + 1000.0;
     ret = update_process_set(&proc_set);
     assert(ret == 0);
-    assert(find_process_in_list_by_pid(proc_set.proc_list, idle_pid) == NULL);
+    assert_proc = find_process_in_list_by_pid(proc_set.proc_list, idle_pid);
+    assert(assert_proc == NULL);
     assert(proc_set.proc_list->count == 0);
 
     /*
@@ -16188,7 +16451,8 @@ static void test_process_set_rejects_recycled_target_pid(void) {
      */
     ret = update_process_set(&proc_set);
     assert(ret == 0);
-    assert(find_process_in_list_by_pid(proc_set.proc_list, idle_pid) == NULL);
+    assert_proc = find_process_in_list_by_pid(proc_set.proc_list, idle_pid);
+    assert(assert_proc == NULL);
 
     ret = close_process_set(&proc_set);
     assert(ret == 0);
@@ -16358,11 +16622,13 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
     int err_pipe[2];
     pid_t driver, waited;
     int status, exited, exit_code;
+    int assert_rc;
     size_t total = 0;
     int benign = 0, severe = 0;
     char *capture;
     const char *walk;
-    assert(pipe(err_pipe) == 0);
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
 
     fflush(stdout);
     fflush(stderr);
@@ -16450,6 +16716,7 @@ static void test_stopped_pids_record_does_not_duplicate(void) {
     const struct list_node *node;
     size_t entries;
     int conts;
+    int assert_rc;
 
     seam_reset();
     memset(&proc_set, 0, sizeof(proc_set));
@@ -16458,8 +16725,10 @@ static void test_stopped_pids_record_does_not_duplicate(void) {
     init_list(proc_set.stopped_pids);
 
     /* One PID recorded twice must leave a single entry behind. */
-    assert(record_stopped_pid(&proc_set, (pid_t)4242, 100.0) == 0);
-    assert(record_stopped_pid(&proc_set, (pid_t)4242, 200.0) == 0);
+    assert_rc = record_stopped_pid(&proc_set, (pid_t)4242, 100.0);
+    assert(assert_rc == 0);
+    assert_rc = record_stopped_pid(&proc_set, (pid_t)4242, 200.0);
+    assert(assert_rc == 0);
     entries = 0;
     for (node = first_list_node(proc_set.stopped_pids); node != NULL;
          node = node->next) {
@@ -16552,6 +16821,7 @@ static void test_reap_before_error_return_does_not_block(void) {
     pid_t child;
     struct timespec before, after;
     int status;
+    int assert_rc;
 
     child = fork();
     assert(child >= 0);
@@ -16562,11 +16832,13 @@ static void test_reap_before_error_return_does_not_block(void) {
         _exit(0);
     }
 
-    assert(get_current_time(&before) == 0);
+    assert_rc = get_current_time(&before);
+    assert(assert_rc == 0);
     /* The resume is what the production caller does before the reap. */
     kill(child, SIGCONT);
     reap_child_before_error_return(child);
-    assert(get_current_time(&after) == 0);
+    assert_rc = get_current_time(&after);
+    assert(assert_rc == 0);
 
     /* Non-blocking: returned in well under the child's sleep. */
     assert((double)(after.tv_sec - before.tv_sec) +
