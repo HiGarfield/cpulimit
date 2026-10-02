@@ -10769,6 +10769,180 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
 }
 
 /**
+ * @brief Read a descriptor to EOF, then close it
+ *
+ * @param fd Descriptor to drain
+ *
+ * A driven run may print diagnostics; a pipe left undrained blocks its writer
+ * as soon as the buffer fills, so every driver empties it before reaping. This
+ * is a function of its own so the read loop's variable and buffer stay out of
+ * the caller's frame for the whole test.
+ */
+static void test_drain_and_close(int fd) {
+    char sink[256];
+
+    for (;;) {
+        ssize_t n_read = read(fd, sink, sizeof(sink));
+        if (n_read <= 0) {
+            break;
+        }
+    }
+    close(fd);
+}
+
+/**
+ * @brief A non-lazy run must keep watching after limit_process() reports
+ *        LIMIT_PROCESS_NO_TARGET
+ *
+ * @note The target is live and findable, but the process iterator is scripted
+ *       empty, so limit_process() builds an empty group and reports
+ *       LIMIT_PROCESS_NO_TARGET. That is exactly what a real target produces
+ *       when it turns into a zombie between the lookup and the first scan:
+ *       every backend skips zombies, so the group comes out empty while the
+ *       PID the finder handed over is still very much alive. An empty group
+ *       says nothing about the search, because the target may be restarted
+ *       (and a replacement is limitable even when the corpse was not), so a
+ *       non-lazy run must end the attempt and keep watching -- which is what
+ *       this pins by parking on the third wait, reachable only after two
+ *       NO_TARGET outcomes were survived.
+ *
+ *       Verified by mutation: letting the NO_TARGET branch set EXIT_FAILURE
+ *       ends the run after the first attempt, so the announcement read returns
+ *       0 instead of 1.
+ */
+static void test_limiter_non_lazy_keeps_watching_after_no_target(void) {
+    int err_pipe[2];
+    int announce_pipe[2];
+    int go_pipe[2];
+    pid_t target, driver, waited;
+    int status = 0, exited, exit_code;
+    int alarm_armed, alarm_restored;
+    char announce;
+    ssize_t announced;
+    struct cpulimit_cfg cfg;
+
+    assert(pipe(err_pipe) == 0);
+    assert(pipe(announce_pipe) == 0);
+    assert(pipe(go_pipe) == 0);
+
+    /*
+     * A real live process, so the kill(pid, 0) probe in find_process_by_pid()
+     * succeeds for it: the lookup is not what fails here, the group build is.
+     */
+    fflush(stdout);
+    fflush(stderr);
+    target = fork();
+    assert(target >= 0);
+    if (target == 0) {
+        /*
+         * Drop the driver's pipes before parking here: this process was
+         * forked first, so it holds the write end of the announcement pipe
+         * alive, and the driver could then never be seen to have exited.
+         */
+        close(err_pipe[0]);
+        close(err_pipe[1]);
+        close(announce_pipe[0]);
+        close(announce_pipe[1]);
+        close(go_pipe[0]);
+        close(go_pipe[1]);
+        test_suspend_until_killed();
+        _exit(EXIT_SUCCESS);
+    }
+
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.target_pid = target;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 0;
+
+    driver = fork();
+    assert(driver >= 0);
+    if (driver == 0) {
+        int mode_result, dup_result;
+        close(err_pipe[0]);
+        close(announce_pipe[0]);
+        close(go_pipe[1]);
+        /* Do all setup, including asserts, before the stderr redirect. */
+        seam_reset();
+        /*
+         * The iterator serves no frames, so every scan sees an empty system
+         * and the group stays empty; kill() reports delivery without sending,
+         * so the target lookup still resolves. No failure is injected, so
+         * nothing else is distorted.
+         */
+        seam_active = 1;
+        seam_hook_sleep = 1;
+        seam_sleep_call = 3;
+        seam_sleep_announce_fd = announce_pipe[1];
+        seam_sleep_go_fd = go_pipe[0];
+        configure_signal_handler();
+        fflush(stdout);
+        fflush(stderr);
+        /* Same reason as above for keeping the result. */
+        dup_result = dup2(err_pipe[1], STDERR_FILENO);
+        if (dup_result < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(err_pipe[1]);
+        mode_result = run_pid_or_exe_mode(&cfg);
+        seam_active = 0;
+        seam_hook_sleep = 0;
+        seam_sleep_announce_fd = -1;
+        seam_sleep_go_fd = -1;
+        /* The duplicate of err_pipe[1] belongs to this child. */
+        close(STDERR_FILENO);
+        _exit(mode_result);
+    }
+    close(err_pipe[1]);
+    close(announce_pipe[1]);
+    close(go_pipe[0]);
+
+    /*
+     * A run that ended on its first NO_TARGET never parks, so this read would
+     * block forever: the timeout turns that into a reported failure instead of
+     * a hung suite. SIGALRM is ignored so the interrupted read returns EINTR
+     * and the assertion below names the failure, rather than the signal killing
+     * the test binary outright. Both dispositions are recorded outside
+     * assert(), whose expansion a release build compiles the calls out with.
+     */
+    alarm_armed = signal(SIGALRM, SIG_IGN) != SIG_ERR;
+    alarm(15);
+    announced = read(announce_pipe[0], &announce, 1);
+    alarm(0);
+    alarm_restored = signal(SIGALRM, SIG_DFL) != SIG_ERR;
+    if (announced == 1) {
+        assert(kill(driver, SIGTERM) == 0);
+        assert(write(go_pipe[1], "G", 1) == 1);
+    }
+    close(announce_pipe[0]);
+    close(go_pipe[1]);
+
+    /* Drain whatever the run printed so the child can never block on it. */
+    test_drain_and_close(err_pipe[0]);
+
+    waited = waitpid(driver, &status, 0);
+    assert(waited == driver);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+
+    /* Reclaim the target: this process is its parent, so nothing else does. */
+    assert(kill(target, SIGKILL) == 0);
+    assert(waitpid(target, NULL, 0) == target);
+
+    /* Reached only after both children were reaped, so failure leaks none. */
+    assert(alarm_armed);
+    assert(alarm_restored);
+    if (announced != 1) {
+        fprintf(stderr, "(watch ended before parking: announce=%ld exit=%d)\n",
+                (long)announced, exit_code);
+    }
+    assert(announced == 1 && announce == 'S');
+    assert(exited);
+    /* The quit signal ended the watch; the empty group did not. */
+    assert(exit_code == EXIT_SUCCESS);
+}
+
+/**
  * @brief run_command_mode() must surface the command's real exit code on stderr
  *        when limiting never starts (LIMIT_PROCESS_ERROR)
  *
@@ -16449,6 +16623,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_waits_without_target);
+    RUN_TEST(test_limiter_non_lazy_keeps_watching_after_no_target);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_waits_on_permission_denied);
     RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
 
