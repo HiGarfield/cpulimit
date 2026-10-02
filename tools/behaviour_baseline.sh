@@ -88,7 +88,7 @@ if [ ! -x "$BUSY" ] || [ ! -x "$MULTI" ]; then
     exit 2
 fi
 
-# The injection hook is required only by scenarios 18-21; build it on demand
+# The injection hook is required only by scenarios 18-22; build it on demand
 # and continue without it rather than failing the whole run, reporting the
 # gap at the end.
 HOOK_READY=0
@@ -714,12 +714,12 @@ reap_artifacts
 if [ "$MODE" = record ]; then
     echo "baseline written to $BASELINE_DIR ($(echo "$SCENARIOS" | wc -w) scenarios)"
     if [ "$HOOK_READY" -eq 0 ]; then
-        echo "NOTE: hook.so could not be built; scenarios 18-21 are recorded as skipped"
+        echo "NOTE: hook.so could not be built; scenarios 18-22 are recorded as skipped"
     fi
 else
     echo "replayed: $PASSED equal, $FAILED differing"
     if [ "$HOOK_READY" -eq 0 ]; then
-        echo "NOTE: hook.so could not be built; scenarios 18-21 not exercised"
+        echo "NOTE: hook.so could not be built; scenarios 18-22 not exercised"
     fi
     if [ "$FAILED" -ne 0 ]; then
         exit 1
