@@ -265,6 +265,70 @@ static void test_burn_until_killed(void) {
     }
 }
 
+/**
+ * @brief Descriptors of the test run, remembered while it is muted
+ */
+static int test_muted_stdout = -1;
+static int test_muted_stderr = -1;
+
+/**
+ * @brief Send the standard output and error of the code under test to /dev/null
+ *
+ * The library under test reports on stdout and stderr what it is doing: the
+ * usage text, "cannot be found", a failed scan, a resume that was refused.
+ * Those lines are part of the behaviour a test drives, not part of what the
+ * suite reports, and stderr is unbuffered, so they surface in the middle of
+ * the run log and read as if they belonged to whichever test happens to be
+ * running at the time. A test that asserts on the return value alone mutes
+ * the code around the call that makes the noise; a test that needs the text
+ * captures it into a pipe instead (see test_capture_find_by_name()).
+ *
+ * Every mute is paired with an unmute, except where the calling child leaves
+ * through _exit() right afterwards.
+ */
+static void test_mute_output(void) {
+    int devnull;
+
+    fflush(stdout);
+    fflush(stderr);
+    test_muted_stdout = dup(STDOUT_FILENO);
+    test_muted_stderr = dup(STDERR_FILENO);
+    devnull = open("/dev/null", O_WRONLY);
+    assert(test_muted_stdout >= 0 && test_muted_stderr >= 0);
+    assert(devnull >= 0);
+    /*
+     * dup2() returns newfd, which the process owns already: there is no new
+     * descriptor to track and none to close. -Wanalyzer-fd-leak reads a checked
+     * return value as a descriptor that is never closed and reports it, so the
+     * result is discarded; a redirection that failed only leaves the noise in
+     * the log, which is where it started.
+     */
+    (void)dup2(devnull, STDOUT_FILENO);
+    (void)dup2(devnull, STDERR_FILENO);
+    if (devnull > STDERR_FILENO) {
+        close(devnull);
+    }
+}
+
+/**
+ * @brief Put the standard output and error of the test run back
+ *
+ * Both sides of the swap are flushed: what the muted code wrote has to reach
+ * /dev/null rather than the descriptors restored here, and the status lines
+ * the runner prints afterwards must not be flushed into /dev/null with them.
+ */
+static void test_unmute_output(void) {
+    /* Discarded for the same reason as in test_mute_output(). */
+    fflush(stdout);
+    fflush(stderr);
+    (void)dup2(test_muted_stdout, STDOUT_FILENO);
+    (void)dup2(test_muted_stderr, STDERR_FILENO);
+    assert(close(test_muted_stdout) == 0);
+    assert(close(test_muted_stderr) == 0);
+    test_muted_stdout = -1;
+    test_muted_stderr = -1;
+}
+
 /***************************************************************************
  * UTIL MODULE TESTS
  ***************************************************************************/
@@ -4649,6 +4713,8 @@ static void test_process_table_init_reports_alloc_failure(void) {
     struct process_table table;
     int ret;
 
+    /* Every rejected size announces itself on stderr. */
+    test_mute_output();
     /* The largest size that still overflows the bucket array (R2). */
     ret = init_process_table(&table, (size_t)-1 / sizeof(struct list *) + 1);
     assert(ret == -1);
@@ -4662,6 +4728,7 @@ static void test_process_table_init_reports_alloc_failure(void) {
 
     ret = init_process_table(NULL, 16);
     assert(ret == -1);
+    test_unmute_output();
 
     /* A sane size still succeeds. */
     ret = init_process_table(&table, 16);
@@ -7827,6 +7894,8 @@ static pid_t seam_fork_count_wrapper(char *ready_path, int release_fd) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 1;
         configure_signal_handler();
+        /* A forward this wrapper cannot deliver is its own diagnosis. */
+        test_mute_output();
         mode_result = run_command_mode(&cfg);
         _exit(mode_result);
     }
@@ -10400,7 +10469,10 @@ static void test_process_finder_find_by_pid_reports_eacces(void) {
     seam_fail_call = 1;
     seam_fail_span = 1;
     seam_fail_errno = EACCES;
+    /* The iterator and its table cannot be built with the seam on. */
+    test_mute_output();
     result = find_process_by_pid((pid_t)9999);
+    test_unmute_output();
     assert(result == -(pid_t)9999);
     seam_active = 0;
     seam_fail_call = 0;
@@ -10478,7 +10550,10 @@ static void test_find_by_name_probes_even_if_iterator_close_fails(void) {
     seam_fail_call = 1;
     seam_fail_span = 1;
     seam_fail_errno = EPERM;
+    /* The failed close is announced on stderr; the probe sign is the result. */
+    test_mute_output();
     result = find_process_by_name("busy");
+    test_unmute_output();
     seam_active = 0;
     seam_close_fails = 0;
     seam_fail_call = 0;
@@ -10523,7 +10598,10 @@ static void test_find_by_name_prefers_controllable_if_close_fails(void) {
     seam_fail_call = 1;
     seam_fail_span = 1;
     seam_fail_errno = EPERM;
+    /* The failed close is announced on stderr; the winner is the result. */
+    test_mute_output();
     result = find_process_by_name("busy");
+    test_unmute_output();
     seam_active = 0;
     seam_close_fails = 0;
     seam_fail_call = 0;
@@ -14280,6 +14358,11 @@ static pid_t seam_fork_exe_limiter(int announce_fd, int go_fd) {
         cfg.cpu_limit = 0.5;
         cfg.lazy_mode = 0;
         configure_signal_handler();
+        /*
+         * Every scan reports the name it could not find; the child only
+         * _exits.
+         */
+        test_mute_output();
         mode_result = run_pid_or_exe_mode(&cfg);
         _exit(mode_result);
     }
@@ -14494,6 +14577,8 @@ static void test_child_wait_resumes_on_clock_failure(void) {
          * so the caller decides how the run ends and can still print its
          * own diagnosis (S4).
          */
+        /* The clock failure is announced on stderr on its way out. */
+        test_mute_output();
         result = collect_child_exit_status(target, &cfg, 0);
         seam_active = 0;
         seam_clock_fails = 0;
@@ -14726,7 +14811,10 @@ static void test_child_wait_reaps_child_on_clock_failure(void) {
     seam_reset();
     seam_active = 1;
     seam_clock_fails = 1;
+    /* The clock failure is announced on stderr on its way out. */
+    test_mute_output();
     result = collect_child_exit_status(target, &cfg, 0);
+    test_unmute_output();
     seam_clock_fails = 0;
     seam_active = 0;
     seam_reset();
@@ -14776,7 +14864,9 @@ static void test_child_wait_reap_does_not_block_before_quit(void) {
 
     seam_reset();
     seam_clock_fails = 1;
+    test_mute_output();
     result = collect_child_exit_status(target, &cfg, 0);
+    test_unmute_output();
     seam_clock_fails = 0;
 
     assert(result == EXIT_FAILURE);
@@ -14833,7 +14923,9 @@ static void test_child_wait_reap_does_not_block_in_poll(void) {
      * second one reaches the failure inside the polling loop.
      */
     seam_clock_fail_on_call = 2;
+    test_mute_output();
     result = collect_child_exit_status(target, &cfg, 0);
+    test_unmute_output();
     seam_clock_fail_on_call = 0;
 
     assert(result == EXIT_FAILURE);
@@ -15040,7 +15132,10 @@ static void loop_exit_driver_child(pid_t victim) {
     seam_active = 0; /* real signals: the victim must actually be stopped */
     seam_fail_update_after = 1; /* fail the 2nd update_process_set() */
     (void)victim;
+    /* The forced scan failure is announced on stderr; the exit path is not. */
+    test_mute_output();
     limit_process(victim, 0.5, 0, 0, 0);
+    test_unmute_output();
     seam_reset();
     _exit(0);
 }
@@ -15463,7 +15558,10 @@ static void test_exe_name_matching_init_rejected_at_argument_check(void) {
      * cmdline and refuses a name that matches it, so a valid -l/-e pair whose
      * name is init returns EXIT_FAILURE without ever starting the limiter.
      */
+    /* The rejection prints its reason and the whole usage text. */
+    test_mute_output();
     rc = parse_arguments(5, argv, &cfg);
+    test_unmute_output();
     assert(rc == EXIT_FAILURE);
     free(cmdline);
 }
@@ -16063,7 +16161,10 @@ static void test_process_set_rerecords_member_failed_resume(void) {
     seam_fail_call = 2;
     seam_fail_span = 1;
     seam_fail_errno = EPERM;
+    /* The refused resume is what the test drives; its warning is not. */
+    test_mute_output();
     cont_failed = process_set_send_signal(&ps, SIGCONT, 0);
+    test_unmute_output();
     seam_fail_call = 0;
     seam_fail_errno = 0;
     assert(cont_failed != 0);
@@ -16187,7 +16288,10 @@ static void test_process_set_init_fails_cleanly_on_scan_error(void) {
     seam_reset();
     seam_active = 1;
     seam_init_fails = 1;
+    /* Both failures are announced on stderr; the test asserts the return. */
+    test_mute_output();
     ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
+    test_unmute_output();
     seam_init_fails = 0;
     seam_active = 0;
     assert(ret == -1);
@@ -16334,7 +16438,9 @@ static void test_find_process_by_name_survives_iterator_init_failure(void) {
         /*
          * The iterator init is forced to fail via the seam; with the fix
          * find_process_by_name() returns 0 and the child reaches _exit(0).
+         * The failure it reports on the way belongs to the test, not the log.
          */
+        test_mute_output();
         if (find_process_by_name("cpulimit_test_does_not_matter") != 0) {
             _exit(2);
         }
@@ -16758,7 +16864,10 @@ static void test_limit_process_scan_failed_and_stranded(void) {
     seam_fail_errno = EPERM;
     seam_fail_sig = SIGCONT;
 
+    /* The stranded-group warnings are the code's, not the test's report. */
+    test_mute_output();
     rc = limit_process(child, 0.01, 0, 0, 0);
+    test_unmute_output();
     assert(rc == LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED);
 
     kill(child, SIGKILL);
