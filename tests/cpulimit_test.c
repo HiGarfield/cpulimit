@@ -5337,24 +5337,25 @@ static void test_process_finder_find_by_pid(void) {
 }
 
 /* Defined further below, next to the tests that inspect the diagnostic. */
-static pid_t test_capture_find_by_name_message(const char *name, char **out);
+static int test_capture_find_by_name(const char *name, char **out);
 
 /**
  * @brief Run find_process_by_name() for a name that is meant to miss
  *
  * @param name Name to look up
- * @return What find_process_by_name() returned
+ * @return EXIT_SUCCESS when the lookup selected no target, non-zero when it
+ *         selected one
  *
  * The result is what the callers assert on; the diagnostic the resolver
  * prints for a miss says nothing more, and a single line carries the whole
  * name, which dwarfs the test log when the test binary has a long name.
  * The text is captured and dropped rather than left on stderr.
  */
-static pid_t test_find_process_by_name_muted(const char *name) {
+static int test_find_process_by_name_muted(const char *name) {
     char *capture = NULL;
-    pid_t found = test_capture_find_by_name_message(name, &capture);
+    int code = test_capture_find_by_name(name, &capture);
     free(capture);
-    return found;
+    return code;
 }
 
 /**
@@ -5372,6 +5373,7 @@ static void test_process_finder_find_by_name(void) {
     size_t len;
     pid_t found_pid;
     pid_t self_pid;
+    int miss_code;
 #if defined(__linux__)
     char abs_path[64];
 #endif /* __linux__ */
@@ -5420,8 +5422,8 @@ static void test_process_finder_find_by_name(void) {
      */
     strcpy(wrong_name, self_command); /* Copy the OS-visible command */
     strcat(wrong_name, "x");          /* Append 'x' to make it non-matching */
-    found_pid = test_find_process_by_name_muted(wrong_name);
-    assert(found_pid == 0);
+    miss_code = test_find_process_by_name_muted(wrong_name);
+    assert(miss_code == EXIT_SUCCESS);
 
     /*
      * Test Case 3: Pass a copy of the current process's command with
@@ -5431,8 +5433,8 @@ static void test_process_finder_find_by_name(void) {
     strcpy(wrong_name, self_command); /* Copy the OS-visible command */
     len = strlen(wrong_name);
     wrong_name[len - 1] = '\0'; /* Remove the last character */
-    found_pid = test_find_process_by_name_muted(wrong_name);
-    assert(found_pid == 0);
+    miss_code = test_find_process_by_name_muted(wrong_name);
+    assert(miss_code == EXIT_SUCCESS);
 
 #if defined(__linux__)
     /*
@@ -5444,8 +5446,8 @@ static void test_process_finder_find_by_name(void) {
      */
     snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
              (long)getpid());
-    found_pid = test_find_process_by_name_muted(abs_path);
-    assert(found_pid == 0);
+    miss_code = test_find_process_by_name_muted(abs_path);
+    assert(miss_code == EXIT_SUCCESS);
 #endif /* __linux__ */
 
     /*
@@ -15460,57 +15462,6 @@ static void test_exe_name_matching_init_rejected_at_argument_check(void) {
 #endif
 
 /**
- * @brief Run find_process_by_name() in this process, capturing its diagnostic
- *
- * @param name Name to look up
- * @param out Out: a heap buffer holding what the lookup printed on stderr,
- *        owned by the caller
- * @return What find_process_by_name() returned: 0 means no target was
- *         selected
- *
- * @note Unlike test_capture_find_by_name() this does not fork. The callers
- *       script the scan through the iterator seam, and that script lives in a
- *       heap snapshot a forked child would inherit and leave behind on
- *       _exit() as still reachable under valgrind. Redirecting this
- *       process's own stderr keeps the script in one process and still
- *       captures the diagnostic, which is the only observable difference
- *       between the two outcomes these tests separate.
- */
-static pid_t test_capture_find_by_name_message(const char *name, char **out) {
-    int saved_stderr;
-    int err_pipe[2];
-    char *capture;
-    ssize_t n_read;
-    pid_t found;
-    int assert_rc;
-
-    assert_rc = pipe(err_pipe);
-    assert(assert_rc == 0);
-    saved_stderr = dup(STDERR_FILENO);
-    assert(saved_stderr >= 0);
-    fflush(stderr);
-    assert_rc = dup2(err_pipe[1], STDERR_FILENO);
-    assert(assert_rc == STDERR_FILENO);
-    close(err_pipe[1]);
-    found = find_process_by_name(name);
-    fflush(stderr);
-    assert_rc = dup2(saved_stderr, STDERR_FILENO);
-    assert(assert_rc == STDERR_FILENO);
-    close(saved_stderr);
-
-    capture = (char *)malloc(TEST_CAPTURE_SIZE);
-    assert(capture != NULL);
-    n_read = read(err_pipe[0], capture, TEST_CAPTURE_SIZE - 1);
-    close(err_pipe[0]);
-    if (n_read < 0) {
-        n_read = 0;
-    }
-    capture[n_read] = '\0';
-    *out = capture;
-    return found;
-}
-
-/**
  * @brief A genuine miss says "cannot be found" even when the scan lists PID 1
  *
  * @note find_process_by_name() skips PID 1 silently no matter what name it
@@ -15519,14 +15470,19 @@ static pid_t test_capture_find_by_name_message(const char *name, char **out) {
  *       rejects it while its ppid is 0, which is why a plain Linux host never
  *       showed this, while proc_listpids() and kvm_getprocs() list it. The scan
  *       is therefore scripted, which puts PID 1 in the snapshot on every
- *       platform. Verified by mutation: making the skip conditional on the name
- *       would turn this lookup into an init match.
+ *       platform. Verified by mutation: having the skip announce the PID 1 it
+ *       drops makes this lookup report an init match.
+ *
+ * @note The scripted scan survives the capture's fork: the snapshot itself
+ *       lives in static storage, so the child runs the same script, while the
+ *       heap frame it was copied from is released first so the child does not
+ *       leave it behind as still reachable when it _exit()s.
  */
 static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
     struct seam_proc *frame;
     const char *assert_hit;
     char *capture = NULL;
-    pid_t found;
+    int code;
 
     frame = (struct seam_proc *)malloc(sizeof(*frame));
     assert(frame != NULL);
@@ -15537,13 +15493,14 @@ static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
 
     seam_reset();
     seam_push_frame(frame, 1);
-    seam_active = 1;
-    found = test_capture_find_by_name_message("nosuch_zz_xyz_nonexistent",
-                                              &capture);
-    seam_active = 0;
+    /* Copied into the snapshot above, so it is dead weight from here on --
+       and the child the capture forks must not inherit it. */
     free(frame);
+    seam_active = 1;
+    code = test_capture_find_by_name("nosuch_zz_xyz_nonexistent", &capture);
+    seam_active = 0;
 
-    assert(found == 0);
+    assert(code == EXIT_SUCCESS);
     assert(capture != NULL);
     assert_hit = strstr(capture, "cannot be found");
     assert(assert_hit != NULL);
