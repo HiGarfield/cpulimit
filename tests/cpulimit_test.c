@@ -9891,9 +9891,13 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
 #define SEAM_MAX_FRAMES 32
 
 /**
- * @brief Number of processes a single scripted snapshot can hold.
+ * @brief Number of processes a single scripted snapshot can hold
+ *
+ * One name lookup sees every process on the system in a single snapshot, so
+ * this has to exceed the number of same-named processes a test wants to
+ * script; 20 covers a group larger than any fixed candidate ceiling.
  */
-#define SEAM_MAX_FRAME_PROCS 8
+#define SEAM_MAX_FRAME_PROCS 20
 
 /**
  * @brief Number of scripted limit_process() outcomes a test can queue.
@@ -10617,6 +10621,63 @@ static void test_find_by_name_prefers_controllable_if_close_fails(void) {
  *
  * @param write_fd Where the child's stderr and its final report go
  * @param announce_fd Where the parked wait announces itself
+/**
+ * @brief find_process_by_name() must remember every same-named candidate
+ *
+ * @note The candidate list used to be a 16-entry array on the stack, and
+ *       every match past the 16th was dropped without a word. Nothing bounds
+ *       how many processes share one executable name, so that ceiling decided
+ *       which candidates the fallback could reach at all: with 20 matches and
+ *       the first 17 probes reporting the process gone, a capped list had
+ *       nothing left to fall back to and returned 0, throttling nothing while
+ *       looking like a successful lookup.
+ *
+ *       20 unrelated matches are scripted, so the preferred one is the
+ *       smallest PID. Every PID is fake, so is_child_of() finds no real
+ *       parent chain and unrelated survivors are ranked by smallest PID.
+ *       Verified by mutation: capping the list at 16 again makes this assert
+ *       0 == first + 17.
+ */
+static void test_find_by_name_keeps_every_candidate(void) {
+    pid_t result;
+    const int count = 20;
+    const pid_t first = (pid_t)SEAM_TARGET_PID;
+    struct seam_proc *frame;
+    int i;
+
+    frame = (struct seam_proc *)malloc((size_t)count * sizeof(*frame));
+    assert(frame != NULL);
+    memset(frame, 0, (size_t)count * sizeof(*frame));
+    for (i = 0; i < count; i++) {
+        frame[i].pid = (pid_t)(first + i);
+        frame[i].ppid = (pid_t)1;
+        strcpy(frame[i].command, "busy");
+    }
+
+    seam_reset();
+    seam_push_frame(frame, count);
+    seam_active = 1;
+    /*
+     * Probe 1 is the preferred match and probe 2 the first fallback candidate
+     * (the preferred one is skipped instead of probed twice), so probes 1
+     * through 17 cover the preferred match plus the first 16 candidates.
+     * Failing all of them with ESRCH leaves alive exactly the candidates a
+     * 16-entry array could not hold.
+     */
+    seam_fail_call = 1;
+    seam_fail_span = 17;
+    seam_fail_errno = ESRCH;
+    result = find_process_by_name("busy");
+    seam_active = 0;
+    seam_fail_call = 0;
+    seam_fail_span = 1;
+    seam_fail_errno = 0;
+    free(frame);
+
+    /* The 17th candidate is the smallest survivor, so it has to win. */
+    assert(result == (pid_t)(first + 17));
+}
+
  * @param go_fd Where the parked wait waits to be released
  * @param exe_mode Non-zero to search by name (-e), zero to name a PID (-p)
  *
@@ -17075,6 +17136,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_finder_find_by_name_symlink);
     RUN_TEST(test_process_finder_find_by_name_alias);
     RUN_TEST(test_process_finder_find_by_name_ancestor_pref);
+    RUN_TEST(test_find_by_name_keeps_every_candidate);
 
     /* Process group module tests */
     run_process_set_module_tests();
