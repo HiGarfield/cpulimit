@@ -34,7 +34,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PROC_FINDER_MAX_CANDIDATES 16
+/**
+ * @brief Number of candidate slots the fallback list starts with
+ *
+ * Only a starting size: the list doubles on demand, so the number of
+ * processes sharing one executable name is bounded by nothing and is not
+ * capped here.
+ */
+#define PROC_FINDER_INITIAL_CANDIDATES 8
 
 /**
  * @brief Check if a process exists and can be controlled by cpulimit
@@ -88,10 +95,17 @@ pid_t find_process_by_name(const char *process_name) {
     int found = 0;
     pid_t pid = 0;
     pid_t probe, best_pid, best_probe;
-    pid_t candidates[PROC_FINDER_MAX_CANDIDATES];
-    /* unsigned avoids a -Wstrict-overflow warning on the i + 1 bound below. */
-    unsigned int n_candidates = 0;
-    unsigned int i;
+    /*
+     * Every match is kept so a vanished winner can fall back to another live
+     * candidate. The list lives on the heap and doubles on demand, because
+     * nothing bounds how many processes share one executable name (20 python3
+     * interpreters, a pool of node workers, a batch of shell jobs) and a
+     * fixed ceiling would drop the tail of a large group without a word.
+     */
+    pid_t *candidates = NULL;
+    size_t n_candidates = 0;
+    size_t candidates_cap = 0;
+    size_t i;
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
@@ -173,18 +187,55 @@ pid_t find_process_by_name(const char *process_name) {
             }
             /*
              * Remember every match so a vanished winner can fall back to
-             * another live candidate. The array only caps the
-             * MEMORY of candidates: the primary selection above keeps
-             * running over every process, so with more than
-             * PROC_FINDER_MAX_CANDIDATES matches the winner is still
-             * chosen correctly and only a fallback could miss the ideal
-             * survivor. Deliberately not raised: it bounds one fixed
-             * array on the stack, and 16 simultaneous name matches is
-             * already far beyond realistic use.
+             * another live candidate. A dropped candidate is one the fallback
+             * can no longer reach, and reaching exactly those is the only job
+             * this list has, so the list grows instead of capping: the primary
+             * selection above would still pick the right winner with a fixed
+             * ceiling in place, which is what made the cap invisible.
              */
-            if (n_candidates < PROC_FINDER_MAX_CANDIDATES) {
-                candidates[n_candidates++] = proc->pid;
+            if (n_candidates == candidates_cap) {
+                size_t size_max = 0;
+                size_t new_cap;
+                pid_t *grown;
+                /*
+                 * Largest value size_t can hold, obtained by unsigned
+                 * wraparound: 0 decremented once is reduced modulo one greater
+                 * than the largest representable value (C89 6.1.2.1), which
+                 * yields 2^N - 1 in every integer representation. Deliberately
+                 * not spelled (size_t)-1: C89 6.3.1.3 calls an out-of-range
+                 * signed-to-unsigned conversion implementation-defined, while
+                 * the wraparound form never performs one.
+                 */
+                size_max--;
+                new_cap = candidates_cap != 0 ? candidates_cap * 2
+                                              : PROC_FINDER_INITIAL_CANDIDATES;
+                /*
+                 * Two ways to run out: the doubling wraps around, which a
+                 * capacity below the current one can only mean, or the byte
+                 * count would not fit into a size_t.
+                 */
+                if (new_cap < candidates_cap ||
+                    new_cap > size_max / sizeof(*candidates)) {
+                    fprintf(stderr, "Too many processes named '%s'\n",
+                            process_cmp_name);
+                    free(candidates);
+                    free(proc);
+                    close_process_iterator(&iter);
+                    return 0;
+                }
+                grown = (pid_t *)realloc(candidates, new_cap * sizeof(*grown));
+                if (grown == NULL) {
+                    fprintf(stderr,
+                            "Memory allocation failed for the candidates\n");
+                    free(candidates);
+                    free(proc);
+                    close_process_iterator(&iter);
+                    return 0;
+                }
+                candidates = grown;
+                candidates_cap = new_cap;
             }
+            candidates[n_candidates++] = proc->pid;
         }
     }
     free(proc);
@@ -221,11 +272,13 @@ pid_t find_process_by_name(const char *process_name) {
      * to be controllable.
      */
     if (n_candidates == 0) {
+        free(candidates);
         fprintf(stderr, "Process '%s' cannot be found\n", process_cmp_name);
         return 0;
     }
     probe = find_process_by_pid(pid);
     if (probe > 0) {
+        free(candidates);
         return probe;
     }
     best_pid = 0;
@@ -267,6 +320,7 @@ pid_t find_process_by_name(const char *process_name) {
             best_probe = probe;
         }
     }
+    free(candidates);
     return best_probe;
 }
 
