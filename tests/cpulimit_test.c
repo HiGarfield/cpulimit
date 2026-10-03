@@ -15473,10 +15473,12 @@ static void test_exe_name_matching_init_rejected_at_argument_check(void) {
  *       platform. Verified by mutation: having the skip announce the PID 1 it
  *       drops makes this lookup report an init match.
  *
- * @note The scripted scan survives the capture's fork: the snapshot itself
- *       lives in static storage, so the child runs the same script, while the
- *       heap frame it was copied from is released first so the child does not
- *       leave it behind as still reachable when it _exit()s.
+ * @note The scripted scan survives the capture's fork: the snapshot is
+ *       anonymous mmap()ed storage, which the child inherits and reuses while
+ *       staying invisible to valgrind's malloc-leak check. The heap frame it
+ *       was copied from is released before the capture instead: leaving it
+ *       allocated until afterwards makes the child _exit() still holding it,
+ *       which valgrind reports as 4,120 bytes still reachable in that child.
  */
 static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
     struct seam_proc *frame;
