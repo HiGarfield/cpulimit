@@ -9757,12 +9757,20 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  *  @brief Macro to run a test function and print its status
  *
  *  @param test_func Name of the test function to run
+ *
+ *  Each status line is flushed as soon as it is printed. stdout is
+ *  block-buffered whenever it is not a terminal and stderr is not, so a test
+ *  that writes a diagnostic to stderr would otherwise have that text reach the
+ *  log before the buffered status lines surrounding it -- the error then reads
+ *  as if it belonged to the test before the one that printed it.
  */
 #define RUN_TEST(test_func)                                                    \
     do {                                                                       \
         printf("Running %s()...\n", #test_func);                               \
+        fflush(stdout);                                                        \
         test_invoke_indirect(test_func);                                       \
         printf("%s() passed.\n", #test_func);                                  \
+        fflush(stdout);                                                        \
     } while (0)
 
 /***************************************************************************
