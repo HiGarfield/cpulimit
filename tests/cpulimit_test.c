@@ -15106,9 +15106,12 @@ static void test_sleep_timespec_returns_early_on_signal(void) {
  *
  * @note Grouped in a helper rather than inlined in main() so that main()
  *       stays under the clang-tidy readability-function-size threshold; the
- *       suite had grown past it one test at a time.
+ *       suite had grown past it one test at a time. The banner moved in here
+ *       from main() when the other modules were grouped the same way, so that
+ *       every module prints its own heading and main() only dispatches.
  */
 static void run_cli_tests(void) {
+    printf("\n=== CLI MODULE TESTS ===\n");
     RUN_TEST(test_cli_pid_mode);
     RUN_TEST(test_cli_exe_mode);
     RUN_TEST(test_cli_command_mode);
@@ -16989,6 +16992,261 @@ static void test_reap_before_error_return_does_not_block(void) {
 }
 
 /**
+ * @brief Run the TIME_UTIL MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_time_util_module_tests(void) {
+    printf("\n=== TIME_UTIL MODULE TESTS ===\n");
+    RUN_TEST(test_time_util_nsec_to_timespec);
+    RUN_TEST(test_time_util_get_current_time);
+    RUN_TEST(test_time_util_sleep_timespec);
+    RUN_TEST(test_time_util_timediff_in_ms);
+#if defined(__APPLE__)
+    RUN_TEST(test_apple_proc_argv0_buffer_sizing);
+#endif
+}
+
+/**
+ * @brief Run the UTIL MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_util_module_tests(void) {
+    printf("\n=== UTIL MODULE TESTS ===\n");
+    RUN_TEST(test_util_get_file_basename);
+    RUN_TEST(test_util_get_ncpu);
+    RUN_TEST(test_util_increase_priority);
+    RUN_TEST(test_util_increase_priority_retries_lower_levels);
+    RUN_TEST(test_util_burner_leaves_realtime_class);
+    RUN_TEST(test_util_realtime_does_not_reach_children);
+    RUN_TEST(test_util_long_to_pid_t);
+#if defined(__linux__)
+    RUN_TEST(test_util_read_file_contents);
+    RUN_TEST(test_util_parse_cpu_range);
+#endif
+    RUN_TEST(test_util_macros);
+}
+
+/**
+ * @brief Run the LIST MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_list_module_tests(void) {
+    printf("\n=== LIST MODULE TESTS ===\n");
+    RUN_TEST(test_list_init_and_empty);
+    RUN_TEST(test_list_add_list_elem);
+    RUN_TEST(test_list_delete_list_node);
+    RUN_TEST(test_list_destroy_list_node);
+    RUN_TEST(test_list_clear_and_destroy);
+    RUN_TEST(test_list_edge_cases);
+    RUN_TEST(test_list_find_process_in_list_by_pid);
+    RUN_TEST(test_list_null_data_operations);
+}
+
+/**
+ * @brief Run the SIGNAL_HANDLER MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_signal_handler_module_tests(void) {
+    printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
+    RUN_TEST(test_signal_handler_flags);
+    RUN_TEST(test_signal_handler_sigquit);
+    RUN_TEST(test_signal_handler_sighup);
+    RUN_TEST(test_signal_handler_sigpipe);
+    RUN_TEST(test_signal_handler_initial_state);
+    RUN_TEST(test_signal_handler_get_quit_signal);
+    RUN_TEST(test_signal_handler_finish_tty_quit_line);
+    RUN_TEST(test_signal_handler_reconfigure_resets_state);
+    RUN_TEST(test_signal_handler_mask_restored_after_configure);
+    RUN_TEST(test_signal_handler_reconfigure_delivers_pending);
+    RUN_TEST(test_signal_handler_reset_to_default);
+    RUN_TEST(test_signal_handler_race_concurrent_signals);
+    RUN_TEST(test_signal_handler_race_signal_interrupts_sleep);
+    RUN_TEST(test_signal_handler_race_rapid_all_signals);
+}
+
+/**
+ * @brief Run the PROCESS_ITERATOR MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_process_iterator_module_tests(void) {
+    printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
+    RUN_TEST(test_process_iterator_is_child_of);
+    RUN_TEST(test_process_iterator_is_child_of_deep);
+    RUN_TEST(test_is_child_of_kernel_thread_not_child_of_init);
+    RUN_TEST(test_process_iterator_newline_comm);
+    RUN_TEST(test_process_iterator_filter_edge_cases);
+    RUN_TEST(test_process_iterator_single);
+    RUN_TEST(test_process_iterator_multiple);
+    RUN_TEST(test_process_iterator_all);
+    RUN_TEST(test_process_iterator_read_command);
+    RUN_TEST(test_process_iterator_getppid_of);
+    RUN_TEST(test_process_iterator_null_inputs);
+    RUN_TEST(test_process_iterator_close_null);
+    RUN_TEST(test_process_iterator_getppid_of_edges);
+    RUN_TEST(test_process_iterator_init_all_with_children);
+    RUN_TEST(test_process_iterator_exhaust_single);
+    RUN_TEST(test_process_iterator_with_children);
+    RUN_TEST(test_process_iterator_close_null_dip);
+    RUN_TEST(test_process_iterator_null_proc_dir_guard);
+}
+
+/**
+ * @brief Run the PROCESS_TABLE MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_process_table_module_tests(void) {
+    printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
+    RUN_TEST(test_process_table_init_destroy);
+    RUN_TEST(test_process_table_init_reports_alloc_failure);
+    RUN_TEST(test_process_table_add_contract);
+    RUN_TEST(test_process_table_add_find);
+    RUN_TEST(test_process_table_del);
+    RUN_TEST(test_process_table_remove_stale);
+    RUN_TEST(test_process_table_remove_stale_null_data);
+    RUN_TEST(test_process_table_collisions);
+    RUN_TEST(test_process_table_empty_buckets);
+    RUN_TEST(test_process_table_null_inputs_and_dup);
+    RUN_TEST(test_process_table_stale_null_list);
+    RUN_TEST(test_process_table_init_hashsize_zero);
+    RUN_TEST(test_process_table_find_null_pt);
+    RUN_TEST(test_process_table_del_absent_pid);
+    RUN_TEST(test_process_table_del_empty_bucket);
+    RUN_TEST(test_process_table_destroy_edge_cases);
+    RUN_TEST(test_process_table_ops_after_destroy);
+}
+
+/**
+ * @brief Run the PROCESS_FINDER MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_process_finder_module_tests(void) {
+    printf("\n=== PROCESS_FINDER MODULE TESTS ===\n");
+    RUN_TEST(test_process_finder_find_by_pid);
+    RUN_TEST(test_process_finder_find_by_pid_reports_eacces);
+    RUN_TEST(test_process_finder_find_by_name_reports_permission_denied);
+    RUN_TEST(test_find_by_name_probes_even_if_iterator_close_fails);
+    RUN_TEST(test_find_by_name_prefers_controllable_if_close_fails);
+    RUN_TEST(test_find_by_name_keeps_every_candidate);
+    RUN_TEST(test_process_finder_find_by_name);
+    RUN_TEST(test_process_finder_find_by_name_self);
+    RUN_TEST(test_process_finder_find_by_name_symlink);
+    RUN_TEST(test_process_finder_find_by_name_alias);
+    RUN_TEST(test_process_finder_find_by_name_ancestor_pref);
+}
+
+/**
+ * @brief Run the LIMIT_PROCESS MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_limit_process_module_tests(void) {
+    printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
+    RUN_TEST(test_limit_process_basic);
+    RUN_TEST(test_limit_process_exits_early);
+    RUN_TEST(test_limit_process_verbose);
+    RUN_TEST(test_limit_process_include_children);
+    RUN_TEST(test_limit_process_resumes_orphaned_descendant);
+    RUN_TEST(test_limit_process_race_process_exits_on_sigcont);
+    RUN_TEST(test_limit_process_race_quit_during_sleep);
+}
+
+/**
+ * @brief Run the LIMITER MODULE TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_limiter_module_tests(void) {
+    printf("\n=== LIMITER MODULE TESTS ===\n");
+    RUN_TEST(test_limiter_run_command_mode);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode);
+    RUN_TEST(test_limiter_run_command_mode_nonexistent);
+    RUN_TEST(test_limiter_run_command_mode_bad_shebang);
+    RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
+    RUN_TEST(test_limiter_run_command_mode_fifo);
+    RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
+    RUN_TEST(test_limiter_run_command_mode_forwards_signal_without_group);
+    RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_inaccessible);
+    RUN_TEST(test_limiter_run_command_mode_verbose);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_waits_without_target);
+    RUN_TEST(test_limiter_non_lazy_keeps_watching_after_no_target);
+    RUN_TEST(test_limiter_pid_mode_is_always_lazy);
+    RUN_TEST(test_limiter_pid_mode_refusal_ends_run);
+    RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
+    RUN_TEST(test_limiter_run_command_mode_false);
+    RUN_TEST(test_limiter_run_command_mode_signal_term);
+    RUN_TEST(test_limiter_run_command_mode_signal_kill);
+    RUN_TEST(test_limiter_run_command_mode_signal_segv);
+    RUN_TEST(test_limiter_run_command_mode_not_executable);
+    RUN_TEST(test_limiter_run_command_mode_path_name_not_found);
+    RUN_TEST(test_limiter_run_command_mode_with_fork);
+    RUN_TEST(test_limiter_run_command_mode_quit_signal);
+    RUN_TEST(test_limiter_run_command_mode_reports_child_exit_on_limit_failure);
+    RUN_TEST(test_limiter_run_command_mode_signal_forwarding);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_quit);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_self);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
+    RUN_TEST(test_limiter_race_quit_flag_preset_before_limit);
+    RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
+    RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
+    RUN_TEST(test_child_wait_sigkill_escalation);
+    RUN_TEST(test_child_wait_resumes_on_clock_failure);
+    RUN_TEST(test_child_wait_reaps_child_on_clock_failure);
+    RUN_TEST(test_child_wait_reap_does_not_block_before_quit);
+    RUN_TEST(test_child_wait_reap_does_not_block_in_poll);
+    RUN_TEST(test_child_wait_escalates_sigkill_once);
+    RUN_TEST(test_sleep_timespec_returns_early_on_signal);
+    /* Deterministic timing seam tests */
+}
+
+/**
+ * @brief Run the TIMING SEAM TESTS tests
+ *
+ * @note Grouped in a helper rather than inlined in main(), which then
+ *       dispatches one call per module and stays under the clang-tidy
+ *       readability-function-size threshold; see run_cli_tests().
+ */
+static void run_timing_seam_tests(void) {
+    printf("\n=== TIMING SEAM TESTS ===\n");
+    RUN_TEST(test_seam_limit_process_is_deterministic);
+    RUN_TEST(test_seam_stopped_pid_bookkeeping);
+    RUN_TEST(test_seam_failed_resume_is_not_retried);
+    RUN_TEST(test_seam_stop_round_partial_failure);
+    RUN_TEST(test_seam_quit_in_limit_process_forwards_once);
+    RUN_TEST(test_seam_quit_in_collect_forwards_once);
+    RUN_TEST(test_seam_undeliverable_forward_is_not_retried);
+    RUN_TEST(test_seam_quit_while_parked_in_sleep);
+    RUN_TEST(test_seam_quit_while_pid_mode_retries);
+    RUN_TEST(test_resume_warning_gate_counts_severity_levels);
+}
+
+/**
  * @brief Main test function
  *
  * @param argc Argument count
@@ -17031,187 +17289,19 @@ int main(int argc, char *argv[]) {
     configure_signal_handler();
     printf("Starting tests...\n");
 
-    /* Time util module tests */
-    printf("\n=== TIME_UTIL MODULE TESTS ===\n");
-    RUN_TEST(test_time_util_nsec_to_timespec);
-    RUN_TEST(test_time_util_get_current_time);
-    RUN_TEST(test_time_util_sleep_timespec);
-    RUN_TEST(test_time_util_timediff_in_ms);
-#if defined(__APPLE__)
-    RUN_TEST(test_apple_proc_argv0_buffer_sizing);
-#endif
-
-    /* Util module tests */
-    printf("\n=== UTIL MODULE TESTS ===\n");
-    RUN_TEST(test_util_get_file_basename);
-    RUN_TEST(test_util_get_ncpu);
-    RUN_TEST(test_util_increase_priority);
-    RUN_TEST(test_util_increase_priority_retries_lower_levels);
-    RUN_TEST(test_util_burner_leaves_realtime_class);
-    RUN_TEST(test_util_realtime_does_not_reach_children);
-    RUN_TEST(test_util_long_to_pid_t);
-#if defined(__linux__)
-    RUN_TEST(test_util_read_file_contents);
-    RUN_TEST(test_util_parse_cpu_range);
-#endif
-    RUN_TEST(test_util_macros);
-
-    /* List module tests */
-    printf("\n=== LIST MODULE TESTS ===\n");
-    RUN_TEST(test_list_init_and_empty);
-    RUN_TEST(test_list_add_list_elem);
-    RUN_TEST(test_list_delete_list_node);
-    RUN_TEST(test_list_destroy_list_node);
-    RUN_TEST(test_list_clear_and_destroy);
-    RUN_TEST(test_list_edge_cases);
-    RUN_TEST(test_list_find_process_in_list_by_pid);
-    RUN_TEST(test_list_null_data_operations);
-
-    /* Signal handler module tests */
-    printf("\n=== SIGNAL_HANDLER MODULE TESTS ===\n");
-    RUN_TEST(test_signal_handler_flags);
-    RUN_TEST(test_signal_handler_sigquit);
-    RUN_TEST(test_signal_handler_sighup);
-    RUN_TEST(test_signal_handler_sigpipe);
-    RUN_TEST(test_signal_handler_initial_state);
-    RUN_TEST(test_signal_handler_get_quit_signal);
-    RUN_TEST(test_signal_handler_finish_tty_quit_line);
-    RUN_TEST(test_signal_handler_reconfigure_resets_state);
-    RUN_TEST(test_signal_handler_mask_restored_after_configure);
-    RUN_TEST(test_signal_handler_reconfigure_delivers_pending);
-    RUN_TEST(test_signal_handler_reset_to_default);
-    RUN_TEST(test_signal_handler_race_concurrent_signals);
-    RUN_TEST(test_signal_handler_race_signal_interrupts_sleep);
-    RUN_TEST(test_signal_handler_race_rapid_all_signals);
-
-    /* Process iterator module tests */
-    printf("\n=== PROCESS_ITERATOR MODULE TESTS ===\n");
-    RUN_TEST(test_process_iterator_is_child_of);
-    RUN_TEST(test_process_iterator_is_child_of_deep);
-    RUN_TEST(test_is_child_of_kernel_thread_not_child_of_init);
-    RUN_TEST(test_process_iterator_newline_comm);
-    RUN_TEST(test_process_iterator_filter_edge_cases);
-    RUN_TEST(test_process_iterator_single);
-    RUN_TEST(test_process_iterator_multiple);
-    RUN_TEST(test_process_iterator_all);
-    RUN_TEST(test_process_iterator_read_command);
-    RUN_TEST(test_process_iterator_getppid_of);
-    RUN_TEST(test_process_iterator_null_inputs);
-    RUN_TEST(test_process_iterator_close_null);
-    RUN_TEST(test_process_iterator_getppid_of_edges);
-    RUN_TEST(test_process_iterator_init_all_with_children);
-    RUN_TEST(test_process_iterator_exhaust_single);
-    RUN_TEST(test_process_iterator_with_children);
-    RUN_TEST(test_process_iterator_close_null_dip);
-    RUN_TEST(test_process_iterator_null_proc_dir_guard);
-
-    /* CLI module tests */
-    printf("\n=== CLI MODULE TESTS ===\n");
+    run_time_util_module_tests();
+    run_util_module_tests();
+    run_list_module_tests();
+    run_signal_handler_module_tests();
+    run_process_iterator_module_tests();
     run_cli_tests();
-
-    /* Process table module tests */
-    printf("\n=== PROCESS_TABLE MODULE TESTS ===\n");
-    RUN_TEST(test_process_table_init_destroy);
-    RUN_TEST(test_process_table_init_reports_alloc_failure);
-    RUN_TEST(test_process_table_add_contract);
-    RUN_TEST(test_process_table_add_find);
-    RUN_TEST(test_process_table_del);
-    RUN_TEST(test_process_table_remove_stale);
-    RUN_TEST(test_process_table_remove_stale_null_data);
-    RUN_TEST(test_process_table_collisions);
-    RUN_TEST(test_process_table_empty_buckets);
-    RUN_TEST(test_process_table_null_inputs_and_dup);
-    RUN_TEST(test_process_table_stale_null_list);
-    RUN_TEST(test_process_table_init_hashsize_zero);
-    RUN_TEST(test_process_table_find_null_pt);
-    RUN_TEST(test_process_table_del_absent_pid);
-    RUN_TEST(test_process_table_del_empty_bucket);
-    RUN_TEST(test_process_table_destroy_edge_cases);
-    RUN_TEST(test_process_table_ops_after_destroy);
-
-    /* Process finder module tests */
-    printf("\n=== PROCESS_FINDER MODULE TESTS ===\n");
-    RUN_TEST(test_process_finder_find_by_pid);
-    RUN_TEST(test_process_finder_find_by_pid_reports_eacces);
-    RUN_TEST(test_process_finder_find_by_name_reports_permission_denied);
-    RUN_TEST(test_find_by_name_probes_even_if_iterator_close_fails);
-    RUN_TEST(test_find_by_name_prefers_controllable_if_close_fails);
-    RUN_TEST(test_find_by_name_keeps_every_candidate);
-    RUN_TEST(test_process_finder_find_by_name);
-    RUN_TEST(test_process_finder_find_by_name_self);
-    RUN_TEST(test_process_finder_find_by_name_symlink);
-    RUN_TEST(test_process_finder_find_by_name_alias);
-    RUN_TEST(test_process_finder_find_by_name_ancestor_pref);
-
-    /* Process group module tests */
+    run_process_table_module_tests();
+    run_process_finder_module_tests();
     run_process_set_module_tests();
+    run_limit_process_module_tests();
+    run_limiter_module_tests();
+    run_timing_seam_tests();
 
-    /* Limit process module tests */
-    printf("\n=== LIMIT_PROCESS MODULE TESTS ===\n");
-    RUN_TEST(test_limit_process_basic);
-    RUN_TEST(test_limit_process_exits_early);
-    RUN_TEST(test_limit_process_verbose);
-    RUN_TEST(test_limit_process_include_children);
-    RUN_TEST(test_limit_process_resumes_orphaned_descendant);
-    RUN_TEST(test_limit_process_race_process_exits_on_sigcont);
-    RUN_TEST(test_limit_process_race_quit_during_sleep);
-
-    /* Limiter module tests */
-    printf("\n=== LIMITER MODULE TESTS ===\n");
-    RUN_TEST(test_limiter_run_command_mode);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode);
-    RUN_TEST(test_limiter_run_command_mode_nonexistent);
-    RUN_TEST(test_limiter_run_command_mode_bad_shebang);
-    RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
-    RUN_TEST(test_limiter_run_command_mode_fifo);
-    RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
-    RUN_TEST(test_limiter_run_command_mode_forwards_signal_without_group);
-    RUN_TEST(test_limiter_run_command_mode_shebang_interpreter_inaccessible);
-    RUN_TEST(test_limiter_run_command_mode_verbose);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_waits_without_target);
-    RUN_TEST(test_limiter_non_lazy_keeps_watching_after_no_target);
-    RUN_TEST(test_limiter_pid_mode_is_always_lazy);
-    RUN_TEST(test_limiter_pid_mode_refusal_ends_run);
-    RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
-
-    RUN_TEST(test_limiter_run_command_mode_false);
-    RUN_TEST(test_limiter_run_command_mode_signal_term);
-    RUN_TEST(test_limiter_run_command_mode_signal_kill);
-    RUN_TEST(test_limiter_run_command_mode_signal_segv);
-    RUN_TEST(test_limiter_run_command_mode_not_executable);
-    RUN_TEST(test_limiter_run_command_mode_path_name_not_found);
-    RUN_TEST(test_limiter_run_command_mode_with_fork);
-    RUN_TEST(test_limiter_run_command_mode_quit_signal);
-    RUN_TEST(test_limiter_run_command_mode_reports_child_exit_on_limit_failure);
-    RUN_TEST(test_limiter_run_command_mode_signal_forwarding);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_quit);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_found);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_self);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
-    RUN_TEST(test_limiter_race_quit_flag_preset_before_limit);
-    RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
-    RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
-    RUN_TEST(test_child_wait_sigkill_escalation);
-    RUN_TEST(test_child_wait_resumes_on_clock_failure);
-    RUN_TEST(test_child_wait_reaps_child_on_clock_failure);
-    RUN_TEST(test_child_wait_reap_does_not_block_before_quit);
-    RUN_TEST(test_child_wait_reap_does_not_block_in_poll);
-    RUN_TEST(test_child_wait_escalates_sigkill_once);
-    RUN_TEST(test_sleep_timespec_returns_early_on_signal);
-
-    /* Deterministic timing seam tests */
-    printf("\n=== TIMING SEAM TESTS ===\n");
-    RUN_TEST(test_seam_limit_process_is_deterministic);
-    RUN_TEST(test_seam_stopped_pid_bookkeeping);
-    RUN_TEST(test_seam_failed_resume_is_not_retried);
-    RUN_TEST(test_seam_stop_round_partial_failure);
-    RUN_TEST(test_seam_quit_in_limit_process_forwards_once);
-    RUN_TEST(test_seam_quit_in_collect_forwards_once);
-    RUN_TEST(test_seam_undeliverable_forward_is_not_retried);
-    RUN_TEST(test_seam_quit_while_parked_in_sleep);
-    RUN_TEST(test_seam_quit_while_pid_mode_retries);
-    RUN_TEST(test_resume_warning_gate_counts_severity_levels);
     printf("\n=== ALL TESTS PASSED ===\n");
 
     return 0;
