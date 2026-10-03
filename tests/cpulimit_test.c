@@ -5403,26 +5403,32 @@ static void test_process_finder_find_by_pid(void) {
     assert(result == 0);
 }
 
-/* Defined further below, next to the tests that inspect the diagnostic. */
-static int test_capture_find_by_name(const char *name, char **out);
-
 /**
  * @brief Run find_process_by_name() for a name that is meant to miss
  *
  * @param name Name to look up
- * @return EXIT_SUCCESS when the lookup selected no target, non-zero when it
- *         selected one
+ * @return What find_process_by_name() returned, which every caller asserts
+ *         is 0
  *
  * The result is what the callers assert on; the diagnostic the resolver
  * prints for a miss says nothing more, and a single line carries the whole
  * name, which dwarfs the test log when the test binary has a long name.
- * The text is captured and dropped rather than left on stderr.
+ *
+ * @note The lookup is made in place rather than in a child that captures the
+ *       text, because only the return value was ever used here. A forked
+ *       child would inherit this test's own buffers and leave through
+ *       _exit() without freeing them, which valgrind then reports as still
+ *       reachable in that child -- the trap test_capture_find_by_name()
+ *       documents for its own buffer. The tests that do inspect the text
+ *       keep the capture.
  */
-static int test_find_process_by_name_muted(const char *name) {
-    char *capture = NULL;
-    int code = test_capture_find_by_name(name, &capture);
-    free(capture);
-    return code;
+static pid_t test_find_process_by_name_miss(const char *name) {
+    pid_t found;
+
+    test_mute_output();
+    found = find_process_by_name(name);
+    test_unmute_output();
+    return found;
 }
 
 /**
@@ -5440,7 +5446,6 @@ static void test_process_finder_find_by_name(void) {
     size_t len;
     pid_t found_pid;
     pid_t self_pid;
-    int miss_code;
 #if defined(__linux__)
     char abs_path[64];
 #endif /* __linux__ */
@@ -5489,8 +5494,8 @@ static void test_process_finder_find_by_name(void) {
      */
     strcpy(wrong_name, self_command); /* Copy the OS-visible command */
     strcat(wrong_name, "x");          /* Append 'x' to make it non-matching */
-    miss_code = test_find_process_by_name_muted(wrong_name);
-    assert(miss_code == EXIT_SUCCESS);
+    found_pid = test_find_process_by_name_miss(wrong_name);
+    assert(found_pid == 0);
 
     /*
      * Test Case 3: Pass a copy of the current process's command with
@@ -5500,8 +5505,8 @@ static void test_process_finder_find_by_name(void) {
     strcpy(wrong_name, self_command); /* Copy the OS-visible command */
     len = strlen(wrong_name);
     wrong_name[len - 1] = '\0'; /* Remove the last character */
-    miss_code = test_find_process_by_name_muted(wrong_name);
-    assert(miss_code == EXIT_SUCCESS);
+    found_pid = test_find_process_by_name_miss(wrong_name);
+    assert(found_pid == 0);
 
 #if defined(__linux__)
     /*
@@ -5513,8 +5518,8 @@ static void test_process_finder_find_by_name(void) {
      */
     snprintf(abs_path, sizeof(abs_path), "/nonexistent/cpulimit_abs_%ld",
              (long)getpid());
-    miss_code = test_find_process_by_name_muted(abs_path);
-    assert(miss_code == EXIT_SUCCESS);
+    found_pid = test_find_process_by_name_miss(abs_path);
+    assert(found_pid == 0);
 #endif /* __linux__ */
 
     /*
@@ -10617,11 +10622,6 @@ static void test_find_by_name_prefers_controllable_if_close_fails(void) {
 }
 
 /**
- * @brief Drive a run whose target exists but refuses every signal
- *
- * @param write_fd Where the child's stderr and its final report go
- * @param announce_fd Where the parked wait announces itself
-/**
  * @brief find_process_by_name() must remember every same-named candidate
  *
  * @note The candidate list used to be a 16-entry array on the stack, and
@@ -10678,6 +10678,11 @@ static void test_find_by_name_keeps_every_candidate(void) {
     assert(result == (pid_t)(first + 17));
 }
 
+/**
+ * @brief Drive a run whose target exists but refuses every signal
+ *
+ * @param write_fd Where the child's stderr and its final report go
+ * @param announce_fd Where the parked wait announces itself
  * @param go_fd Where the parked wait waits to be released
  * @param exe_mode Non-zero to search by name (-e), zero to name a PID (-p)
  *
@@ -17131,12 +17136,12 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_process_finder_find_by_name_reports_permission_denied);
     RUN_TEST(test_find_by_name_probes_even_if_iterator_close_fails);
     RUN_TEST(test_find_by_name_prefers_controllable_if_close_fails);
+    RUN_TEST(test_find_by_name_keeps_every_candidate);
     RUN_TEST(test_process_finder_find_by_name);
     RUN_TEST(test_process_finder_find_by_name_self);
     RUN_TEST(test_process_finder_find_by_name_symlink);
     RUN_TEST(test_process_finder_find_by_name_alias);
     RUN_TEST(test_process_finder_find_by_name_ancestor_pref);
-    RUN_TEST(test_find_by_name_keeps_every_candidate);
 
     /* Process group module tests */
     run_process_set_module_tests();
