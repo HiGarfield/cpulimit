@@ -28,6 +28,7 @@
 #include "cpu_count.h"
 #include "file_io.h"
 #include "path_util.h"
+#include "process_finder.h"
 #include "util.h"
 
 #include <ctype.h>
@@ -210,27 +211,31 @@ static int validate_target_options(const struct cpulimit_cfg *cfg) {
 
 #if defined(__linux__)
 /**
- * @brief Refuse a name target that resolves to PID 1 (init) at argument time
+ * @brief Refuse a name target that leads nowhere but PID 1 (init)
  *
  * @param cfg Pointer to the configuration naming the target
- * @return 0 when the target is not init, EXIT_FAILURE when -e named init
+ * @return 0 when the target may still lead somewhere, EXIT_FAILURE when -e
+ *         named init and nothing else carries the name
  *
  * PID 1 is never a valid target on any platform, and that rejection must
  * happen here -- before the limiter starts -- not deep in
  * find_process_by_name() where it would run on every watch-loop scan. We read
  * init's argv[0] once from /proc/1/cmdline and compare it the same way
- * find_process_by_name() does (full path for an absolute name, basename
- * otherwise), so a name that would only ever resolve to init is refused up
- * front with one clear error. The finder still skips PID 1 silently as a
- * defense-in-depth guard; this is the operator-visible refusal. macOS and
- * FreeBSD have no /proc/1/cmdline, so the finder's silent exclusion is their
- * only guard and this check is compiled out there.
+ * find_process_by_name() compares every process, through
+ * process_name_matches_cmd().
+ *
+ * Sharing the name is enough to be refused -- but not enough to refuse: the
+ * lookup skips PID 1 on every platform, so a name init wears can still have
+ * ordinary processes behind it, and those are limitable targets like any
+ * other. Only when nothing else wears it does the name have nowhere left to
+ * go, and only then is a refusal worth more than the "cannot be found" line
+ * the first attempt would print anyway. macOS and FreeBSD have no
+ * /proc/1/cmdline, so the finder's silent exclusion is their only guard and
+ * this check is compiled out there; they never refuse the name, and simply
+ * find whatever else is wearing it.
  */
 static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
     char *cmdline;
-    const char *init_argv0;
-    const char *cmp_name;
-    int full_path_cmp;
 
     if (cfg->exe_name == NULL) {
         return 0;
@@ -240,25 +245,18 @@ static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
         return 0;
     }
     /*
-     * /proc/1/cmdline is argv[0]\0argv[1]\0...; compare only argv[0].
-     * init_argv0 points into cmdline, which is NUL-terminated after argv[0],
-     * so strcmp()/get_file_basename() stop at the first NUL as required.
+     * /proc/1/cmdline is argv[0]\0argv[1]\0...; cmdline points at argv[0] and
+     * stops at the first NUL, which is all the comparison may read.
      */
-    init_argv0 = cmdline;
-    full_path_cmp = cfg->exe_name[0] == '/';
-    cmp_name = full_path_cmp ? cfg->exe_name : get_file_basename(cfg->exe_name);
-    if (cmp_name[0] != '\0') {
-        const char *init_cmp =
-            full_path_cmp ? init_argv0 : get_file_basename(init_argv0);
-        if (init_cmp[0] != '\0' && strcmp(init_cmp, cmp_name) == 0) {
-            fprintf(stderr,
-                    "Error: target name '%s' resolves to PID 1 (init), "
-                    "which is never a valid target\n\n",
-                    cfg->exe_name);
-            print_usage(stderr, cfg);
-            free(cmdline);
-            return EXIT_FAILURE;
-        }
+    if (process_name_matches_cmd(cfg->exe_name, cmdline) &&
+        !process_name_has_non_init_match(cfg->exe_name)) {
+        fprintf(stderr,
+                "Error: target name '%s' resolves to PID 1 (init), "
+                "which is never a valid target\n\n",
+                cfg->exe_name);
+        print_usage(stderr, cfg);
+        free(cmdline);
+        return EXIT_FAILURE;
     }
     free(cmdline);
     return 0;
