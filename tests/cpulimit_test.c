@@ -15770,6 +15770,81 @@ static void test_exe_name_matching_init_rejected_at_argument_check(void) {
     free(cmdline);
 }
 
+/**
+ * @brief A name init shares with another process is still a usable target
+ *
+ * @note Sharing a name with PID 1 cannot be refused on its own: the lookup
+ *       skips PID 1 on every platform (see test_find_process_by_name_miss_
+ *       ignores_enumerated_init), so such a name can never resolve to init and
+ *       whatever else wears it is limitable like any other process. The Linux
+ *       refusal therefore has to consult the system first, and the seam puts
+ *       one ordinary process behind the name to force that answer. The
+ *       argument is the full argv[0] init reports, which is also the spelling
+ *       compared in full rather than by basename.
+ *
+ *       Verified by mutation: refusing the name on a match alone -- dropping
+ *       process_name_has_non_init_match() from the condition in cli.c -- makes
+ *       this parse_arguments() return EXIT_FAILURE.
+ */
+static void test_exe_name_shared_with_init_still_accepted(void) {
+    struct seam_proc *frame;
+    char *cmdline;
+    char *init_arg;
+    char *argv[6];
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_e[] = "-e";
+    struct cpulimit_cfg cfg;
+    int rc;
+
+    cmdline = read_file_contents("/proc/1/cmdline");
+    if (cmdline == NULL) {
+        printf("(skipped: could not read /proc/1/cmdline)\n");
+        fflush(stdout);
+        return;
+    }
+    init_arg = cmdline;
+    if (init_arg[0] == '\0' || strlen(init_arg) >= CMD_BUFF_SIZE) {
+        printf("(skipped: PID 1 has an empty or oversized command line)\n");
+        fflush(stdout);
+        free(cmdline);
+        return;
+    }
+
+    frame = (struct seam_proc *)malloc(sizeof(*frame));
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(*frame));
+    /* Some ordinary process wearing init's own name, PID 1 excluded. */
+    frame->pid = (pid_t)SEAM_TARGET_PID;
+    frame->ppid = (pid_t)1;
+    strcpy(frame->command, init_arg);
+
+    argv[0] = arg0;
+    argv[1] = arg_l;
+    argv[2] = arg_50;
+    argv[3] = arg_e;
+    argv[4] = init_arg;
+    argv[5] = NULL;
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    /* Copied into the snapshot above, so nothing reads it from here on. */
+    free(frame);
+    seam_active = 1;
+    test_mute_output();
+    rc = parse_arguments(5, argv, &cfg);
+    test_unmute_output();
+    seam_active = 0;
+
+    /*
+     * Accepted, and pointed at something limitable: nothing about the name
+     * being init's own makes this run refuse it.
+     */
+    assert(rc == 0);
+    assert(cfg.exe_name != NULL);
+    free(cmdline);
+}
 #endif
 
 /**
@@ -16781,6 +16856,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_find_process_by_name_cannot_be_found_text);
 #if defined(__linux__)
     RUN_TEST(test_exe_name_matching_init_rejected_at_argument_check);
+    RUN_TEST(test_exe_name_shared_with_init_still_accepted);
 #endif
     RUN_TEST(test_find_process_by_name_miss_ignores_enumerated_init);
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);

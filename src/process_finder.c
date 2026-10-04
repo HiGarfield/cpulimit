@@ -77,6 +77,94 @@ pid_t find_process_by_pid(pid_t pid) {
 }
 
 /**
+ * @brief Compare a target name or path against one process's argv[0]
+ *
+ * @param process_name Name or absolute path as typed by the operator
+ * @param command argv[0] of the process being compared, as the OS reports it
+ * @return 1 when the two name the same executable under cpulimit's rules,
+ *         0 when they do not or either string is unusable
+ *
+ * An argument starting with '/' is compared in full, anything else by basename
+ * only, so "-e myapp" matches "/usr/bin/myapp" and "./dir/myapp" alike while
+ * "-e /usr/bin/myapp" matches nothing else. One definition rather than one per
+ * caller because three questions -- which match wins, whether a PID still runs
+ * the target, and whether a name leads anywhere beyond init -- must agree on
+ * what counts as a match; they answer it for the same operator argument, and a
+ * second copy is free to drift.
+ */
+int process_name_matches_cmd(const char *process_name, const char *command) {
+    const char *cmp_name;
+    const char *cmd_cmp_name;
+    int full_path_cmp;
+
+    if (process_name == NULL || command == NULL || process_name[0] == '\0') {
+        return 0;
+    }
+    full_path_cmp = process_name[0] == '/';
+    cmp_name = full_path_cmp ? process_name : get_file_basename(process_name);
+    /*
+     * An empty comparison name is structurally unmatchable: matching against
+     * "" would claim every process whose argv[0] also ends with '/'.
+     */
+    if (cmp_name[0] == '\0') {
+        return 0;
+    }
+    cmd_cmp_name = full_path_cmp ? command : get_file_basename(command);
+    return strcmp(cmd_cmp_name, cmp_name) == 0;
+}
+
+/**
+ * @brief Check whether any process other than PID 1 carries this name
+ *
+ * @param process_name Name or absolute path as typed by the operator
+ * @return 1 when at least one process other than PID 1 has a matching argv[0],
+ *         0 when none does, or when the name is unusable or the scan fails
+ *
+ * Answers the narrower question behind the Linux-only refusal in cli.c. The
+ * name lookup skips PID 1 on every platform, so a name init happens to wear
+ * can still have ordinary, perfectly limitable processes behind it; only a
+ * name with nothing else is the dead end worth refusing up front. Whether any
+ * of them answers to a signal is not asked here -- that is find_process_by_
+ * name()'s job, and it decides which match wins, not whether one exists.
+ *
+ * Read-only: signals nothing, builds no candidate list, prints nothing.
+ *
+ * @note Returns 0 when the scan itself fails. Being told "nothing else" then
+ *       costs a name refused here that every platform would have reported as
+ *       not found a moment later, which is the one outcome shared anyway.
+ */
+int process_name_has_non_init_match(const char *process_name) {
+    struct process_iterator iter;
+    struct process_filter filter;
+    struct process *proc;
+    int found = 0;
+
+    if (process_name == NULL || process_name[0] == '\0') {
+        return 0;
+    }
+    proc = (struct process *)malloc(sizeof(*proc));
+    if (proc == NULL) {
+        return 0;
+    }
+    filter.pid = 0;
+    filter.include_children = 0;
+    filter.read_cmd = 1;
+    if (init_process_iterator(&iter, &filter) != 0) {
+        free(proc);
+        return 0;
+    }
+    while (found == 0 && get_next_process(&iter, proc) != -1) {
+        if (proc->pid != 1 &&
+            process_name_matches_cmd(process_name, proc->command)) {
+            found = 1;
+        }
+    }
+    free(proc);
+    close_process_iterator(&iter);
+    return found;
+}
+
+/**
  * @brief Find a running process by its executable name or path
  *
  * @param process_name Name or absolute path of the executable to search for
@@ -149,8 +237,6 @@ pid_t find_process_by_name(const char *process_name) {
     }
 
     while (get_next_process(&iter, proc) != -1) {
-        const char *cmd_cmp_name =
-            full_path_cmp ? proc->command : get_file_basename(proc->command);
         /*
          * Never select PID 1 (init) by name: -e init would otherwise
          * resolve to the system's init process and route it into the limit
@@ -165,7 +251,7 @@ pid_t find_process_by_name(const char *process_name) {
         if (proc->pid == 1) {
             continue;
         }
-        if (strcmp(cmd_cmp_name, process_cmp_name) == 0) {
+        if (process_name_matches_cmd(process_name, proc->command)) {
             /*
              * Select this PID if:
              * - No match found yet (!found), OR
@@ -367,13 +453,9 @@ int process_has_other_name(pid_t pid, const char *process_name) {
         free(proc);
         return 0;
     }
-    if (get_next_process(&iter, proc) == 0) {
-        const char *cmd_cmp_name;
-        cmd_cmp_name =
-            full_path_cmp ? proc->command : get_file_basename(proc->command);
-        if (strcmp(cmd_cmp_name, process_cmp_name) != 0) {
-            other_name = 1;
-        }
+    if (get_next_process(&iter, proc) == 0 &&
+        !process_name_matches_cmd(process_name, proc->command)) {
+        other_name = 1;
     }
     free(proc);
     close_process_iterator(&iter);

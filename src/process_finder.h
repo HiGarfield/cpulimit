@@ -61,6 +61,34 @@ pid_t find_process_by_pid(pid_t pid);
 pid_t find_process_by_name(const char *process_name);
 
 /**
+ * @brief Compare a target name or path against one process's argv[0]
+ *
+ * @param process_name Name or absolute path as typed by the operator
+ * @param command argv[0] of the process being compared, as the OS reports it
+ * @return 1 when the two name the same executable under cpulimit's rules, 0
+ *         when they do not or either string is unusable
+ *
+ * An argument starting with '/' is compared in full, anything else by basename
+ * only. Exported because the "is it the same executable" question is asked
+ * outside this module too -- cli.c compares an operator -e argument against
+ * init's own command line -- and a second copy of the rule would drift.
+ */
+int process_name_matches_cmd(const char *process_name, const char *command);
+
+/**
+ * @brief Check whether any process other than PID 1 carries this name
+ *
+ * @param process_name Name or absolute path as typed by the operator
+ * @return 1 when at least one process other than PID 1 has a matching argv[0],
+ *         0 when none does, or when the name is unusable or the scan fails
+ *
+ * Answers whether a name would lead anywhere beyond init: the lookup skips
+ * PID 1 already, so such a name is a dead end only when nothing else wears it.
+ * Read-only -- signals nothing, builds no candidate list, prints nothing.
+ */
+int process_name_has_non_init_match(const char *process_name);
+
+/**
  * @brief Check whether a PID has since been taken over by another program
  *
  * @param pid Process ID to inspect
