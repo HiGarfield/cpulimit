@@ -918,10 +918,18 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
              * early SIGSTOP failure cannot silence every later one.
              */
             proc->stop_warned = 0;
-        } else {
-            /* SIGCONT delivered: clear the warnable state so a later
-             * failure re-reports instead of going unnoticed. The
-             * suspension this flag tracks is undone as well. */
+        } else if (sig == SIGCONT) {
+            /*
+             * SIGCONT delivered: clear the warnable state so a later failure
+             * re-reports instead of going unnoticed. The suspension this flag
+             * tracks is undone as well.
+             *
+             * Spelled out rather than left as the catch-all else: only a
+             * SIGCONT undoes a suspension, so clearing these for any other
+             * signal would leave a still-stopped member unrecorded -- no
+             * closing SIGCONT would reach it, no "may remain stopped" hint
+             * would name it, and it would stay stopped with nothing said.
+             */
             proc->cont_warned = 0;
             proc->resume_warned = 0;
             proc->suspended_by_us = 0;
