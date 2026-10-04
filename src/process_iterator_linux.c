@@ -192,6 +192,13 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         return -1;
     }
     strncpy(proc->command, buffer, sizeof(proc->command) - 1);
+    /*
+     * Terminate explicitly rather than trusting the memset above to have left
+     * the last byte zero: strncpy() writes no NUL when the source fills the
+     * whole destination, so a command this long would otherwise be accepted
+     * unterminated. The FreeBSD backend terminates the same way.
+     */
+    proc->command[sizeof(proc->command) - 1] = '\0';
     free(buffer);
     /*
      * Reject processes with empty command names (e.g. execve with
