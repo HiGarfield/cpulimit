@@ -16825,6 +16825,9 @@ static void test_stopped_pids_record_does_not_duplicate(void);
 /* combined scan-failure test, which is defined later (next to main()). */
 static void test_limit_process_scan_failed_and_stranded(void);
 
+/* signal-state test, which is defined later (next to main()). */
+static void test_send_signal_clears_state_only_for_sigcont(void);
+
 /* test, which is defined later (next to main()). */
 static void test_reap_before_error_return_does_not_block(void);
 
@@ -16866,6 +16869,7 @@ static void run_process_set_module_tests(void) {
 
     RUN_TEST(test_reap_before_error_return_does_not_block);
     RUN_TEST(test_stopped_pids_record_does_not_duplicate);
+    RUN_TEST(test_send_signal_clears_state_only_for_sigcont);
     RUN_TEST(test_limit_process_scan_failed_and_stranded);
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
@@ -17103,6 +17107,90 @@ static void test_stopped_pids_record_does_not_duplicate(void) {
     destroy_list(proc_set.stopped_pids);
     free(proc_set.stopped_pids);
     seam_reset();
+}
+
+/**
+ * @brief A delivered signal that is not SIGCONT must not undo a suspension
+ *
+ * @note process_set_send_signal() used to read every signal that was not
+ *       SIGSTOP as SIGCONT: the branch clearing cont_warned, resume_warned and
+ *       suspended_by_us was a bare else. Only a SIGCONT undoes a suspension, so
+ *       any other delivered signal dropped a member that was still stopped --
+ *       no closing SIGCONT owed it anything any more, no "may remain stopped"
+ *       hint named its PID, and it stayed stopped with nothing said.
+ *
+ *       The null signal stands in for such a signal: kill() answers for a live
+ *       process, which is all "delivered" means here, yet it says nothing about
+ *       suspension. The seam answers every kill() with a success and delivers
+ *       nothing, so no real SIGSTOP has to be aimed at the test process. Both
+ *       directions are checked: the unrelated signal leaves the flag alone and
+ *       a SIGCONT still clears it.
+ *
+ *       Verified by mutation: restoring the bare else clears the flag on the
+ *       null signal, so the second assertion fails instead of passing.
+ */
+static void test_send_signal_clears_state_only_for_sigcont(void) {
+    struct process_set proc_set;
+    struct process *member;
+    const struct process *checked;
+    const struct list_node *added;
+    int failed;
+
+    memset(&proc_set, 0, sizeof(proc_set));
+    proc_set.proc_list = (struct list *)malloc(sizeof(*proc_set.proc_list));
+    assert(proc_set.proc_list != NULL);
+    init_list(proc_set.proc_list);
+    proc_set.stopped_pids =
+        (struct list *)malloc(sizeof(*proc_set.stopped_pids));
+    assert(proc_set.stopped_pids != NULL);
+    init_list(proc_set.stopped_pids);
+
+    member = (struct process *)malloc(sizeof(*member));
+    assert(member != NULL);
+    memset(member, 0, sizeof(*member));
+    member->pid = (pid_t)SEAM_TARGET_PID;
+    member->ppid = (pid_t)1;
+    member->start_time = 12.0;
+    strcpy(member->command, "busy");
+    added = add_list_elem(proc_set.proc_list, member);
+    assert(added != NULL);
+
+    seam_reset();
+    /* The seam answers every kill() with a success and delivers nothing. */
+    seam_active = 1;
+
+    /*
+     * Suspended as far as the group's bookkeeping goes: SIGSTOP was delivered
+     * and the suspension was recorded.
+     */
+    failed = process_set_send_signal(&proc_set, SIGSTOP, 0);
+    assert(failed == 0);
+    checked = find_process_in_list_by_pid(proc_set.proc_list, member->pid);
+    assert(checked == member);
+    assert(checked->suspended_by_us == 1);
+
+    /* A null signal is delivered too, and must not be taken for a resume. */
+    failed = process_set_send_signal(&proc_set, 0, 0);
+    assert(failed == 0);
+    checked = find_process_in_list_by_pid(proc_set.proc_list, member->pid);
+    assert(checked == member);
+    assert(checked->suspended_by_us == 1);
+
+    /* A SIGCONT still undoes the suspension, which is the other half. */
+    failed = process_set_send_signal(&proc_set, SIGCONT, 0);
+    assert(failed == 0);
+    checked = find_process_in_list_by_pid(proc_set.proc_list, member->pid);
+    assert(checked == member);
+    assert(checked->suspended_by_us == 0);
+
+    seam_active = 0;
+    seam_reset();
+
+    /* destroy_list() frees each node's record as well. */
+    destroy_list(proc_set.proc_list);
+    free(proc_set.proc_list);
+    destroy_list(proc_set.stopped_pids);
+    free(proc_set.stopped_pids);
 }
 
 /**
