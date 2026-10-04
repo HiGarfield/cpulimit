@@ -90,9 +90,11 @@ Examples:
   exception on any platform. `-p 1` is rejected outright, and init is skipped
   both when a name is resolved with `-e` and when a process group is built, so
   it is never signalled as a discovered descendant either. On Linux, where
-  `/proc/1/cmdline` is available to recognise it, a name that would resolve to
-  init is refused up front; on macOS and FreeBSD the same name simply matches
-  nothing and is reported as not found.
+  `/proc/1/cmdline` is available to recognise it, a name init wears is refused
+  up front while nothing else on the system wears it too -- a name that can
+  only ever report a miss -- and stays an ordinary target otherwise. On macOS
+  and FreeBSD the same name simply matches nothing and is reported as not
+  found.
 
 ## Choosing a Target
 
@@ -112,13 +114,20 @@ match it can control.
 
 ## Exit Codes
 
-| Exit Code | Description                                            |
-| --------- | ------------------------------------------------------ |
-| 0         | Success                                                |
-| 1         | Bad args, target not found (-z), internal error         |
-| 126       | Command found but not executable (command mode only)   |
-| 127       | Command not found (command mode only)                  |
-| 128+N     | Command terminated by signal N (command mode only)     |
+| Exit Code | Description                                              |
+| --------- | -------------------------------------------------------- |
+| 0         | Success                                                  |
+| 1         | Bad args, target not found (-z), internal error          |
+| 126       | Command found but not executable (command mode only)     |
+| 127       | Command not found (command mode only)                    |
+| 128+N     | Command terminated by signal N (command mode only)       |
+| any other | In command mode, whatever the command itself exited with |
+
+The three command-mode rows are the shell's own conventions, used when the
+command never ran at all. Once it has run, cpulimit steps aside and reports the
+command's own status instead: `cpulimit -l 50 -- sh -c 'exit 7'` exits 7. With
+`-p` or `-e` there is no command to speak for, so the status is always
+cpulimit's own.
 
 Use `-z` — or `-p`, which implies it — when the run should end as soon as the
 target is gone. Without it, `-e` keeps waiting and re-attaches whenever the
