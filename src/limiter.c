@@ -276,7 +276,9 @@ static void handle_stale_target(const struct cpulimit_cfg *cfg, int lazy_mode,
  * recycled, and sets *exit_status on the outcomes that end the whole run: a
  * group that could not be built, a stranded member needing a manual 'kill
  * -CONT', and -- in lazy mode, which makes one attempt and reports whatever
- * it produced -- a target that could not be limited at all.
+ * it produced -- a target that could not be limited at all. Of those it is
+ * also the one that speaks: the lazy no-target outcome has no diagnostic of
+ * its own inside limit_process(), so this function prints it.
  */
 static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
                                     int lazy_mode, pid_t found_pid,
@@ -358,6 +360,23 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
          * (LIMIT_PROCESS_ERROR, the one reason a non-lazy search gives up),
          * or a stranded outcome needing a manual 'kill -CONT' to recover.
          */
+        if (limit_status == LIMIT_PROCESS_NO_TARGET) {
+            /*
+             * This one outcome is spoken here and nowhere else. An empty
+             * group is silence limit_process() must be free to keep, because
+             * non-lazy mode arrives at this return on every poll while it
+             * waits for the target to come back. Lazy mode gets no second
+             * poll, so without this line the run reports its defeat through
+             * the exit status alone -- most visibly for -p, whose kill(pid,0)
+             * probe succeeds for a zombie every iterator backend then refuses
+             * to list, leaving the operator a bare 1 with nothing saying why.
+             * Every other outcome reaching here printed inside
+             * limit_process() already.
+             */
+            fprintf(stderr,
+                    "Process %ld is no longer running; nothing was limited\n",
+                    (long)found_pid);
+        }
         *exit_status = EXIT_FAILURE;
     }
 }

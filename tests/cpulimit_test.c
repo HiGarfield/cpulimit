@@ -11199,6 +11199,141 @@ static void test_limiter_non_lazy_keeps_watching_after_no_target(void) {
 }
 
 /**
+ * @brief A lazy run whose group comes out empty must say so before it fails
+ *
+ * @note Reproduces the -p case for real instead of scripting it. The target
+ *       exits before the first scan and nothing reaps it, so it is a corpse
+ *       its own parent still owes waitpid() to: kill(pid,0) answers for it and
+ *       the lookup resolves, while every iterator backend skips a zombie and
+ *       the group therefore comes back empty.
+ *
+ *       limit_process() reports LIMIT_PROCESS_NO_TARGET without printing, and
+ *       it must stay quiet -- a non-lazy watch reaches that same return on
+ *       every poll while it waits for the target to come back -- so the run
+ *       used to end on exit status 1 with nothing on stderr at all. The PID
+ *       target is what makes the run lazy here, so the configuration asks for
+ *       no laziness of its own and this also pins that implication down.
+ *
+ *       Verified by mutation: dropping the diagnostic leaves stderr empty, so
+ *       the strstr() below comes back NULL.
+ */
+static void test_limiter_no_target_reports_why_the_lazy_run_failed(void) {
+    int err_pipe[2];
+    int ready_pipe[2];
+    pid_t wrapper, waited;
+    int assert_rc;
+    int status = 0, exited, exit_code;
+    size_t total = 0;
+    char *capture;
+    const char *hit;
+
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(ready_pipe);
+    assert(assert_rc == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    wrapper = fork();
+    assert(wrapper >= 0);
+    if (wrapper == 0) {
+        struct timespec corpse_wait;
+        struct cpulimit_cfg cfg;
+        ssize_t got;
+        pid_t target;
+        char ready;
+        int mode_result, dup_result;
+
+        /* Only the error metastream: the ready stream is read below. */
+        close(err_pipe[0]);
+
+        corpse_wait.tv_sec = 0;
+        corpse_wait.tv_nsec = 500000000L; /* 500 ms */
+
+        /*
+         * The target announces that it started, then exits unwatched into a
+         * zombie only this process could reap -- and nothing here ever waits
+         * for it, which is the whole point.
+         */
+        target = fork();
+        assert(target >= 0);
+        if (target == 0) {
+            close(err_pipe[1]);
+            got = write(ready_pipe[1], "R", 1);
+            close(ready_pipe[1]);
+            _exit(got == 1 ? EXIT_SUCCESS : EXIT_FAILURE);
+        }
+
+        close(ready_pipe[1]);
+        got = read(ready_pipe[0], &ready, 1);
+        close(ready_pipe[0]);
+        if (got != 1 || ready != 'R') {
+            /* The target never started, so there is no corpse to reproduce. */
+            _exit(EXIT_FAILURE);
+        }
+        /* Until the exit has run its course the PID is still a live process. */
+        sleep_timespec(&corpse_wait);
+
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.target_pid = target;
+        cfg.cpu_limit = 0.5;
+        cfg.verbose = 0;
+        cfg.lazy_mode = 0; /* the PID alone must make this run lazy */
+
+        configure_signal_handler();
+        fflush(stdout);
+        fflush(stderr);
+        dup_result = dup2(err_pipe[1], STDERR_FILENO);
+        if (dup_result < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(err_pipe[1]);
+        mode_result = run_pid_or_exe_mode(&cfg);
+        fflush(stderr);
+        /* The duplicate of err_pipe[1] belongs to this child. */
+        close(STDERR_FILENO);
+        _exit(mode_result);
+    }
+    close(err_pipe[1]);
+    close(ready_pipe[0]);
+    close(ready_pipe[1]);
+
+    /* Allocated only after the fork: see test_capture_find_by_name(). */
+    capture = (char *)malloc(TEST_CAPTURE_SIZE);
+    assert(capture != NULL);
+    while (total < TEST_CAPTURE_SIZE - 1) {
+        ssize_t n_read;
+        n_read =
+            read(err_pipe[0], capture + total, TEST_CAPTURE_SIZE - 1 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    capture[total] = '\0';
+    close(err_pipe[0]);
+
+    waited = waitpid(wrapper, &status, 0);
+    assert(waited == wrapper);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+
+    assert(exited);
+    /* Nothing was limited, so the run still has to report the failure. */
+    assert(exit_code == EXIT_FAILURE);
+    hit = strstr(capture, "nothing was limited");
+    if (hit == NULL) {
+        fprintf(stderr, "(lazy no-target run printed: %s)\n", capture);
+    }
+    assert(hit != NULL);
+    free(capture);
+}
+
+/**
  * @brief A PID target must be limited in one attempt, never watched
  *
  * @note The option parser sets lazy_mode for -p, but that assignment alone is
@@ -15634,6 +15769,7 @@ static void test_exe_name_matching_init_rejected_at_argument_check(void) {
     assert(rc == EXIT_FAILURE);
     free(cmdline);
 }
+
 #endif
 
 /**
@@ -17195,6 +17331,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_waits_without_target);
     RUN_TEST(test_limiter_non_lazy_keeps_watching_after_no_target);
+    RUN_TEST(test_limiter_no_target_reports_why_the_lazy_run_failed);
     RUN_TEST(test_limiter_pid_mode_is_always_lazy);
     RUN_TEST(test_limiter_pid_mode_refusal_ends_run);
     RUN_TEST(test_limiter_run_exe_mode_reports_permission_denied);
