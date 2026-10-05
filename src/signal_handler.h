@@ -59,6 +59,12 @@ int is_terminated_by_tty(void);
  *
  * Writes at most one newline after a SIGINT/SIGQUIT, only when both stdin and
  * stdout are terminals, so the shell prompt does not start on the echo's line.
+ *
+ * The driver writes its echo without a newline, so the same call also serves a
+ * second purpose: asking for it *before* further output ends that echo's line
+ * first, leaving the next thing written to start at column zero instead of two
+ * columns to the right. Asking repeatedly is free, writes nothing while no
+ * keyboard quit is pending, and writes its newline once per run at most.
  */
 void finish_tty_quit_line(void);
 
