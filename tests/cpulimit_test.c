@@ -2174,8 +2174,16 @@ static void test_terminal_echo_noop_on_non_tty(void) {
     pid = fork();
     assert(pid >= 0);
     if (pid == 0) {
+        int dup_result;
+        /*
+         * Keep the result in a variable instead of testing the call inside
+         * the condition: the analyser reports a descriptor whose only
+         * mention is a comparison as leaked, even though the child is about
+         * to exit with it. Same reason as in the pty test above.
+         */
         close(pipe_fds[0]);
-        if (dup2(pipe_fds[1], STDIN_FILENO) < 0) {
+        dup_result = dup2(pipe_fds[1], STDIN_FILENO);
+        if (dup_result < 0) {
             _exit(1);
         }
         close(pipe_fds[1]);
