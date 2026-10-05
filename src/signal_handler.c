@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <termios.h>
 #include <unistd.h>
 
 /**
@@ -39,14 +40,6 @@
  * value.
  */
 static volatile sig_atomic_t quit_flag = 0;
-
-/**
- * @brief Flag indicating termination originated from terminal keyboard input
- *
- * Set to 1 for SIGINT (Ctrl+C) and SIGQUIT (Ctrl+\), remains 0 for
- * other termination signals like SIGTERM, SIGHUP, or SIGPIPE.
- */
-static volatile sig_atomic_t tty_quit_flag = 0;
 
 /**
  * @brief Compile-time assertion: sig_atomic_t can hold values up to 127
@@ -81,31 +74,34 @@ typedef char sig_atomic_large_enough[((sig_atomic_t)127 == 127) ? 1 : -1];
 static volatile sig_atomic_t quit_signal_num = 0;
 
 /**
- * @brief Non-zero once the newline that ends the keyboard-quit echo was
- *        written
+ * @brief Terminal attributes saved by save_terminal_attributes()
  *
- * One newline per run is enough, and a run can end by more than one route --
- * the limiting loop knows it is over, and so does main() -- so the callers ask
- * without having to find out whether the other already did. Cleared with the
- * other per-run flags in reset_signal_state(). A plain int, not a
- * sig_atomic_t: unlike the flags above, this one is only ever touched in
- * process context.
+ * Holds the original standard-input termios so restore_terminal_attributes()
+ * can put the terminal back the way it was. Only ever touched in process
+ * context (never from within a signal handler), so a plain struct termios is
+ * fine.
  */
-static int tty_newline_written = 0;
+static struct termios saved_termios;
+
+/**
+ * @brief Non-zero once save_terminal_attributes() captured a terminal
+ *
+ * Set only when standard input is a terminal and tcgetattr() succeeded;
+ * disable_terminal_echo() and restore_terminal_attributes() are no-ops while
+ * it stays 0.
+ */
+static int termios_saved = 0;
 
 /**
  * @brief Reset internal signal-handler state flags to their initial values
  *
- * Clears quit_flag, tty_quit_flag, quit_signal_num and the newline marker so
- * subsequent monitoring sessions start from a clean state. Intended to be
- * called during signal-handler setup in process context (never from within a
- * signal handler).
+ * Clears quit_flag and quit_signal_num so subsequent monitoring sessions start
+ * from a clean state. Intended to be called during signal-handler setup in
+ * process context (never from within a signal handler).
  */
 static void reset_signal_state(void) {
     quit_flag = 0;
-    tty_quit_flag = 0;
     quit_signal_num = 0;
-    tty_newline_written = 0;
 }
 
 /**
@@ -114,20 +110,10 @@ static void reset_signal_state(void) {
  * @param sig Signal number that triggered this handler
  *
  * Handles SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE by setting the quit
- * flag. For terminal-originated signals (SIGINT from Ctrl+C, SIGQUIT from
- * Ctrl+\), also sets the TTY termination flag to distinguish these from other
- * termination requests. Records the first received signal number for later
- * forwarding. Uses only async-signal-safe operations.
+ * flag. Records the first received signal number for later forwarding. Uses
+ * only async-signal-safe operations.
  */
 static void sig_handler(int sig) {
-    switch (sig) {
-    case SIGINT:  /* Ctrl+C */
-    case SIGQUIT: /* Ctrl+\ */
-        tty_quit_flag = 1;
-        break;
-    default:
-        break;
-    }
     if (quit_signal_num == 0) {
         quit_signal_num = (sig_atomic_t)sig;
     }
@@ -264,36 +250,50 @@ int is_quit_flag_set(void) {
 }
 
 /**
- * @brief Check if termination was triggered by terminal keyboard input
+ * @brief Save the current terminal attributes of standard input
  *
- * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
+ * Stores the terminal settings in internal state so they can be restored by
+ * restore_terminal_attributes(). Does nothing when standard input is not a
+ * terminal. Must be called before disable_terminal_echo().
  */
-int is_terminated_by_tty(void) {
-    return !!tty_quit_flag;
+void save_terminal_attributes(void) {
+    if (!isatty(STDIN_FILENO)) {
+        return;
+    }
+    if (tcgetattr(STDIN_FILENO, &saved_termios) != 0) {
+        return;
+    }
+    termios_saved = 1;
 }
 
 /**
- * @brief End the terminal line a keyboard quit left the cursor on
+ * @brief Disable terminal echo on standard input
  *
- * Writes at most one newline after a SIGINT/SIGQUIT, only when both stdin and
- * stdout are terminals, so the shell prompt does not start on the echo's line.
- *
- * The driver writes its echo without a newline, so the same call also serves a
- * second purpose: asking for it *before* further output ends that echo's line
- * first, leaving the next thing written to start at column zero instead of two
- * columns to the right. Asking repeatedly is free, writes nothing while no
- * keyboard quit is pending, and writes its newline once per run at most.
+ * Clears the ECHO flag so the terminal driver does not echo typed characters
+ * (most importantly, the "^C" of a Ctrl+C). Does nothing unless
+ * save_terminal_attributes() succeeded.
  */
-void finish_tty_quit_line(void) {
-    if (tty_newline_written || !quit_flag || !is_terminated_by_tty()) {
+void disable_terminal_echo(void) {
+    struct termios raw;
+    if (!termios_saved) {
         return;
     }
-    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
+    raw = saved_termios;
+    raw.c_lflag &= ~(tcflag_t)ECHO;
+    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+}
+
+/**
+ * @brief Restore the terminal attributes saved by save_terminal_attributes()
+ *
+ * Restores the original terminal settings on standard input. Does nothing
+ * unless save_terminal_attributes() succeeded.
+ */
+void restore_terminal_attributes(void) {
+    if (!termios_saved) {
         return;
     }
-    tty_newline_written = 1;
-    fputc('\n', stdout);
-    fflush(stdout);
+    tcsetattr(STDIN_FILENO, TCSANOW, &saved_termios);
 }
 
 /**

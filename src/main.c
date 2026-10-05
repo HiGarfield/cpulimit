@@ -47,33 +47,29 @@ int main(int argc, char *argv[]) {
      */
     configure_signal_handler();
 
+    /*
+     * Turn off terminal echo for the run so the driver does not echo the
+     * "^C" of a Ctrl+C. The original attributes are saved first and restored
+     * on the way out. Both are no-ops when standard input is not a terminal.
+     */
+    save_terminal_attributes();
+    disable_terminal_echo();
+
     parse_result = parse_arguments(argc, argv, &cfg);
     if (parse_result != 0) {
-        if (parse_result < 0) {
-            return EXIT_SUCCESS;
-        }
-        return parse_result;
-    }
-
-    if (cfg.verbose) {
-        check_y2038();
-    }
-
-    if (cfg.command_mode) {
-        status = run_command_mode(&cfg);
+        status = (parse_result < 0) ? EXIT_SUCCESS : parse_result;
     } else {
-        status = run_pid_or_exe_mode(&cfg);
+        if (cfg.verbose) {
+            check_y2038();
+        }
+
+        if (cfg.command_mode) {
+            status = run_command_mode(&cfg);
+        } else {
+            status = run_pid_or_exe_mode(&cfg);
+        }
     }
 
-    /*
-     * A run can end without ever reaching the limiting loop, and those paths --
-     * searching for a target that has not appeared yet, or reaping a command's
-     * child after limiting stopped early -- would otherwise leave the shell
-     * prompt on the line the terminal's keyboard-quit echo is on. Calling this
-     * unconditionally is safe: it writes nothing unless the quit came from the
-     * keyboard on a terminal, and never more than one newline per run, so the
-     * loop's own call takes care of the runs that do reach it.
-     */
-    finish_tty_quit_line();
+    restore_terminal_attributes();
     return status;
 }

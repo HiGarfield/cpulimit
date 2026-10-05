@@ -79,13 +79,5 @@ int main(int argc, char *argv[]) {
             ;
         }
     }
-
-    /*
-     * Only the parent writes it: the children share the same terminal, and one
-     * newline ends the echo's line as well as several would.
-     */
-    if (pid > 0) {
-        finish_tty_quit_line();
-    }
     return 0;
 }
