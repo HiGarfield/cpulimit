@@ -260,8 +260,39 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     while (!is_quit_flag_set()) {
         double cpu_usage, work_time_ns, sleep_time_ns, time_slot, slot_time_ns;
         struct timespec work_time, sleep_time;
+        int scan_ret;
 
-        if (update_process_set(&proc_set) != 0) {
+        scan_ret = update_process_set(&proc_set);
+
+        /*
+         * A Ctrl+C is announced by the terminal itself: the driver echoes
+         * "^C" the instant the key goes down and never follows it with a
+         * newline, so from that moment the cursor sits two columns in and
+         * anything this cycle prints starts that far right of where its
+         * columns belong -- the statistics below most visibly, since the
+         * header stays put and only its rows shift. End that line now.
+         *
+         * This sits after the scan rather than at the top of the cycle
+         * because the scan is where the keyboard quit has room to land: the
+         * two checks further down are the ones that stop the loop, and the
+         * stretch between them and here is the only one with no check at
+         * all, so it is also the only one whose output can still follow the
+         * echo. Everything this cycle goes on to write -- the failed-scan
+         * and empty-group lines, the table, whatever the signal-sending
+         * below warns about, including indented continuation lines -- then
+         * starts at column zero.
+         *
+         * Writing costs nothing while the run is healthy: the helper returns
+         * at once unless the quit came from the keyboard with both standard
+         * descriptors on terminals, and never writes its newline twice in a
+         * run, so the one at the end of this loop still covers everything
+         * that follows it. Asking is cheap enough to do again further down,
+         * right before the table itself, for the sake of the stretch that
+         * lies in between.
+         */
+        finish_tty_quit_line();
+
+        if (scan_ret != 0) {
             /*
              * Limiting ran and then had to stop on a failed scan. The cleanup
              * below resumes whatever is still suspended, so the caller sees a
@@ -342,6 +373,17 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
             sleep_time_ns = 1.0;
         }
         nsec_to_timespec(sleep_time_ns, &sleep_time);
+
+        /*
+         * And once more here, immediately before the table. The one above
+         * shelters everything this cycle prints; this one is placed as late
+         * as the last thing before the row, because measuring the group's
+         * CPU time in between is real work that takes real time, and the key
+         * can go down in it. Asking again costs nothing -- the helper has
+         * nothing left to write once it has written its newline -- and what
+         * is left between here and the row below is a single printf().
+         */
+        finish_tty_quit_line();
 
         if (verbose) {
             if (cycle_counter % STATS_SAMPLE_PERIOD == 0) {
