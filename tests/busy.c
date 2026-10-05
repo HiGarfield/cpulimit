@@ -90,8 +90,5 @@ int main(int argc, char *argv[]) {
 
     busy_loop(NULL);
 
-    /* The newline that keeps the shell prompt off the terminal's "^C" echo. */
-    finish_tty_quit_line();
-
     return 0;
 }

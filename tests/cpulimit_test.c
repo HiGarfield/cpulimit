@@ -78,6 +78,7 @@
  */
 #include <sched.h>
 #endif
+#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -1791,9 +1792,6 @@ static void test_signal_handler_flags(void) {
         if (!is_quit_flag_set()) {
             _exit(2);
         }
-        if (is_terminated_by_tty()) {
-            _exit(3);
-        }
         _exit(0);
     }
 
@@ -1816,9 +1814,6 @@ static void test_signal_handler_flags(void) {
         if (!is_quit_flag_set()) {
             _exit(5);
         }
-        if (!is_terminated_by_tty()) {
-            _exit(6);
-        }
         _exit(0);
     }
 
@@ -1834,7 +1829,7 @@ static void test_signal_handler_flags(void) {
 /**
  * @brief Test SIGQUIT signal handling
  *
- * @note SIGQUIT must set both quit_flag and terminated_by_tty
+ * @note SIGQUIT must set quit_flag.
  *       The child calls setsid() to create a new session and detach from the
  *       controlling terminal, preventing BSD terminal drivers from propagating
  *       SIGQUIT to the parent's process group.
@@ -1865,9 +1860,6 @@ static void test_signal_handler_sigquit(void) {
         if (!is_quit_flag_set()) {
             _exit(2);
         }
-        if (!is_terminated_by_tty()) {
-            _exit(3);
-        }
         _exit(0);
     }
 
@@ -1882,7 +1874,7 @@ static void test_signal_handler_sigquit(void) {
 /**
  * @brief Test SIGHUP signal handling
  *
- * @note SIGHUP must set quit_flag but must NOT set terminated_by_tty
+ * @note SIGHUP must set quit_flag
  */
 static void test_signal_handler_sighup(void) {
     pid_t pid, waited;
@@ -1898,9 +1890,6 @@ static void test_signal_handler_sighup(void) {
         if (!is_quit_flag_set()) {
             _exit(2);
         }
-        if (is_terminated_by_tty()) { /* SIGHUP must NOT set the tty flag */
-            _exit(3);
-        }
         _exit(0);
     }
 
@@ -1915,7 +1904,7 @@ static void test_signal_handler_sighup(void) {
 /**
  * @brief Test SIGPIPE signal handling
  *
- * @note SIGPIPE must set quit_flag but must NOT set terminated_by_tty
+ * @note SIGPIPE must set quit_flag
  */
 static void test_signal_handler_sigpipe(void) {
     pid_t pid, waited;
@@ -1931,9 +1920,6 @@ static void test_signal_handler_sigpipe(void) {
         if (!is_quit_flag_set()) {
             _exit(2);
         }
-        if (is_terminated_by_tty()) { /* SIGPIPE must NOT set the tty flag */
-            _exit(3);
-        }
         _exit(0);
     }
 
@@ -1948,7 +1934,7 @@ static void test_signal_handler_sigpipe(void) {
 /**
  * @brief Test initial state of signal handler flags before any signal is raised
  *
- * @note Both quit_flag and terminated_by_tty must be 0 before any signal
+ * @note quit_flag must be 0 before any signal
  */
 static void test_signal_handler_initial_state(void) {
     pid_t pid, waited;
@@ -1960,9 +1946,6 @@ static void test_signal_handler_initial_state(void) {
         configure_signal_handler();
         if (is_quit_flag_set()) {
             _exit(1);
-        }
-        if (is_terminated_by_tty()) {
-            _exit(2);
         }
         _exit(0);
     }
@@ -2059,7 +2042,8 @@ static void test_signal_handler_get_quit_signal(void) {
 }
 
 /**
- * @brief Leave the pty child of test_signal_handler_finish_tty_quit_line()
+ * @brief Leave a pty child that reached this with standard descriptors
+ *        replaced by duplicates of a pty slave
  *
  * @param code Exit status to report to the parent
  * @note The child reached this with its stdin and stdout replaced by
@@ -2076,31 +2060,21 @@ static void pty_child_exit(int code) {
 }
 
 /**
- * @brief The newline that keeps the shell prompt off the terminal's "^C" echo
+ * @brief Terminal echo is turned off for the run and restored on the way out
  *
- * @note The tty driver echoes the keyboard interrupt without a newline of its
- *       own, so a run stopped by one has to write it. That write belongs to
- *       the run: it happens only when the quit came from the keyboard and both
- *       standard descriptors are terminals, only once however many paths ask
- *       for it, and a later run in the same process gets its own because
- *       configure_signal_handler() clears the marker with the rest of the
- *       per-run state. Only a terminal can show any of this, so the child runs
- *       on a pty it opens itself and the parent counts the bytes that reach the
- *       master; the second sub-test repeats it with a pipe for stdout, where
- *       nothing may be written at all.
+ * @note The child runs on a pty it opens itself so its stdin is a real
+ *       terminal: save_terminal_attributes() records the original settings,
+ *       disable_terminal_echo() clears ECHO, and restore_terminal_attributes()
+ *       puts it back. A pty starts with ECHO set, so the restore can be told
+ *       from the disable by whether the bit is present.
  */
-static void test_signal_handler_finish_tty_quit_line(void) {
+static void test_terminal_echo_disable_and_restore(void) {
     int master_fd;
-    int pipe_fds[2];
     const char *slave_name;
     pid_t pid, waited;
     int assert_rc;
     int status = 0, exited, exit_code;
-    char capture[64];
-    size_t total, idx, newlines, others;
-    ssize_t n_read;
 
-    /* Sub-test 1: a keyboard quit on a terminal writes exactly one newline. */
     /*
      * Old uClibc builds do not export posix_openpt() at all, so this test
      * could not link there. open("/dev/ptmx", ...) is exactly what that
@@ -2140,6 +2114,7 @@ static void test_signal_handler_finish_tty_quit_line(void) {
          * though the child is about to exit with it.
          */
         int dup_result, slave_fd;
+        struct termios now;
         slave_fd = open(slave_name, O_RDWR | O_NOCTTY);
         if (slave_fd < 0) {
             pty_child_exit(1);
@@ -2148,46 +2123,26 @@ static void test_signal_handler_finish_tty_quit_line(void) {
         if (dup_result < 0) {
             pty_child_exit(1);
         }
-        dup_result = dup2(slave_fd, STDOUT_FILENO);
-        if (dup_result < 0) {
-            pty_child_exit(1);
-        }
-        if (slave_fd != STDIN_FILENO && slave_fd != STDOUT_FILENO) {
+        if (slave_fd != STDIN_FILENO) {
             close(slave_fd);
         }
-        /* stderr stays where it was, so a diagnostic here is still visible. */
-        configure_signal_handler();
-        /* No quit yet, so there is no echo to end. */
-        finish_tty_quit_line();
-        if (raise(SIGINT) != 0) {
-            pty_child_exit(1);
+        save_terminal_attributes();
+        disable_terminal_echo();
+        if (tcgetattr(STDIN_FILENO, &now) != 0) {
+            pty_child_exit(2);
         }
-        /* Two callers, one newline: the limiting loop, then main(). */
-        finish_tty_quit_line();
-        finish_tty_quit_line();
-        /* A second run in this process must get its own newline. */
-        configure_signal_handler();
-        if (raise(SIGINT) != 0) {
-            pty_child_exit(1);
+        if (now.c_lflag & ECHO) {
+            pty_child_exit(3);
         }
-        finish_tty_quit_line();
+        restore_terminal_attributes();
+        if (tcgetattr(STDIN_FILENO, &now) != 0) {
+            pty_child_exit(4);
+        }
+        if (!(now.c_lflag & ECHO)) {
+            pty_child_exit(5);
+        }
         pty_child_exit(0);
     }
-    total = 0;
-    alarm(20);
-    while (total < sizeof(capture)) {
-        n_read = read(master_fd, capture + total, sizeof(capture) - total);
-        if (n_read > 0) {
-            total += (size_t)n_read;
-            continue;
-        }
-        if (n_read < 0 && errno == EINTR) {
-            continue;
-        }
-        break;
-    }
-    alarm(0);
-    close(master_fd);
 
     waited = waitpid(pid, &status, 0);
     assert(waited == pid);
@@ -2195,25 +2150,23 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     exit_code = WEXITSTATUS(status);
     assert(exited);
     assert(exit_code == 0);
+    close(master_fd);
+}
 
-    /*
-     * Exactly two newlines and nothing else: one for each run's quit. A pty
-     * may render a newline as CR LF, so only the line endings are counted and
-     * not the exact bytes.
-     */
-    newlines = 0;
-    others = 0;
-    for (idx = 0; idx < total; idx++) {
-        if (capture[idx] == '\n') {
-            newlines++;
-        } else if (capture[idx] != '\r') {
-            others++;
-        }
-    }
-    assert(newlines == 2);
-    assert(others == 0);
+/**
+ * @brief Terminal helpers are no-ops when standard input is not a terminal
+ *
+ * @note With stdin a pipe, save_terminal_attributes() must not record a
+ *       terminal, so disable_terminal_echo() and restore_terminal_attributes()
+ *       must do nothing. The child just has to survive the calls and exit
+ *       cleanly.
+ */
+static void test_terminal_echo_noop_on_non_tty(void) {
+    int pipe_fds[2];
+    pid_t pid, waited;
+    int assert_rc;
+    int status = 0, exited, exit_code;
 
-    /* Sub-test 2: with stdout not a terminal, nothing is written at all. */
     assert_rc = pipe(pipe_fds);
     assert(assert_rc == 0);
     fflush(stdout);
@@ -2222,42 +2175,18 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     assert(pid >= 0);
     if (pid == 0) {
         close(pipe_fds[0]);
-        if (dup2(pipe_fds[1], STDOUT_FILENO) < 0) {
+        if (dup2(pipe_fds[1], STDIN_FILENO) < 0) {
             _exit(1);
         }
         close(pipe_fds[1]);
-        configure_signal_handler();
-        if (raise(SIGINT) != 0) {
-            _exit(1);
-        }
-        finish_tty_quit_line();
-        if (write(STDOUT_FILENO, "x", 1) != 1) {
-            _exit(1);
-        }
-        close(STDOUT_FILENO);
+        save_terminal_attributes();
+        disable_terminal_echo();
+        restore_terminal_attributes();
+        close(STDIN_FILENO);
         _exit(0);
     }
-    close(pipe_fds[1]);
-
-    /*
-     * The child's own marker byte is read first, so the assertion below is on
-     * what follows it: the newline must not be there.
-     */
-    total = 0;
-    alarm(20);
-    while (total < sizeof(capture)) {
-        n_read = read(pipe_fds[0], capture + total, sizeof(capture) - total);
-        if (n_read > 0) {
-            total += (size_t)n_read;
-            continue;
-        }
-        if (n_read < 0 && errno == EINTR) {
-            continue;
-        }
-        break;
-    }
-    alarm(0);
     close(pipe_fds[0]);
+    close(pipe_fds[1]);
 
     waited = waitpid(pid, &status, 0);
     assert(waited == pid);
@@ -2265,7 +2194,6 @@ static void test_signal_handler_finish_tty_quit_line(void) {
     exit_code = WEXITSTATUS(status);
     assert(exited);
     assert(exit_code == 0);
-    assert(total == 1 && capture[0] == 'x');
 }
 
 /**
@@ -2297,11 +2225,8 @@ static void test_signal_handler_reconfigure_resets_state(void) {
         if (is_quit_flag_set()) {
             _exit(4);
         }
-        if (is_terminated_by_tty()) {
-            _exit(5);
-        }
         if (get_quit_signal() != 0) {
-            _exit(6);
+            _exit(5);
         }
         _exit(0);
     }
@@ -10352,44 +10277,6 @@ static int seam_fail_update_after = 0;
  */
 static int seam_update_call_count = 0;
 
-/**
- * @brief Stage a keyboard quit on this update_process_set() call (1-based)
- *
- * 0 disables the injection. Otherwise, once the counter below reaches this
- * value the seam reproduces what a terminal does when Ctrl+C is pressed on
- * it: the driver's echo first -- two bytes on stdout with no newline after
- * them -- and then the delivery, raise(SIGINT), whose handler has run by the
- * time it returns, so both land on this exact line instead of wherever the
- * scheduler happens to interrupt the cycle.
- *
- * A real Ctrl+C cannot be aimed: whether it lands in the stretch of the cycle
- * that has no quit check before it prints depends on the millisecond. Staging
- * it inside the update call puts it in the middle of that stretch, which is
- * where it has to be for the echo's missing newline to shift the columns.
- */
-static int seam_quit_on_update_call = 0;
-/**
- * @brief Call counter consumed by seam_quit_on_update_call.
- */
-static int seam_update_quit_calls = 0;
-
-/**
- * @brief Same staging, one step further into the cycle: armed on this random()
- *        call (1-based), the very last thing the control loop does before it
- *        decides the work/sleep split and prints the row
- *
- * The update armed by seam_quit_on_update_call opens the stretch that has no
- * quit check; this one closes it, milliseconds later, because everything in
- * between -- reading the group's CPU time, sizing the slot -- is real work a
- * real Ctrl+C can also interrupt. Both are needed for the helper's two calls
- * in limit_process() to each have a test that fails without them; 0 disables.
- */
-static int seam_quit_on_random_call = 0;
-/**
- * @brief Call counter consumed by seam_quit_on_random_call.
- */
-static int seam_random_quit_calls = 0;
-
 /* Used by the iterator replacement below, which is defined further up. */
 static void seam_mark_snapshot(void);
 
@@ -10457,10 +10344,6 @@ static void seam_reset(void) {
     seam_close_fails = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
-    seam_quit_on_update_call = 0;
-    seam_update_quit_calls = 0;
-    seam_quit_on_random_call = 0;
-    seam_random_quit_calls = 0;
     seam_hook_limit_process = 0;
     seam_limit_process_status = LIMIT_PROCESS_OK;
     seam_limit_status_script_len = 0;
@@ -13588,33 +13471,6 @@ static void seam_mark_snapshot(void) {
 }
 
 /**
- * @brief Write the terminal's "^C" echo and deliver its SIGINT, in that order
- *
- * What a real Ctrl+C does, staged: the driver's two echoed bytes reach the
- * line with no newline after them, and the signal that follows runs its
- * handler before the call returns, so the quit flags are already set when the
- * thread below resumes. Only the harness's own buffering needs attention --
- * see the note inside.
- */
-static void seam_stage_keyboard_quit(void) {
-    /*
-     * The echo is the driver's, not this stream's: written straight to the
-     * descriptor, so it would otherwise jump ahead of whatever the cycles
-     * before it had printed and this buffered stdout was still holding. On a
-     * real terminal stdout is line buffered and holds nothing across a line
-     * break; here the harness captures stdout to a pipe, which makes it fully
-     * buffered long before this fork.
-     */
-    fflush(stdout);
-    if (write(STDOUT_FILENO, "^C", 2) != 2) {
-        /* Nothing is reading the terminal; the echo is cosmetic here. */
-    }
-    if (raise(SIGINT) != 0) {
-        /* Without the delivery nothing below has a quit to react to. */
-    }
-}
-
-/**
  * @brief Replacement for random()
  *
  * @return A constant while the seam is active, so the jitter is fixed
@@ -13627,11 +13483,6 @@ extern "C" {
 long cpulimit_test_random(void) {
     if (!seam_active) {
         return random();
-    }
-    seam_random_quit_calls++;
-    if (seam_quit_on_random_call > 0 &&
-        seam_random_quit_calls == seam_quit_on_random_call) {
-        seam_stage_keyboard_quit();
     }
     return SEAM_RANDOM;
 }
@@ -13724,11 +13575,6 @@ int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
  * seam_fail_update_after is set, the first seam_fail_update_after calls are
  * forwarded and every call after that returns -1, driving limit_process() down
  * its error path so its cleanup (which resumes the group) is exercised.
- *
- * seam_quit_on_update_call adds a second, unrelated injection: on that one
- * call the seam stages a keyboard quit (echo plus SIGINT) before forwarding,
- * which puts it exactly where a real Ctrl+C lands when it manages to misalign
- * the statistics.
  */
 /* cppcheck-suppress unusedFunction */
 int cpulimit_test_update_process_set(struct process_set *proc_set) {
@@ -13737,11 +13583,6 @@ int cpulimit_test_update_process_set(struct process_set *proc_set) {
             return -1;
         }
         seam_update_call_count++;
-    }
-    seam_update_quit_calls++;
-    if (seam_quit_on_update_call > 0 &&
-        seam_update_quit_calls == seam_quit_on_update_call) {
-        seam_stage_keyboard_quit();
     }
     return update_process_set(proc_set);
 }
@@ -16907,267 +16748,6 @@ static void test_process_set_rejects_recycled_target_pid(void) {
 }
 
 /**
- * @brief The statistics table must not share its line with the "^C" echo
- *
- * @note The terminal announces Ctrl+C with two echoed bytes and no newline,
- *       leaving the cursor two columns in. The cycle that was running when the
- *       key went down still prints its row: the top of a cycle -- from the
- *       group scan to the table -- has no quit check, and the two this loop
- *       has come after the work and sleep phases. The widths of that row are
- *       then two places right of the header above them.
- *
- *       Hitting that window with a real Ctrl+C is a matter of milliseconds, so
- *       the quit is staged instead: on a scripted seam call inside that window
- *       the harness writes the echo and raises SIGINT, landing it exactly at
- *       the top of the cycle whose counter has reached a multiple of ten --
- *       the one that prints a row with no header above it, because the header's
- *       leading newline would cover the missing one up. Two calls are staged
- *       in turn, one per variant: update_process_set(), which opens the
- *       window, and the jitter draw just above the print, which closes it --
- *       each of them giving one of the two finish_tty_quit_line() calls in the
- *       loop its own test. The child speaks to a pty of its own because the
- *       repair only writes when both standard descriptors are terminals, and
- *       the parent reads everything that came back and judges the layout from
- *       the bytes.
- *
- * @param mode Where to stage the quit. 0: the group scan, where the window
- *             opens. 1: the jitter draw just above the print, where it closes.
- *             2: the scan of a cycle whose group has just emptied, so the
- *             line under test is "No running target process found." instead of
- *             a row -- the one thing the loop prints before the repair that
- *             sits closest to the table, and therefore the one that pins the
- *             earlier of the two repairs.
- */
-static void drive_keyboard_echo_line(int mode) {
-    int master_fd;
-    const char *slave_name;
-    pid_t pid, waited;
-    int assert_rc;
-    int status = 0, exited, exit_code;
-    char *capture;
-    const char *header_hit;
-    const char *empty_hit;
-    size_t total, idx, after, tail;
-    ssize_t n_read;
-    int echo_hits, echo_closed, row_printed;
-
-#if defined(__UCLIBC__) && defined(__UCLIBC_MAJOR__) &&                        \
-    defined(__UCLIBC_MINOR__) && defined(__UCLIBC_SUBLEVEL__) &&               \
-    ((__UCLIBC_MAJOR__ < 1) ||                                                 \
-     (__UCLIBC_MAJOR__ == 1 && __UCLIBC_MINOR__ == 0 &&                        \
-      __UCLIBC_SUBLEVEL__ < 42))
-    master_fd = open("/dev/ptmx", O_RDWR | O_NOCTTY);
-#else
-    master_fd = posix_openpt(O_RDWR | O_NOCTTY);
-#endif
-    assert(master_fd >= 0);
-    assert_rc = grantpt(master_fd);
-    assert(assert_rc == 0);
-    assert_rc = unlockpt(master_fd);
-    assert(assert_rc == 0);
-    slave_name = ptsname(master_fd);
-    assert(slave_name != NULL);
-
-    fflush(stdout);
-    fflush(stderr);
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        /* One target, scripted once for the initial scan and once for every
-         * cycle after it: the row has to have something to report. */
-        struct seam_proc *frames;
-        int dup_result, slave_fd, limit_ret;
-
-        slave_fd = open(slave_name, O_RDWR | O_NOCTTY);
-        if (slave_fd < 0) {
-            pty_child_exit(1);
-        }
-        dup_result = dup2(slave_fd, STDIN_FILENO);
-        if (dup_result < 0) {
-            pty_child_exit(1);
-        }
-        dup_result = dup2(slave_fd, STDOUT_FILENO);
-        if (dup_result < 0) {
-            pty_child_exit(1);
-        }
-        if (slave_fd != STDIN_FILENO && slave_fd != STDOUT_FILENO) {
-            close(slave_fd);
-        }
-        /* stderr stays where it was, so a diagnostic is still visible. */
-        frames = (struct seam_proc *)malloc(sizeof(struct seam_proc) * 2);
-        assert(frames != NULL);
-        memset(&frames[0], 0, sizeof(frames[0]));
-        frames[0].pid = (pid_t)SEAM_TARGET_PID;
-        frames[0].ppid = (pid_t)1;
-        frames[0].cpu_time = 0.0;
-        frames[0].start_time = 10.0;
-        memcpy(&frames[1], &frames[0], sizeof(frames[1]));
-        frames[1].cpu_time = 10.0;
-
-        seam_reset();
-        if (mode == 2) {
-            /*
-             * The group holds the target for the initial scan and is empty by
-             * the first cycle: that cycle has no members left to report on, so
-             * the line the loop reaches for is the empty-group one, printed
-             * ahead of the table and therefore ahead of the repair that sits
-             * closest to it. The quit is staged on the same cycle's scan, so
-             * there is no need for the ten cycles the row variants run.
-             */
-            seam_push_frame(frames, 1); /* initial scan */
-            seam_push_frame(NULL, 0);   /* first cycle: nothing left */
-        } else {
-            seam_push_frame(frames, 1);     /* initial scan */
-            seam_push_frame(frames + 1, 1); /* every control cycle after it */
-            seam_repeat_last = 1;
-        }
-        seam_active = 1;
-        /*
-         * One seam call per control cycle -- the update inside
-         * init_process_set() is on the far side of the rename and does not
-         * come through here, and the jitter draw happens once per slot --
-         * so the eleventh of either is the cycle whose counter has reached
-         * ten: the one that prints a row with no header above it. The first
-         * would print that header too, whose leading newline would paper
-         * over the missing one.
-         */
-        if (mode == 1) {
-            seam_quit_on_random_call = 11;
-        } else if (mode == 0) {
-            seam_quit_on_update_call = 11;
-        } else {
-            /* The first update is the first control cycle; see above. */
-            seam_quit_on_update_call = 1;
-        }
-
-        configure_signal_handler();
-        limit_ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 1, 0);
-        seam_active = 0;
-        seam_quit_on_update_call = 0;
-        seam_quit_on_random_call = 0;
-        free(frames);
-        /* Same reason as the flush above: _exit() gives no buffer back. */
-        fflush(stdout);
-        pty_child_exit(limit_ret == LIMIT_PROCESS_OK ? 0 : 1);
-    }
-
-    capture = (char *)malloc(TEST_CAPTURE_SIZE);
-    assert(capture != NULL);
-    total = 0;
-    alarm(30);
-    while (total < TEST_CAPTURE_SIZE - 1) {
-        n_read =
-            read(master_fd, capture + total, TEST_CAPTURE_SIZE - 1 - total);
-        if (n_read > 0) {
-            total += (size_t)n_read;
-            continue;
-        }
-        if (n_read < 0 && errno == EINTR) {
-            continue;
-        }
-        break;
-    }
-    alarm(0);
-    capture[total] = '\0';
-    close(master_fd);
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    exit_code = WEXITSTATUS(status);
-    assert(exited);
-    assert(exit_code == 0);
-
-    /*
-     * For the row variants, the table really did reach the terminal: there
-     * were rows to misalign. The empty-group variant ends its first cycle
-     * before the table, so it has none and is not asked for one.
-     */
-    if (mode != 2) {
-        header_hit = strstr(capture, "%CPU");
-        assert(header_hit != NULL);
-    }
-
-    /*
-     * One echo, and only the line ending after it. A pty may render that
-     * ending as CR LF, so the CRs are stepped over and only the LF decides.
-     */
-    echo_hits = 0;
-    echo_closed = 0;
-    tail = total;
-    for (idx = 0; idx + 1 < total; idx++) {
-        if (capture[idx] != '^' || capture[idx + 1] != 'C') {
-            continue;
-        }
-        echo_hits++;
-        after = idx + 2;
-        while (after < total && capture[after] == '\r') {
-            after++;
-        }
-        if (after < total && capture[after] == '\n') {
-            echo_closed = 1;
-            tail = after + 1;
-        }
-    }
-    assert(echo_hits == 1);
-    assert(echo_closed);
-
-    /*
-     * And the line the loop went on to write is still there, on the line
-     * below: lengthening the echo's line would be no better than landing on
-     * it, so what must follow is that line, starting at column zero.
-     */
-    if (mode == 2) {
-        empty_hit = strstr(capture + tail, "No running target process found.");
-        row_printed = empty_hit != NULL;
-    } else {
-        row_printed = strstr(capture + tail, " us") != NULL &&
-                      strchr(capture + tail, '%') != NULL;
-    }
-    assert(row_printed);
-
-    free(capture);
-}
-
-/**
- * @brief Stage the keyboard quit where the cycle's group scan runs
- *
- * @see drive_keyboard_echo_line()
- */
-static void test_limit_process_ends_keyboard_echo_line(void) {
-    drive_keyboard_echo_line(0);
-}
-
-/**
- * @brief Stage it where the last measurement before the row runs
- *
- * @note The row is printed several statements below the repair that shelters
- *       the whole cycle -- the group's CPU time is read and the slot is sized
- *       in between -- so without the second repair, at the very edge of the
- *       cycle, a quit landing there still moved the row. This variant stages
- *       the quit in exactly that gap and would keep doing so unnoticed.
- *
- * @see drive_keyboard_echo_line()
- */
-static void test_limit_process_ends_keyboard_echo_line_before_stats(void) {
-    drive_keyboard_echo_line(1);
-}
-
-/**
- * @brief Stage it where an empty group is reported, ahead of both rows
- *
- * @note "No running target process found." is printed straight after the scan,
- *       further from the table than the row and before the repair that sits
- *       next to it, so it is the one line the second repair cannot reach. With
- *       the earlier repair gone it lands on the echo's line like the row does.
- *
- * @see drive_keyboard_echo_line()
- */
-static void test_limit_process_ends_keyboard_echo_line_before_empty_line(void) {
-    drive_keyboard_echo_line(2);
-}
-
-/**
  * @brief Run the process-set module tests
  *
  * @note Grouped in a helper for the same reason as run_cli_tests(): the
@@ -17721,7 +17301,8 @@ static void run_signal_handler_module_tests(void) {
     RUN_TEST(test_signal_handler_sigpipe);
     RUN_TEST(test_signal_handler_initial_state);
     RUN_TEST(test_signal_handler_get_quit_signal);
-    RUN_TEST(test_signal_handler_finish_tty_quit_line);
+    RUN_TEST(test_terminal_echo_disable_and_restore);
+    RUN_TEST(test_terminal_echo_noop_on_non_tty);
     RUN_TEST(test_signal_handler_reconfigure_resets_state);
     RUN_TEST(test_signal_handler_mask_restored_after_configure);
     RUN_TEST(test_signal_handler_reconfigure_delivers_pending);
@@ -17826,9 +17407,6 @@ static void run_limit_process_module_tests(void) {
     RUN_TEST(test_limit_process_resumes_orphaned_descendant);
     RUN_TEST(test_limit_process_race_process_exits_on_sigcont);
     RUN_TEST(test_limit_process_race_quit_during_sleep);
-    RUN_TEST(test_limit_process_ends_keyboard_echo_line);
-    RUN_TEST(test_limit_process_ends_keyboard_echo_line_before_stats);
-    RUN_TEST(test_limit_process_ends_keyboard_echo_line_before_empty_line);
 }
 
 /**

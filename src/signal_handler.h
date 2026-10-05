@@ -48,25 +48,30 @@ void configure_signal_handler(void);
 int is_quit_flag_set(void);
 
 /**
- * @brief Check if termination was triggered by terminal keyboard input
+ * @brief Save the current terminal attributes of standard input
  *
- * @return 1 if terminated by SIGINT or SIGQUIT, 0 otherwise
+ * Stores the terminal settings in internal state so they can be restored by
+ * restore_terminal_attributes(). Does nothing when standard input is not a
+ * terminal. Must be called before disable_terminal_echo().
  */
-int is_terminated_by_tty(void);
+void save_terminal_attributes(void);
 
 /**
- * @brief End the terminal line a keyboard quit left the cursor on
+ * @brief Disable terminal echo on standard input
  *
- * Writes at most one newline after a SIGINT/SIGQUIT, only when both stdin and
- * stdout are terminals, so the shell prompt does not start on the echo's line.
- *
- * The driver writes its echo without a newline, so the same call also serves a
- * second purpose: asking for it *before* further output ends that echo's line
- * first, leaving the next thing written to start at column zero instead of two
- * columns to the right. Asking repeatedly is free, writes nothing while no
- * keyboard quit is pending, and writes its newline once per run at most.
+ * Clears the ECHO flag so the terminal driver does not echo typed characters
+ * (most importantly, the "^C" of a Ctrl+C). Does nothing unless
+ * save_terminal_attributes() succeeded.
  */
-void finish_tty_quit_line(void);
+void disable_terminal_echo(void);
+
+/**
+ * @brief Restore the terminal attributes saved by save_terminal_attributes()
+ *
+ * Restores the original terminal settings on standard input. Does nothing
+ * unless save_terminal_attributes() succeeded.
+ */
+void restore_terminal_attributes(void);
 
 /**
  * @brief Get the signal number that set the quit flag
