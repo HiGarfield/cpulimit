@@ -38,6 +38,8 @@ extern "C" {
  * @param child_pid PID of the command; also the ID of the process group
  *                  created for it
  * @param sig Signal number to send
+ * @param verbose Non-zero to report a delivery that failed; without it the
+ *                failure is silent, because nothing here ends the run
  *
  * The negative-PID form is tried first so that descendants the limiter
  * cannot wait for are reached as well. It is not a reliable way to reach
@@ -53,12 +55,15 @@ extern "C" {
  * escalation, which reports the command as killed (128 + SIGKILL) rather
  * than as having exited on its own.
  */
-void signal_command(pid_t child_pid, int sig);
+void signal_command(pid_t child_pid, int sig, int verbose);
 
 /**
  * @brief Forward the received quit signal to the child process group
  *
  * @param child_pid PID of the command; also the ID of its process group
+ * @param verbose Non-zero to report a delivery that failed; without it the
+ *                failure is silent, because a forwarded signal that does not
+ *                land is not what ends the run
  *
  * The exact signal that caused cpulimit to quit is forwarded so the
  * command exits with the status a shell would report (128 + signal
@@ -73,7 +78,7 @@ void signal_command(pid_t child_pid, int sig);
  * gracefully. The process group is targeted first, the command itself
  * as a fallback; see signal_command().
  */
-void forward_quit_signal(pid_t child_pid);
+void forward_quit_signal(pid_t child_pid, int verbose);
 
 #ifdef __cplusplus
 }

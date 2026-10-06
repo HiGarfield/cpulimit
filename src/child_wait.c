@@ -173,8 +173,8 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
              * SIGCONT first so a stopped child resumes beforehand.
              */
             if (is_quit_flag_set() && !signal_forwarded) {
-                signal_command(child_pid, SIGCONT);
-                forward_quit_signal(child_pid);
+                signal_command(child_pid, SIGCONT, cfg->verbose);
+                forward_quit_signal(child_pid, cfg->verbose);
                 signal_forwarded = 1;
                 /* Reset the timeout anchor now so the full grace period
                  * applies. */
@@ -203,7 +203,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                         printf("Process %ld timed out, sending SIGKILL\n",
                                (long)child_pid);
                     }
-                    signal_command(child_pid, SIGKILL);
+                    signal_command(child_pid, SIGKILL, cfg->verbose);
                     kill_sent = 1;
                 }
             }

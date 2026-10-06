@@ -74,9 +74,11 @@ int process_matches_filter(pid_t pid, const struct process_filter *filter) {
  * been recycled). Callers must treat UNKNOWN_START_TIME as "cannot compare"
  * and fall back to acting on the PID.
  *
- * @note A failed iterator close is reported but does not change the result:
- *       the reading was already taken, and reporting it is preferable to
- *       downgrading a known start time to "cannot compare".
+ * @note A failed iterator close changes nothing about the result: the reading
+ *       was already taken, and downgrading a known start time to "cannot
+ *       compare" would be worse than the close failure itself. It is still
+ *       reported, because an iterator that does not close cleanly is worth
+ *       knowing about before it corrupts a later reading.
  */
 double get_process_start_time(pid_t pid) {
     struct process_iterator iter;
@@ -103,16 +105,18 @@ double get_process_start_time(pid_t pid) {
             break;
         }
     }
+    /*
+     * The reading is already taken, and every backend has released what it
+     * allocated by the time it reports a failed close, so the value stands
+     * either way. Downgrading to UNKNOWN_START_TIME on a failed close would
+     * tell both callers "cannot compare", and each answers that by signalling
+     * the PID on guesswork -- the first by resuming a recycled one, the
+     * second by suspending whatever inherited it. The failed close is still
+     * reported: it says nothing about this reading, but it does say the
+     * platform's iterator is not closing cleanly, and that is worth knowing
+     * before it corrupts a later one.
+     */
     if (close_process_iterator(&iter) != 0) {
-        /*
-         * The reading is already taken, and every backend has released what
-         * it allocated by the time it reports a failed close, so the value
-         * still stands. Reporting it is the whole remedy: downgrading to
-         * UNKNOWN_START_TIME here would tell both callers "cannot compare",
-         * and each answers that by signalling the PID on guesswork -- the
-         * first by resuming a recycled one, the second by suspending whatever
-         * inherited it. A close failure says nothing about the reading.
-         */
         fprintf(stderr, "Failed to close process iterator\n");
     }
     free(proc);

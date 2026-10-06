@@ -183,7 +183,10 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
  * @param verbose Non-zero to print periodic statistics
  * @param prior_scan_failures Consecutive scan failures the caller has already
  *        recorded, so the per-cycle diagnostic prints once per streak rather
- *        than per retry; it does not change the return value
+ *        than per retry; it does not change the return value. That diagnostic
+ *        is narration for -v: a scan failure ends only the attempt for a
+ *        caller that re-resolves its target, so a silent run leaves it to the
+ *        exit status and to whichever caller ends on it
  * @return One of the LIMIT_PROCESS_* codes: OK when finished with everything
  *         resumed; SCAN_FAILED (or _AND_STRANDED if not all resumed) on a
  * failed scan; STRANDED when the run ended but a member could not be resumed;
@@ -272,9 +275,12 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
              * saying nothing would let a command-mode run report the command's
              * own exit status as a successfully limited run. Reported once per
              * streak, not per retry, so a retrying caller does not bury the
-             * stranded-process hints under repeated identical lines.
+             * stranded-process hints under repeated identical lines -- and
+             * only to a run that asked for narration with -v, because for a
+             * caller that re-resolves its target this ends one attempt, not
+             * the run.
              */
-            if (prior_scan_failures == 0) {
+            if (prior_scan_failures == 0 && verbose) {
                 fprintf(stderr,
                         "Process group scan failed; CPU limiting stopped for "
                         "PID %ld, the target is no longer limited\n",
@@ -411,7 +417,7 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
      * This also resumes processes that dropped out of the group while
      * suspended (see record_stopped_pid()).
      */
-    resume_failed = process_set_send_signal(&proc_set, SIGCONT, 0);
+    resume_failed = process_set_send_signal(&proc_set, SIGCONT, verbose);
 
     close_process_set(&proc_set);
 
@@ -419,11 +425,11 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
         /*
          * At least one suspended process could not be resumed at shutdown.
          * It may stay stopped forever, so report it and exit
-         * non-zero rather than silently returning success. The resume
-         * round above already printed a per-PID "cannot resume PID N ... may
-         * remain stopped; run 'kill -CONT N'" line for every process it
-         * could not resume -- those lines carry the PID the operator
-         * must act on, so this summary only repeats the count.
+         * non-zero rather than silently returning success. With -v the
+         * resume round above also printed a per-PID "cannot resume PID N ...
+         * may remain stopped; run 'kill -CONT N'" line for every process it
+         * could not resume; without it those PIDs are nowhere on stderr, so
+         * this summary is the whole report and says what to run.
          */
         fprintf(
             stderr,

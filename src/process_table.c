@@ -49,6 +49,13 @@
  * @note On success the caller must call destroy_process_table() to free
  *       resources; after a -1 return there is nothing to destroy (buckets
  *       is NULL), and the caller owns the process_table structure itself
+ *
+ * @note This one reports its own failures: it is only ever called by
+ *       init_process_set(), for which the group cannot be built and the run
+ *       ends, so the line it prints is the run's diagnosis and no caller is
+ *       left to decide. add_to_process_table() fails inside a scan that a
+ *       watching run repeats, but it still reports the allocation that failed:
+ *       out of memory is worth naming wherever it happens.
  */
 int init_process_table(struct process_table *proc_table, size_t hash_size) {
     if (proc_table == NULL) {
@@ -139,6 +146,9 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  *
  * Adds the process to the appropriate bucket based on its PID hash.
  * If the bucket doesn't exist, creates a new linked list for it.
+ *
+ * An allocation failure is reported here, unconditionally: it is out of memory,
+ * and no caller can scan again on a machine that has none to give.
  *
  * @note If a process with the same PID is already present in the table, the
  *       existing entry is left unchanged and the new process is not inserted

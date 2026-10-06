@@ -75,6 +75,11 @@ int start_time_matches(double a, double b) {
  *
  * @note Returns -1 immediately if proc_set is NULL, and releases partially
  *       allocated resources on any later failure
+ *
+ * @note Every failure here is unrecoverable -- the group cannot be built, so
+ *       there is nothing to limit and nothing to resume -- and each one
+ *       therefore reports itself here instead of leaving it to a caller.
+ *       At most one of those lines is printed per call.
  */
 
 int init_process_set(struct process_set *proc_set, pid_t target_pid,
@@ -281,6 +286,9 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
  *
  * @param proc_set Pointer to the process set structure
+ * @param verbose Non-zero to name each PID that could not be resumed; without
+ *                it the count alone is reported, by the caller that turns it
+ *                into the run's verdict
  * @return Number of recorded PIDs that could not be resumed for a reason other
  *         than ESRCH (they may have been left stopped and the shutdown report
  *         must treat them like a failed resume of a current member)
@@ -288,7 +296,7 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
  *       the call is then a no-op returning 0
  */
-int resume_stopped_pids(struct process_set *proc_set) {
+int resume_stopped_pids(struct process_set *proc_set, int verbose) {
     const struct list_node *node;
     int failed = 0;
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
@@ -331,7 +339,7 @@ int resume_stopped_pids(struct process_set *proc_set) {
              */
             if (kill(pid, SIGCONT) != 0) {
                 int err = errno;
-                warn_signal_failure(SIGCONT, pid, err, 0, 1);
+                warn_signal_failure(SIGCONT, pid, err, verbose, 1);
                 if (err != ESRCH) {
                     failed++;
                 }
@@ -452,6 +460,13 @@ static void update_existing_process_entry(struct process *proc,
  * @return 0 on success, -1 on a critical error (iterator, clock or
  *         allocation); the caller must then break its limiting loop rather
  *         than exit, so cleanup can resume whatever is stopped
+ *
+ * Every failure is reported as it happens: out of memory, a clock that cannot
+ * be read, and an iterator that will not open or close each name themselves,
+ * because the stage and the errno are the only things that tell them apart.
+ * Whether any of them ends the run is not this function's to decide -- a scan
+ * failure ends one attempt of a watching run, which retries it, while for
+ * lazy mode, and for the initial scan, the caller ends the run on it.
  *
  * @note Safe to call with NULL proc_set (returns 0 immediately)
  */
@@ -715,17 +730,26 @@ size_t process_set_member_count(const struct process_set *proc_set) {
  * @param sig Signal whose delivery failed
  * @param pid Process the signal could not be delivered to
  * @param err errno captured at the point of failure
- * @param verbose Retained for API compatibility; the caller already decided
- *                whether to report, so this does not change output
+ * @param verbose Non-zero to print; without it nothing is printed. A member
+ *                that refuses signals ends nothing -- it stays tracked, and a
+ *                member that could not be resumed is counted, so the verdict
+ *                travels through the return value and the shutdown report
  * @param may_remain_stopped Non-zero when a failed SIGCONT left the member
  *                           stopped, so the hint names the PID to resume
  *
- * A failed SIGCONT for a process that is gone (ESRCH) is not reported;
- * reporting happens without -v because the requested limit cannot be enforced.
+ * A failed SIGCONT for a process that is gone (ESRCH) is not reported. The
+ * limit cannot be enforced on a member that refuses signals, but that is a
+ * per-attempt failure like any other, so it is told to -v alone.
  */
 static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
                                 int may_remain_stopped) {
-    (void)verbose;
+    /*
+     * Checked before any formatting: this is called for every member on
+     * every control cycle, and a silent run owes the operator nothing here.
+     */
+    if (!verbose) {
+        return;
+    }
     /* Nothing is suspended for a process that no longer exists. */
     if (sig == SIGCONT && err == ESRCH) {
         return;
@@ -795,8 +819,11 @@ static int classify_signal_failure(int sig, struct process *proc, int **gate,
  *
  * @param proc_set Pointer to the process set structure
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose Retained for API compatibility; failure reporting is throttled
- *                per member by the stop_warned/cont_warned/resume_warned flags
+ * @param verbose Non-zero to report a delivery that failed; the per-member
+ *                stop_warned/cont_warned/resume_warned flags throttle the
+ *                report to once per episode. The count of failures that may
+ *                have stranded a member is returned either way, so a silent
+ *                run still reports them through the shutdown summary
  * @return Number of deliveries that failed and may have left a member
  * suspended. A failed SIGCONT for a member this group never suspended is benign
  * and does not count; an ESRCH (process gone) never counts.
@@ -814,7 +841,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
      * like a failed resume of a current member.
      */
     if (sig == SIGCONT) {
-        failed = resume_stopped_pids(proc_set);
+        failed = resume_stopped_pids(proc_set, verbose);
     }
     if (proc_set == NULL || proc_set->proc_list == NULL) {
         /*
