@@ -85,10 +85,23 @@ interchangeable; only the trailing link flag differs per platform
 | Option                  | Description                                     |
 | ----------------------- | ----------------------------------------------- |
 | -l LIMIT, --limit=LIMIT | CPU percentage limit, range (0, N_CPU*100]      |
-| -v, --verbose           | show control statistics                         |
+| -v, --verbose           | show control statistics and progress messages   |
 | -z, --lazy              | exit if the target process is not running       |
 | -i, --include-children  | limit total CPU usage of target and descendants |
 | -h, --help              | display this help message and exit              |
+
+### Output
+
+Without `-v`, cpulimit prints nothing while it runs: no statistics, no
+progress, and no warning about a condition it recovers from on its own — a
+target that has not appeared yet, a process that refuses to be signalled, or a
+scan that failed once and is retried. The one exception is the error that ends
+the run, and it is printed once: for example a lazy run whose target does not
+exist, or a process left stopped that only `kill -CONT` can recover.
+
+With `-v`, all of it is reported, including the per-cycle progress that a
+silent run withholds. Bad command-line arguments and their usage message are
+always printed, with or without `-v`.
 
 **`-l LIMIT` is required.** It is a percentage of **one CPU core**: `-l 50`
 is half a core, `-l 100` is one fully used core, and the maximum is
