@@ -392,10 +392,10 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
              * -- once, which is all the run has left to say.
              */
             if (!cfg->verbose) {
-                fprintf(stderr,
-                        "Process group scan failed; CPU limiting stopped for "
-                        "PID %ld, the target is no longer limited\n",
-                        (long)found_pid);
+                fprintf(
+                    stderr,
+                    "Process group scan failed; CPU limiting stopped for PID %ld, the target is no longer limited\n",
+                    (long)found_pid);
             }
         } else if (limit_status == LIMIT_PROCESS_NO_TARGET) {
             /*

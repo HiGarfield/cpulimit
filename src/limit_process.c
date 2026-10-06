@@ -281,10 +281,10 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
              * the run.
              */
             if (prior_scan_failures == 0 && verbose) {
-                fprintf(stderr,
-                        "Process group scan failed; CPU limiting stopped for "
-                        "PID %ld, the target is no longer limited\n",
-                        (long)pid);
+                fprintf(
+                    stderr,
+                    "Process group scan failed; CPU limiting stopped for PID %ld, the target is no longer limited\n",
+                    (long)pid);
             }
             scan_failed = 1;
             break;
