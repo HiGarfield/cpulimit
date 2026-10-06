@@ -1,8 +1,8 @@
 # CPULIMIT
 
-Cpulimit restricts the CPU usage of a process to a percentage you choose, by
-sending `SIGSTOP` and `SIGCONT` to it. With `-i` the limit covers the process
-and all of its descendants.
+Cpulimit limits a process's CPU usage to a percentage you choose, by sending
+`SIGSTOP` to pause it and `SIGCONT` to resume it as needed. With `-i` the
+limit covers the process and all of its descendants.
 
 Cpulimit works on Linux, macOS, and FreeBSD. It was originally developed by
 [Angelo Marletta](https://github.com/opsengine/cpulimit); this fork is
@@ -10,158 +10,23 @@ maintained by [HiGarfield](https://github.com/HiGarfield/cpulimit) and adds bug
 fixes and improvements. Prebuilt binaries are published on
 [Releases](https://github.com/HiGarfield/cpulimit/releases/latest).
 
-## Limiting CPU Usage
-
-### How it works
-
-Cpulimit measures the target's CPU usage and pauses it (`SIGSTOP`) or resumes
-it (`SIGCONT`) so that the average usage matches the limit. Nothing is reniced
-or rescheduled.
-
-### Setting the limit
-
-  ```sh
-  cpulimit OPTION... TARGET
-
-  ```
-
-**`-l LIMIT` is required**, and it is a percentage of **one CPU core**: `-l 50`
-is half a core, `-l 100` is one fully used core, and the maximum is
-`number_of_cores * 100` — `-l 250` on a 4-core machine allows about two and a
-half cores.
-
-| Option                  | Description                                     |
-| ----------------------- | ----------------------------------------------- |
-| -l LIMIT, --limit=LIMIT | CPU percentage limit, range (0, N_CPU*100]      |
-| -v, --verbose           | show control statistics                         |
-| -z, --lazy              | exit if the target process is not running       |
-| -i, --include-children  | limit total CPU usage of target and descendants |
-| -h, --help              | display the help message and exit               |
-
-Exactly one target must be given:
-
-| Target              | Description                                       |
-| ------------------- | ------------------------------------------------- |
-| -p PID, --pid=PID   | PID of the target process (implies -z)            |
-| -e FILE, --exe=FILE | executable name or path (matched against argv[0]) |
-| COMMAND [ARG]...    | run the command and limit CPU usage (implies -z)  |
-
-Examples:
-
-  ```sh
-  # -l 50: limit to 50% of one core
-  # -p 1234: limit process by PID
-  cpulimit -l 50 -p 1234
-
-  # -l 50: limit to 50% of one core
-  # -e myapp: limit by executable name
-  cpulimit -l 50 -e myapp
-
-  # -l 50: limit to 50% of one core
-  # --: end of options
-  # command: myapp --option
-  cpulimit -l 50 -- myapp --option
-
-  # -l 50: limit to 50% of one core
-  # -i: include child processes
-  # -e myapp: limit by executable name
-  cpulimit -l 50 -i -e myapp
-
-  # -l 200: limit to 200% of one core
-  # -v: show statistics
-  # -i: include child processes
-  # --: end of options
-  # command: ffmpeg -i in.mkv -c:v libx264 out.mp4
-  cpulimit -l 200 -v -i -- ffmpeg -i in.mkv -c:v libx264 out.mp4
-
-  ```
-
-### Things to keep in mind
-
-- **The limit is an average, not a hard cap.** Bursts can exceed it; for
-  guaranteed quotas use cgroups or a container runtime.
-- **Children are only included with `-i`.**
-- **A suspended process makes no progress**: it holds its locks and serves no
-  I/O while stopped, so interactive and networked services gain latency.
-- **Very short-lived children can be missed** and then run unthrottled.
-- **Cpulimit can only control processes you own.**
-- **PID 1 (init) is never limited.** Sending it `SIGSTOP`/`SIGCONT`, or even
-  probing it with `kill(1, 0)`, would freeze or crash the system, so there is no
-  exception on any platform. `-p 1` is rejected outright, and init is skipped
-  both when a name is resolved with `-e` and when a process group is built, so
-  it is never signalled as a discovered descendant either. On Linux, where
-  `/proc/1/cmdline` is available to recognise it, a name init wears is refused
-  up front while nothing else on the system wears it too -- a name that can
-  only ever report a miss -- and stays an ordinary target otherwise. On macOS
-  and FreeBSD the same name simply matches nothing and is reported as not
-  found.
-
-## Choosing a Target
-
-`-e` matches each process's **`argv[0]`** — the command string it was launched
-with — not the resolved path of the executable on disk.
-
-- An argument starting with `/` is compared in full, so `-e /usr/bin/myapp`
-  does not match a process started as `myapp`.
-- Any other argument is compared by basename only, so `-e myapp` matches
-  `/usr/bin/myapp` and `./dir/myapp` alike.
-- An argument with an empty basename (`-e /`, `-e bin/`) is rejected with
-  `invalid match name`.
-
-When several processes match, the topmost ancestor wins; if the matches are
-unrelated, the smaller PID wins. A match cpulimit cannot signal loses to any
-match it can control.
-
-## Exit Codes
-
-| Exit Code | Description                                              |
-| --------- | -------------------------------------------------------- |
-| 0         | Success                                                  |
-| 1         | Bad args, target not found (-z), internal error          |
-| 126       | Command found but not executable (command mode only)     |
-| 127       | Command not found (command mode only)                    |
-| 128+N     | Command terminated by signal N (command mode only)       |
-| any other | In command mode, whatever the command itself exited with |
-
-The three command-mode rows are the shell's own conventions, used when the
-command never ran at all. Once it has run, cpulimit steps aside and reports the
-command's own status instead: `cpulimit -l 50 -- sh -c 'exit 7'` exits 7. With
-`-p` or `-e` there is no command to speak for, so the status is always
-cpulimit's own.
-
-Use `-z` — or `-p`, which implies it — when the run should end as soon as the
-target is gone. Without it, `-e` keeps waiting and re-attaches whenever the
-target reappears, so a program that starts later is still limited.
-
-In command mode, a run that did not limit its command to completion reports
-which of three things happened: `CPU limit could not be applied` (nothing was
-throttled — check permissions and how the target was named), `CPU limiting
-stopped early` (the command ran unthrottled from that point on), or
-`left stopped` (the target stayed suspended — release the PIDs named above it
-with `kill -CONT`).
-
-With `-p` or `-e` there is no command to report on, so the same three outcomes
-are conveyed by the exit status plus the per-attempt diagnostics instead:
-`cannot be found`, `No permission to control process N`, `is no longer the
-target`, `Process group scan failed`, and `N process(es) left suspended at
-shutdown`.
-
 ## Installation
 
-### Prebuilt Binary
+Pick **one** of the four methods below. You do not need more than one.
+
+### 1. Prebuilt binary
 
 Download the archive for your platform from
 [Releases](https://github.com/HiGarfield/cpulimit/releases/latest), then:
 
   ```sh
-  sudo mkdir -p /usr/local/bin
-  sudo cp -f cpulimit-* /usr/local/bin/cpulimit
-  sudo chmod 755 /usr/local/bin/cpulimit
+  sudo install -d /usr/local/bin
+  sudo install -m 755 cpulimit-* /usr/local/bin/cpulimit
   ```
 
-### From Source
+### 2. `make` / `gmake`
 
-Requires a C compiler. Use **one of** the following methods:
+Requires a C compiler.
 
 - **Linux/macOS with `make`:**
 
@@ -177,7 +42,7 @@ Requires a C compiler. Use **one of** the following methods:
   sudo gmake install
   ```
 
-- **Linux/macOS/FreeBSD with `cmake` (version 3.5 or higher):**
+### 3. `cmake` (version 3.5 or higher)
 
   ```sh
   rm -rf build
@@ -188,17 +53,140 @@ Requires a C compiler. Use **one of** the following methods:
   sudo cmake --build . --target install
   ```
 
+### 4. `gcc` / `clang` only (no `make` / `cmake`)
+
+Compile all sources directly and install. `gcc` and `clang` are
+interchangeable; only the trailing link flag differs per platform
+(`-lrt` on Linux, `-lproc` on macOS, `-lkvm` on FreeBSD).
+
+  ```sh
+  # Linux
+  gcc -O2 -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64 src/*.c -o cpulimit -lrt
+
+  # macOS
+  clang -O2 -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64 src/*.c -o cpulimit -lproc
+
+  # FreeBSD
+  gcc -O2 -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64 src/*.c -o cpulimit -lkvm
+
+  # install (any platform)
+  sudo install -d /usr/local/bin
+  sudo install -m 755 cpulimit /usr/local/bin/cpulimit
+  ```
+
+## Usage
+
+  ```sh
+  cpulimit OPTION... TARGET
+  ```
+
+### Options
+
+| Option                  | Description                                     |
+| ----------------------- | ----------------------------------------------- |
+| -l LIMIT, --limit=LIMIT | CPU percentage limit, range (0, N_CPU*100]      |
+| -v, --verbose           | show control statistics                         |
+| -z, --lazy              | exit if the target process is not running       |
+| -i, --include-children  | limit total CPU usage of target and descendants |
+| -h, --help              | display this help message and exit              |
+
+**`-l LIMIT` is required.** It is a percentage of **one CPU core**: `-l 50`
+is half a core, `-l 100` is one fully used core, and the maximum is
+`number_of_cores * 100` — `-l 250` on a 4-core machine allows about two and a
+half cores.
+
+### Choosing a target
+
+Exactly one target must be given:
+
+| Target              | Description                                      |
+| ------------------- | ------------------------------------------------ |
+| -p PID, --pid=PID   | PID of the target process (implies -z)           |
+| -e FILE, --exe=FILE | executable name or path                          |
+| COMMAND [ARG]...    | run the command and limit CPU usage (implies -z) |
+
+With `-e`, cpulimit matches the name each process was started with, not the
+path of the executable on disk:
+
+- An argument starting with `/` is compared in full, so `-e /usr/bin/myapp`
+  does not match a process started as `myapp`.
+- Any other argument is compared by name only, so `-e myapp` matches
+  `/usr/bin/myapp` and `./dir/myapp` alike.
+- An argument with an empty name (`-e /`, `-e bin/`) is rejected with
+  `invalid match name`.
+
+When several processes match, the topmost ancestor wins; if the matches are
+unrelated, the smaller PID wins. A match cpulimit cannot signal loses to any
+match it can control.
+
+### Examples
+
+  ```sh
+  # Limit process 1234 to 50% of one core.
+  cpulimit -l 50 -p 1234
+
+  # Limit every process named "myapp" to 50% of one core.
+  cpulimit -l 50 -e myapp
+
+  # Run "myapp --option" limited to 50% of one core.
+  cpulimit -l 50 -- myapp --option
+
+  # Limit "myapp" and its children to 50% of one core.
+  cpulimit -l 50 -i -e myapp
+
+  # Run ffmpeg and its children, limited to 200% (two cores), with stats.
+  cpulimit -l 200 -v -i -- ffmpeg -i in.mkv -c:v libx264 out.mp4
+  ```
+
+## Things to keep in mind
+
+- **Children are only included with `-i`.**
+- **A suspended process makes no progress**: `SIGSTOP` freezes it, holding its
+  locks and serving no I/O until `SIGCONT` arrives, so interactive and networked
+  services gain latency.
+- **Very short-lived children can be missed** and then run unthrottled.
+- **Cpulimit can only control processes you own.**
+- **PID 1 (init) is never limited.** Suspending it would freeze or crash the
+  system, so there is no exception on any platform.
+- **`-p` and command mode exit when the target stops.** Use `-z` (or `-p`,
+  which implies it) when the run should end as soon as the target is gone.
+  Without it, `-e` keeps waiting and re-attaches whenever the target
+  reappears, so a program that starts later is still limited.
+- **Do not kill cpulimit with `SIGKILL`.** For example, `killall -9 cpulimit`,
+  `killall -KILL cpulimit`, `kill -9 <cpulimit's PID>`, or
+  `kill -KILL <cpulimit's PID>` skip the cleanup that sends `SIGCONT`, so any
+  process cpulimit has paused with `SIGSTOP` stays frozen and never resumes.
+  Stop cpulimit with `SIGTERM`/`SIGINT` (for example `kill -TERM <cpulimit's
+  PID>` or `Ctrl-C`) instead, so it can restore the target to a running state.
+
+## Exit codes
+
+| Exit Code | Description                                              |
+| --------- | -------------------------------------------------------- |
+| 0         | Success                                                  |
+| 1         | Bad args, target not found (-z), internal error          |
+| 126       | Command found but not executable (command mode only)     |
+| 127       | Command not found (command mode only)                    |
+| 128+N     | Command terminated by signal N (command mode only)       |
+| any other | In command mode, whatever the command itself exited with |
+
+The three command-mode rows are the shell's own conventions, used when the
+command never ran at all. Once it has run, cpulimit steps aside and reports
+the command's own status instead: `cpulimit -l 50 -- sh -c 'exit 7'` exits 7.
+With `-p` or `-e` there is no command to speak for, so the status is always
+cpulimit's own.
+
 ## Uninstall
 
 Use the method matching the one you installed with.
 
-### Prebuilt Binary
+### 1. Prebuilt binary
 
   ```sh
   sudo rm -f /usr/local/bin/cpulimit
   ```
 
-### From Source
+### 2. `make` / `gmake`
 
 - **Linux/macOS with `make`:**
 
@@ -212,13 +200,21 @@ Use the method matching the one you installed with.
   sudo gmake uninstall
   ```
 
-- **Linux/macOS/FreeBSD with `cmake`:**
+### 3. `cmake`
 
   ```sh
   sudo cmake --build build --target uninstall
   ```
 
-## Run Tests
+### 4. `gcc` / `clang` only
+
+  ```sh
+  sudo rm -f /usr/local/bin/cpulimit
+  ```
+
+## For developers
+
+### Run tests
 
 Run the tests from the project build directory.
 
@@ -240,7 +236,7 @@ Run the tests from the project build directory.
   ./src/cpulimit -l 50 -i -v -- ./tests/multi_process_busy
   ```
 
-## Source Code
+### Source code
 
 Source code is available at <https://github.com/HiGarfield/cpulimit>, where bug
 reports and feature requests are welcome.
