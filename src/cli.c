@@ -248,10 +248,10 @@ static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
      */
     if (process_name_matches_cmd(cfg->exe_name, cmdline) &&
         !process_name_has_non_init_match(cfg->exe_name)) {
-        fprintf(stderr,
-                "Error: target name '%s' resolves to PID 1 (init), "
-                "which is never a valid target\n\n",
-                cfg->exe_name);
+        fprintf(
+            stderr,
+            "Error: target name '%s' resolves to PID 1 (init), which is never a valid target\n\n",
+            cfg->exe_name);
         print_usage(stderr, cfg);
         free(cmdline);
         return EXIT_FAILURE;
