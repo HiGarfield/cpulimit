@@ -12,7 +12,7 @@ fixes and improvements. Prebuilt binaries are published on
 
 ## Installation
 
-Pick **one** of the four methods below. You do not need more than one.
+Pick **one** of the four methods below.
 
 ### 1. Prebuilt binary
 
@@ -148,10 +148,9 @@ match it can control.
 - **Cpulimit controls only processes owned by the current user.** To limit a
   process owned by another user, run cpulimit as root (for example with
   `sudo`).
-- **Running as root lets cpulimit raise its own priority.** With root
-  privileges (for example with `sudo`) it promotes itself to a real-time
-  scheduling policy (and lowers its `nice` value), so it can respond to usage
-  spikes without delay and enforce the limit more precisely.
+- **As root, cpulimit raises its own priority.** Run with `sudo`, it switches
+  itself to a real-time scheduling policy (and lowers its `nice` value), so it
+  reacts to usage spikes without delay and enforces the limit more precisely.
 - **PID 1 (init) is never limited.** Suspending it would freeze or crash the
   system, so there is no exception on any platform.
 - **`-p` and command mode exit when the target stops.** Use `-z` (or `-p`,
@@ -176,11 +175,11 @@ match it can control.
 | 128+N     | Command terminated by signal N (command mode only)       |
 | any other | In command mode, whatever the command itself exited with |
 
-The three command-mode rows are the shell's own conventions, used when the
-command never ran at all. Once it has run, cpulimit steps aside and reports
-the command's own status instead: `cpulimit -l 50 -- sh -c 'exit 7'` exits 7.
-With `-p` or `-e` there is no command to speak for, so the status is always
-cpulimit's own.
+The three command-mode rows (126, 127, 128+N) follow the shell's own
+conventions and apply only when cpulimit cannot start the command. Once the
+command runs, cpulimit steps aside and reports the command's own status instead:
+`cpulimit -l 50 -- sh -c 'exit 7'` exits 7. With `-p` or `-e` there is no
+command to report on, so the status is always cpulimit's own.
 
 ## Uninstall
 
