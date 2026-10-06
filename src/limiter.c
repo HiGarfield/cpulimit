@@ -158,7 +158,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
         } else if (limit_status == LIMIT_PROCESS_STRANDED) {
             fprintf(
                 stderr,
-                "Warning: CPU limiting ran for process %ld, but one or more processes it suspended were left stopped; recover each with 'kill -CONT <pid>'.  The command exited with status %d\n",
+                "Warning: CPU limiting ran for process %ld, but one or more processes it suspended were left stopped; recover each with 'kill -CONT <pid>'. The command exited with status %d\n",
                 (long)child_pid, child_exit_status);
         } else {
             fprintf(
