@@ -55,6 +55,12 @@ pid_t find_process_by_pid(pid_t pid);
  * smallest PID wins; a controllable match is preferred over an uncontrollable
  * one, and a vanished winner falls back to another live candidate.
  *
+ * Out of memory and an iterator that will not open or close are reported here
+ * outright: without either there is no lookup at all. Whether a name that
+ * matched nothing is worth saying depends on the run -- a lazy run ends on
+ * it, a watching one retries -- so that one travels through the return value
+ * and is named by the limiter, which is the layer that knows which it is.
+ *
  * @note Iterates every process, so prefer find_process_by_pid() when the PID is
  *       known; returns 0 on allocation or iterator errors.
  */

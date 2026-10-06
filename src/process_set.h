@@ -156,6 +156,9 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
  * @brief Resume every PID recorded by record_stopped_pid() and empty the list
  *
  * @param proc_set Pointer to the process set structure
+ * @param verbose Non-zero to name each PID that could not be resumed; without
+ *                it the count alone is reported, by the caller that turns it
+ *                into the run's verdict
  * @return Number of recorded PIDs that could not be resumed for a reason other
  *         than ESRCH (they may have been left stopped and the shutdown report
  *         must treat them like a failed resume of a current member)
@@ -163,7 +166,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
  * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
  *       the call is then a no-op returning 0
  */
-int resume_stopped_pids(struct process_set *proc_set);
+int resume_stopped_pids(struct process_set *proc_set, int verbose);
 
 /**
  * @brief Drop a PID from the suspension record without resuming it

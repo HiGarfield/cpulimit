@@ -54,8 +54,8 @@
  * @return Opened kvm descriptor on success, NULL on failure
  *
  * Allocates a temporary error buffer, opens the kvm interface in read-only
- * mode, and frees the buffer. On allocation failure, returns NULL. On
- * kvm_openfiles() failure, prints an error and returns NULL.
+ * mode, and frees the buffer. On kvm_openfiles() failure, prints an error and
+ * returns NULL.
  *
  * Callers must close the returned descriptor with kvm_close().
  */
@@ -82,6 +82,11 @@ static kvm_t *open_kvm(void) {
  * @param filter Pointer to filter criteria, must remain valid during iteration
  * @return 0 on success, -1 on failure (including NULL iter/filter or OOM);
  *         this function does not call exit()
+ *
+ * An allocation failure is reported outright: out of memory leaves no
+ * iterator to build and nothing to retry. Everything else is reported through
+ * the -1, because whether a failure here ends the run or only one attempt of a
+ * watching one is the caller's to decide.
  *
  * @note The filter pointer is stored and must remain valid until
  *       close_process_iterator() is called.
@@ -131,7 +136,7 @@ int init_process_iterator(struct process_iterator *iter,
     /*
      * proc_count must be positive: zero means no processes returned
      * (unexpected), and negative would cause (size_t) cast to wrap,
-     * producing a huge allocation. Treat both as fatal errors.
+     * producing a huge allocation. Treat both as errors.
      */
     if (iter->proc_count <= 0) {
         fprintf(stderr, "kvm_getprocs: unexpected proc_count %d\n",

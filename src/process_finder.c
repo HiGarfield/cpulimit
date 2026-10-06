@@ -325,17 +325,16 @@ pid_t find_process_by_name(const char *process_name) {
         }
     }
     free(proc);
+    /*
+     * A failed close does not change the selection below, which runs exactly
+     * as it does on the normal path: the scan itself completed, and its
+     * result is what the existence recheck, the controllability probe and the
+     * -PID contract are for. Aborting here instead would hand the caller a
+     * PID it could not trust, or a positive PID for a process it cannot
+     * control at all -- a limit run that cannot be enforced and a zero exit
+     * status. The failure is still reported.
+     */
     if (close_process_iterator(&iter) != 0) {
-        /*
-         * The scan itself completed and this diagnostic is all the operator
-         * can act on, so the selection below continues exactly as it does
-         * on the normal path. Returning a PID here would skip the
-         * existence recheck, the controllability probe and
-         * the -PID contract, and would hand the caller a positive
-         * PID for a process cpulimit cannot control at all: a limit run
-         * that cannot be enforced, an EPERM warning per member per cycle,
-         * and a zero exit status.
-         */
         fprintf(stderr, "Failed to close process iterator\n");
     }
 
@@ -359,7 +358,6 @@ pid_t find_process_by_name(const char *process_name) {
      */
     if (n_candidates == 0) {
         free(candidates);
-        fprintf(stderr, "Process '%s' cannot be found\n", process_cmp_name);
         return 0;
     }
     probe = find_process_by_pid(pid);
@@ -440,6 +438,7 @@ int process_has_other_name(pid_t pid, const char *process_name) {
     }
     proc = (struct process *)malloc(sizeof(struct process));
     if (proc == NULL) {
+        fprintf(stderr, "Memory allocation failed for the process\n");
         return 0;
     }
     /*

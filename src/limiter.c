@@ -118,7 +118,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
      * invisible to the iterator (e.g. macOS 10.7), and an already-running or
      * already-exited child ignores SIGCONT safely.
      */
-    signal_command(child_pid, SIGCONT);
+    signal_command(child_pid, SIGCONT, cfg->verbose);
 
     /*
      * Forward the exact received signal so the child exits with the status a
@@ -129,7 +129,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
      */
     forwarded_quit_signal = is_quit_flag_set();
     if (forwarded_quit_signal) {
-        forward_quit_signal(child_pid);
+        forward_quit_signal(child_pid, cfg->verbose);
     }
 
     /*
@@ -143,8 +143,9 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
          * real exit status so the operator sees why, not just cpulimit's
          * own EXIT_FAILURE. Distinguish the three outcomes -- a group that
          * could not be built at all, a run that went unthrottled from a failed
-         * scan, and the stranded case where limit_process() names each
-         * 'kill -CONT <pid>' to recover.
+         * scan, and the stranded case, where the PIDs needing a manual
+         * 'kill -CONT' are named by -v only, so this summary has to name the
+         * remedy itself instead of pointing at lines above it.
          */
         int child_exit_status =
             collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
@@ -157,7 +158,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
         } else if (limit_status == LIMIT_PROCESS_STRANDED) {
             fprintf(
                 stderr,
-                "Warning: CPU limiting ran for process %ld, but one or more processes it suspended were left stopped; recover each with the 'kill -CONT <pid>' printed above.  The command exited with status %d\n",
+                "Warning: CPU limiting ran for process %ld, but one or more processes it suspended were left stopped; recover each with 'kill -CONT <pid>'.  The command exited with status %d\n",
                 (long)child_pid, child_exit_status);
         } else {
             fprintf(
@@ -202,12 +203,14 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
  *        TARGET_UNCONTROLLABLE)
  * @return TARGET_RESOLVED, TARGET_NOT_FOUND or TARGET_UNCONTROLLABLE
  *
- * The PID-mode "cannot be found" diagnostic is printed here because it follows
- * from what the lookup found, not from the caller's policy; non-lazy mode
- * appends ", retrying...". The name-mode "cannot be found" message is printed
- * by find_process_by_name() itself. A name that resolves only to PID 1 is
- * refused once at argument-checking time (cli.c) before the limiter starts, so
- * it is never reported here.
+ * Both "cannot be found" diagnostics are printed here because this is the only
+ * layer that knows what a miss means for the run: lazy mode ends the run on
+ * it, so that line is printed unconditionally and is the one diagnostic a
+ * non-verbose run may emit; a non-lazy run ends only this attempt, so there
+ * the miss is a progress note reserved for -v. find_process_by_name() itself
+ * reports a miss through its return value alone and prints nothing. A name
+ * that resolves only to PID 1 is refused once at argument-checking time
+ * (cli.c) before the limiter starts, so it is never reported here.
  */
 static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
                           int lazy_mode, pid_t *found_pid) {
@@ -215,14 +218,17 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
                           : find_process_by_name(cfg->exe_name);
     if (*found_pid == 0) {
         /*
-         * find_process_by_name() already printed "cannot be found";
-         * find_process_by_pid() has nothing to print. PID mode is always one
-         * attempt, so this line never has a retry behind it to advertise and
-         * the suffix would be dead text.
+         * find_process_by_pid() has nothing to print of its own and
+         * find_process_by_name() reports the miss through its return value,
+         * so both lines belong here. PID mode is always one attempt, so its
+         * line never has a retry behind it to advertise and the suffix would
+         * be dead text.
          */
         if (pid_mode) {
             fprintf(stderr, "Process with PID %ld cannot be found\n",
                     (long)cfg->target_pid);
+        } else if (lazy_mode || cfg->verbose) {
+            fprintf(stderr, "Process '%s' cannot be found\n", cfg->exe_name);
         }
         return TARGET_NOT_FOUND;
     }
@@ -232,10 +238,13 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
          * attached to right now. What that means for the search is the
          * caller's decision, not this function's: a refusal belongs to the
          * process currently wearing that name or PID, and a later one may be
-         * controllable.
+         * controllable. A watching run therefore only says so when -v asked
+         * for it, while a lazy run ends on it and must say why.
          */
-        fprintf(stderr, "No permission to control process %ld%s\n",
-                -(long)*found_pid, lazy_mode ? "" : ", retrying...");
+        if (lazy_mode || cfg->verbose) {
+            fprintf(stderr, "No permission to control process %ld%s\n",
+                    -(long)*found_pid, lazy_mode ? "" : ", retrying...");
+        }
         return TARGET_UNCONTROLLABLE;
     }
     return TARGET_RESOLVED;
@@ -251,12 +260,16 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
  * @param exit_status In/out: the running exit status of the whole run
  *
  * The resolved process exited and its PID was reused, so this attempt leaves
- * it untouched. Lazy mode ends the run as a failure; non-lazy keeps looking.
+ * it untouched. Lazy mode ends the run as a failure and therefore reports it;
+ * non-lazy keeps looking, so there the line is only spoken when -v asked for
+ * it.
  */
 static void handle_stale_target(const struct cpulimit_cfg *cfg, int lazy_mode,
                                 pid_t found_pid, int *exit_status) {
-    fprintf(stderr, "Process %ld is no longer '%s'; not limiting it\n",
-            (long)found_pid, cfg->exe_name);
+    if (lazy_mode || cfg->verbose) {
+        fprintf(stderr, "Process %ld is no longer '%s'; not limiting it\n",
+                (long)found_pid, cfg->exe_name);
+    }
     if (lazy_mode) {
         *exit_status = EXIT_FAILURE;
     }
@@ -278,7 +291,9 @@ static void handle_stale_target(const struct cpulimit_cfg *cfg, int lazy_mode,
  * -CONT', and -- in lazy mode, which makes one attempt and reports whatever
  * it produced -- a target that could not be limited at all. Of those it is
  * also the one that speaks: the lazy no-target outcome has no diagnostic of
- * its own inside limit_process(), so this function prints it.
+ * its own inside limit_process(), so this function prints it. The two lines
+ * about the closing SIGCONT are the opposite case -- neither ends the run --
+ * and are therefore told to -v alone.
  */
 static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
                                     int lazy_mode, pid_t found_pid,
@@ -328,13 +343,21 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
                   !start_time_matches(current_start, UNKNOWN_START_TIME) &&
                   !start_time_matches(current_start, target_start_time));
     if (pid_reused) {
-        fprintf(stderr,
-                "Process %ld is no longer the target; not resuming it\n",
-                (long)found_pid);
+        /*
+         * Not resuming is the safe choice either way, and it ends nothing, so
+         * only a run asked to narrate itself says so.
+         */
+        if (cfg->verbose) {
+            fprintf(stderr,
+                    "Process %ld is no longer the target; not resuming it\n",
+                    (long)found_pid);
+        }
     } else if (kill(found_pid, SIGCONT) != 0 && errno != ESRCH) {
         int err = errno;
-        fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n", (long)found_pid,
-                strerror(err));
+        if (cfg->verbose) {
+            fprintf(stderr, "kill(%ld, SIGCONT) failed: %s\n", (long)found_pid,
+                    strerror(err));
+        }
     }
 
     if (limit_status == LIMIT_PROCESS_OK) {
@@ -360,7 +383,21 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
          * (LIMIT_PROCESS_ERROR, the one reason a non-lazy search gives up),
          * or a stranded outcome needing a manual 'kill -CONT' to recover.
          */
-        if (limit_status == LIMIT_PROCESS_NO_TARGET) {
+        if (limit_status == LIMIT_PROCESS_SCAN_FAILED) {
+            /*
+             * Only a lazy run reaches this branch with a failed scan, and it
+             * ends on it. limit_process() keeps its own scan diagnostic for -v
+             * because a watching run retries the same failure every two
+             * seconds, so a silent run that ends here has to speak for itself
+             * -- once, which is all the run has left to say.
+             */
+            if (!cfg->verbose) {
+                fprintf(stderr,
+                        "Process group scan failed; CPU limiting stopped for "
+                        "PID %ld, the target is no longer limited\n",
+                        (long)found_pid);
+            }
+        } else if (limit_status == LIMIT_PROCESS_NO_TARGET) {
             /*
              * This one outcome is spoken here and nowhere else. An empty
              * group is silence limit_process() must be free to keep, because
@@ -370,8 +407,9 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
              * the exit status alone -- most visibly for -p, whose kill(pid,0)
              * probe succeeds for a zombie every iterator backend then refuses
              * to list, leaving the operator a bare 1 with nothing saying why.
-             * Every other outcome reaching here printed inside
-             * limit_process() already.
+             * The other outcomes reaching here whose line belongs to -v are
+             * spoken above; a group that could not be built at all is the one
+             * limit_process() reports itself.
              */
             fprintf(stderr,
                     "Process %ld is no longer running; nothing was limited\n",

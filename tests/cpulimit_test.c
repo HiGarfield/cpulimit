@@ -282,7 +282,7 @@ static int test_muted_stderr = -1;
  * the run log and read as if they belonged to whichever test happens to be
  * running at the time. A test that asserts on the return value alone mutes
  * the code around the call that makes the noise; a test that needs the text
- * captures it into a pipe instead (see test_capture_find_by_name()).
+ * captures it into a pipe instead (see test_capture_lazy_name_miss()).
  *
  * Every mute is paired with an unmute, except where the calling child leaves
  * through _exit() right afterwards.
@@ -5357,7 +5357,7 @@ static void test_process_finder_find_by_pid(void) {
  *       text, because only the return value was ever used here. A forked
  *       child would inherit this test's own buffers and leave through
  *       _exit() without freeing them, which valgrind then reports as still
- *       reachable in that child -- the trap test_capture_find_by_name()
+ *       reachable in that child -- the trap test_capture_lazy_name_miss()
  *       documents for its own buffer. The tests that do inspect the text
  *       keep the capture.
  */
@@ -10649,6 +10649,13 @@ static void uncontrollable_target_driver_child(int write_fd, int announce_fd,
     cfg.program_name = "test";
     cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 0;
+    /*
+     * verbose = 1: a target that refuses to be signalled ends nothing in a
+     * name run, so its diagnostic is narration and only -v gets it. The PID
+     * branch is lazy by construction and speaks either way, which is what
+     * lets one driver cover both.
+     */
+    cfg.verbose = 1;
 
     seam_reset();
     if (exe_mode) {
@@ -10885,6 +10892,12 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
     cfg.exe_name = "cpulimit_test_no_such_process_xyz";
     cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 0;
+    /*
+     * verbose = 1: a miss ends nothing in a watching run, so "cannot be
+     * found" is progress narration and only -v gets it. Without it the
+     * count below would be 0 and the run would be silent by design.
+     */
+    cfg.verbose = 1;
 
     fflush(stdout);
     fflush(stderr);
@@ -10969,6 +10982,123 @@ static void test_limiter_run_pid_or_exe_mode_waits_without_target(void) {
     assert_hit = strstr(capture, "Giving up");
     assert(assert_hit == NULL);
     free(capture);
+}
+
+/**
+ * @brief A watching run that was not asked for narration says nothing
+ *
+ * @note A target that has not appeared yet ends neither the attempt nor the
+ *       run, so the miss is not said out loud: several watch cycles pass
+ *       here, every one of them a miss, and the captured stderr has to stay
+ *       empty. The run is ended by a quit signal and exits successfully,
+ *       which is the other half of the contract -- silence is not failure,
+ *       and the exit status still has to come from the signal. The same
+ *       misses are counted as diagnostics at verbose = 1; that is what
+ *       test_limiter_run_pid_or_exe_mode_waits_without_target() asserts.
+ *       Verified by mutation: dropping the verbose gate around the miss line
+ *       fills the capture with one line per cycle.
+ */
+static void test_non_verbose_watch_miss_is_silent(void) {
+    int err_pipe[2];
+    int announce_pipe[2];
+    int go_pipe[2];
+    pid_t pid, waited;
+    int assert_rc;
+    ssize_t assert_got;
+    int status = 0, exited, exit_code;
+    struct cpulimit_cfg cfg;
+    size_t total = 0;
+    char announce;
+    char *capture;
+
+    assert_rc = pipe(err_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(announce_pipe);
+    assert(assert_rc == 0);
+    assert_rc = pipe(go_pipe);
+    assert(assert_rc == 0);
+
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.exe_name = "cpulimit_test_no_such_process_xyz";
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 0;
+    /* The whole point of this run: no -v, so every miss stays unspoken. */
+    cfg.verbose = 0;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int mode_result, dup_result;
+        close(err_pipe[0]);
+        close(announce_pipe[0]);
+        close(go_pipe[1]);
+        seam_reset();
+        seam_active = 1;
+        seam_hook_sleep = 1;
+        seam_sleep_call = 3;
+        seam_sleep_announce_fd = announce_pipe[1];
+        seam_sleep_go_fd = go_pipe[0];
+        configure_signal_handler();
+        fflush(stdout);
+        fflush(stderr);
+        dup_result = dup2(err_pipe[1], STDERR_FILENO);
+        if (dup_result < 0) {
+            _exit(EXIT_FAILURE);
+        }
+        close(err_pipe[1]);
+        mode_result = run_pid_or_exe_mode(&cfg);
+        seam_active = 0;
+        seam_hook_sleep = 0;
+        seam_sleep_announce_fd = -1;
+        seam_sleep_go_fd = -1;
+        close(STDERR_FILENO);
+        _exit(mode_result);
+    }
+    close(err_pipe[1]);
+    close(announce_pipe[1]);
+    close(go_pipe[0]);
+
+    capture = (char *)malloc(4096);
+    assert(capture != NULL);
+
+    /* EOF here means the run stopped watching instead of waiting it out. */
+    alarm(30);
+    assert_got = read(announce_pipe[0], &announce, 1);
+    assert(assert_got == 1);
+    assert_rc = kill(pid, SIGTERM);
+    assert(assert_rc == 0);
+    assert_got = write(go_pipe[1], "G", 1);
+    assert(assert_got == 1);
+    alarm(0);
+    close(announce_pipe[0]);
+    close(go_pipe[1]);
+
+    while (total < 4095) {
+        ssize_t n_read = read(err_pipe[0], capture + total, 4095 - total);
+        if (n_read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n_read <= 0) {
+            break;
+        }
+        total += (size_t)n_read;
+    }
+    capture[total] = '\0';
+    close(err_pipe[0]);
+
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    exit_code = WEXITSTATUS(status);
+    free(capture);
+
+    assert(exited);
+    /* The signal ended it; the missing target neither spoke nor failed it. */
+    assert(exit_code == EXIT_SUCCESS);
+    assert(total == 0);
 }
 
 /**
@@ -11238,7 +11368,7 @@ static void test_limiter_no_target_reports_why_the_lazy_run_failed(void) {
     close(ready_pipe[0]);
     close(ready_pipe[1]);
 
-    /* Allocated only after the fork: see test_capture_find_by_name(). */
+    /* Allocated only after the fork: see test_capture_lazy_name_miss(). */
     capture = (char *)malloc(TEST_CAPTURE_SIZE);
     assert(capture != NULL);
     while (total < TEST_CAPTURE_SIZE - 1) {
@@ -11582,7 +11712,11 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
         seam_fail_call = 1;
         seam_fail_span = 100;
         seam_fail_errno = EPERM;
-        process_set_send_signal(&proc_set, SIGCONT, 0);
+        /*
+         * verbose = 1: a signal that cannot be delivered ends nothing, so
+         * the hint is narration and only a run that asked for it sees it.
+         */
+        process_set_send_signal(&proc_set, SIGCONT, 1);
         close_process_set(&proc_set);
         /* Re-enable real signals before reaping the target. */
         seam_active = 0;
@@ -12614,9 +12748,14 @@ static void test_process_set_reports_each_member_stop_failure(void) {
         seam_fail_call = 1;
         seam_fail_span = 100;
         seam_fail_errno = EPERM;
-        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        /*
+         * verbose = 1: a member that refuses SIGSTOP stays tracked and
+         * nothing ends on it, so the warning belongs to -v. The per-member
+         * gate is what keeps the second round silent.
+         */
+        process_set_send_signal(&proc_set, SIGSTOP, 1);
         /* A second round must stay silent: one warning per member. */
-        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        process_set_send_signal(&proc_set, SIGSTOP, 1);
         seam_active = 0;
         seam_fail_call = 0;
         seam_fail_errno = 0;
@@ -15340,6 +15479,9 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
  * @brief limit_process() must report that limiting stopped on a bad scan (S2)
  *
  * @param write_fd Write end of the pipe the child's stderr is redirected to
+ * @param verbose Value handed to limit_process(): a scan failure ends one
+ *                attempt, not the run, so only a run that asked for narration
+ *                is told about it
  *
  * @note A failed update_process_set() inside the control loop only broke out
  *       of it. The cleanup then resumed the group and limit_process()
@@ -15350,11 +15492,11 @@ static void test_process_set_resumes_stopped_on_loop_exit(void) {
  *       tell from a real success. The second scan is forced to fail through
  *       the seam and the child's stderr is captured, so both halves are
  *       asserted: the return value drives the child's exit status and the
- *       message is read back from the pipe.
- *       Verified by mutation: returning LIMIT_PROCESS_OK after printing makes
- *       this test fail on the exit status.
+ *       message is read back from the pipe. Verified by mutation: returning
+ *       LIMIT_PROCESS_OK after printing makes this test fail on the exit
+ *       status.
  */
-static void scan_failure_driver_child(int write_fd) {
+static void scan_failure_driver_child(int write_fd, int verbose) {
     struct seam_proc *visible;
     int ret;
     int err_fd;
@@ -15399,14 +15541,35 @@ static void scan_failure_driver_child(int write_fd) {
         close(write_fd);
     }
 
-    ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0, 0);
+    /*
+     * verbose comes from the caller: a scan failure ends this attempt, not
+     * the run, so its diagnostic is narration and only -v gets it. The
+     * return value -- what the caller turns into the run's verdict -- does
+     * not depend on it, and is asserted either way through this child's
+     * exit status.
+     */
+    ret = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, verbose, 0);
     seam_active = 0;
     free(visible);
     close(err_fd);
     _exit(ret == LIMIT_PROCESS_SCAN_FAILED ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
-static void test_limit_process_reports_scan_failure(void) {
+/**
+ * @brief Drive a failing scan and check whether it was reported
+ *
+ * @param verbose Value handed to limit_process()
+ * @param expect_present Non-zero when the scan diagnostic must appear
+ *
+ * @note A scan failure ends one attempt of a watching run, not the run, so
+ *       its diagnostic is narration and only -v gets it. What every run gets
+ *       is the return value, LIMIT_PROCESS_SCAN_FAILED, and that is asserted
+ *       here in both cases through the child's exit status. Verified by
+ *       mutation: dropping the verbose gate inside limit_process() makes the
+ *       expect_present == 0 case fail, and returning LIMIT_PROCESS_OK makes
+ *       both fail on the exit status.
+ */
+static void check_scan_failure_report(int verbose, int expect_present) {
     int err_pipe[2];
     pid_t driver, waited;
     int status, exited, exit_code, seen;
@@ -15422,7 +15585,7 @@ static void test_limit_process_reports_scan_failure(void) {
     assert(driver >= 0);
     if (driver == 0) {
         close(err_pipe[0]);
-        scan_failure_driver_child(err_pipe[1]);
+        scan_failure_driver_child(err_pipe[1], verbose);
     }
     close(err_pipe[1]);
 
@@ -15457,7 +15620,34 @@ static void test_limit_process_reports_scan_failure(void) {
 
     assert(exited);
     assert(exit_code == EXIT_SUCCESS);
-    assert(seen);
+    assert(seen == expect_present);
+}
+
+/**
+ * @brief limit_process() must report that limiting stopped on a bad scan (S2)
+ *
+ * @note A failed update_process_set() inside the control loop only broke out
+ *       of it. The cleanup then resumed the group and limit_process() returned
+ *       LIMIT_PROCESS_OK, so command mode printed nothing and passed the
+ *       command's own exit status up: a run that looks successful and stopped
+ *       limiting seconds after it started. The fix prints a diagnostic and
+ *       returns LIMIT_PROCESS_SCAN_FAILED, which callers can tell from a real
+ *       success. Driven with verbose = 1, because a scan failure ends one
+ *       attempt and its diagnostic therefore belongs to -v.
+ */
+static void test_limit_process_reports_scan_failure(void) {
+    check_scan_failure_report(1, 1);
+}
+
+/**
+ * @brief A scan failure says nothing to a run that did not ask for narration
+ *
+ * @note The same failure as above, at verbose = 0: the run keeps watching, so
+ *       the diagnostic is silence and only the return value carries the news.
+ *       This is the counterpart that makes the verbose gate above visible.
+ */
+static void test_limit_process_scan_failure_silent_without_verbose(void) {
+    check_scan_failure_report(0, 0);
 }
 
 #ifdef __linux__
@@ -15560,24 +15750,27 @@ static void test_limit_process_rejects_zombie_target(void) {
 }
 
 /**
- * @brief Run find_process_by_name() in a child with stderr captured
+ * @brief Drive a lazy name-target run against a missing target, stderr captured
  *
- * @param name Name to look up
+ * @param name Name the run looks for
  * @param out Out: a heap buffer holding the captured stderr text, owned by
  *        the caller
- * @return The child's exit code: EXIT_SUCCESS when find_process_by_name()
- *         returned 0 (no target), 42 when it returned a PID so the scenario
- *         under test was not isolated, another value on a child failure
+ * @return The child's exit code: EXIT_FAILURE when the run ended on the miss,
+ *         as a lazy run must; anything else means the scenario under test was
+ *         not isolated
  *
- * The child redirects its stderr to a pipe so the caller can inspect the
- * diagnostic find_process_by_name() prints when it finds nothing.
+ * The child runs run_pid_or_exe_mode() with the name as its target and
+ * lazy_mode set, so a single miss ends the run and whatever it printed is
+ * the whole report. The lookup itself reports a miss through its return
+ * value alone: whether a miss is worth saying is decided by the layer that
+ * knows the run ends on it, which is where the diagnostic now lives.
  *
  * @note The buffer is allocated only after the fork. One that already existed
  *       would be inherited by the child, which leaves through _exit() without
  *       freeing it, and valgrind reports the copy as still reachable in the
  *       child -- the same trap err_buf hit.
  */
-static int test_capture_find_by_name(const char *name, char **out) {
+static int test_capture_lazy_name_miss(const char *name, char **out) {
     int err_pipe[2];
     pid_t driver;
     pid_t waited;
@@ -15593,13 +15786,19 @@ static int test_capture_find_by_name(const char *name, char **out) {
     driver = fork();
     assert(driver >= 0);
     if (driver == 0) {
-        pid_t found;
+        struct cpulimit_cfg cfg;
+        int rc;
         close(err_pipe[0]);
-        dup2(err_pipe[1], 2);
+        memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+        cfg.program_name = "test";
+        cfg.exe_name = name;
+        cfg.cpu_limit = 0.5;
+        cfg.lazy_mode = 1;
+        dup2(err_pipe[1], STDERR_FILENO);
         close(err_pipe[1]);
-        found = find_process_by_name(name);
+        rc = run_pid_or_exe_mode(&cfg);
         fflush(stderr);
-        _exit(found == 0 ? EXIT_SUCCESS : 42);
+        _exit(rc);
     }
     close(err_pipe[1]);
     capture = (char *)malloc(TEST_CAPTURE_SIZE);
@@ -15628,21 +15827,32 @@ static int test_capture_find_by_name(const char *name, char **out) {
 }
 
 /**
- * @brief Genuine miss keeps the unchanged "cannot be found" message
+ * @brief A lazy run names the miss once, and only once
  *
- * @note BUG-A only changed the diagnostic for a name whose only match is PID 1;
- *       a real miss must still say "cannot be found". This guards that text
- *       against accidental corruption.
+ * @note A name that matches nothing is what ends a lazy run, so this is one of
+ *       the few things a silent run still says -- and it says it exactly once,
+ *       because a lazy run makes one attempt. The wording itself moved out of
+ *       the lookup, which now reports a miss through its return value alone:
+ *       whether a miss is worth saying depends on the run, not on the search.
+ *       This guards both the wording and the "once" against regression.
+ *       Verified by mutation: printing the line inside find_process_by_name()
+ *       as well makes this count 2.
  */
-static void test_find_process_by_name_cannot_be_found_text(void) {
+static void test_lazy_name_miss_reports_cannot_be_found_once(void) {
     int code;
+    int misses;
     const char *assert_hit;
+    const char *walk;
     char *capture = NULL;
-    code = test_capture_find_by_name("nosuch_zz_xyz_nonexistent", &capture);
-    assert(code == EXIT_SUCCESS);
+    code = test_capture_lazy_name_miss("nosuch_zz_xyz_nonexistent", &capture);
+    assert(code == EXIT_FAILURE);
     assert(capture != NULL);
-    assert_hit = strstr(capture, "cannot be found");
-    assert(assert_hit != NULL);
+    misses = 0;
+    for (walk = strstr(capture, "cannot be found"); walk != NULL;
+         walk = strstr(walk + 1, "cannot be found")) {
+        misses++;
+    }
+    assert(misses == 1);
     assert_hit = strstr(capture, "PID 1 (init)");
     assert(assert_hit == NULL);
     free(capture);
@@ -15798,6 +16008,9 @@ static void test_exe_name_shared_with_init_still_accepted(void) {
  *       platform. Verified by mutation: having the skip announce the PID 1 it
  *       drops makes this lookup report an init match.
  *
+ * @note The miss is now named by the limiter, not by the lookup, so the run
+ *       is driven lazily: one miss, one line, and PID 1 in it nowhere.
+ *
  * @note The scripted scan survives the capture's fork: the snapshot is
  *       anonymous mmap()ed storage, which the child inherits and reuses while
  *       staying invisible to valgrind's malloc-leak check. The heap frame it
@@ -15805,7 +16018,7 @@ static void test_exe_name_shared_with_init_still_accepted(void) {
  *       allocated until afterwards makes the child _exit() still holding it,
  *       which valgrind reports as 4,120 bytes still reachable in that child.
  */
-static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
+static void test_name_mode_miss_ignores_enumerated_init(void) {
     struct seam_proc *frame;
     const char *assert_hit;
     char *capture = NULL;
@@ -15824,10 +16037,10 @@ static void test_find_process_by_name_miss_ignores_enumerated_init(void) {
        and the child the capture forks must not inherit it. */
     free(frame);
     seam_active = 1;
-    code = test_capture_find_by_name("nosuch_zz_xyz_nonexistent", &capture);
+    code = test_capture_lazy_name_miss("nosuch_zz_xyz_nonexistent", &capture);
     seam_active = 0;
 
-    assert(code == EXIT_SUCCESS);
+    assert(code == EXIT_FAILURE);
     assert(capture != NULL);
     assert_hit = strstr(capture, "cannot be found");
     assert(assert_hit != NULL);
@@ -16301,7 +16514,8 @@ static void test_process_set_reports_failed_resume(void) {
     seam_fail_span = 1;
     seam_fail_errno = EPERM;
 
-    resume_failed = process_set_send_signal(&ps, SIGCONT, 0);
+    /* verbose = 1: only then does the failed deferred resume name its PID. */
+    resume_failed = process_set_send_signal(&ps, SIGCONT, 1);
 
     seam_fail_call = 0;
     seam_fail_errno = 0;
@@ -16478,7 +16692,8 @@ static void test_process_set_resume_skips_recycled_pid(void) {
     seam_start_time_count = 1;
     seam_start_time_queue[0] = recycled;
 
-    resume_stopped_pids(&proc_set);
+    /* verbose = 0: this asserts the SIGCONT count, not any diagnostic. */
+    resume_stopped_pids(&proc_set, 0);
     cont_after = seam_count_signals(seam_signals, (int)seam_signal_count, child,
                                     SIGCONT);
 
@@ -16798,13 +17013,14 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
     RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
     RUN_TEST(test_limit_process_reports_scan_failure);
+    RUN_TEST(test_limit_process_scan_failure_silent_without_verbose);
     RUN_TEST(test_limit_process_rejects_zombie_target);
-    RUN_TEST(test_find_process_by_name_cannot_be_found_text);
+    RUN_TEST(test_lazy_name_miss_reports_cannot_be_found_once);
 #if defined(__linux__)
     RUN_TEST(test_exe_name_matching_init_rejected_at_argument_check);
     RUN_TEST(test_exe_name_shared_with_init_still_accepted);
 #endif
-    RUN_TEST(test_find_process_by_name_miss_ignores_enumerated_init);
+    RUN_TEST(test_name_mode_miss_ignores_enumerated_init);
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);
 
     RUN_TEST(test_command_mode_reports_stopped_limiting);
@@ -16843,6 +17059,7 @@ static void run_process_set_module_tests(void) {
  * @brief Drive the benign-then-severe resume gate and capture its warnings
  *
  * @param write_fd Write end of the pipe the child's stderr is redirected to
+ * @param verbose Value handed to process_set_send_signal()
  *
  * Two members are built through the iterator seam so the run is fully
  * scripted, SIGCONT is made to fail with EPERM while SIGSTOP still succeeds,
@@ -16850,7 +17067,7 @@ static void run_process_set_module_tests(void) {
  * suspended (benign), a SIGSTOP that suspends them, and a second SIGCONT once
  * they are suspended (severe). The warnings land on the pipe for the parent.
  */
-static void resume_gate_driver_child(int write_fd) {
+static void resume_gate_driver_child(int write_fd, int verbose) {
     struct process_set proc_set;
     struct seam_proc *frame;
     int result, err_fd;
@@ -16884,14 +17101,19 @@ static void resume_gate_driver_child(int write_fd) {
 
     result = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
     if (result == 0) {
+        /*
+         * verbose comes from the caller: neither severity ends the run, so
+         * both counts are narration. What these rounds prove is the gate --
+         * one report per member per episode -- not that a silent run speaks.
+         */
         /* Work phase, members not yet suspended: benign failures. */
-        process_set_send_signal(&proc_set, SIGCONT, 0);
+        process_set_send_signal(&proc_set, SIGCONT, verbose);
         /* Sleep phase: suspends them, so SIGSTOP must succeed. */
-        process_set_send_signal(&proc_set, SIGSTOP, 0);
+        process_set_send_signal(&proc_set, SIGSTOP, verbose);
         /* Work phase again, now suspended: severe failures, reported once. */
-        process_set_send_signal(&proc_set, SIGCONT, 0);
+        process_set_send_signal(&proc_set, SIGCONT, verbose);
         /* A further round in the same severe episode must not re-report. */
-        process_set_send_signal(&proc_set, SIGCONT, 0);
+        process_set_send_signal(&proc_set, SIGCONT, verbose);
         close_process_set(&proc_set);
     }
     free(frame);
@@ -16915,7 +17137,8 @@ static void resume_gate_driver_child(int write_fd) {
  *       Verified by mutation: gating the severe message on cont_warned makes
  *       its count drop to 0.
  */
-static void test_resume_warning_gate_counts_severity_levels(void) {
+static void check_resume_gate_report(int verbose, int expect_benign,
+                                     int expect_severe) {
     int err_pipe[2];
     pid_t driver, waited;
     int status, exited, exit_code;
@@ -16933,7 +17156,7 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
     assert(driver >= 0);
     if (driver == 0) {
         close(err_pipe[0]);
-        resume_gate_driver_child(err_pipe[1]);
+        resume_gate_driver_child(err_pipe[1], verbose);
     }
     close(err_pipe[1]);
 
@@ -16986,8 +17209,34 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
     assert(exited);
     assert(exit_code == EXIT_SUCCESS);
     /* Two members, benign then severe, each reported exactly once. */
-    assert(benign == 2);
-    assert(severe == 2);
+    assert(benign == expect_benign);
+    assert(severe == expect_severe);
+}
+
+/**
+ * @brief The resume warning must report severity, not just one gate (U2)
+ *
+ * @note Driven at verbose = 1, because neither severity ends the run and the
+ *       warnings are therefore narration. See check_resume_gate_report().
+ */
+static void test_resume_warning_gate_counts_severity_levels(void) {
+    check_resume_gate_report(1, 2, 2);
+}
+
+/**
+ * @brief A signal that will not land says nothing to a silent run
+ *
+ * @note The same four rounds as above at verbose = 0: a member that refuses
+ *       SIGSTOP or SIGCONT stays tracked and the run goes on, so the warning
+ *       is withheld entirely -- neither the benign nor the severe line, for
+ *       either member. This is the counterpart that makes the gate above
+ *       visible, and it is why the return value of process_set_send_signal()
+ *       and the shutdown summary have to carry the news for such a run.
+ *       Verified by mutation: dropping the verbose gate in
+ *       warn_signal_failure() makes both counts 2 again.
+ */
+static void test_resume_gate_silent_without_verbose(void) {
+    check_resume_gate_report(0, 0, 0);
 }
 
 /**
@@ -17040,7 +17289,8 @@ static void test_stopped_pids_record_does_not_duplicate(void) {
      */
     seam_active = 1;
     seam_set_start_times(200.0, 200.0);
-    resume_stopped_pids(&proc_set);
+    /* verbose = 0: this asserts the SIGCONT count, not any diagnostic. */
+    resume_stopped_pids(&proc_set, 0);
     conts = seam_count_signals(seam_signals, (int)seam_signal_count,
                                (pid_t)4242, SIGCONT);
     seam_active = 0;
@@ -17438,6 +17688,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_command_mode_verbose);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_pid_not_found);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_waits_without_target);
+    RUN_TEST(test_non_verbose_watch_miss_is_silent);
     RUN_TEST(test_limiter_non_lazy_keeps_watching_after_no_target);
     RUN_TEST(test_limiter_no_target_reports_why_the_lazy_run_failed);
     RUN_TEST(test_limiter_pid_mode_is_always_lazy);
@@ -17489,6 +17740,7 @@ static void run_timing_seam_tests(void) {
     RUN_TEST(test_seam_quit_while_parked_in_sleep);
     RUN_TEST(test_seam_quit_while_pid_mode_retries);
     RUN_TEST(test_resume_warning_gate_counts_severity_levels);
+    RUN_TEST(test_resume_gate_silent_without_verbose);
 }
 
 /**

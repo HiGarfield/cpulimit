@@ -32,7 +32,6 @@
 
 #include "process_iterator.h"
 
-#include <errno.h>
 #include <libproc.h>
 #include <limits.h>
 #include <mach/mach_time.h>
@@ -311,18 +310,17 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
  * process information including BSD process info and task statistics.
  *
  * Returns -1 for:
- * - Permission denied (EPERM) or process not found (ESRCH) - silently
- * - Other errors - prints error message
+ * - Permission denied (EPERM) or process not found (ESRCH)
+ * - Any other error from proc_pidinfo(): reported with perror(), because the
+ *   errno is the only record of why the process was dropped; the caller sees
+ *   it as a process the iterator skipped
  * - Zombie processes (pbi_status == SZOMB)
  * - System processes (pbi_flags & PROC_FLAG_SYSTEM)
  */
 static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
     if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info,
                      sizeof(*task_info)) != (int)sizeof(*task_info)) {
-        /* Silently skip common errors for processes we cannot access */
-        if (errno != EPERM && errno != ESRCH) {
-            perror("proc_pidinfo");
-        }
+        perror("proc_pidinfo");
         return -1;
     }
     if (task_info->pbsd.pbi_status == SZOMB) {

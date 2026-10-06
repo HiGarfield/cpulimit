@@ -64,8 +64,9 @@ extern "C" {
  * @brief limit_process() stopped on a failed scan AND could not resume everyone
  *
  * The control loop stopped on a failed scan and at least one member is still
- * stopped, needing 'kill -CONT <pid>' by hand. The stranded PIDs are already
- * named on stderr by limit_process().
+ * stopped, needing 'kill -CONT <pid>' by hand. The stranded PIDs are named on
+ * stderr only by a run started with -v; the shutdown summary, which is what
+ * names the remedy, is printed either way.
  */
 #define LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED 2
 
@@ -74,8 +75,9 @@ extern "C" {
  * @brief limit_process() ran to its end but could not resume every member
  *
  * The limit was applied; what failed is the shutdown resume round, leaving at
- * least one member stopped. Those PIDs are named on stderr. Retrying cannot
- * help: the member must be released by hand.
+ * least one member stopped. Those PIDs are named on stderr by a run started
+ * with -v; its shutdown summary is printed either way, because this outcome
+ * ends the run. Retrying cannot help: the member must be released by hand.
  */
 #define LIMIT_PROCESS_STRANDED 3
 
@@ -101,10 +103,16 @@ extern "C" {
  * @param cpu_limit CPU limit in core equivalents, range (0, N_CPU]
  * @param include_children Non-zero to limit descendants too, zero for target
  * only
- * @param verbose Non-zero to print periodic statistics
+ * @param verbose Non-zero to print periodic statistics and the per-attempt
+ *        diagnostics (a failed scan, a member that could not be resumed);
+ *        without it the run stays silent about anything it recovers from and
+ *        speaks only for an outcome that ends it
  * @param prior_scan_failures Consecutive scan failures the caller has already
  *        recorded, so the per-cycle diagnostic prints once per streak rather
- *        than per retry; it does not change the return value
+ *        than per retry; it does not change the return value. That diagnostic
+ *        is narration for -v: a scan failure ends only the attempt for a
+ *        caller that re-resolves its target, so a silent run leaves it to the
+ *        exit status and to whichever caller ends on it
  * @return One of the LIMIT_PROCESS_* codes: OK when finished with everything
  *         resumed; SCAN_FAILED (or _AND_STRANDED if not all resumed) on a
  *         failed scan; STRANDED when the run ended but a member could not be

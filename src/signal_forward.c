@@ -39,6 +39,8 @@
  * @param child_pid PID of the command; also the ID of the process group
  *                  created for it
  * @param sig Signal number to send
+ * @param verbose Non-zero to report a delivery that failed; without it the
+ *                failure is silent, because nothing here ends the run
  *
  * The negative-PID form is tried first so that descendants the limiter
  * cannot wait for are reached as well. It is not a reliable way to reach
@@ -54,7 +56,7 @@
  * escalation, which reports the command as killed (128 + SIGKILL) rather
  * than as having exited on its own.
  */
-void signal_command(pid_t child_pid, int sig) {
+void signal_command(pid_t child_pid, int sig, int verbose) {
     /*
      * The negative-PID form signals the whole process group, which is only
      * ours while child_pid is still the group leader. exec_child_process()
@@ -72,8 +74,16 @@ void signal_command(pid_t child_pid, int sig) {
         return;
     }
     if (kill(child_pid, sig) != 0 && errno != ESRCH) {
-        fprintf(stderr, "kill(%ld, %d) failed: %s\n", (long)child_pid, sig,
-                strerror(errno));
+        int err = errno;
+        /*
+         * A delivery that does not land is not fatal: the caller goes on to
+         * wait for the command or to escalate to SIGKILL, so the line is
+         * only of interest to a run that asked to be narrated.
+         */
+        if (verbose) {
+            fprintf(stderr, "kill(%ld, %d) failed: %s\n", (long)child_pid, sig,
+                    strerror(err));
+        }
     }
 }
 
@@ -81,6 +91,9 @@ void signal_command(pid_t child_pid, int sig) {
  * @brief Forward the received quit signal to the child process group
  *
  * @param child_pid PID of the command; also the ID of its process group
+ * @param verbose Non-zero to report a delivery that failed; without it the
+ *                failure is silent, because a forwarded signal that does not
+ *                land is not what ends the run
  *
  * The exact signal that caused cpulimit to quit is forwarded so the
  * command exits with the status a shell would report (128 + signal
@@ -95,11 +108,11 @@ void signal_command(pid_t child_pid, int sig) {
  * gracefully. The process group is targeted first, the command itself
  * as a fallback; see signal_command().
  */
-void forward_quit_signal(pid_t child_pid) {
+void forward_quit_signal(pid_t child_pid, int verbose) {
     int fwd_sig;
     fwd_sig = get_quit_signal();
     if (fwd_sig == SIGPIPE || fwd_sig == 0) {
         fwd_sig = SIGTERM;
     }
-    signal_command(child_pid, fwd_sig);
+    signal_command(child_pid, fwd_sig, verbose);
 }
