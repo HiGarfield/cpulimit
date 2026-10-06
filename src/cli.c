@@ -57,28 +57,26 @@ static void print_usage(FILE *stream, const struct cpulimit_cfg *cfg) {
     fprintf(stream, "Options:\n");
     fprintf(
         stream,
-        "  -l LIMIT, --limit=LIMIT  CPU percentage limit, range (0, %ld] (required)\n",
+        "    -l LIMIT, --limit=LIMIT    CPU percentage limit, range (0, %ld] (required)\n",
         (long)ncpu * 100L);
-    fprintf(stream, "  -v, --verbose            show control statistics\n");
+    fprintf(stream, "    -v, --verbose              show control statistics\n");
     fprintf(
         stream,
-        "  -z, --lazy               exit if the target process is not running\n");
+        "    -z, --lazy                 exit if the target process is not running\n");
     fprintf(
         stream,
-        "  -i, --include-children   limit total CPU usage of target and descendants\n");
+        "    -i, --include-children     limit total CPU usage of target and descendants\n");
     fprintf(
         stream,
-        "  -h, --help               display this help message and exit\n\n");
+        "    -h, --help                 display this help message and exit\n\n");
     fprintf(stream, "TARGET must be exactly one of:\n");
     fprintf(
         stream,
-        "  -p PID, --pid=PID        PID of the target process (implies -z)\n");
+        "    -p PID, --pid=PID          PID of the target process (implies -z)\n");
+    fprintf(stream, "    -e FILE, --exe=FILE        executable name or path\n");
     fprintf(
         stream,
-        "  -e FILE, --exe=FILE      executable name or path (matched against argv[0])\n");
-    fprintf(
-        stream,
-        "  COMMAND [ARG]...         run the command and limit CPU usage (implies -z)\n");
+        "    COMMAND [ARG]...           run the command and limit CPU usage (implies -z)\n");
 }
 
 /**
