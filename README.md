@@ -145,7 +145,13 @@ match it can control.
   locks and serving no I/O until `SIGCONT` arrives, so interactive and networked
   services gain latency.
 - **Very short-lived children can be missed** and then run unthrottled.
-- **Cpulimit can only control processes you own.**
+- **Cpulimit controls only processes owned by the current user.** To limit a
+  process owned by another user, run cpulimit as root (for example with
+  `sudo`).
+- **Running as root lets cpulimit raise its own priority.** With root
+  privileges (for example with `sudo`) it promotes itself to a real-time
+  scheduling policy (and lowers its `nice` value), so it can respond to usage
+  spikes without delay and enforce the limit more precisely.
 - **PID 1 (init) is never limited.** Suspending it would freeze or crash the
   system, so there is no exception on any platform.
 - **`-p` and command mode exit when the target stops.** Use `-z` (or `-p`,
