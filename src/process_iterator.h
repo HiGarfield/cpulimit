@@ -389,6 +389,27 @@ int process_matches_filter(pid_t pid, const struct process_filter *filter);
  */
 double get_process_start_time(pid_t pid);
 
+/**
+ * @brief Report whether a process is currently in the stopped state
+ *
+ * @param pid Process ID to query
+ * @return 1 when pid exists and is stopped, 0 when it is running, is gone,
+ *         or when its state could not be read
+ *
+ * Answers the one question a PID-reuse check cannot. A start time that moved
+ * on says the PID now holds a different process, but not whether that process
+ * is the one a suspension was delivered to: a SIGSTOP sent after the PID was
+ * reused stops the new owner while the record still names the old one. Only
+ * the state of the PID right now settles it, so a caller holding a suspension
+ * record it can no longer match consults this before deciding to skip the
+ * undoing SIGCONT.
+ *
+ * Read-only: signals nothing, starts no scan, prints nothing. A state that
+ * cannot be read is reported as "not stopped", the conservative answer that
+ * leaves every existing decision unchanged.
+ */
+int process_is_stopped(pid_t pid);
+
 #ifdef __cplusplus
 }
 #endif

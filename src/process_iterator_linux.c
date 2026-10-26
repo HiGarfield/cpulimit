@@ -255,6 +255,48 @@ pid_t getppid_of(pid_t pid) {
 }
 
 /**
+ * @brief Report whether a process is currently in the stopped state
+ *
+ * @param pid Process ID to query
+ * @return 1 when pid exists and is stopped, 0 when it is running, is gone,
+ *         or when its state could not be read
+ *
+ * Reads the state field of /proc/[pid]/stat, the same field
+ * read_process_info() rejects zombies on. 'T' is a job-control stop, which is
+ * what a SIGSTOP from this program produces, and 't' is a ptrace stop, which
+ * a stopped process can be in while a tracer is attached: both count, because
+ * the question is only whether the PID is currently not running, and leaving a
+ * process stopped is the worse answer to get wrong.
+ */
+int process_is_stopped(pid_t pid) {
+    char statfile[64];
+    char *buffer;
+    const char *p;
+    char state;
+
+    if (snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid) >=
+        (int)sizeof(statfile)) {
+        return 0;
+    }
+    buffer = read_file_contents(statfile);
+    if (buffer == NULL) {
+        return 0;
+    }
+    /* Find last ')' to handle process names with parentheses */
+    p = strrchr(buffer, ')');
+    if (p == NULL) {
+        free(buffer);
+        return 0;
+    }
+    if (sscanf(p + 1, " %c", &state) != 1 || !isalpha((unsigned char)state)) {
+        free(buffer);
+        return 0;
+    }
+    free(buffer);
+    return state == 'T' || state == 't';
+}
+
+/**
  * @brief Determine if one process is a descendant of another
  *
  * @param child_pid Process ID to check for descendant relationship

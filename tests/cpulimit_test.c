@@ -3456,6 +3456,59 @@ static void test_process_iterator_getppid_of(void) {
 }
 
 /**
+ * @brief Test process_is_stopped()
+ *
+ * @note The backends must report a process that really is stopped as stopped,
+ *       and one that is running or gone as not stopped. A suspension record
+ *       whose start time no longer matches consults this to decide whether
+ *       skipping the undoing SIGCONT is safe: getting it wrong is exactly what
+ *       leaves an innocent process stopped for good. A real fork is used
+ *       because the state lives in the kernel and no seam can fake it.
+ *       Verified by mutation: making process_is_stopped() return 0
+ *       unconditionally fails the assertion after waitpid(WUNTRACED).
+ */
+static void test_process_iterator_process_is_stopped(void) {
+    pid_t child;
+    pid_t waited;
+    int status;
+    int stopped_running;
+    int stopped_child;
+    int stopped_gone;
+    int was_stopped;
+
+    /* This process is running, so it is not stopped. */
+    stopped_running = process_is_stopped(getpid());
+    assert(stopped_running == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        test_leave_realtime();
+        raise(SIGSTOP);
+        _exit(EXIT_SUCCESS);
+    }
+
+    /* Wait until the child has actually reached its own SIGSTOP. */
+    waited = waitpid(child, &status, WUNTRACED);
+    assert(waited == child);
+    was_stopped = WIFSTOPPED(status);
+    assert(was_stopped);
+
+    /* Read the state while the child is suspended, then let it finish. */
+    stopped_child = process_is_stopped(child);
+    kill(child, SIGCONT);
+    waited = waitpid(child, &status, 0);
+    assert(waited == child);
+    assert(stopped_child == 1);
+
+    /* Reaped and gone: a PID nothing holds is not stopped either. */
+    stopped_gone = process_is_stopped(child);
+    assert(stopped_gone == 0);
+}
+
+/**
  * @brief Test init_process_iterator and get_next_process with NULL inputs
  *
  * @note NULL it or NULL filter must return -1 without crashing
@@ -17589,6 +17642,7 @@ static void run_process_iterator_module_tests(void) {
     RUN_TEST(test_process_iterator_all);
     RUN_TEST(test_process_iterator_read_command);
     RUN_TEST(test_process_iterator_getppid_of);
+    RUN_TEST(test_process_iterator_process_is_stopped);
     RUN_TEST(test_process_iterator_null_inputs);
     RUN_TEST(test_process_iterator_close_null);
     RUN_TEST(test_process_iterator_getppid_of_edges);

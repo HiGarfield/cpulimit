@@ -360,6 +360,37 @@ pid_t getppid_of(pid_t pid) {
 }
 
 /**
+ * @brief Report whether a process is currently in the stopped state
+ *
+ * @param pid Process ID to query
+ * @return 1 when pid exists and is stopped, 0 when it is running, is gone,
+ *         or when its state could not be read
+ *
+ * pbi_status is SSTOP for both a job-control stop and a ptrace stop on
+ * Darwin, so one comparison covers both. A process libproc will not describe
+ * -- gone, or not ours to inspect -- reads as "not stopped", which is the
+ * conclusion the caller drew before this existed.
+ */
+int process_is_stopped(pid_t pid) {
+    struct proc_taskallinfo *task_info;
+    int stopped = 0;
+
+    /*
+     * struct proc_taskallinfo exceeds 256 bytes; allocate on heap to stay
+     * within the per-function stack-object size limit.
+     */
+    task_info = (struct proc_taskallinfo *)malloc(sizeof(*task_info));
+    if (task_info == NULL) {
+        return 0;
+    }
+    if (get_proc_taskinfo(pid, task_info) == 0) {
+        stopped = (task_info->pbsd.pbi_status == SSTOP);
+    }
+    free(task_info);
+    return stopped;
+}
+
+/**
  * @brief Determine if one process is a descendant of another
  *
  * @param child_pid Process ID to check for descendant relationship

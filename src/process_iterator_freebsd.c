@@ -297,6 +297,40 @@ pid_t getppid_of(pid_t pid) {
 }
 
 /**
+ * @brief Report whether a process is currently in the stopped state
+ *
+ * @param pid Process ID to query
+ * @return 1 when pid exists and is stopped, 0 when it is running, is gone,
+ *         or when its state could not be read
+ *
+ * SSTOP covers both a job-control stop and a ptrace stop on FreeBSD, so no
+ * second state has to be considered. A kvm(3) interface that will not open,
+ * or a process it will not describe, is reported as "not stopped": that is
+ * the same conclusion the caller drew before this existed, so it changes no
+ * existing decision.
+ */
+int process_is_stopped(pid_t pid) {
+    int count = 0;
+    int stopped = 0;
+    kvm_t *kvm_descriptor;
+    const struct kinfo_proc *kproc;
+
+    if (pid <= 0) {
+        return 0;
+    }
+    kvm_descriptor = open_kvm();
+    if (kvm_descriptor == NULL) {
+        return 0;
+    }
+    kproc = kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
+    if (kproc != NULL && count > 0) {
+        stopped = (kproc->ki_stat == SSTOP);
+    }
+    kvm_close(kvm_descriptor);
+    return stopped;
+}
+
+/**
  * @brief Internal helper to check parent-child relationship with open kvm
  *
  * @param kvm_descriptor Kernel virtual memory descriptor (must be already open)
