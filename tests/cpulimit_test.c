@@ -16761,6 +16761,76 @@ static void test_process_set_resume_skips_recycled_pid(void) {
 }
 
 /**
+ * @brief a PID recycled between the scan and the SIGSTOP must not be stopped
+ *
+ * @note The scan that puts a member in the group runs a work quantum before
+ *       the SIGSTOP that suspends it. A PID recycled inside that window now
+ *       belongs to another process, and stopping it would freeze an unrelated
+ *       process for the rest of the slot: not a limit, just damage.
+ *       process_set_send_signal() re-reads the start time before suspending
+ *       and leaves a member whose identity moved on alone for that cycle.
+ *       Verified by mutation: dropping the recheck sends a SIGSTOP to the
+ *       replacement and the first assertion fails.
+ */
+static void test_process_set_stop_skips_recycled_pid(void) {
+    struct process_set proc_set;
+    int assert_rc;
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    const pid_t child = 4243;
+    const double base = 1000.0;     /* start time the scan recorded */
+    const double recycled = 2000.0; /* start time now wearing the PID */
+    int members;
+    int stop_before, stop_recycled, stop_intact;
+    assert(frame != NULL);
+
+    seam_reset();
+
+    /* One member, built through the iterator seam with the base start time. */
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = child;
+    frame[0].ppid = 1;
+    frame[0].cpu_time = 0.0;
+    frame[0].start_time = base;
+    seam_push_frame(frame, 1);
+    seam_repeat_last = 1;
+    seam_active = 1;
+
+    assert_rc = init_process_set(&proc_set, child, 0);
+    assert(assert_rc == 0);
+    members = (int)process_set_member_count(&proc_set);
+    assert(members == 1);
+
+    stop_before = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     child, SIGSTOP);
+
+    /* The PID changed hands: the recheck must see the replacement. */
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = recycled;
+    process_set_send_signal(&proc_set, SIGSTOP, 0);
+    stop_recycled = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                       child, SIGSTOP);
+    assert(stop_recycled == stop_before);
+
+    /* Identity intact: the suspension goes out exactly as before. */
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = base;
+    process_set_send_signal(&proc_set, SIGSTOP, 0);
+    stop_intact = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     child, SIGSTOP);
+    assert(stop_intact == stop_before + 1);
+
+    seam_active = 0;
+    seam_repeat_last = 0;
+    seam_reset();
+    assert_rc = close_process_set(&proc_set);
+    assert(assert_rc == 0);
+    free(frame);
+}
+
+/**
  * @brief init_process_set() must return -1 (not exit) when a build step
  *        fails
  *
@@ -17098,6 +17168,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_new_member_uses_own_interval);
 
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
+    RUN_TEST(test_process_set_stop_skips_recycled_pid);
     RUN_TEST(test_process_set_resume_silent_when_pid_gone);
     RUN_TEST(test_process_set_init_fails_cleanly_on_scan_error);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);

@@ -865,6 +865,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
         struct list_node *next_node = node->next;
         struct process *proc;
         pid_t pid;
+        double stop_start;
         int kill_result;
         if (node->data == NULL) {
             delete_list_node(proc_set->proc_list, node);
@@ -873,6 +874,25 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
         }
         proc = (struct process *)node->data;
         pid = proc->pid;
+        /*
+         * Confirm the identity before suspending. The scan that put this
+         * member in the list ran a work quantum ago, and a PID recycled
+         * since then belongs to another process: a SIGSTOP would freeze
+         * that one for the rest of the slot, which is not a limit, just
+         * damage. Start time is the same identity test the resume side
+         * uses before undoing a suspension, so both directions of one
+         * suspension agree on who they are addressing. A start time
+         * nobody can read proves no change, so it keeps the suspension.
+         */
+        if (sig == SIGSTOP) {
+            stop_start = get_process_start_time(pid);
+            if (!start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
+                !start_time_matches(stop_start, UNKNOWN_START_TIME) &&
+                !start_time_matches(stop_start, proc->start_time)) {
+                node = next_node;
+                continue;
+            }
+        }
         kill_result = kill(pid, sig);
 
         if (kill_result != 0) {
