@@ -43,7 +43,6 @@
  */
 int is_script_inaccessible_interpreter(const char *path) {
     int fd;
-    int saved_errno;
     char buf[256];
     ssize_t n;
     char *p;
@@ -64,9 +63,19 @@ int is_script_inaccessible_interpreter(const char *path) {
     do {
         n = read(fd, buf, sizeof(buf) - 1);
     } while (n < 0 && errno == EINTR);
-    saved_errno = errno;
-    close(fd);
-    errno = saved_errno;
+    /*
+     * Preserve errno across close() only when the read failed: close() may
+     * replace it, and on the success path there is nothing to preserve --
+     * writing back whatever errno happened to hold hands the caller a stale
+     * value under this function's name, and hides a close() that failed.
+     */
+    if (n < 0) {
+        int saved_errno = errno;
+        close(fd);
+        errno = saved_errno;
+    } else {
+        close(fd);
+    }
 
     if (n < 2 || buf[0] != '#' || buf[1] != '!') {
         return 0;
