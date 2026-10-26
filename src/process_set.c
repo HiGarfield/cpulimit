@@ -563,7 +563,14 @@ int update_process_set(struct process_set *proc_set) {
             scan_proc->pid == proc_set->target_pid &&
             !start_time_matches(scan_proc->start_time,
                                 proc_set->target_start_time)) {
+            /*
+             * Remember it on the set as well: the emptied list below is the
+             * only other trace this leaves, and it looks exactly like a
+             * target that exited, so the caller could not otherwise tell a
+             * replacement from a departure.
+             */
             target_replaced = 1;
+            proc_set->target_replaced = 1;
             break;
         }
         proc = find_in_process_table(proc_set->proc_table, scan_proc->pid);

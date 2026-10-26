@@ -16831,6 +16831,63 @@ static void test_process_set_stop_skips_recycled_pid(void) {
 }
 
 /**
+ * @brief a replaced target must be reported, not just emptied
+ *
+ * @note update_process_set() empties the group when the target PID turns out
+ *       to be worn by a different process, but an empty group also reads as a
+ *       target that simply exited, and a caller that ends the run on that
+ *       would report a run that stopped limiting as a successful one. The set
+ *       carries the finding so limit_process() can return
+ *       LIMIT_PROCESS_NO_TARGET instead of LIMIT_PROCESS_OK. Verified by
+ *       mutation: not setting the flag fails the second assertion.
+ */
+static void test_process_set_reports_replaced_target(void) {
+    struct process_set proc_set;
+    int assert_rc;
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    const pid_t child = 4244;
+    const double base = 1000.0;        /* the process the group was built for */
+    const double replacement = 2000.0; /* the one now wearing the PID */
+    int replaced_before, replaced_after, members;
+    assert(frame != NULL);
+
+    seam_reset();
+
+    /* Scan 1, consumed by init_process_set(): the target as first seen. */
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = child;
+    frame[0].ppid = 1;
+    frame[0].cpu_time = 0.0;
+    frame[0].start_time = base;
+    seam_push_frame(frame, 1);
+
+    /* Scan 2, consumed by the explicit update below: a different process. */
+    frame[0].start_time = replacement;
+    seam_push_frame(frame, 1);
+
+    seam_active = 1;
+
+    assert_rc = init_process_set(&proc_set, child, 0);
+    assert(assert_rc == 0);
+    replaced_before = proc_set.target_replaced;
+    assert(replaced_before == 0);
+
+    assert_rc = update_process_set(&proc_set);
+    assert(assert_rc == 0);
+    replaced_after = proc_set.target_replaced;
+    assert(replaced_after == 1);
+    members = (int)process_set_member_count(&proc_set);
+    assert(members == 0);
+
+    seam_active = 0;
+    seam_reset();
+    assert_rc = close_process_set(&proc_set);
+    assert(assert_rc == 0);
+    free(frame);
+}
+
+/**
  * @brief init_process_set() must return -1 (not exit) when a build step
  *        fails
  *
@@ -17169,6 +17226,7 @@ static void run_process_set_module_tests(void) {
 
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_process_set_stop_skips_recycled_pid);
+    RUN_TEST(test_process_set_reports_replaced_target);
     RUN_TEST(test_process_set_resume_silent_when_pid_gone);
     RUN_TEST(test_process_set_init_fails_cleanly_on_scan_error);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);

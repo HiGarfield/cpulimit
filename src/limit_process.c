@@ -205,6 +205,8 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
     int resume_failed;
     /* Non-zero once a scan failed and the loop below had to stop early. */
     int scan_failed = 0;
+    /* Non-zero once a scan found the target PID held by another process. */
+    int target_replaced = 0;
     /* Fraction of time processes should be running */
     double work_ratio;
     /* Current state: 1 if processes are stopped, 0 if running */
@@ -287,6 +289,18 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
                     (long)pid);
             }
             scan_failed = 1;
+            break;
+        }
+
+        /*
+         * The scan found the target PID worn by a different process. The
+         * group is empty now, but so it is when the target merely exited, and
+         * a caller that ends the run on an empty group must not read this one
+         * as success: nothing that was asked for is being limited any more,
+         * and the process now holding the PID was never suspended by us.
+         */
+        if (proc_set.target_replaced) {
+            target_replaced = 1;
             break;
         }
 
@@ -459,6 +473,18 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
      */
     if (scan_failed) {
         return LIMIT_PROCESS_SCAN_FAILED;
+    }
+
+    /*
+     * The target PID changed hands mid-run. Reporting LIMIT_PROCESS_OK here
+     * would be a silent false success: the group was built and limiting ran,
+     * but what the operator named is gone, and the process now wearing its PID
+     * was never limited. NO_TARGET is what a caller that cannot look again
+     * (lazy mode) turns into a failure, while one that re-resolves by name
+     * keeps watching -- which is exactly right for each.
+     */
+    if (target_replaced) {
+        return LIMIT_PROCESS_NO_TARGET;
     }
 
     return LIMIT_PROCESS_OK;

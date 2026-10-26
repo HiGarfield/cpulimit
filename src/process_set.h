@@ -85,6 +85,19 @@ struct process_set {
     double target_start_time;
 
     /**
+     * @brief Non-zero once a scan found target_pid held by a different
+     *        process than the one the group was built around.
+     *
+     * The scan that detects the replacement empties the group, and an empty
+     * group is on its own indistinguishable from a target that simply exited:
+     * both read as an empty proc_list, and a caller that treats that as
+     * success reports a run that ended up limiting nothing as a successful
+     * one. This flag carries the finding out of the scan so the caller can
+     * tell the two apart.
+     */
+    int target_replaced;
+
+    /**
      * @brief Non-zero to monitor target and descendants, zero for target only.
      */
     int include_children;
