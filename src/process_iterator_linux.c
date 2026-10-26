@@ -161,7 +161,18 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         errno = 0;
         sc_clk_tck = sysconf(_SC_CLK_TCK);
         if (sc_clk_tck <= 0) {
+            /*
+             * Report once and leave the cached value negative. Storing the
+             * 0 a failed sysconf() can return would not read as "unset" --
+             * 0 is not < 0 -- so every later call would skip this block and
+             * divide by zero converting ticks to milliseconds, reporting an
+             * infinite cpu_time instead of failing. A clock frequency the
+             * platform refuses to report is not going to start being
+             * reported a moment later, so the line is printed here rather
+             * than for every process of every scan.
+             */
             perror("sysconf(_SC_CLK_TCK)");
+            sc_clk_tck = -1;
             return -1;
         }
     }
