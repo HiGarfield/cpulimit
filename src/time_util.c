@@ -105,12 +105,24 @@ int get_current_time(struct timespec *result_ts) {
     static long double factor = -1;
     long double nsec;
     if (result_ts == NULL) {
+        errno = EINVAL;
         return -1;
     }
     if (factor < 0) {
         mach_timebase_info_data_t timebase_info;
         kern_return_t ret = mach_timebase_info(&timebase_info);
         if (ret != KERN_SUCCESS) {
+            /*
+             * mach_timebase_info() answers with a kern_return_t and sets no
+             * errno, so set one: every caller answers a -1 with
+             * perror("get_current_time") and would otherwise print whatever
+             * errno was left over from an unrelated call. Zero the
+             * timestamp too, so a caller that misses the return value reads
+             * a defined epoch instead of an uninitialized struct.
+             */
+            errno = EINVAL;
+            result_ts->tv_sec = 0;
+            result_ts->tv_nsec = 0;
             return -1;
         }
         factor = (long double)timebase_info.numer / timebase_info.denom;
