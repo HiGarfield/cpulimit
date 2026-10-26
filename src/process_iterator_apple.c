@@ -181,8 +181,9 @@ static double platform_time_to_ms(double platform_time) {
  * exec_path is the fully resolved executable path (symlinks resolved).
  * argv[0] is the string passed to execve() by the caller.
  * This function skips exec_path and its padding to locate the true argv[0].
- * Returns -1 if argv[0] is empty, the process does not exist, or the buffer
- * is too small.
+ * Returns -1 if argv[0] is empty, the process does not exist, or the payload
+ * is malformed. An argv[0] longer than the caller's buffer is truncated, not
+ * rejected, so that a process never drops out of the scan for that reason.
  */
 static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     int mib[3] = {CTL_KERN, KERN_PROCARGS2},
@@ -242,9 +243,9 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     /*
      * Verify argv[0] is NUL-terminated within the valid sysctl payload
      * [sp, end) before copying. If no NUL exists, the kernel data is
-     * malformed; return -1 rather than reading past the payload.
-     * Also return -1 when argv[0] is too long to fit in buf: the caller
-     * relies on getting a complete, untruncated name for process matching.
+     * malformed; return -1 rather than reading past the payload. An argv[0]
+     * longer than buf is cut short below rather than rejected, so the copy
+     * stays inside both the payload and buf.
      */
     nul = sp;
 
@@ -257,8 +258,17 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     }
     argv0_len = (size_t)(nul - sp);
     if (argv0_len >= bufsize) {
-        free(procargs);
-        return -1; /* argv[0] too long for caller's buffer */
+        /*
+         * Truncate instead of refusing. The Linux backend copies a cmdline
+         * that does not fit with strncpy() and keeps the process, so
+         * rejecting here would make a process with a long argv[0] vanish
+         * from the scan on macOS -- invisible to -e matching and to the
+         * "is this still the target" re-check -- while the very same
+         * process is matched on Linux. Truncating can make the basename
+         * comparison miss, which is what Linux does too; losing the
+         * process entirely is not.
+         */
+        argv0_len = bufsize - 1;
     }
     memcpy(buf, sp, argv0_len);
     buf[argv0_len] = '\0';
