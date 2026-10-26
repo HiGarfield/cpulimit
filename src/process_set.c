@@ -41,7 +41,7 @@
 #include <unistd.h>
 
 /**
- * @brief Compare two double values for approximate equality within DBL_EPSILON
+ * @brief Compare two double values for approximate equality
  *
  * @param a First double value
  * @param b Second double value
@@ -54,7 +54,31 @@
  * of "same process" is exactly the bug both call sites exist to prevent.
  */
 int start_time_matches(double a, double b) {
-    return a - b >= -DBL_EPSILON && a - b <= DBL_EPSILON;
+    double diff = a - b;
+    double scale = a < 0.0 ? -a : a;
+    double other = b < 0.0 ? -b : b;
+    double tol;
+    if (other > scale) {
+        scale = other;
+    }
+    /*
+     * Tolerance scaled to the magnitude of the readings. DBL_EPSILON on its
+     * own is an absolute epsilon, so against a start time of a billion
+     * seconds -- epoch seconds, which is what FreeBSD and macOS report -- it
+     * sits nine orders of magnitude below one ULP and the test degenerates
+     * into "bit-identical". That holds today only because every backend
+     * derives the value from the same integer expression twice; one ULP of
+     * drift on any of them would flip every comparison to "different", and
+     * every reuse check would then skip the SIGCONT it exists to send.
+     * Scaling keeps a drift of one ULP inside "same" without ever widening
+     * the window far enough to call two distinct processes the same. The
+     * floor keeps the UNKNOWN_START_TIME (-1.0) test exact.
+     */
+    tol = DBL_EPSILON * scale;
+    if (tol < DBL_EPSILON) {
+        tol = DBL_EPSILON;
+    }
+    return diff >= -tol && diff <= tol;
 }
 
 /**
@@ -872,7 +896,6 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
         struct list_node *next_node = node->next;
         struct process *proc;
         pid_t pid;
-        double stop_start;
         int kill_result;
         if (node->data == NULL) {
             delete_list_node(proc_set->proc_list, node);
@@ -892,7 +915,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
          * nobody can read proves no change, so it keeps the suspension.
          */
         if (sig == SIGSTOP) {
-            stop_start = get_process_start_time(pid);
+            double stop_start = get_process_start_time(pid);
             if (!start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
                 !start_time_matches(stop_start, UNKNOWN_START_TIME) &&
                 !start_time_matches(stop_start, proc->start_time)) {

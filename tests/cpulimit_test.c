@@ -3486,7 +3486,8 @@ static void test_process_iterator_process_is_stopped(void) {
     assert(child >= 0);
     if (child == 0) {
         test_leave_realtime();
-        raise(SIGSTOP);
+        /* kill(), not raise(): cppcheck reads raise() as noreturn. */
+        kill(getpid(), SIGSTOP);
         _exit(EXIT_SUCCESS);
     }
 
@@ -16888,6 +16889,48 @@ static void test_process_set_reports_replaced_target(void) {
 }
 
 /**
+ * @brief start_time_matches() must keep working at epoch-second magnitudes
+ *
+ * @note FreeBSD and macOS report start times as seconds since the epoch,
+ *       around 1.7e9, where one ULP is about 2.4e-7. An absolute
+ *       DBL_EPSILON window is nine orders of magnitude below that, so the
+ *       comparison degenerates into "bit-identical": it holds today only
+ *       because every backend derives the value from the same integer
+ *       expression twice. One ULP of drift on any of them would flip every
+ *       comparison to "different", and every reuse check would then skip the
+ *       SIGCONT it exists to send. 2^-23 is exactly one ULP at 1e9, so the
+ *       drift below is the smallest representable step there. Verified by
+ *       mutation: restoring the absolute DBL_EPSILON window makes the drift
+ *       read as a different process and this test fails.
+ */
+static void test_process_set_start_time_matches_scales_tolerance(void) {
+    const double epoch = 1.0e9;
+    const double one_ulp = 1.1920928955078125e-7; /* 2^-23, one ULP at 1e9 */
+    int same_small, same_unknown, unknown_vs_zero;
+    int drift_is_same, second_is_different, different;
+
+    same_small = start_time_matches(1000.0, 1000.0);
+    assert(same_small == 1);
+
+    /* UNKNOWN_START_TIME must stay an exact sentinel comparison. */
+    same_unknown = start_time_matches(UNKNOWN_START_TIME, UNKNOWN_START_TIME);
+    assert(same_unknown == 1);
+    unknown_vs_zero = start_time_matches(UNKNOWN_START_TIME, 0.0);
+    assert(unknown_vs_zero == 0);
+
+    /* The smallest step representable here is still the same reading. */
+    drift_is_same = start_time_matches(epoch, epoch + one_ulp);
+    assert(drift_is_same == 1);
+
+    /* A whole second apart is a different process at any magnitude. */
+    second_is_different = start_time_matches(epoch, epoch + 1.0);
+    assert(second_is_different == 0);
+
+    different = start_time_matches(1000.0, 2000.0);
+    assert(different == 0);
+}
+
+/**
  * @brief init_process_set() must return -1 (not exit) when a build step
  *        fails
  *
@@ -17227,6 +17270,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_process_set_stop_skips_recycled_pid);
     RUN_TEST(test_process_set_reports_replaced_target);
+    RUN_TEST(test_process_set_start_time_matches_scales_tolerance);
     RUN_TEST(test_process_set_resume_silent_when_pid_gone);
     RUN_TEST(test_process_set_init_fails_cleanly_on_scan_error);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
