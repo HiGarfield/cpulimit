@@ -10325,6 +10325,21 @@ static int seam_init_fails = 0;
 static int seam_close_fails = 0;
 
 /**
+ * @brief When set (and seam active), close_process_iterator() fails once
+ *        this many closes have succeeded.
+ *
+ * Lets a test fail one particular scan instead of all of them: the scan
+ * that builds the group still has to succeed, so a test can reach the
+ * combination where a later scan both finds something and fails.
+ */
+static int seam_close_fails_after = 0;
+
+/**
+ * @brief Closes served, consumed by seam_close_fails_after.
+ */
+static int seam_close_call_count = 0;
+
+/**
  * @brief When set (and seam active), get_next_process() reports an error.
  *
  * Stands for a scan that stopped before the process table had been read to
@@ -10415,6 +10430,8 @@ static void seam_reset(void) {
     seam_clock_call_count = 0;
     seam_init_fails = 0;
     seam_close_fails = 0;
+    seam_close_fails_after = 0;
+    seam_close_call_count = 0;
     seam_next_process_fails = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
@@ -13657,6 +13674,12 @@ int cpulimit_test_close_process_iterator(struct process_iterator *iter) {
     (void)iter;
     if (seam_close_fails) {
         return -1;
+    }
+    if (seam_close_fails_after > 0) {
+        seam_close_call_count++;
+        if (seam_close_call_count > seam_close_fails_after) {
+            return -1;
+        }
     }
     if (seam_frame_current != (size_t)-1 &&
         seam_frame_current < seam_frame_count) {
@@ -16905,6 +16928,51 @@ static void test_process_set_reports_replaced_target(void) {
 }
 
 /**
+ * @brief a replaced target must outrank the scan failure found beside it
+ *
+ * @note update_process_set() can both learn that the target PID changed
+ *       hands and fail, when the scan that found the replacement is the one
+ *       whose close fails. limit_process() used to test the failed scan
+ *       first, so the run ended as LIMIT_PROCESS_SCAN_FAILED: command mode
+ *       then reported EXIT_FAILURE instead of the command's own status for a
+ *       run whose only real finding was that the target had been replaced.
+ *       Verified by mutation: testing the failed scan first fails this.
+ */
+static void test_limit_process_prefers_replacement_over_scan_failure(void) {
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    const pid_t child = 4244;
+    const double base = 1000.0;        /* the process the group was built for */
+    const double replacement = 2000.0; /* the one now wearing the PID */
+    int status;
+    assert(frame != NULL);
+
+    seam_reset();
+
+    /* Scan 1, consumed by init_process_set(): the target as first seen. */
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = child;
+    frame[0].ppid = 1;
+    frame[0].cpu_time = 0.0;
+    frame[0].start_time = base;
+    seam_push_frame(frame, 1);
+
+    /* Scan 2, the one that finds the replacement and then fails to close. */
+    frame[0].start_time = replacement;
+    seam_push_frame(frame, 1);
+
+    seam_active = 1;
+    seam_close_fails_after = 1;
+    status = limit_process(child, 50.0, 0, 0, 0);
+    seam_close_fails_after = 0;
+    seam_active = 0;
+    seam_reset();
+
+    assert(status == LIMIT_PROCESS_NO_TARGET);
+    free(frame);
+}
+
+/**
  * @brief start_time_matches() must keep working at epoch-second magnitudes
  *
  * @note FreeBSD and macOS report start times as seconds since the epoch,
@@ -17322,6 +17390,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_process_set_stop_skips_recycled_pid);
     RUN_TEST(test_process_set_reports_replaced_target);
+    RUN_TEST(test_limit_process_prefers_replacement_over_scan_failure);
     RUN_TEST(test_process_set_start_time_matches_scales_tolerance);
     RUN_TEST(test_process_set_resume_silent_when_pid_gone);
     RUN_TEST(test_process_set_init_fails_cleanly_on_scan_error);

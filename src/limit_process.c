@@ -269,6 +269,25 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
 
         scan_ret = update_process_set(&proc_set);
 
+        /*
+         * The scan found the target PID worn by a different process. The
+         * group is empty now, but so it is when the target merely exited, and
+         * a caller that ends the run on an empty group must not read this one
+         * as success: nothing that was asked for is being limited any more,
+         * and the process now holding the PID was never suspended by us.
+         *
+         * Checked ahead of the failed scan below because a scan that stopped
+         * after finding the replacement does not undo what it found: the
+         * replacement is the more specific answer to whether what the
+         * operator named is still being limited, and it is what lets command
+         * mode report the command's own status instead of a scan failure it
+         * did not cause.
+         */
+        if (proc_set.target_replaced) {
+            target_replaced = 1;
+            break;
+        }
+
         if (scan_ret != 0) {
             /*
              * Limiting ran and then had to stop on a failed scan. The cleanup
@@ -289,18 +308,6 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
                     (long)pid);
             }
             scan_failed = 1;
-            break;
-        }
-
-        /*
-         * The scan found the target PID worn by a different process. The
-         * group is empty now, but so it is when the target merely exited, and
-         * a caller that ends the run on an empty group must not read this one
-         * as success: nothing that was asked for is being limited any more,
-         * and the process now holding the PID was never suspended by us.
-         */
-        if (proc_set.target_replaced) {
-            target_replaced = 1;
             break;
         }
 
@@ -458,6 +465,18 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
          * control loop also stopped on a failed scan decides between the two
          * stranded values, so the caller can say both facts when both hold.
          */
+        /*
+         * Stranded PIDs outrank a replaced target in the return code: they
+         * need a manual 'kill -CONT', which no retry performs, so that is
+         * what the value has to say. The replacement would otherwise be lost
+         * entirely behind it, so it is reported here instead.
+         */
+        if (target_replaced) {
+            fprintf(
+                stderr,
+                "The target PID %ld now belongs to a different process, which was never limited.\n",
+                (long)pid);
+        }
         if (scan_failed) {
             return LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED;
         }
