@@ -156,6 +156,11 @@ int get_current_time(struct timespec *result_ts) {
  *
  * Uses clock_nanosleep() with CLOCK_MONOTONIC when available, so the sleep is
  * unaffected by system time changes, and falls back to nanosleep() otherwise.
+ * The fallback is taken on macOS, where nanosleep() is driven by the calendar
+ * clock: a wall-clock jump there does change how long the sleep really lasts.
+ * That is accepted rather than worked around, because the remaining options
+ * (mach_wait_until(), or a polling loop) would change the throttling timing
+ * this sleep drives.
  *
  * Neither call is restarted by SA_RESTART: a delivered signal ends the sleep
  * early with -1 and errno EINTR, and the unslept remainder is deliberately not

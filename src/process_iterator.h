@@ -207,6 +207,29 @@ struct process_filter {
  * - Linux: Reads /proc filesystem entries sequentially
  * - FreeBSD: Uses kvm(3) interface with snapshot approach
  * - macOS: Uses libproc with snapshot approach
+ *
+ * Platform differences that a caller may observe, and why each one is
+ * unavoidable:
+ *
+ * - Close result. close_process_iterator() reports a real failure on Linux
+ *   (closedir) and on FreeBSD (kvm_close); on macOS there is nothing that can
+ *   fail -- it only frees the PID list -- so an initialized iterator always
+ *   returns 0. A caller that keys off the return value therefore never sees a
+ *   close failure there.
+ *
+ * - System processes in the parent chain. read_process_info() skips system
+ *   processes on FreeBSD (P_SYSTEM) and macOS (PROC_FLAG_SYSTEM) but not on
+ *   Linux, where kernel threads are only distinguishable by their empty
+ *   command line and so are already invisible to the read_cmd path.
+ *   getppid_of() applies the same rule read_process_info() does, except on
+ *   FreeBSD, where it only excludes zombies: excluding kernel threads there
+ *   too would cost an extra flag test per hop in is_child_of(), and a kernel
+ *   thread's parent is kthreadd (ppid 0), which already terminates the walk.
+ *
+ * - Start times. All three report seconds, but from different epochs: since
+ *   boot on Linux, since the epoch on macOS and FreeBSD. Only same-platform
+ *   equality is meaningful, which is all PID-reuse detection needs; see
+ *   UNKNOWN_START_TIME for how "no reading" is spelled on each.
  */
 struct process_iterator {
 #if defined(__linux__)
