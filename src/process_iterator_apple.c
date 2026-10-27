@@ -144,6 +144,12 @@ int init_process_iterator(struct process_iterator *iter,
  * the timebase ratio (numer/denom) from mach_timebase_info(). This
  * function caches the conversion factor on first call.
  *
+ * The values it converts -- pti_total_user and pti_total_system from
+ * proc_pidinfo() -- are Mach absolute time units, NOT nanoseconds, so
+ * this conversion is required and must not be removed: the ratio is
+ * 1/1 on Intel Macs (which hides the difference) and 125/3 on Apple
+ * silicon, where dropping it reports CPU time about 42 times too low.
+ *
  * The result is in milliseconds to match the cpu_time field of the
  * process structure.
  */
