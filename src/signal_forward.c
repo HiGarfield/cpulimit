@@ -68,6 +68,19 @@ void signal_command(pid_t child_pid, int sig, int verbose) {
      *
      * Verify leadership before using the group form; otherwise, and if the
      * group form fails for any reason, address the process directly.
+     *
+     * The verification and the kill are two syscalls, so a window remains:
+     * the child can exit and the id can be handed to a new group in between,
+     * and the group form would then reach processes that were never part of
+     * this run. It cannot be closed portably -- POSIX offers no "signal this
+     * group if and only if it is still led by my child" -- so it is recorded
+     * here rather than papered over. What is left is microseconds, and only
+     * the SIGKILL escalation is dangerous if it does land elsewhere;
+     * collect_child_exit_status() issues that from the branch where
+     * waitpid(WNOHANG) has just reported the child still running, and the
+     * other call sites send SIGCONT, which a running process ignores.
+     * Narrowing it further would mean dropping the group form, which is what
+     * reaches descendants that the limiter cannot wait for.
      */
     if (child_pid > 0 && getpgid(child_pid) == child_pid &&
         kill(-child_pid, sig) == 0) {
