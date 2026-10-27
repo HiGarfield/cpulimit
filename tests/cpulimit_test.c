@@ -6705,6 +6705,51 @@ static void test_process_set_purges_exited_descendants(void) {
 }
 
 /**
+ * @brief a recycled PID must keep the record of what we suspended
+ *
+ * @note update_existing_process_entry() resets a record by copying the fresh
+ *       snapshot over it, and the snapshot is a process we never suspended,
+ *       so the flag went away with the rest of the history. A later SIGCONT
+ *       failure is then classed as benign, as though the process had never
+ *       been stopped by us, so it is neither counted nor recorded again and
+ *       a member left stopped goes unreported. Verified by mutation:
+ *       dropping the restore fails the assertion.
+ */
+static void test_process_set_keeps_suspension_flag_on_reuse(void) {
+    struct process_set proc_set;
+    pid_t idle_pid, waited;
+    int ret, idle_status;
+    struct process *tracked;
+
+    idle_pid = fork();
+    assert(idle_pid >= 0);
+    if (idle_pid == 0) {
+        test_suspend_until_killed();
+    }
+
+    ret = init_process_set(&proc_set, idle_pid, 0);
+    assert(ret == 0);
+
+    tracked = find_in_process_table(proc_set.proc_table, idle_pid);
+    assert(tracked != NULL);
+    tracked->suspended_by_us = 1;
+
+    /* Force the PID-reuse reset: the CPU time moved backwards. */
+    tracked->cpu_time += 1e9;
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+    assert(tracked->suspended_by_us == 1);
+
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+
+    kill_and_wait(idle_pid, SIGKILL);
+    do {
+        waited = waitpid(idle_pid, &idle_status, WNOHANG);
+    } while (waited == -1 && errno == EINTR);
+}
+
+/**
  * @brief Test that a tracked entry is reset when its history stops applying
  *
  * update_existing_process_entry() discards the stored CPU history and
@@ -17354,6 +17399,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_race_rapid_child_spawn_exit);
     RUN_TEST(test_process_set_purges_exited_descendants);
     RUN_TEST(test_process_set_entry_resets_on_reuse_and_backward_clock);
+    RUN_TEST(test_process_set_keeps_suspension_flag_on_reuse);
     RUN_TEST(test_process_set_resumes_stopped_on_loop_exit);
     RUN_TEST(test_limit_process_reports_scan_failure);
     RUN_TEST(test_limit_process_scan_failure_silent_without_verbose);

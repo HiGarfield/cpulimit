@@ -448,6 +448,7 @@ static void update_existing_process_entry(struct process *proc,
         (!start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
          !start_time_matches(scan_proc->start_time, UNKNOWN_START_TIME) &&
          !start_time_matches(proc->start_time, scan_proc->start_time))) {
+        int was_suspended;
         /*
          * CPU time dropped, or the start time changed while the PID is the
          * same: the PID was recycled. A fresh process often has higher CPU
@@ -456,9 +457,21 @@ static void update_existing_process_entry(struct process *proc,
          * authoritative identity, so it is the second signal. Reset all
          * history; the snapshot's {0,0} baseline is re-stamped below.
          */
+        was_suspended = proc->suspended_by_us;
         memcpy(proc, scan_proc, sizeof(*proc));
         proc->cpu_usage = -1;
         proc->cpu_time_ts = *now;
+        /*
+         * The snapshot describes a process we never suspended, so copying it
+         * over the entry would clear the flag along with the history. A
+         * later SIGCONT failure is then classed as benign -- as if the
+         * process had never been stopped by us -- so it is neither counted
+         * nor recorded again and a member left stopped goes unreported. The
+         * suspension is still ours to undo: the resume round re-checks that
+         * the PID is stopped before signalling it, so keeping the flag
+         * cannot resume a process that is running.
+         */
+        proc->suspended_by_us = was_suspended;
         return;
     }
     proc->ppid = scan_proc->ppid;
