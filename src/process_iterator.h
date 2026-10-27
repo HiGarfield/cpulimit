@@ -306,12 +306,23 @@ int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter);
 
 /**
+ * @def PROCESS_ITER_ERROR
+ * @brief get_next_process() return code for a scan that stopped on an error
+ *
+ * Distinct from the -1 that only means the iteration ran out of processes.
+ * A caller that read the two alike would take a partial scan for the whole
+ * process table and conclude that the members it never reached are gone.
+ */
+#define PROCESS_ITER_ERROR (-2)
+
+/**
  * @brief Retrieve the next process matching the filter criteria
  *
  * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
  * @return 0 on success with process data in proc, -1 if no more processes or
- *         if iter, proc, or iter->filter is NULL
+ *         if iter, proc, or iter->filter is NULL, PROCESS_ITER_ERROR if the
+ *         scan stopped on an error before reaching the end of the table
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on

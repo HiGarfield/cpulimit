@@ -509,7 +509,7 @@ int update_process_set(struct process_set *proc_set) {
     struct process_filter filter;
     struct timespec now;
     double elapsed_ms;
-    int ncpu, close_ret;
+    int ncpu, close_ret, scan_status;
     pid_t self_pid;
     int target_replaced;
     int alloc_failed;
@@ -551,7 +551,7 @@ int update_process_set(struct process_set *proc_set) {
      */
     clear_list(proc_set->proc_list);
 
-    while (get_next_process(&iter, scan_proc) != -1) {
+    while ((scan_status = get_next_process(&iter, scan_proc)) == 0) {
         struct process *proc;
         /*
          * Never track cpulimit itself: with --include-children the target
@@ -692,6 +692,17 @@ int update_process_set(struct process_set *proc_set) {
          * An allocation in the scan loop failed. limit_process() sees the
          * -1, breaks its loop and resumes the group through its own cleanup
          * path, so the failure cannot strand a stopped process.
+         */
+        return -1;
+    }
+    if (scan_status == PROCESS_ITER_ERROR) {
+        /*
+         * The scan stopped before the process table had been read to its
+         * end, so proc_list covers only part of the group: members the
+         * scan never reached are absent and would read as exited, and a
+         * target that is still running would be reported as gone. Fail
+         * the cycle instead, so limit_process() reports a failed scan
+         * rather than acting on a partial result.
          */
         return -1;
     }

@@ -371,7 +371,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * @param iter Pointer to the process_iterator structure
  * @param proc Pointer to process structure to populate with process information
  * @return 0 on success with process data in proc, -1 if no more processes or
- *         if iter, proc, or iter->filter is NULL
+ *         if iter, proc, or iter->filter is NULL, PROCESS_ITER_ERROR if the
+ *         scan stopped on an error before reaching the end of the table
  *
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
@@ -410,8 +411,21 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         pid_t pid;
         char *endptr;
         long long_pid;
+        /*
+         * readdir() reports the end of the directory and a read failure
+         * the same way, by returning NULL, so errno has to be cleared
+         * first to tell them apart. Ending the scan on a failure as if
+         * the table had been read to its end would hand the caller a
+         * partial result it has no way to recognise as incomplete.
+         */
+        errno = 0;
         dir_entry = readdir(iter->proc_dir);
         if (dir_entry == NULL) {
+            if (errno != 0) {
+                /* errno still carries the readdir() failure for the caller. */
+                iter->end_of_processes = 1;
+                return PROCESS_ITER_ERROR;
+            }
             break;
         }
 #ifdef _DIRENT_HAVE_D_TYPE

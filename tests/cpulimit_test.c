@@ -10325,6 +10325,17 @@ static int seam_init_fails = 0;
 static int seam_close_fails = 0;
 
 /**
+ * @brief When set (and seam active), get_next_process() reports an error.
+ *
+ * Stands for a scan that stopped before the process table had been read to
+ * its end -- /proc failing part way through, say -- which is not the same
+ * thing as a scan that simply ran out of processes. Nothing in src/ knows
+ * about this switch: the rename that reaches it is applied by the test
+ * build alone.
+ */
+static int seam_next_process_fails = 0;
+
+/**
  * @brief After this many successful update_process_set() calls, force the
  *        next one to fail (-1). 0 disables the injection.
  *
@@ -10404,6 +10415,7 @@ static void seam_reset(void) {
     seam_clock_call_count = 0;
     seam_init_fails = 0;
     seam_close_fails = 0;
+    seam_next_process_fails = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
     seam_hook_limit_process = 0;
@@ -13601,7 +13613,8 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
  *
  * @param iter Iterator to read from
  * @param proc Process structure to fill
- * @return 0 when a process was filled, -1 when the snapshot is exhausted
+ * @return 0 when a process was filled, -1 when the snapshot is exhausted,
+ *         PROCESS_ITER_ERROR when the scan is scripted to stop on an error
  */
 /* cppcheck-suppress unusedFunction */
 int cpulimit_test_get_next_process(struct process_iterator *iter,
@@ -13609,6 +13622,9 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
     const struct seam_proc *entry;
     if (!seam_active) {
         return get_next_process(iter, proc);
+    }
+    if (seam_next_process_fails) {
+        return PROCESS_ITER_ERROR;
     }
     (void)iter;
     if (proc == NULL || seam_frame_current == (size_t)-1 ||
@@ -16963,6 +16979,42 @@ static void test_process_set_init_fails_cleanly_on_scan_error(void) {
 }
 
 /**
+ * @brief A scan the iterator reports as stopped on an error must fail the
+ *        cycle
+ *
+ * @note get_next_process() used to answer "no more processes" and "the scan
+ *       could not finish" with the same value, so a scan that stopped early
+ *       looked exactly like one that completed: the members it never
+ *       reached were missing from the rebuilt list and read as exited, and
+ *       a target that was still running was reported as gone, ending the run
+ *       in success. PROCESS_ITER_ERROR now separates the two, and
+ *       update_process_set() fails the cycle rather than acting on a partial
+ *       result.
+ */
+static void test_process_set_reports_incomplete_scan(void) {
+    struct process_set proc_set;
+    int ret;
+
+    seam_reset();
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
+    assert(ret == 0);
+
+    seam_active = 1;
+    seam_next_process_fails = 1;
+    ret = update_process_set(&proc_set);
+    seam_next_process_fails = 0;
+    seam_active = 0;
+    assert(ret == -1);
+
+    /* The same set scans cleanly again once the iterator can finish. */
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+}
+
+/**
  * @brief resuming a recorded PID whose process has exited must be
  *        silent
  *
@@ -17273,6 +17325,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_start_time_matches_scales_tolerance);
     RUN_TEST(test_process_set_resume_silent_when_pid_gone);
     RUN_TEST(test_process_set_init_fails_cleanly_on_scan_error);
+    RUN_TEST(test_process_set_reports_incomplete_scan);
     RUN_TEST(test_find_process_by_name_survives_iterator_init_failure);
     RUN_TEST(test_process_set_rejects_recycled_target_pid);
     RUN_TEST(test_limit_process_reports_resume_failure);
