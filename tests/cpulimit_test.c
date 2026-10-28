@@ -38,6 +38,7 @@
 #include "../src/process_set.h"
 #include "../src/process_table.h"
 #include "../src/script_check.h"
+#include "../src/signal_forward.h"
 #include "../src/signal_handler.h"
 #include "../src/time_util.h"
 #include "../src/util.h"
@@ -18124,6 +18125,28 @@ static void run_list_module_tests(void) {
 }
 
 /**
+ * @brief signal_command() must not send anything to a non-positive PID
+ *
+ * @note kill() reads 0 as this process's own process group and a negative
+ *       one as some other group, so a PID that is not positive would land
+ *       on the limiter itself or on processes this run never started.
+ *       Verified by mutation: dropping the guard lets the calls through and
+ *       the count stops being zero.
+ */
+static void test_signal_command_ignores_nonpositive_pid(void) {
+    int calls;
+
+    seam_reset();
+    seam_active = 1;
+    signal_command((pid_t)0, SIGTERM, 0);
+    signal_command((pid_t)-1, SIGCONT, 0);
+    calls = seam_kill_calls;
+    seam_active = 0;
+    seam_reset();
+    assert(calls == 0);
+}
+
+/**
  * @brief Run the SIGNAL_HANDLER MODULE TESTS tests
  *
  * @note Grouped in a helper rather than inlined in main(), which then
@@ -18141,6 +18164,7 @@ static void run_signal_handler_module_tests(void) {
     RUN_TEST(test_terminal_echo_disable_and_restore);
     RUN_TEST(test_terminal_echo_noop_on_non_tty);
     RUN_TEST(test_signal_handler_reconfigure_resets_state);
+    RUN_TEST(test_signal_command_ignores_nonpositive_pid);
     RUN_TEST(test_signal_handler_mask_restored_after_configure);
     RUN_TEST(test_signal_handler_reconfigure_delivers_pending);
     RUN_TEST(test_signal_handler_reset_to_default);

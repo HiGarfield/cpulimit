@@ -58,6 +58,16 @@
  */
 void signal_command(pid_t child_pid, int sig, int verbose) {
     /*
+     * Only a real PID may be signalled here. kill() reads 0 as this
+     * process's own group and a negative one as some other group, so a
+     * PID that is not positive would land on the limiter itself or on
+     * processes this run never started. Nothing to forward to means
+     * nothing to send.
+     */
+    if (child_pid <= 0) {
+        return;
+    }
+    /*
      * The negative-PID form signals the whole process group, which is only
      * ours while child_pid is still the group leader. exec_child_process()
      * creates that group, but the program it execs is free to move itself
@@ -82,8 +92,7 @@ void signal_command(pid_t child_pid, int sig, int verbose) {
      * Narrowing it further would mean dropping the group form, which is what
      * reaches descendants that the limiter cannot wait for.
      */
-    if (child_pid > 0 && getpgid(child_pid) == child_pid &&
-        kill(-child_pid, sig) == 0) {
+    if (getpgid(child_pid) == child_pid && kill(-child_pid, sig) == 0) {
         return;
     }
     if (kill(child_pid, sig) != 0 && errno != ESRCH) {
