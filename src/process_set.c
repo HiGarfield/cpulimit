@@ -475,6 +475,19 @@ static void update_existing_process_entry(struct process *proc,
         return;
     }
     proc->ppid = scan_proc->ppid;
+    /*
+     * A start time that could not be read when this entry was made is a gap
+     * in that reading, not a fact about the process, so a later sample that
+     * does carry one has to fill it in. Left as the sentinel it would stay
+     * unknown for the life of the entry: the identity recheck before
+     * SIGSTOP needs two known start times to compare, so a member recorded
+     * with an unknown one would never be rechecked and would keep being
+     * signalled even after its PID changed hands.
+     */
+    if (start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
+        !start_time_matches(scan_proc->start_time, UNKNOWN_START_TIME)) {
+        proc->start_time = scan_proc->start_time;
+    }
     elapsed_ms = timediff_in_ms(now, &proc->cpu_time_ts);
     if (elapsed_ms < 0) {
         /* Clock went backwards: keep cpu_time but skip usage this cycle. */
