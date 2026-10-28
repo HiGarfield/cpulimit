@@ -111,9 +111,13 @@ set_source_files_properties(${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS} PROPERTIES
 set_source_files_properties(${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
     "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
+# process_set.c additionally gets malloc renamed, so a test can starve one
+# allocation without guessing which call it is: the switch below fails the
+# very next one. Only this file is renamed, so allocation stays real
+# everywhere else.
 set_source_files_properties(${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_STARTTIME}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_STARTTIME};malloc=cpulimit_test_malloc")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
     "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")

@@ -249,11 +249,12 @@ struct stopped_pid_record {
  * @param start_time Start time of pid at suspension, from
  *        get_process_start_time(); pass UNKNOWN_START_TIME when the platform
  *        cannot report one, which disables the recycle check for this PID
- * @return 0 when recorded, -1 when not: the process was then already resumed
- *         and the caller must not treat it as suspended by this group
+ * @return 0 when recorded, RECORD_STOPPED_RESUMED when the suspension was
+ *         undone instead, RECORD_STOPPED_STILL_STOPPED when it could neither
+ *         be recorded nor undone
  *
  * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
- *       the call is then a -1 no-op
+ *       the call is then a RECORD_STOPPED_RESUMED no-op
  */
 
 int record_stopped_pid(struct process_set *proc_set, pid_t pid,
@@ -262,7 +263,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
     struct list_node *node;
 
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
-        return -1;
+        return RECORD_STOPPED_RESUMED;
     }
 
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
@@ -274,26 +275,33 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
         }
     }
     rec = (struct stopped_pid_record *)malloc(sizeof(*rec));
-    if (rec == NULL) {
-        /*
-         * Cannot record it, so undo the suspension now: leaving it stopped
-         * would be worse, and the member stays in the group.
-         */
-        kill(pid, SIGCONT);
-        return -1;
-    }
-    rec->pid = pid;
-    rec->start_time = start_time;
-    if (add_list_elem(proc_set->stopped_pids, rec) == NULL) {
-        /*
-         * Node allocation also failed: free the orphaned record and undo
-         * the suspension, or it is stranded once the member leaves.
-         */
+    if (rec != NULL) {
+        rec->pid = pid;
+        rec->start_time = start_time;
+        if (add_list_elem(proc_set->stopped_pids, rec) != NULL) {
+            return 0;
+        }
         free(rec);
-        kill(pid, SIGCONT);
-        return -1;
     }
-    return 0;
+    /*
+     * No record could be made, so undo the suspension at once: a member
+     * left stopped with nothing tracking it would never be resumed. The
+     * member stays in the group either way.
+     *
+     * If that undo fails too the member is still stopped, and reporting it
+     * as resumed would hide it: the caller keeps it flagged as suspended so
+     * the closing SIGCONT tries again and the shutdown report names it.
+     */
+    if (kill(pid, SIGCONT) != 0 && errno != ESRCH) {
+        int saved_errno = errno;
+        fprintf(
+            stderr,
+            "Warning: cannot resume PID %ld with SIGCONT: %s\n         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
+            (long)pid, strerror(saved_errno), (long)pid);
+        errno = saved_errno;
+        return RECORD_STOPPED_STILL_STOPPED;
+    }
+    return RECORD_STOPPED_RESUMED;
 }
 
 /*
@@ -1029,11 +1037,14 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
         } else if (sig == SIGSTOP) {
             /*
              * Record the suspension so it can be undone, and set the flag
-             * only when the record truly exists: otherwise record_stopped_pid()
-             * already resumed the member and the flag would claim a suspension
-             * that was taken back.
+             * only while the member is still suspended: the record exists,
+             * or it could not be made and the immediate undo failed as well.
+             * A plain failure means record_stopped_pid() already resumed the
+             * member, and the flag would claim a suspension that was taken
+             * back.
              */
-            if (record_stopped_pid(proc_set, pid, proc->start_time) == 0) {
+            if (record_stopped_pid(proc_set, pid, proc->start_time) !=
+                RECORD_STOPPED_RESUMED) {
                 proc->suspended_by_us = 1;
             }
             /*

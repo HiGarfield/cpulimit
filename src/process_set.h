@@ -149,6 +149,20 @@ int init_process_set(struct process_set *proc_set, pid_t target_pid,
 int close_process_set(struct process_set *proc_set);
 
 /**
+ * @def RECORD_STOPPED_RESUMED
+ * @brief record_stopped_pid() result: no record was made and the member was
+ *        resumed, so it is not suspended by this group
+ */
+#define RECORD_STOPPED_RESUMED (-1)
+
+/**
+ * @def RECORD_STOPPED_STILL_STOPPED
+ * @brief record_stopped_pid() result: no record was made and the member
+ *        could not be resumed either, so it may still be stopped
+ */
+#define RECORD_STOPPED_STILL_STOPPED (-2)
+
+/**
  * @brief Record that a member was just suspended with SIGSTOP
  *
  * @param proc_set Pointer to the process set structure
@@ -156,11 +170,14 @@ int close_process_set(struct process_set *proc_set);
  * @param start_time Start time of pid at suspension, from
  *        get_process_start_time(); pass UNKNOWN_START_TIME when the platform
  *        cannot report one, which disables the recycle check for this PID
- * @return 0 when recorded, -1 when not: the process was then already resumed
- *         and the caller must not treat it as suspended by this group
+ * @return 0 when recorded, RECORD_STOPPED_RESUMED when the suspension was
+ *         undone instead, RECORD_STOPPED_STILL_STOPPED when it could neither
+ *         be recorded nor undone; only the middle one leaves the member
+ *         running, so the caller treats the other two as suspended by this
+ *         group
  *
  * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
- *       the call is then a -1 no-op
+ *       the call is then a RECORD_STOPPED_RESUMED no-op
  */
 int record_stopped_pid(struct process_set *proc_set, pid_t pid,
                        double start_time);

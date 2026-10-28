@@ -10491,6 +10491,7 @@ int cpulimit_test_update_process_set(struct process_set *proc_set);
 long cpulimit_test_random(void);
 int cpulimit_test_getloadavg(double *loadavg, int nelem);
 double cpulimit_test_get_process_start_time(pid_t pid);
+void *cpulimit_test_malloc(size_t size);
 
 #ifdef __cplusplus
 }
@@ -10502,6 +10503,17 @@ double cpulimit_test_get_process_start_time(pid_t pid);
  * Leaves seam_active at 0: the caller turns the seam on once its script
  * has been pushed, so that pushing the script cannot be intercepted.
  */
+
+/**
+ * @brief When set, the next allocation made by process_set.c fails.
+ *
+ * Fails the next call rather than the Nth, so a test does not have to know
+ * how many allocations came before the one it wants starved. Only
+ * process_set.c is compiled with the rename; allocation stays real
+ * everywhere else.
+ */
+static int seam_malloc_fails_next = 0;
+
 static void seam_reset(void) {
     seam_active = 0;
     seam_clock_ms = 0.0;
@@ -10524,6 +10536,7 @@ static void seam_reset(void) {
     seam_close_fails = 0;
     seam_close_fails_after = 0;
     seam_close_call_count = 0;
+    seam_malloc_fails_next = 0;
     seam_next_process_fails = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
@@ -13576,6 +13589,22 @@ double cpulimit_test_get_process_start_time(pid_t pid) {
         return seam_start_time_queue[seam_start_time_idx++];
     }
     return UNKNOWN_START_TIME;
+}
+
+/**
+ * @brief Replacement for malloc(), for process_set.c only
+ *
+ * @param size Number of bytes requested
+ * @return The allocated block, or NULL when the next allocation is scripted
+ *         to fail
+ */
+/* cppcheck-suppress unusedFunction */
+void *cpulimit_test_malloc(size_t size) {
+    if (seam_malloc_fails_next) {
+        seam_malloc_fails_next = 0;
+        return NULL;
+    }
+    return malloc(size);
 }
 
 /**
@@ -17424,6 +17453,9 @@ static void test_send_signal_clears_state_only_for_sigcont(void);
 /* test, which is defined later (next to main()). */
 static void test_reap_before_error_return_does_not_block(void);
 
+/* test, which is defined later (next to the other record tests). */
+static void test_record_stopped_pid_reports_undo_failure(void);
+
 static void run_process_set_module_tests(void) {
     printf("\n=== PROCESS_SET MODULE TESTS ===\n");
     RUN_TEST(test_process_set_cpu_usage);
@@ -17465,6 +17497,7 @@ static void run_process_set_module_tests(void) {
 
     RUN_TEST(test_reap_before_error_return_does_not_block);
     RUN_TEST(test_stopped_pids_record_does_not_duplicate);
+    RUN_TEST(test_record_stopped_pid_reports_undo_failure);
     RUN_TEST(test_send_signal_clears_state_only_for_sigcont);
     RUN_TEST(test_limit_process_scan_failed_and_stranded);
     RUN_TEST(test_process_set_excludes_self_from_group);
@@ -17679,6 +17712,41 @@ static void test_resume_warning_gate_counts_severity_levels(void) {
  */
 static void test_resume_gate_silent_without_verbose(void) {
     check_resume_gate_report(0, 0, 0);
+}
+
+/**
+ * @brief a suspension that could neither be recorded nor undone must be
+ *        reported as still stopped
+ *
+ * @note record_stopped_pid() answers "the suspension was taken back" whenever
+ *       it cannot make a record, so the caller leaves the member unflagged.
+ *       The undo can fail as well, and then the member is still stopped with
+ *       nothing tracking it: no closing SIGCONT is retried for it and the
+ *       shutdown report names nothing. Verified by mutation: reporting the
+ *       failed undo as taken back fails the assertion.
+ */
+static void test_record_stopped_pid_reports_undo_failure(void) {
+    struct process_set proc_set;
+    int ret;
+
+    seam_reset();
+    ret = init_process_set(&proc_set, (pid_t)4242, 0);
+    assert(ret == 0);
+
+    /* The record cannot be allocated, and the undo is refused. */
+    seam_malloc_fails_next = 1;
+    seam_fail_call = 1;
+    seam_fail_errno = EPERM;
+    seam_fail_sig = SIGCONT;
+    test_mute_output();
+    ret = record_stopped_pid(&proc_set, (pid_t)4242, 100.0);
+    test_unmute_output();
+    seam_fail_call = 0;
+    seam_fail_sig = 0;
+    assert(ret == RECORD_STOPPED_STILL_STOPPED);
+
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
 }
 
 /**
