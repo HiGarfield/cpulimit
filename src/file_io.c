@@ -97,7 +97,14 @@ char *read_file_contents(const char *file_name) {
 
 error:
     if (fd >= 0) {
+        /*
+         * Preserve errno across close() only on the failure path: close()
+         * may replace it, and the caller reads this function's failure
+         * through it. On the success path there is nothing to preserve.
+         */
+        int saved_errno = errno;
         close(fd);
+        errno = saved_errno;
     }
     free(buf);
     return NULL;
