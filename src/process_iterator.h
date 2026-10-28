@@ -234,6 +234,14 @@ struct process_filter {
  *   too would cost an extra flag test per hop in is_child_of(), and a kernel
  *   thread's parent is kthreadd (ppid 0), which already terminates the walk.
  *
+ * - PID 1 in the scan. Linux's read_process_info() rejects a parent of 0 or
+ *   below, and init reports one, so that iterator never yields PID 1 at all.
+ *   macOS and FreeBSD do yield it. The layers that must never signal it --
+ *   the name resolver and the process set -- skip it explicitly, and those
+ *   guards are what makes the rule hold on every platform; the Linux
+ *   behaviour is a side effect of the parent check and must not be relied on
+ *   in their place.
+ *
  * - Start times. All three report seconds, but from different epochs: since
  *   boot on Linux, since the epoch on macOS and FreeBSD. Only same-platform
  *   equality is meaningful, which is all PID-reuse detection needs; see
