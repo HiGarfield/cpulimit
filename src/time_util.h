@@ -61,7 +61,8 @@ void nsec_to_timespec(double nsec, struct timespec *result_ts);
  * @brief Get a high-resolution timestamp, preferring a monotonic clock
  *
  * @param result_ts Pointer to timespec structure to receive current time
- * @return 0 on success, -1 on failure
+ * @return 0 on success, -1 on failure; a NULL result_ts is -1 with errno
+ *         EINVAL on every platform
  *
  * Uses CLOCK_MONOTONIC if available (immune to system time changes), else
  * CLOCK_REALTIME, else gettimeofday(). Provides at least microsecond

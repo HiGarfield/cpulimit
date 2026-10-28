@@ -484,6 +484,22 @@ static void test_time_util_get_current_time(void) {
 }
 
 /**
+ * @brief a NULL timestamp must be refused the same way on every platform
+ *
+ * @note Only the macOS branch used to check, and the others handed the NULL
+ *       on to clock_gettime() or dereferenced it. Verified by mutation:
+ *       dropping the guard fails the assertion.
+ */
+static void test_time_util_get_current_time_rejects_null(void) {
+    int ret;
+
+    errno = 0;
+    ret = get_current_time(NULL);
+    assert(ret == -1);
+    assert(errno == EINVAL);
+}
+
+/**
  * @brief Test sleep_timespec function
  *
  * @note Tests sleeping with various durations including zero
@@ -18075,6 +18091,7 @@ static void run_time_util_module_tests(void) {
     printf("\n=== TIME_UTIL MODULE TESTS ===\n");
     RUN_TEST(test_time_util_nsec_to_timespec);
     RUN_TEST(test_time_util_get_current_time);
+    RUN_TEST(test_time_util_get_current_time_rejects_null);
     RUN_TEST(test_time_util_sleep_timespec);
     RUN_TEST(test_time_util_timediff_in_ms);
 #if defined(__APPLE__)

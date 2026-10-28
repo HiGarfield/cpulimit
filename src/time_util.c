@@ -89,7 +89,8 @@ void nsec_to_timespec(double nsec, struct timespec *result_ts) {
  * @brief Get a high-resolution timestamp, preferring a monotonic clock
  *
  * @param result_ts Pointer to timespec structure to receive current time
- * @return 0 on success, -1 on failure
+ * @return 0 on success, -1 on failure; a NULL result_ts is -1 with errno
+ *         EINVAL on every platform
  *
  * Uses CLOCK_MONOTONIC if available (immune to system time changes), else
  * CLOCK_REALTIME, else gettimeofday(). Provides at least microsecond
@@ -101,13 +102,24 @@ void nsec_to_timespec(double nsec, struct timespec *result_ts) {
  * math, so differences stay correct even past 2038.
  */
 int get_current_time(struct timespec *result_ts) {
+    /*
+     * Every branch declares its locals here, above the shared guard, because
+     * C89 wants declarations before statements and the guard has to run
+     * whichever branch is compiled. The second group is only declared on the
+     * one branch that needs it.
+     */
 #if defined(__APPLE__)
     static long double factor = -1;
     long double nsec;
+#elif !defined(_POSIX_TIMERS) || _POSIX_TIMERS <= 0 ||                         \
+    (!defined(CLOCK_MONOTONIC) && !defined(CLOCK_REALTIME))
+    struct timeval time_val;
+#endif
     if (result_ts == NULL) {
         errno = EINVAL;
         return -1;
     }
+#if defined(__APPLE__)
     if (factor < 0) {
         mach_timebase_info_data_t timebase_info;
         kern_return_t ret = mach_timebase_info(&timebase_info);
@@ -138,7 +150,6 @@ int get_current_time(struct timespec *result_ts) {
     return clock_gettime(CLOCK_REALTIME, result_ts);
 #else
     /* Final fallback: use gettimeofday and convert to timespec */
-    struct timeval time_val;
     if (gettimeofday(&time_val, NULL)) {
         return -1;
     }
