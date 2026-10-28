@@ -8617,6 +8617,198 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
 }
 
 /**
+ * @brief Create a test directory, reusing one a crashed run left behind
+ *
+ * @param buf Buffer receiving the directory's path
+ * @param buf_size Size of buf in bytes
+ * @param suffix Short tag that tells this directory apart from the others
+ *
+ * mkdtemp() is POSIX.1-2008 and mkdir() is POSIX.1-2001, so mkdir() is used.
+ * The name carries this process's PID, which is unique among concurrent runs.
+ */
+static void make_test_dir(char *buf, size_t buf_size, const char *suffix) {
+    int len, rc;
+
+    len = snprintf(buf, buf_size, "/tmp/cpulimit_test_%s_%ld", suffix,
+                   (long)getpid());
+    assert(len > 0 && (size_t)len < buf_size);
+    rc = mkdir(buf, 0700);
+    assert(rc == 0 || errno == EEXIST);
+}
+
+/**
+ * @brief Write one script into a test directory
+ *
+ * @param dir Directory to write into
+ * @param name File name inside dir
+ * @param body Script contents, written verbatim
+ * @param mode Permission bits the file must end up with
+ */
+static void write_test_script(const char *dir, const char *name,
+                              const char *body, mode_t mode) {
+    char path[128];
+    size_t body_len;
+    ssize_t nwritten;
+    int len, fd, rc;
+
+    body_len = strlen(body);
+    len = snprintf(path, sizeof(path), "%s/%s", dir, name);
+    assert(len > 0 && (size_t)len < sizeof(path));
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);
+    assert(fd >= 0);
+    nwritten = write(fd, body, body_len);
+    assert(nwritten == (ssize_t)body_len);
+    /* umask may have taken bits away; the test needs exactly this mode. */
+    rc = fchmod(fd, mode);
+    assert(rc == 0);
+    rc = close(fd);
+    assert(rc == 0);
+}
+
+/**
+ * @brief Remove one script written by write_test_script()
+ *
+ * @param dir Directory the script was written into
+ * @param name File name inside dir
+ */
+static void remove_test_script(const char *dir, const char *name) {
+    char path[128];
+    int len, rc;
+
+    len = snprintf(path, sizeof(path), "%s/%s", dir, name);
+    assert(len > 0 && (size_t)len < sizeof(path));
+    rc = unlink(path);
+    assert(rc == 0);
+}
+
+/**
+ * @brief Run command mode in a child and return the status it produced
+ *
+ * @param cfg Configuration to run
+ * @param path_value PATH the command has to be resolved with
+ * @param chdir_to Directory the child changes into first, or NULL to stay
+ * @return The value run_command_mode() returned in the child
+ *
+ * PATH and the working directory are changed in the forked child only, so the
+ * parent's environment and directory stay untouched and nothing has to be
+ * restored. The child leaves through _exit(), so no buffer is flushed twice
+ * and nothing it inherited is reported as lost.
+ */
+static int run_command_mode_with_path(const struct cpulimit_cfg *cfg,
+                                      const char *path_value,
+                                      const char *chdir_to) {
+    pid_t pid, waited;
+    int status, exited, exit_code;
+
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    assert(pid >= 0);
+    if (pid == 0) {
+        int rc;
+        if (chdir_to != NULL) {
+            rc = chdir(chdir_to);
+            assert(rc == 0);
+        }
+        rc = setenv("PATH", path_value, 1);
+        assert(rc == 0);
+        /* Nothing the command prints is part of what this test asserts. */
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        rc = run_command_mode(cfg);
+        _exit(rc);
+    }
+    waited = waitpid(pid, &status, 0);
+    assert(waited == pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    return exit_code;
+}
+
+/**
+ * @brief PATH entries execvp() skips must not decide what the pre-check sees
+ *
+ * @note The pre-check that classifies a script by its shebang interpreter used
+ *       to resolve a bare command name to the first PATH component holding a
+ *       file of that name, asking only whether the file exists. execvp() uses
+ *       a candidate only when it can execute it and keeps searching past one
+ *       it cannot, so the pre-check judged the command from a file the exec
+ *       never reaches: a non-executable leftover earlier on PATH, holding a
+ *       shebang whose interpreter is gone, made cpulimit print "shebang
+ *       interpreter is inaccessible" and exit 126 without ever calling
+ *       execvp(), although the executable copy further along PATH would have
+ *       run normally.
+ *
+ *       The same walk used strtok(), which drops empty components, while POSIX
+ *       reads an empty component as the current directory: a command sitting
+ *       beside the caller was resolved to a later component instead of
+ *       "./name". Both halves are asserted here -- the first shape must run
+ *       the executable copy (status 9), the second the script in the current
+ *       directory (status 11). Verified by mutation: probing with F_OK makes
+ *       the first shape report 126, and dropping the empty-component rule
+ *       makes the second do the same.
+ */
+static void test_limiter_command_mode_skips_unusable_path_entry(void) {
+    /*
+     * Two directories serve both shapes: the first holds the candidate that
+     * has to be skipped, the second the one that has to run. Rewriting their
+     * contents keeps this frame small enough for the stack limit.
+     */
+    char dir_a[48], dir_b[48];
+    char path_value[sizeof(dir_a) + sizeof(dir_b) + 2];
+    char name[] = "pathprobe_cpulimit_xyz";
+    struct cpulimit_cfg cfg;
+    char *args[2];
+    int len, exit_code;
+
+    make_test_dir(dir_a, sizeof(dir_a), "patha");
+    make_test_dir(dir_b, sizeof(dir_b), "pathb");
+    /*
+     * The first component holds a file that exists but cannot be executed and
+     * whose shebang names an interpreter that is not there: exactly the shape
+     * the old probe mistook for the command.
+     */
+    write_test_script(dir_a, name, "#!/nonexistent_interpreter_cpulimit_xyz\n",
+                      0644);
+    write_test_script(dir_b, name, "#!/bin/sh\nexit 9\n", 0755);
+
+    args[0] = name; /* bare name, resolved through PATH */
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    len = snprintf(path_value, sizeof(path_value), "%s:%s", dir_a, dir_b);
+    assert(len > 0 && (size_t)len < sizeof(path_value));
+    exit_code = run_command_mode_with_path(&cfg, path_value, NULL);
+    /* execvp() reaches the second directory, so that is what it must report. */
+    assert(exit_code == 9);
+
+    /*
+     * Second shape: the command sits beside the caller and PATH says so with
+     * an empty first component, while a later component holds an executable
+     * file of the same name whose interpreter is gone.
+     */
+    write_test_script(dir_b, name, "#!/bin/sh\nexit 11\n", 0755);
+    write_test_script(dir_a, name, "#!/nonexistent_interpreter_cpulimit_xyz\n",
+                      0755);
+    len = snprintf(path_value, sizeof(path_value), ":%s", dir_a);
+    assert(len > 0 && (size_t)len < sizeof(path_value));
+    exit_code = run_command_mode_with_path(&cfg, path_value, dir_b);
+    /* The empty component is the current directory, as execvp() reads it. */
+    assert(exit_code == 11);
+
+    remove_test_script(dir_a, name);
+    remove_test_script(dir_b, name);
+    assert(rmdir(dir_a) == 0);
+    assert(rmdir(dir_b) == 0);
+}
+
+/**
  * @brief Detect whether the test binary is running under valgrind
  *
  * @return 1 when a valgrind preload library has been injected, 0 otherwise
@@ -18317,6 +18509,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
     RUN_TEST(test_script_check_defers_on_truncated_shebang);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
+    RUN_TEST(test_limiter_command_mode_skips_unusable_path_entry);
     RUN_TEST(test_limiter_run_command_mode_fifo);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_without_group);

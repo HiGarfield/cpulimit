@@ -59,22 +59,29 @@
 #define EXIT_CMD_NOT_FOUND 127
 
 /**
- * @brief Resolve a bare command name to its absolute path using PATH
+ * @brief Resolve a bare command name to the path execvp() would execute
  *
  * @param name Command name without a '/'
  * @param out  Buffer receiving the resolved path (must hold PATH_MAX bytes)
  * @param out_size Size of out in bytes
- * @return 1 if the name resolves to an existing file under PATH, 0 otherwise
+ * @return 1 if a component of PATH yields a file that can be executed, 0
+ *         otherwise
  *
  * Mirrors execvp()'s PATH search so the shebang pre-check below can inspect a
  * PATH-resolved script the same way it inspects an explicit path. Returns 0
  * (no resolution) for names that already contain a '/', leaving the existing
  * explicit-path path untouched.
+ *
+ * The question asked of each component is the one execvp() asks: can this
+ * candidate be executed? A file that merely exists is not the one the exec
+ * will use, because execvp() skips a component it cannot execute and keeps
+ * searching, so a probe by existence would judge the command from a file the
+ * exec never reaches -- and the pre-check refuses on that judgement. An empty
+ * component denotes the current directory (POSIX), which is what "." spells
+ * here; strtok() dropped those along with the file execvp() would have run.
  */
 static int resolve_command_path(const char *name, char *out, size_t out_size) {
     const char *path_env;
-    char *path_copy;
-    const char *dir;
     int found = 0;
 
     if (strchr(name, '/') != NULL) {
@@ -85,29 +92,34 @@ static int resolve_command_path(const char *name, char *out, size_t out_size) {
         path_env = "/usr/bin:/bin";
     }
     /*
-     * strdup() is POSIX.1-2008: neither C89 nor POSIX.1-2001 has it, so
-     * the copy is made from malloc() and strcpy() instead.
+     * Walk PATH in place, never copying it: the components are only read, and
+     * a component that does not fit in out is skipped like any other
+     * candidate that cannot be used. An empty component means the current
+     * directory (POSIX), which is what "." spells here.
      */
-    path_copy = (char *)malloc(strlen(path_env) + 1);
-    if (path_copy == NULL) {
-        return 0;
-    }
-    strcpy(path_copy, path_env);
-    /*
-     * strtok() (C89) rather than strtok_r() (POSIX.1-2001): the scan is
-     * single-threaded and works on this function's private copy of PATH.
-     */
-    for (dir = strtok(path_copy, ":"); dir != NULL; dir = strtok(NULL, ":")) {
-        int len = snprintf(out, out_size, "%s/%s", dir, name);
-        if (len < 0 || (size_t)len >= out_size) {
-            continue;
+    while (1) {
+        const char *sep = strchr(path_env, ':');
+        size_t dir_len =
+            sep != NULL ? (size_t)(sep - path_env) : strlen(path_env);
+        int len;
+
+        if (dir_len == 0) {
+            len = snprintf(out, out_size, "./%s", name);
+        } else if (dir_len <= (size_t)INT_MAX) {
+            len = snprintf(out, out_size, "%.*s/%s", (int)dir_len, path_env,
+                           name);
+        } else {
+            len = -1;
         }
-        if (access(out, F_OK) == 0) {
+        if (len > 0 && (size_t)len < out_size && access(out, X_OK) == 0) {
             found = 1;
             break;
         }
+        if (sep == NULL) {
+            break;
+        }
+        path_env = sep + 1;
     }
-    free(path_copy);
     return found;
 }
 
