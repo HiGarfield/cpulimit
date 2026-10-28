@@ -293,7 +293,9 @@ void disable_terminal_echo(void) {
     }
     raw = saved_termios;
     raw.c_lflag &= ~(tcflag_t)ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0) {
+        perror("tcsetattr");
+    }
 }
 
 /**
@@ -306,7 +308,15 @@ void restore_terminal_attributes(void) {
     if (!termios_saved) {
         return;
     }
-    tcsetattr(STDIN_FILENO, TCSANOW, &saved_termios);
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &saved_termios) != 0) {
+        /*
+         * The terminal is left with echo off, so say so: the operator would
+         * otherwise see nothing of what is typed and have nothing to go on.
+         */
+        fprintf(
+            stderr,
+            "Warning: cannot restore terminal echo; typed input may not be shown\n");
+    }
 }
 
 /**
