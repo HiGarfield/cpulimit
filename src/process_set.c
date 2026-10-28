@@ -686,8 +686,11 @@ int update_process_set(struct process_set *proc_set) {
                      * cycle and lose its CPU history. Abort the cycle
                      * like the other allocation failures. Unlike the
                      * new-member path above, the record must NOT be
-                     * freed here: it is still owned by proc_table, which
-                     * keeps it for the next cycle's baseline comparison.
+                     * freed here: it is still owned by proc_table. The
+                     * purge at the end of the cycle clears it along with
+                     * the rest of the entries this scan did not reach,
+                     * which is right -- the cycle is about to be reported
+                     * as failed and nothing is left to compare against.
                      */
                     alloc_failed = 1;
                     break;
