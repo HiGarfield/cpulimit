@@ -165,6 +165,73 @@ int process_name_has_non_init_match(const char *process_name) {
 }
 
 /**
+ * @brief Whether no other candidate is an ancestor of this one
+ *
+ * @param candidates Every PID that matched the name
+ * @param count Number of entries in candidates
+ * @param pid The candidate to test, a member of candidates
+ * @return Non-zero when no other candidate sits above pid in the process
+ *         tree, so pid is the topmost of its family
+ *
+ * Walks the parent chain instead of testing every other candidate with
+ * is_child_of(): one chain is a handful of reads, while a candidate per
+ * test is a chain walk for each of them.
+ */
+static int candidate_is_topmost(const pid_t *candidates, size_t count,
+                                pid_t pid) {
+    unsigned depth = 0;
+    pid_t current = pid;
+    while (current > 1 && depth < IS_CHILD_MAX_DEPTH) {
+        pid_t parent = getppid_of(current);
+        size_t i;
+        if (parent <= 0 || parent == current) {
+            break;
+        }
+        for (i = 0; i < count; i++) {
+            if (candidates[i] == parent && candidates[i] != pid) {
+                return 0;
+            }
+        }
+        current = parent;
+        depth++;
+    }
+    return 1;
+}
+
+/**
+ * @brief Pick one match out of every process sharing a name
+ *
+ * @param candidates Every PID that matched the name
+ * @param count Number of entries in candidates
+ * @return The preferred PID, or 0 when count is 0
+ *
+ * Two keys, both of them properties of the candidate alone: a candidate no
+ * other candidate descends from beats one that does -- the launcher rather
+ * than the worker it started -- and otherwise the smallest PID wins.
+ *
+ * Those keys have to be properties of one candidate. Preferring "is an
+ * ancestor of the other" directly is not transitive: with a parent, its
+ * child and an unrelated process sharing one name, each pair prefers a
+ * different one, so folding that comparison over the scan picks whichever
+ * the platform happened to enumerate last, and the target of a -e run
+ * changes from one scan to the next.
+ */
+static pid_t select_preferred_candidate(const pid_t *candidates, size_t count) {
+    size_t i;
+    pid_t best = 0;
+    int best_topmost = 0;
+    for (i = 0; i < count; i++) {
+        int topmost = candidate_is_topmost(candidates, count, candidates[i]);
+        if (best == 0 || (topmost && !best_topmost) ||
+            (topmost == best_topmost && candidates[i] < best)) {
+            best = candidates[i];
+            best_topmost = topmost;
+        }
+    }
+    return best;
+}
+
+/**
  * @brief Find a running process by its executable name or path
  *
  * @param process_name Name or absolute path of the executable to search for
@@ -180,9 +247,9 @@ int process_name_has_non_init_match(const char *process_name) {
  *       known; returns 0 on allocation or iterator errors.
  */
 pid_t find_process_by_name(const char *process_name) {
-    int found = 0;
     pid_t pid = 0;
     pid_t probe, best_pid, best_probe;
+    int best_topmost;
     /*
      * Every match is kept so a vanished winner can fall back to another live
      * candidate. The list lives on the heap and doubles on demand, because
@@ -253,27 +320,14 @@ pid_t find_process_by_name(const char *process_name) {
         }
         if (process_name_matches_cmd(process_name, proc->command)) {
             /*
-             * Select this PID if:
-             * - No match found yet (!found), OR
-             * - This process is a descendant of the previous match
-             *   (is_child_of(pid, proc->pid)) -- keep the higher/older one,
-             * - The two matches are unrelated and this PID is smaller, which
-             *   makes the winner independent of scan order. The
-             *   /proc readdir / proc_listpids / kvm_getprocs order is not
-             *   guaranteed, so without this tie-break the chosen target would
-             *   change across runs.
-             */
-            int candidate_is_descendant = is_child_of(pid, proc->pid);
-            int unrelated =
-                !candidate_is_descendant && !is_child_of(proc->pid, pid);
-            if (!found || candidate_is_descendant ||
-                (unrelated && proc->pid < pid)) {
-                pid = proc->pid;
-                found = 1;
-            }
-            /*
              * Remember every match so a vanished winner can fall back to
-             * another live candidate. A dropped candidate is one the fallback
+             * another live candidate, and so the winner can be chosen once
+             * every match is known: which match is preferred depends on
+             * which other processes share the name, and the scan order is
+             * not something the choice may depend on. See
+             * select_preferred_candidate().
+             *
+             * A dropped candidate is one the fallback
              * can no longer reach, and reaching exactly those is the only job
              * this list has, so the list grows instead of capping: the primary
              * selection above would still pick the right winner with a fixed
@@ -345,7 +399,8 @@ pid_t find_process_by_name(const char *process_name) {
      *
      * The fallback ranks the survivors by three tiers, highest first:
      * 1. controllable (probe > 0) beats uncontrollable (probe < 0);
-     * 2. within one tier, an ancestor beats a descendant;
+     * 2. within one tier, a candidate no other candidate descends from
+     *    beats one that does;
      * 3. otherwise the smaller PID wins.
      *
      * Reusing the scan's rule keeps the choice independent of the platform's
@@ -360,6 +415,7 @@ pid_t find_process_by_name(const char *process_name) {
         free(candidates);
         return 0;
     }
+    pid = select_preferred_candidate(candidates, n_candidates);
     probe = find_process_by_pid(pid);
     if (probe > 0) {
         free(candidates);
@@ -367,6 +423,7 @@ pid_t find_process_by_name(const char *process_name) {
     }
     best_pid = 0;
     best_probe = 0;
+    best_topmost = 0;
     if (probe < 0) {
         /*
          * The preferred match is alive but out of reach: remember it as a
@@ -374,10 +431,11 @@ pid_t find_process_by_name(const char *process_name) {
          */
         best_pid = pid;
         best_probe = probe;
+        best_topmost = candidate_is_topmost(candidates, n_candidates, pid);
     }
     for (i = 0; i < n_candidates; i++) {
         pid_t candidate = candidates[i];
-        int better;
+        int better, topmost;
         if (candidate == pid) {
             continue;
         }
@@ -385,23 +443,29 @@ pid_t find_process_by_name(const char *process_name) {
         if (probe == 0) {
             continue;
         }
+        topmost = candidate_is_topmost(candidates, n_candidates, candidate);
         if (best_pid == 0) {
             best_pid = candidate;
             best_probe = probe;
+            best_topmost = topmost;
             continue;
         }
+        /*
+         * The same two keys the scan's own choice uses, in the same order,
+         * so the fallback agrees with it instead of offering a process the
+         * scan would have ranked lower.
+         */
         if ((probe > 0) != (best_probe > 0)) {
             better = probe > 0;
+        } else if (topmost != best_topmost) {
+            better = topmost;
         } else {
-            int candidate_is_ancestor = is_child_of(best_pid, candidate);
-            int unrelated =
-                !candidate_is_ancestor && !is_child_of(candidate, best_pid);
-            better =
-                candidate_is_ancestor || (unrelated && candidate < best_pid);
+            better = candidate < best_pid;
         }
         if (better) {
             best_pid = candidate;
             best_probe = probe;
+            best_topmost = topmost;
         }
     }
     free(candidates);
