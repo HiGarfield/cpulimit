@@ -133,8 +133,11 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
     }
 
     /*
-     * Reap the child either way; when limiting never engaged, discard its
-     * status so the run is not reported as a successful limited one.
+     * Reap the child either way. When limiting failed to complete, discard
+     * the child's status: the run must not read as a successful limited one.
+     * A target that never arrived is the exception -- nothing was throttled
+     * because there was nothing to throttle, so the command ran to completion
+     * and its own status is what the run reports.
      */
     if (limit_status != LIMIT_PROCESS_OK &&
         limit_status != LIMIT_PROCESS_NO_TARGET) {
