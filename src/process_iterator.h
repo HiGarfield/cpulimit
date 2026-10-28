@@ -335,7 +335,7 @@ int init_process_iterator(struct process_iterator *iter,
  * Advances the iterator to the next process that satisfies the filter
  * criteria. The process structure is populated with information based on
  * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cpu_time
+ * - Always populated: pid, ppid, cpu_time, start_time
  * - Conditionally populated: command (only if filter->read_cmd is set)
  *
  * This function skips zombie processes, system processes (on FreeBSD/macOS),
@@ -386,6 +386,14 @@ int close_process_iterator(struct process_iterator *iter);
  * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
  * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
  *   against infinite loops caused by PID reuse cycles)
+ * - Returns 0 if getppid_of() fails twice in a row while walking up: the
+ *   chain is then either gone or unreadable, and neither says parent_pid was
+ *   reached. The retry is one step -- a process that vanishes mid-walk is
+ *   enough to end the walk either way.
+ * - getppid_of(1) does not agree across platforms: Linux returns -1, because
+ *   init's recorded parent is 0 and the lookup rejects it; FreeBSD returns 0;
+ *   macOS returns 0 or -1 according to the process's system flag. is_child_of()
+ *   treats all three the same -- any value at or below 0 ends the walk.
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid);
 
