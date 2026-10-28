@@ -151,6 +151,19 @@ static int set_signal_action(void (*handler)(int)) {
         goto error;
     }
 
+    /*
+     * Keep the handlers from interrupting one another. With an empty mask
+     * a second termination signal could land inside the first one's
+     * handler and take the latch after the first had claimed it, so the
+     * signal forwarded to the command, and the 128+n exit status, named
+     * one that arrived later.
+     */
+    for (i = 0; i < num_sigs; i++) {
+        if ((sigaddset(&act->sa_mask, term_sigs[i])) != 0) {
+            goto error;
+        }
+    }
+
     for (i = 0; i < num_sigs; i++) {
         if (sigaction(term_sigs[i], act, NULL) != 0) {
             goto error;
