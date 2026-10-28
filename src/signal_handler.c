@@ -159,7 +159,13 @@ static int set_signal_action(void (*handler)(int)) {
      * one that arrived later.
      */
     for (i = 0; i < num_sigs; i++) {
-        if ((sigaddset(&act->sa_mask, term_sigs[i])) != 0) {
+        /*
+         * Assign before comparing, like sigemptyset above: Darwin defines
+         * sigaddset as a macro that folds to 0, and an inline comparison
+         * makes the error branch read as dead code.
+         */
+        ret = sigaddset(&act->sa_mask, term_sigs[i]);
+        if (ret != 0) {
             goto error;
         }
     }
