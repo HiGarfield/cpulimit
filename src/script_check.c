@@ -92,6 +92,17 @@ int is_script_inaccessible_interpreter(const char *path) {
            *end != '\t') {
         end++;
     }
+    /*
+     * A full buffer holding neither an end of line nor a blank means the
+     * single read stopped in the middle of the interpreter's path, so what
+     * sits in buf is a prefix of it. access() on that prefix reports a path
+     * that is not there, and the 126 this function is for would refuse a
+     * script the kernel itself can run. Say nothing either way and let the
+     * exec carry the real verdict.
+     */
+    if (*end == '\0' && n == (ssize_t)(sizeof(buf) - 1)) {
+        return 0;
+    }
     *end = '\0';
 
     if (*p == '\0') {

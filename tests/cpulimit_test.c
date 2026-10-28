@@ -37,6 +37,7 @@
 #include "../src/process_iterator.h"
 #include "../src/process_set.h"
 #include "../src/process_table.h"
+#include "../src/script_check.h"
 #include "../src/signal_handler.h"
 #include "../src/time_util.h"
 #include "../src/util.h"
@@ -8431,6 +8432,74 @@ static void test_limiter_run_command_mode_bad_shebang(void) {
     exit_code = WEXITSTATUS(status);
     assert(exit_code == 126);
     unlink(tmp_path);
+}
+
+/**
+ * @brief a shebang interpreter path too long to read must not be judged
+ *
+ * @note The pre-check takes one buffer's worth of the script and reads the
+ *       interpreter's path from it. A path that does not fit is cut short,
+ *       and access() on the leftover prefix reports a path that is not
+ *       there, so a script whose interpreter the kernel can perfectly well
+ *       run was refused with 126 before execvp() ever saw it. A line that
+ *       runs past the buffer now yields no verdict at all. Verified by
+ *       mutation: dropping the truncation check fails the first assertion.
+ */
+static void test_script_check_defers_on_truncated_shebang(void) {
+    int fd, ret;
+    ssize_t nwritten;
+    size_t len;
+    char tmp_path[] = "/tmp/cpulimit_test_shebang_long_XXXXXX";
+    char short_path[] = "/tmp/cpulimit_test_shebang_short_XXXXXX";
+    static const char short_shebang[] = "#!/no_such_interpreter_cpulimit_xyz\n";
+    char *shebang;
+
+    /*
+     * The buffer is on the heap: the line has to be longer than the
+     * pre-check reads, which is more than one object may take on the stack.
+     */
+    shebang = (char *)malloc(400);
+    assert(shebang != NULL);
+    shebang[0] = '#';
+    shebang[1] = '!';
+    shebang[2] = '/';
+    len = 3;
+    while (len + 1 < 400) {
+        shebang[len++] = 'a';
+    }
+    shebang[len] = '\0';
+
+    fd = mkstemp(tmp_path);
+    assert(fd >= 0);
+    nwritten = write(fd, shebang, len);
+    assert(nwritten == (ssize_t)len);
+    ret = fchmod(fd, 0755);
+    assert(ret == 0);
+    ret = close(fd);
+    assert(ret == 0);
+    free(shebang);
+
+    /* Truncated, so the pre-check cannot say anything and must not. */
+    ret = is_script_inaccessible_interpreter(tmp_path);
+    assert(ret == 0);
+
+    fd = mkstemp(short_path);
+    assert(fd >= 0);
+    nwritten = write(fd, short_shebang, sizeof(short_shebang) - 1);
+    assert(nwritten == (ssize_t)(sizeof(short_shebang) - 1));
+    ret = fchmod(fd, 0755);
+    assert(ret == 0);
+    ret = close(fd);
+    assert(ret == 0);
+
+    /* Short enough to read whole: an absent interpreter is still reported. */
+    ret = is_script_inaccessible_interpreter(short_path);
+    assert(ret == 1);
+
+    ret = unlink(tmp_path);
+    assert(ret == 0);
+    ret = unlink(short_path);
+    assert(ret == 0);
 }
 
 /**
@@ -18191,6 +18260,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode);
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
+    RUN_TEST(test_script_check_defers_on_truncated_shebang);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
     RUN_TEST(test_limiter_run_command_mode_fifo);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
