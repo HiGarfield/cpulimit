@@ -41,6 +41,13 @@
  * handler reset, then blocks until the pipe EOF that proves exec completed (or
  * the child exited on exec failure). Closes sync_read_fd on return.
  *
+ * The reads are not interruptible: the handlers run with SA_RESTART, so a
+ * termination signal arriving while the child is still inside exec setup
+ * restarts the read instead of ending this wait. That is deliberate -- the
+ * alternative lets a signal reach the child mid-exec and kill it half-formed
+ * -- but it does mean an exec that hangs (a script on a hung network mount,
+ * say) hangs cpulimit with it, and only SIGKILL gets past this wait.
+ *
  * @return 0 on success, -1 on error (the child is killed and reaped)
  */
 int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
