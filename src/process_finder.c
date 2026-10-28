@@ -49,7 +49,8 @@
  * @param pid Process ID to search for
  * @return Positive PID if process exists and can be signaled
  *         (kill(pid,0)==0), negative -PID if it exists but permission is
- *         denied (EPERM/EACCES), 0 if it does not exist or the PID is invalid
+ *         denied (EPERM/EACCES), 0 if it does not exist, the PID is invalid,
+ *         or the PID is 1 (init), which is never signalled on any platform
  */
 pid_t find_process_by_pid(pid_t pid) {
     /*
