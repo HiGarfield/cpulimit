@@ -528,16 +528,16 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     }
     /* Iterate through process ID list, applying filters */
     while (iter->current_index < iter->proc_count) {
-        if (read_process_info(iter->pid_list[iter->current_index], proc,
-                              iter->filter->read_cmd) == 0) {
-            /*
-             * Apply PID filter after reading process info.
-             * Accept if: no filter, exact match, or descendant match.
-             */
-            if (process_matches_filter(proc->pid, iter->filter)) {
-                iter->current_index++;
-                return 0;
-            }
+        pid_t pid = iter->pid_list[iter->current_index];
+        /*
+         * Apply the filter before reading, as the other backends do: a
+         * process that cannot match is not worth a read, and the argv[0]
+         * lookup a read costs is the expensive part of scanning.
+         */
+        if (process_matches_filter(pid, iter->filter) &&
+            read_process_info(pid, proc, iter->filter->read_cmd) == 0) {
+            iter->current_index++;
+            return 0;
         }
         iter->current_index++;
     }
