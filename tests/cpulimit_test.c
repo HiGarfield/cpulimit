@@ -2896,6 +2896,7 @@ static void test_process_iterator_is_child_of_deep(void) {
          */
         pid_t gc_pid;
         sigset_t full_mask;
+        int ret;
 
         close(pipe_fds[0]);
         if (setpgid(0, 0) != 0) { /* new process group */
@@ -2919,8 +2920,8 @@ static void test_process_iterator_is_child_of_deep(void) {
             }
             close(pipe_fds[1]);
             /* Wait until killed */
-            if (sigfillset(&full_mask) != 0 ||
-                sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+            ret = sigfillset(&full_mask);
+            if (ret != 0 || sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
                 kill(gc_pid, SIGKILL);
                 _exit(1);
             }
@@ -2935,8 +2936,8 @@ static void test_process_iterator_is_child_of_deep(void) {
 
         /* Grandchild: close pipe and wait until killed */
         close(pipe_fds[1]);
-        if (sigfillset(&full_mask) != 0 ||
-            sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
+        ret = sigfillset(&full_mask);
+        if (ret != 0 || sigprocmask(SIG_BLOCK, &full_mask, NULL) != 0) {
             _exit(1);
         }
         test_suspend_until_killed();
@@ -5976,8 +5977,11 @@ static void test_process_finder_find_by_name_ancestor_pref(void) {
         /*
          * The path comes from CPULIMIT_BUILD_DIR, which is set by the build
          * and names this project's own helper binary; nothing untrusted
-         * reaches execv() here.
+         * reaches execv() here. The taint analysis cannot know that: it
+         * sees an environment variable and a system call, and the X_OK
+         * check made before the fork is not a sanitizer it recognises.
          */
+        /* NOLINTNEXTLINE(clang-analyzer-optin.taint.GenericTaint) */
         execv(mpb_path, child_argv);
         _exit(1);
     }
@@ -7835,11 +7839,11 @@ static int run_exit_child(const char *code_arg) {
 static int run_forward_child(const char *ready_path) {
     const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
     struct sigaction sa_term;
-    int ready_fd;
+    int ready_fd, ret;
     memset(&sa_term, 0, sizeof(sa_term));
     sa_term.sa_handler = count_forward_delivery;
-    if (sigemptyset(&sa_term.sa_mask) != 0 ||
-        sigaction(SIGTERM, &sa_term, NULL) != 0) {
+    ret = sigemptyset(&sa_term.sa_mask);
+    if (ret != 0 || sigaction(SIGTERM, &sa_term, NULL) != 0) {
         return SIGCOUNT_NO_HANDLER;
     }
 
@@ -7920,12 +7924,13 @@ static int run_count_child(const char *ready_path, int release_fd) {
     const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
     static const int counted[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
     struct sigaction sa;
-    int ready_fd, slot, released;
+    int ready_fd, slot, released, ret;
     size_t idx;
 
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = count_forward_delivery;
-    if (sigemptyset(&sa.sa_mask) != 0) {
+    ret = sigemptyset(&sa.sa_mask);
+    if (ret != 0) {
         return SIGCOUNT_NO_HANDLER;
     }
     for (idx = 0; idx < sizeof(counted) / sizeof(counted[0]); idx++) {
@@ -8107,7 +8112,7 @@ static void seam_assert_single_forward(int wrapper_status, const char *what) {
 static int run_sigcount_child(const char *ready_path) {
     const struct timespec poll_time = {0, 10000000L}; /* 10 ms */
     struct sigaction sa_int, sa_cont;
-    int ready_fd, slot;
+    int ready_fd, slot, ret;
 
     /*
      * This child stands in for a user command, and it burns CPU for as
@@ -8122,10 +8127,12 @@ static int run_sigcount_child(const char *ready_path) {
     sa_int.sa_handler = count_sigint_delivery;
     memset(&sa_cont, 0, sizeof(sa_cont));
     sa_cont.sa_handler = count_sigcont_delivery;
-    if (sigemptyset(&sa_int.sa_mask) != 0 ||
-        sigaction(SIGINT, &sa_int, NULL) != 0 ||
-        sigemptyset(&sa_cont.sa_mask) != 0 ||
-        sigaction(SIGCONT, &sa_cont, NULL) != 0) {
+    ret = sigemptyset(&sa_int.sa_mask);
+    if (ret != 0 || sigaction(SIGINT, &sa_int, NULL) != 0) {
+        return SIGCOUNT_NO_HANDLER;
+    }
+    ret = sigemptyset(&sa_cont.sa_mask);
+    if (ret != 0 || sigaction(SIGCONT, &sa_cont, NULL) != 0) {
         return SIGCOUNT_NO_HANDLER;
     }
 
@@ -9688,8 +9695,8 @@ static void test_limiter_run_pid_or_exe_mode_resumes_target(void) {
              * exit immediately and turned the test into a no-op on Linux.
              */
             sa_cont.sa_handler = resume_counter_handler;
-            if (sigemptyset(&sa_cont.sa_mask) != 0 ||
-                sigaction(SIGCONT, &sa_cont, NULL) != 0) {
+            ret = sigemptyset(&sa_cont.sa_mask);
+            if (ret != 0 || sigaction(SIGCONT, &sa_cont, NULL) != 0) {
                 _exit(2);
             }
             /*
@@ -10553,6 +10560,8 @@ static void seam_push_frame(const struct seam_proc *procs, int count);
 extern "C" {
 #endif
 
+/* NOLINTBEGIN(misc-use-internal-linkage) */
+
 /* Hooks that park a call site on a barrier driven by the test. */
 int cpulimit_test_limit_process(pid_t pid, double cpu_limit,
                                 int include_children, int verbose,
@@ -10563,7 +10572,10 @@ pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options);
  * Replacements referenced by the sources compiled into this test binary.
  * They have to keep external linkage: the sources that call them are
  * renamed onto these names at compile time, which a single translation
- * unit cannot show.
+ * unit cannot show. The hooks above are the same case, and
+ * misc-use-internal-linkage judges a function by this one translation
+ * unit, so it would make every one of them static; that is what the
+ * NOLINTBEGIN above and the NOLINTEND below are for.
  */
 int cpulimit_test_get_current_time(struct timespec *result_ts);
 int cpulimit_test_sleep_timespec(const struct timespec *duration);
@@ -10578,6 +10590,8 @@ long cpulimit_test_random(void);
 int cpulimit_test_getloadavg(double *loadavg, int nelem);
 double cpulimit_test_get_process_start_time(pid_t pid);
 void *cpulimit_test_malloc(size_t size);
+
+/* NOLINTEND(misc-use-internal-linkage) */
 
 #ifdef __cplusplus
 }
