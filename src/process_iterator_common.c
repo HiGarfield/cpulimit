@@ -134,9 +134,17 @@ double get_process_start_time(pid_t pid) {
  *
  * The walk every platform shares; see is_child_of() in the header for the
  * cases this answers 0 in.
+ *
+ * cppcheck's funcArgNamesDifferentUnnamed fires on every argument that
+ * follows a function-pointer one: the names are lost when the prototype
+ * is read, so context, child_pid and parent_pid answer <unnamed> there.
+ * All four are named in both places, so it cannot be acted on; the
+ * suppression below is scoped to this one definition, and the three
+ * arguments therefore sit on the one line it covers.
  */
-int is_child_of_via(process_get_parent_fn get_parent, void *context,
-                    pid_t child_pid, pid_t parent_pid) {
+int is_child_of_via(process_get_parent_fn get_parent,
+                    /* cppcheck-suppress funcArgNamesDifferentUnnamed */
+                    void *context, pid_t child_pid, pid_t parent_pid) {
     unsigned depth = 0;
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
