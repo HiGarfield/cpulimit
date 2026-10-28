@@ -208,6 +208,12 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * the last byte zero: strncpy() writes no NUL when the source fills the
      * whole destination, so a command this long would otherwise be accepted
      * unterminated. The FreeBSD backend terminates the same way.
+     *
+     * What fits is all a name match ever sees: an argv[0] longer than the
+     * buffer is cut here, and a name longer than that cannot be matched
+     * against it. The cut is on the safe side -- a process is never limited
+     * under a name that is not its own -- and a name that long is not one a
+     * -e run can be expected to reach.
      */
     proc->command[sizeof(proc->command) - 1] = '\0';
     free(buffer);
