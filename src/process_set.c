@@ -1043,12 +1043,16 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
              * only while the member is still suspended: the record exists,
              * or it could not be made and the immediate undo failed as well.
              * A plain failure means record_stopped_pid() already resumed the
-             * member, and the flag would claim a suspension that was taken
-             * back.
+             * member, so the flag is cleared instead of merely left alone: a
+             * value left over from an earlier suspension whose SIGCONT failed
+             * would claim a suspension that was taken back, and the shutdown
+             * report would then name a member that is running.
              */
             if (record_stopped_pid(proc_set, pid, proc->start_time) !=
                 RECORD_STOPPED_RESUMED) {
                 proc->suspended_by_us = 1;
+            } else {
+                proc->suspended_by_us = 0;
             }
             /*
              * A successful delivery ends this signal's failure episode, so an

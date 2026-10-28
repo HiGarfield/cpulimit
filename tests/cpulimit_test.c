@@ -13344,6 +13344,64 @@ static void test_process_set_unrecorded_suspend_not_flagged(void) {
 }
 
 /**
+ * @brief A suspension undone on the spot must clear a stale suspend flag
+ *
+ * @note process_set_send_signal() flags a member as suspended by this group
+ *       only while a SIGSTOP it delivered is still outstanding. A record that
+ *       cannot be made is undone at once, and the member is then running
+ *       again -- but the branch only refrained from setting the flag, so a
+ *       value already in it survived. A member whose earlier SIGCONT had
+ *       failed is marked, and when its next SIGSTOP could not be recorded and
+ *       was undone the flag still said otherwise: the shutdown audit then
+ *       treats a later failed SIGCONT for it as severe, reports a process
+ *       left suspended and exits non-zero, naming a process that is running.
+ *       Verified by mutation: dropping the clear leaves the flag at 1 and
+ *       fails the assertion.
+ */
+static void test_process_set_clears_stale_suspend_flag_on_undo(void) {
+    struct process_set proc_set;
+    struct process *tracked;
+    struct seam_proc *frame;
+    int ret, assert_rc;
+
+    frame = (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    frame[0].start_time = 10.0;
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
+    assert(ret == 0);
+    tracked =
+        find_in_process_table(proc_set.proc_table, (pid_t)SEAM_TARGET_PID);
+    assert(tracked != NULL);
+
+    /*
+     * The member is marked suspended by this group, as it is after a SIGCONT
+     * that failed. The suspension about to be delivered cannot be recorded,
+     * so record_stopped_pid() undoes it at once and the member keeps running.
+     */
+    tracked->suspended_by_us = 1;
+    seam_kill_calls = 0;
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    seam_malloc_fails_next = 1;
+    process_set_send_signal(&proc_set, SIGSTOP, 0);
+
+    /* The undo left nothing suspended, so nothing may claim there is. */
+    assert(tracked->suspended_by_us == 0);
+
+    seam_active = 0;
+    assert_rc = close_process_set(&proc_set);
+    assert(assert_rc == 0);
+    free(frame);
+}
+
+/**
  * @brief A recycled descendant PID must not be misattributed
  *
  * @note update_existing_process_entry() used to detect PID reuse only from a
@@ -17801,6 +17859,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_reports_stop_failure_after_recovery);
     RUN_TEST(test_process_set_reports_each_member_stop_failure);
     RUN_TEST(test_process_set_unrecorded_suspend_not_flagged);
+    RUN_TEST(test_process_set_clears_stale_suspend_flag_on_undo);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_process_set_does_not_duplicate_pid);
     RUN_TEST(test_process_set_duplicate_pid_measured_once);
