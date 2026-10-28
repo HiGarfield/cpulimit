@@ -402,8 +402,37 @@ int close_process_iterator(struct process_iterator *iter);
  *   init's recorded parent is 0 and the lookup rejects it; FreeBSD returns 0;
  *   macOS returns 0 or -1 according to the process's system flag. is_child_of()
  *   treats all three the same -- any value at or below 0 ends the walk.
+ *
+ * The walk is the same on every platform and lives in is_child_of_via();
+ * each backend supplies only how to read one parent.
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid);
+
+/**
+ * @brief How to read the parent of one process
+ *
+ * @param context Handle the caller passed to is_child_of_via()
+ * @param pid Process whose parent is wanted
+ * @return Parent PID, or a value at or below 0 when the lookup failed or the
+ *         process has none
+ */
+typedef pid_t (*process_get_parent_fn)(void *context, pid_t pid);
+
+/**
+ * @brief Determine if one process is a descendant of another
+ *
+ * @param get_parent How to read one process's parent, platform specific
+ * @param context Handle handed back to get_parent on every step
+ * @param child_pid Process ID to check for descendant relationship
+ * @param parent_pid Process ID of the potential ancestor
+ * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ *
+ * The whole walk, with the special cases is_child_of() documents. Every
+ * backend is_child_of() is this with its own lookup, so a fix to the walk
+ * applies to all of them at once.
+ */
+int is_child_of_via(process_get_parent_fn get_parent, void *context,
+                    pid_t child_pid, pid_t parent_pid);
 
 /**
  * @brief Retrieve the parent process ID for a given process

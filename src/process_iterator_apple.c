@@ -417,6 +417,18 @@ int process_is_stopped(pid_t pid) {
 }
 
 /**
+ * @brief How this platform reads one process's parent
+ *
+ * @param context Unused: macOS needs no handle
+ * @param pid Process whose parent is wanted
+ * @return Parent PID, or -1 when the lookup failed
+ */
+static pid_t is_child_lookup(void *context, pid_t pid) {
+    (void)context;
+    return getppid_of(pid);
+}
+
+/**
  * @brief Determine if one process is a descendant of another
  *
  * @param child_pid Process ID to check for descendant relationship
@@ -434,44 +446,7 @@ int process_is_stopped(pid_t pid) {
  *   against infinite loops caused by PID reuse cycles)
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
-    int depth = 0;
-    if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
-        return 0;
-    }
-#define GETPPID_OF(c) getppid_of(c)
-    /* Walk up the parent chain looking for parent_pid */
-    while (child_pid > 1 && child_pid != parent_pid) {
-        pid_t next_ppid;
-        /*
-         * Depth limit guards against PID reuse cycles of length >= 2.
-         * Example: A has ppid=B and B has ppid=A. The self-parenting check
-         * (next_ppid == child_pid) only catches length-1 cycles; without
-         * this counter the loop would never terminate on length-2+ cycles.
-         */
-        if (depth++ >= IS_CHILD_MAX_DEPTH) {
-            return 0;
-        }
-        next_ppid = GETPPID_OF(child_pid);
-        /*
-         * A transient lookup failure (e.g. the process exited or became a
-         * zombie between the previous step and this one) must not be taken as
-         * proof of non-membership: retry once before giving up, so a single
-         * -1 does not break the ancestor chain.
-         */
-        if (next_ppid < 0) {
-            next_ppid = GETPPID_OF(child_pid);
-        }
-        /*
-         * Guard against invalid parent links or self-parenting processes,
-         * either of which would cause an infinite loop.
-         */
-        if (next_ppid <= 0 || next_ppid == child_pid) {
-            return 0;
-        }
-        child_pid = next_ppid;
-    }
-#undef GETPPID_OF
-    return child_pid == parent_pid;
+    return is_child_of_via(is_child_lookup, NULL, child_pid, parent_pid);
 }
 
 /**

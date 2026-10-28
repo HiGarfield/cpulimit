@@ -335,58 +335,17 @@ int process_is_stopped(pid_t pid) {
 }
 
 /**
- * @brief Internal helper to check parent-child relationship with open kvm
+ * @brief How this platform reads one process's parent
  *
- * @param kvm_descriptor Kernel virtual memory descriptor (must be already open)
- * @param child_pid Process ID to check for descendant relationship
- * @param parent_pid Process ID of the potential ancestor
- * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ * @param context Open kvm descriptor to query through
+ * @param pid Process whose parent is wanted
+ * @return Parent PID, or -1 when the lookup failed
  *
- * Traverses the parent chain from child_pid up to init (PID 1) to determine
- * if parent_pid appears in the ancestry. Uses an existing kvm descriptor to
- * avoid repeated open/close overhead. Returns 0 if the parent chain exceeds
- * IS_CHILD_MAX_DEPTH steps to guard against PID reuse cycles.
+ * Reads through the descriptor is_child_of() already opened, so one walk
+ * costs one open instead of one per step.
  */
-static int is_child_via_kvm(kvm_t *kvm_descriptor, pid_t child_pid,
-                            pid_t parent_pid) {
-    int depth = 0;
-    if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
-        return 0;
-    }
-#define GETPPID_OF(c) getppid_via_kvm(kvm_descriptor, c)
-    /* Walk up the parent chain looking for parent_pid */
-    while (child_pid > 1 && child_pid != parent_pid) {
-        pid_t next_ppid;
-        /*
-         * Depth limit guards against PID reuse cycles of length >= 2.
-         * Example: A has ppid=B and B has ppid=A. The self-parenting check
-         * (next_ppid == child_pid) only catches length-1 cycles; without
-         * this counter the loop would never terminate on length-2+ cycles.
-         */
-        if (depth++ >= IS_CHILD_MAX_DEPTH) {
-            return 0;
-        }
-        next_ppid = GETPPID_OF(child_pid);
-        /*
-         * A transient lookup failure (e.g. the process exited or became a
-         * zombie between the previous step and this one) must not be taken as
-         * proof of non-membership: retry once before giving up, so a single
-         * -1 does not break the ancestor chain.
-         */
-        if (next_ppid < 0) {
-            next_ppid = GETPPID_OF(child_pid);
-        }
-        /*
-         * Guard against invalid parent links or self-parenting processes
-         * (ki_ppid == ki_pid), either of which would cause an infinite loop.
-         */
-        if (next_ppid <= 0 || next_ppid == child_pid) {
-            return 0;
-        }
-        child_pid = next_ppid;
-    }
-#undef GETPPID_OF
-    return child_pid == parent_pid;
+static pid_t is_child_lookup_via_kvm(void *context, pid_t pid) {
+    return getppid_via_kvm((kvm_t *)context, pid);
 }
 
 /**
@@ -413,7 +372,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
     if (kvm_descriptor == NULL) {
         return 0;
     }
-    ret = is_child_via_kvm(kvm_descriptor, child_pid, parent_pid);
+    ret = is_child_of_via(is_child_lookup_via_kvm, kvm_descriptor, child_pid,
+                          parent_pid);
     if (kvm_close(kvm_descriptor) != 0) {
         perror("kvm_close");
     }

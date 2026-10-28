@@ -122,3 +122,55 @@ double get_process_start_time(pid_t pid) {
     free(proc);
     return result;
 }
+
+/**
+ * @brief Determine if one process is a descendant of another
+ *
+ * @param get_parent How to read one process's parent, platform specific
+ * @param context Handle handed back to get_parent on every step
+ * @param child_pid Process ID to check for descendant relationship
+ * @param parent_pid Process ID of the potential ancestor
+ * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ *
+ * The walk every platform shares; see is_child_of() in the header for the
+ * cases this answers 0 in.
+ */
+int is_child_of_via(process_get_parent_fn get_parent, void *context,
+                    pid_t child_pid, pid_t parent_pid) {
+    unsigned depth = 0;
+    if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
+        return 0;
+    }
+    /* Walk up the parent chain looking for parent_pid */
+    while (child_pid > 1 && child_pid != parent_pid) {
+        pid_t next_ppid;
+        /*
+         * Depth limit guards against PID reuse cycles of length >= 2.
+         * Example: A has ppid=B and B has ppid=A. The self-parenting check
+         * (next_ppid == child_pid) only catches length-1 cycles; without
+         * this counter the loop would never terminate on length-2+ cycles.
+         */
+        if (depth++ >= IS_CHILD_MAX_DEPTH) {
+            return 0;
+        }
+        next_ppid = get_parent(context, child_pid);
+        /*
+         * A transient lookup failure (e.g. the process exited or became a
+         * zombie between the previous step and this one) must not be taken as
+         * proof of non-membership: retry once before giving up, so a single
+         * -1 does not break the ancestor chain.
+         */
+        if (next_ppid < 0) {
+            next_ppid = get_parent(context, child_pid);
+        }
+        /*
+         * Guard against invalid parent links or self-parenting processes,
+         * either of which would cause an infinite loop.
+         */
+        if (next_ppid <= 0 || next_ppid == child_pid) {
+            return 0;
+        }
+        child_pid = next_ppid;
+    }
+    return child_pid == parent_pid;
+}
