@@ -160,7 +160,9 @@ int process_name_has_non_init_match(const char *process_name) {
         }
     }
     free(proc);
-    close_process_iterator(&iter);
+    if (close_process_iterator(&iter) != 0) {
+        fprintf(stderr, "Failed to close process iterator\n");
+    }
     return found;
 }
 
@@ -521,6 +523,8 @@ int process_has_other_name(pid_t pid, const char *process_name) {
         other_name = 1;
     }
     free(proc);
-    close_process_iterator(&iter);
+    if (close_process_iterator(&iter) != 0) {
+        fprintf(stderr, "Failed to close process iterator\n");
+    }
     return other_name;
 }

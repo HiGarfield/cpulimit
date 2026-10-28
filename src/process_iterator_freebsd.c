@@ -292,7 +292,9 @@ pid_t getppid_of(pid_t pid) {
         return (pid_t)(-1);
     }
     ppid = getppid_via_kvm(kvm_descriptor, pid);
-    kvm_close(kvm_descriptor);
+    if (kvm_close(kvm_descriptor) != 0) {
+        perror("kvm_close");
+    }
     return ppid;
 }
 
@@ -326,7 +328,9 @@ int process_is_stopped(pid_t pid) {
     if (kproc != NULL && count > 0) {
         stopped = (kproc->ki_stat == SSTOP);
     }
-    kvm_close(kvm_descriptor);
+    if (kvm_close(kvm_descriptor) != 0) {
+        perror("kvm_close");
+    }
     return stopped;
 }
 
@@ -410,7 +414,9 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
         return 0;
     }
     ret = is_child_via_kvm(kvm_descriptor, child_pid, parent_pid);
-    kvm_close(kvm_descriptor);
+    if (kvm_close(kvm_descriptor) != 0) {
+        perror("kvm_close");
+    }
     return ret;
 }
 
