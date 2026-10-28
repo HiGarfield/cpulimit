@@ -217,6 +217,14 @@ struct process_filter {
  *   returns 0. A caller that keys off the return value therefore never sees a
  *   close failure there.
  *
+ * - An empty process table. Linux scans /proc entry by entry, so finding
+ *   nothing there is a completed scan that simply yields no processes.
+ *   macOS and FreeBSD take a snapshot first and treat an empty one as a
+ *   failed initialisation: proc_listpids() reporting no PIDs, or
+ *   kvm_getprocs() reporting none, makes init_process_iterator() return -1.
+ *   A caller therefore reads "no processes" on Linux and "cannot scan" on
+ *   the other two for the same situation.
+ *
  * - System processes in the parent chain. read_process_info() skips system
  *   processes on FreeBSD (P_SYSTEM) and macOS (PROC_FLAG_SYSTEM) but not on
  *   Linux, where kernel threads are only distinguishable by their empty
