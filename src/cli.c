@@ -59,7 +59,9 @@ static void print_usage(FILE *stream, const struct cpulimit_cfg *cfg) {
         stream,
         "    -l LIMIT, --limit=LIMIT    CPU percentage limit, range (0, %ld] (required)\n",
         (long)ncpu * 100L);
-    fprintf(stream, "    -v, --verbose              show control statistics\n");
+    fprintf(
+        stream,
+        "    -v, --verbose              show control statistics and progress messages\n");
     fprintf(
         stream,
         "    -z, --lazy                 exit if the target process is not running\n");
