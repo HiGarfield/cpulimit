@@ -50,9 +50,10 @@ int run_command_mode(const struct cpulimit_cfg *cfg);
  * @return Exit status code; the caller is responsible for calling exit()
  *
  * In lazy mode one attempt is made and the program exits on any non-target
- * exit. Otherwise it watches until a scan failure or a stranded member stops
- * it; a target reappearing on a recycled PID is re-limited. cpulimit itself is
- * always refused as a target.
+ * exit. Otherwise it watches until a failure to build the process group or a
+ * stranded member stops it; a scan that fails while the group is already
+ * built is reported once and retried, and a target reappearing on a recycled
+ * PID is re-limited. cpulimit itself is always refused as a target.
  */
 int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg);
 
