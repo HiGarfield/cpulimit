@@ -230,6 +230,29 @@ be altered, simplified, or "modernized" under any circumstances:
 - Timing logic MUST use monotonic sources and remain robust to wall-clock
   changes.
 
+## Test Seams
+
+A *seam* is a build-time hook that lets a test replace production behavior:
+the `-Dname=cpulimit_test_name` renames that `tests/CMakeLists.txt` and
+`tests/Makefile` apply to single translation units, plus the replacements
+and knobs they link to in `tests/cpulimit_test.c`.
+
+- A seam MUST work with any C compiler and any C++ compiler: a renamed
+  translation unit MUST still compile as C89 and every later C standard and
+  as C++98 and every later C++ standard, without warnings or errors. A
+  rename that only survives a C compile is not acceptable.
+- A seam MUST NOT rename a libc or POSIX symbol that a system header also
+  names in C++ mode. `<stdlib.h>` reaches `<cstdlib>`, whose
+  `using ::malloc;` the rename would land on, so `-Dmalloc=...` fails on
+  every C++ compiler; hook the project call that performs the allocation
+  instead, because an allocator rename cannot be made portable.
+- A seam MUST NOT appear in any `.c` or `.h` file under `src/`: no
+  conditional compilation for a test build, no macro redirecting a call to
+  a test replacement, and no comment or guard whose reason is a test
+  harness. Production code MUST NOT know the seams exist.
+- A seam MUST reach production code from the outside only, through the
+  per-translation-unit renames the build files under `tests/` apply.
+
 ## Documentation and Style
 
 - Public structs, struct members, macros, and functions MUST be documented.
