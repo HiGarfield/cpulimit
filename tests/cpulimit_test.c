@@ -6302,9 +6302,9 @@ static void test_process_set_update_return_value(void) {
      * silently dropping the member -- which would also make
      * remove_stale_from_process_table() purge its CPU history. That
      * failure branch sets alloc_failed and breaks, mirroring the other
-     * allocation failures; it cannot be injected from the outside (the
-     * node malloc has no seam), so it is covered by code review and this
-     * positive contract assertion.
+     * allocation failures. The re-link is reachable through the add-list
+     * seam, so the branch can be injected; what this asserts is the
+     * positive contract, that the member is in this cycle's list.
      */
     list_count = proc_set.proc_list->count;
     assert(list_count == 1);
@@ -10633,7 +10633,7 @@ int cpulimit_test_update_process_set(struct process_set *proc_set);
 long cpulimit_test_random(void);
 int cpulimit_test_getloadavg(double *loadavg, int nelem);
 double cpulimit_test_get_process_start_time(pid_t pid);
-void *cpulimit_test_malloc(size_t size);
+struct list_node *cpulimit_test_add_list_elem(struct list *lst, void *elem);
 
 /* NOLINTEND(misc-use-internal-linkage) */
 
@@ -10649,14 +10649,16 @@ void *cpulimit_test_malloc(size_t size);
  */
 
 /**
- * @brief When set, the next allocation made by process_set.c fails.
+ * @brief When set, the next list element process_set.c allocates fails.
  *
  * Fails the next call rather than the Nth, so a test does not have to know
- * how many allocations came before the one it wants starved. Only
- * process_set.c is compiled with the rename; allocation stays real
- * everywhere else.
+ * how many came before the one it wants starved. Only process_set.c is
+ * compiled with the rename, and only its add_list_elem() call is renamed --
+ * malloc() itself is not, because a C++ build reaches <cstdlib> through
+ * <stdlib.h> and the rename would land on its "using ::malloc" too. Every
+ * other allocation stays real.
  */
-static int seam_malloc_fails_next = 0;
+static int seam_list_elem_fails_next = 0;
 
 static void seam_reset(void) {
     seam_active = 0;
@@ -10680,7 +10682,7 @@ static void seam_reset(void) {
     seam_close_fails = 0;
     seam_close_fails_after = 0;
     seam_close_call_count = 0;
-    seam_malloc_fails_next = 0;
+    seam_list_elem_fails_next = 0;
     seam_next_process_fails = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
@@ -13241,7 +13243,7 @@ static void test_process_set_clears_stale_suspend_flag_on_undo(void) {
     seam_kill_calls = 0;
     seam_fail_call = 0;
     seam_fail_errno = 0;
-    seam_malloc_fails_next = 1;
+    seam_list_elem_fails_next = 1;
     process_set_send_signal(&proc_set, SIGSTOP, 0);
 
     /* The undo left nothing suspended, so nothing may claim there is. */
@@ -13794,19 +13796,19 @@ double cpulimit_test_get_process_start_time(pid_t pid) {
 }
 
 /**
- * @brief Replacement for malloc(), for process_set.c only
+ * @brief Replacement for add_list_elem(), for process_set.c only
  *
- * @param size Number of bytes requested
- * @return The allocated block, or NULL when the next allocation is scripted
- *         to fail
+ * @param lst List to append to
+ * @param elem Element to append
+ * @return The new node, or NULL when the next one is scripted to fail
  */
 /* cppcheck-suppress unusedFunction */
-void *cpulimit_test_malloc(size_t size) {
-    if (seam_malloc_fails_next) {
-        seam_malloc_fails_next = 0;
+struct list_node *cpulimit_test_add_list_elem(struct list *lst, void *elem) {
+    if (seam_list_elem_fails_next) {
+        seam_list_elem_fails_next = 0;
         return NULL;
     }
-    return malloc(size);
+    return add_list_elem(lst, elem);
 }
 
 /**
@@ -17936,8 +17938,8 @@ static void test_record_stopped_pid_reports_undo_failure(void) {
     ret = init_process_set(&proc_set, (pid_t)4242, 0);
     assert(ret == 0);
 
-    /* The record cannot be allocated, and the undo is refused. */
-    seam_malloc_fails_next = 1;
+    /* The record cannot be stored, and the undo is refused. */
+    seam_list_elem_fails_next = 1;
     seam_fail_call = 1;
     seam_fail_errno = EPERM;
     seam_fail_sig = SIGCONT;

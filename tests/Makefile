@@ -60,9 +60,13 @@ SEAM_TIME_ITER_FLAGS := -Dget_current_time=cpulimit_test_get_current_time \
 SEAM_LIMIT_FLAGS := -Dlimit_process=cpulimit_test_limit_process
 SEAM_UPDATE_FLAGS := -Dupdate_process_set=cpulimit_test_update_process_set
 SEAM_STARTTIME_FLAGS := -Dget_process_start_time=cpulimit_test_get_process_start_time
-# Applied to process_set.c alone, so a test can starve one allocation without
+# Applied to process_set.c alone, so a test can starve one list element without
 # guessing which call it is. Everywhere else allocation stays real.
-SEAM_MALLOC_FLAGS := -Dmalloc=cpulimit_test_malloc
+# Not malloc itself: a C++ build reaches <cstdlib> through <stdlib.h>, and the
+# rename would land on its "using ::malloc" as well, which no C++ compiler
+# accepts. add_list_elem() is a project symbol no system header names, so the
+# seam compiles as C and as C++ alike.
+SEAM_LIST_ELEM_FLAGS := -Dadd_list_elem=cpulimit_test_add_list_elem
 
 # Everything under src/ except the entry point.
 SEAM_SRC := $(filter-out $(SRC)/main.c,$(wildcard $(SRC)/*.c))
@@ -75,13 +79,13 @@ SEAM_TIME_ITER_SRC := $(SRC)/time_util.c \
 SEAM_LIMIT_SRC := $(SRC)/limit_process.c
 SEAM_UPDATE_SRC := $(SRC)/process_set.c
 SEAM_STARTTIME_SRC := $(SRC)/process_iterator_common.c
-SEAM_MALLOC_SRC := $(SRC)/process_set.c
+SEAM_LIST_ELEM_SRC := $(SRC)/process_set.c
 
 SEAM_OBJS := $(SEAM_SRC:$(SRC)/%.c=%.o)
 
 # One rule for all of them: each file gets every rename except its own.
 $(SEAM_OBJS): %.o: $(SRC)/%.c
-	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) $(if $(filter $<,$(SEAM_STARTTIME_SRC)),,$(SEAM_STARTTIME_FLAGS)) $(if $(filter $<,$(SEAM_MALLOC_SRC)),$(SEAM_MALLOC_FLAGS)) -c $< -o $@
+	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) $(if $(filter $<,$(SEAM_STARTTIME_SRC)),,$(SEAM_STARTTIME_FLAGS)) $(if $(filter $<,$(SEAM_LIST_ELEM_SRC)),$(SEAM_LIST_ELEM_FLAGS)) -c $< -o $@
 
 cpulimit_test: cpulimit_test.o $(SEAM_OBJS)
 	$(CC) $(ALL_CFLAGS) $^ $(ALL_LDFLAGS) -o $@

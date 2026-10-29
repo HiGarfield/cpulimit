@@ -111,13 +111,16 @@ set_source_files_properties(${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS} PROPERTIES
 set_source_files_properties(${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
     "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
-# process_set.c additionally gets malloc renamed, so a test can starve one
-# allocation without guessing which call it is: the switch below fails the
-# very next one. Only this file is renamed, so allocation stays real
-# everywhere else.
+# process_set.c additionally gets add_list_elem() renamed, so a test can starve
+# one list element without guessing which call it is: the switch below fails the
+# very next one. malloc() itself is deliberately NOT renamed: a C++ build
+# reaches <cstdlib> through <stdlib.h>, and the rename would land on its
+# "using ::malloc;" as well, which no C++ compiler accepts. add_list_elem() is
+# a project symbol no system header names, so the seam compiles as C and as
+# C++ alike. Only this file is renamed, so every other allocation stays real.
 set_source_files_properties(${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_STARTTIME};malloc=cpulimit_test_malloc")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_STARTTIME};add_list_elem=cpulimit_test_add_list_elem")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
     "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")
