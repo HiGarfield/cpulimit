@@ -255,8 +255,11 @@ size_t process_set_member_count(const struct process_set *proc_set);
  *
  * @param proc_set Pointer to the process set structure
  * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose Retained for API compatibility; failure reporting is throttled
- *                per member by the stop_warned/cont_warned/resume_warned flags
+ * @param verbose Non-zero to report a delivery that failed; the per-member
+ *                stop_warned/cont_warned/resume_warned flags keep each report
+ *                to one line per episode. Without it nothing is printed, but
+ *                the count below still carries the outcome, so a silent run
+ *                reports a stranded member through the shutdown summary
  * @return Number of deliveries that failed and may have left a member
  * suspended. A failed SIGCONT for a member this group never suspended is benign
  * and does not count; an ESRCH (process gone) never counts.
