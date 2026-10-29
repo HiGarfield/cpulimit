@@ -47,14 +47,6 @@ int main(int argc, char *argv[]) {
      */
     configure_signal_handler();
 
-    /*
-     * Turn off terminal echo for the run so the driver does not echo the
-     * "^C" of a Ctrl+C. The original attributes are saved first and restored
-     * on the way out. Both are no-ops when standard input is not a terminal.
-     */
-    save_terminal_attributes();
-    disable_terminal_echo();
-
     parse_result = parse_arguments(argc, argv, &cfg);
     if (parse_result != 0) {
         status = (parse_result < 0) ? EXIT_SUCCESS : parse_result;
@@ -70,6 +62,5 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    restore_terminal_attributes();
     return status;
 }

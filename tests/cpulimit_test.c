@@ -80,7 +80,6 @@
  */
 #include <sched.h>
 #endif
-#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -2056,169 +2055,6 @@ static void test_signal_handler_get_quit_signal(void) {
     exited = WIFEXITED(status);
     assert(exited);
     exit_code = WEXITSTATUS(status);
-    assert(exit_code == 0);
-}
-
-/**
- * @brief Leave a pty child that reached this with standard descriptors
- *        replaced by duplicates of a pty slave
- *
- * @param code Exit status to report to the parent
- * @note The child reached this with its stdin and stdout replaced by
- *       duplicates of one pty slave. Those duplicates belong to this
- *       process and nothing here closes them later, so releasing them is the
- *       child's own last act -- the static analyser sees a descriptor left
- *       open across _exit() otherwise, even though the process is about to
- *       give every descriptor back anyway.
- */
-static void pty_child_exit(int code) {
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    _exit(code);
-}
-
-/**
- * @brief Terminal echo is turned off for the run and restored on the way out
- *
- * @note The child runs on a pty it opens itself so its stdin is a real
- *       terminal: save_terminal_attributes() records the original settings,
- *       disable_terminal_echo() clears ECHO, and restore_terminal_attributes()
- *       puts it back. A pty starts with ECHO set, so the restore can be told
- *       from the disable by whether the bit is present.
- */
-static void test_terminal_echo_disable_and_restore(void) {
-    int master_fd;
-    const char *slave_name;
-    pid_t pid, waited;
-    int assert_rc;
-    int status = 0, exited, exit_code;
-
-    /*
-     * Old uClibc builds do not export posix_openpt() at all, so this test
-     * could not link there. open("/dev/ptmx", ...) is exactly what that
-     * wrapper does, and nothing else below changes: grantpt(), unlockpt()
-     * and ptsname() are present even in those builds. The version range is
-     * the one util.h already uses for getloadavg().
-     */
-#if defined(__UCLIBC__) && defined(__UCLIBC_MAJOR__) &&                        \
-    defined(__UCLIBC_MINOR__) && defined(__UCLIBC_SUBLEVEL__) &&               \
-    ((__UCLIBC_MAJOR__ < 1) ||                                                 \
-     (__UCLIBC_MAJOR__ == 1 && __UCLIBC_MINOR__ == 0 &&                        \
-      __UCLIBC_SUBLEVEL__ < 42))
-    master_fd = open("/dev/ptmx", O_RDWR | O_NOCTTY);
-#else
-    master_fd = posix_openpt(O_RDWR | O_NOCTTY);
-#endif
-    assert(master_fd >= 0);
-    assert_rc = grantpt(master_fd);
-    assert(assert_rc == 0);
-    assert_rc = unlockpt(master_fd);
-    assert(assert_rc == 0);
-    slave_name = ptsname(master_fd);
-    assert(slave_name != NULL);
-
-    fflush(stdout);
-    fflush(stderr);
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        /*
-         * The slave is opened here rather than in the parent because only
-         * this process needs it: a descriptor the parent opened would have
-         * to be closed in both, which is one close too many for a tool that
-         * does not model fork(). Keep each result in a variable instead of
-         * testing the call inside the condition: the analyser reports a
-         * descriptor whose only mention is a comparison as leaked, even
-         * though the child is about to exit with it.
-         */
-        int dup_result, slave_fd;
-        struct termios now;
-        slave_fd = open(slave_name, O_RDWR | O_NOCTTY);
-        if (slave_fd < 0) {
-            pty_child_exit(1);
-        }
-        dup_result = dup2(slave_fd, STDIN_FILENO);
-        if (dup_result < 0) {
-            pty_child_exit(1);
-        }
-        if (slave_fd != STDIN_FILENO) {
-            close(slave_fd);
-        }
-        save_terminal_attributes();
-        disable_terminal_echo();
-        if (tcgetattr(STDIN_FILENO, &now) != 0) {
-            pty_child_exit(2);
-        }
-        if (now.c_lflag & ECHO) {
-            pty_child_exit(3);
-        }
-        restore_terminal_attributes();
-        if (tcgetattr(STDIN_FILENO, &now) != 0) {
-            pty_child_exit(4);
-        }
-        if (!(now.c_lflag & ECHO)) {
-            pty_child_exit(5);
-        }
-        pty_child_exit(0);
-    }
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    exit_code = WEXITSTATUS(status);
-    assert(exited);
-    assert(exit_code == 0);
-    close(master_fd);
-}
-
-/**
- * @brief Terminal helpers are no-ops when standard input is not a terminal
- *
- * @note With stdin a pipe, save_terminal_attributes() must not record a
- *       terminal, so disable_terminal_echo() and restore_terminal_attributes()
- *       must do nothing. The child just has to survive the calls and exit
- *       cleanly.
- */
-static void test_terminal_echo_noop_on_non_tty(void) {
-    int pipe_fds[2];
-    pid_t pid, waited;
-    int assert_rc;
-    int status = 0, exited, exit_code;
-
-    assert_rc = pipe(pipe_fds);
-    assert(assert_rc == 0);
-    fflush(stdout);
-    fflush(stderr);
-    pid = fork();
-    assert(pid >= 0);
-    if (pid == 0) {
-        int dup_result;
-        /*
-         * Keep the result in a variable instead of testing the call inside
-         * the condition: the analyser reports a descriptor whose only
-         * mention is a comparison as leaked, even though the child is about
-         * to exit with it. Same reason as in the pty test above.
-         */
-        close(pipe_fds[0]);
-        dup_result = dup2(pipe_fds[1], STDIN_FILENO);
-        if (dup_result < 0) {
-            _exit(1);
-        }
-        close(pipe_fds[1]);
-        save_terminal_attributes();
-        disable_terminal_echo();
-        restore_terminal_attributes();
-        close(STDIN_FILENO);
-        _exit(0);
-    }
-    close(pipe_fds[0]);
-    close(pipe_fds[1]);
-
-    waited = waitpid(pid, &status, 0);
-    assert(waited == pid);
-    exited = WIFEXITED(status);
-    exit_code = WEXITSTATUS(status);
-    assert(exited);
     assert(exit_code == 0);
 }
 
@@ -18443,8 +18279,6 @@ static void run_signal_handler_module_tests(void) {
     RUN_TEST(test_signal_handler_sigpipe);
     RUN_TEST(test_signal_handler_initial_state);
     RUN_TEST(test_signal_handler_get_quit_signal);
-    RUN_TEST(test_terminal_echo_disable_and_restore);
-    RUN_TEST(test_terminal_echo_noop_on_non_tty);
     RUN_TEST(test_signal_handler_reconfigure_resets_state);
     RUN_TEST(test_signal_command_ignores_nonpositive_pid);
     RUN_TEST(test_signal_handler_mask_restored_after_configure);

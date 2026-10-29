@@ -29,8 +29,6 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <termios.h>
-#include <unistd.h>
 
 /**
  * @brief Global quit flag indicating a termination signal was received
@@ -72,25 +70,6 @@ typedef char sig_atomic_large_enough[((sig_atomic_t)127 == 127) ? 1 : -1];
  * POSIX.1-2001 guaranteed sig_atomic_t range [0, 127].
  */
 static volatile sig_atomic_t quit_signal_num = 0;
-
-/**
- * @brief Terminal attributes saved by save_terminal_attributes()
- *
- * Holds the original standard-input termios so restore_terminal_attributes()
- * can put the terminal back the way it was. Only ever touched in process
- * context (never from within a signal handler), so a plain struct termios is
- * fine.
- */
-static struct termios saved_termios;
-
-/**
- * @brief Non-zero once save_terminal_attributes() captured a terminal
- *
- * Set only when standard input is a terminal and tcgetattr() succeeded;
- * disable_terminal_echo() and restore_terminal_attributes() are no-ops while
- * it stays 0.
- */
-static int termios_saved = 0;
 
 /**
  * @brief Reset internal signal-handler state flags to their initial values
@@ -266,63 +245,6 @@ error:
  */
 int is_quit_flag_set(void) {
     return !!quit_flag;
-}
-
-/**
- * @brief Save the current terminal attributes of standard input
- *
- * Stores the terminal settings in internal state so they can be restored by
- * restore_terminal_attributes(). Does nothing when standard input is not a
- * terminal. Must be called before disable_terminal_echo().
- */
-void save_terminal_attributes(void) {
-    if (!isatty(STDIN_FILENO)) {
-        return;
-    }
-    if (tcgetattr(STDIN_FILENO, &saved_termios) != 0) {
-        return;
-    }
-    termios_saved = 1;
-}
-
-/**
- * @brief Disable terminal echo on standard input
- *
- * Clears the ECHO flag so the terminal driver does not echo typed characters
- * (most importantly, the "^C" of a Ctrl+C). Does nothing unless
- * save_terminal_attributes() succeeded.
- */
-void disable_terminal_echo(void) {
-    struct termios raw;
-    if (!termios_saved) {
-        return;
-    }
-    raw = saved_termios;
-    raw.c_lflag &= ~(tcflag_t)ECHO;
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0) {
-        perror("tcsetattr");
-    }
-}
-
-/**
- * @brief Restore the terminal attributes saved by save_terminal_attributes()
- *
- * Restores the original terminal settings on standard input. Does nothing
- * unless save_terminal_attributes() succeeded.
- */
-void restore_terminal_attributes(void) {
-    if (!termios_saved) {
-        return;
-    }
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &saved_termios) != 0) {
-        /*
-         * The terminal is left with echo off, so say so: the operator would
-         * otherwise see nothing of what is typed and have nothing to go on.
-         */
-        fprintf(
-            stderr,
-            "Warning: cannot restore terminal echo; typed input may not be shown\n");
-    }
 }
 
 /**

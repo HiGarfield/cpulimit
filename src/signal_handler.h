@@ -48,32 +48,6 @@ void configure_signal_handler(void);
 int is_quit_flag_set(void);
 
 /**
- * @brief Save the current terminal attributes of standard input
- *
- * Stores the terminal settings in internal state so they can be restored by
- * restore_terminal_attributes(). Does nothing when standard input is not a
- * terminal. Must be called before disable_terminal_echo().
- */
-void save_terminal_attributes(void);
-
-/**
- * @brief Disable terminal echo on standard input
- *
- * Clears the ECHO flag so the terminal driver does not echo typed characters
- * (most importantly, the "^C" of a Ctrl+C). Does nothing unless
- * save_terminal_attributes() succeeded.
- */
-void disable_terminal_echo(void);
-
-/**
- * @brief Restore the terminal attributes saved by save_terminal_attributes()
- *
- * Restores the original terminal settings on standard input. Does nothing
- * unless save_terminal_attributes() succeeded.
- */
-void restore_terminal_attributes(void);
-
-/**
  * @brief Get the signal number that set the quit flag
  *
  * @return Signal number (e.g. SIGTERM, SIGINT) of the first termination signal,
