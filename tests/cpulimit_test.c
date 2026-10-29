@@ -8589,17 +8589,29 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
     /*
      * Two directories serve both shapes: the first holds the candidate that
      * has to be skipped, the second the one that has to run. Rewriting their
-     * contents keeps this frame small enough for the stack limit.
+     * contents covers both shapes without a second pair of directories.
      */
-    char dir_a[48], dir_b[48];
-    char path_value[sizeof(dir_a) + sizeof(dir_b) + 2];
+    char *dir_a, *dir_b, *path_value;
     char name[] = "pathprobe_cpulimit_xyz";
     struct cpulimit_cfg cfg;
     char *args[2];
+    size_t dir_size = 48, path_size = 48 * 2 + 2;
     int len, exit_code;
 
-    make_test_dir(dir_a, sizeof(dir_a), "patha");
-    make_test_dir(dir_b, sizeof(dir_b), "pathb");
+    /*
+     * All three buffers are heap-allocated: the frames of the helpers
+     * inlined into this test already take a large share of the 512-byte
+     * budget, and these pushed it past the limit.
+     */
+    dir_a = (char *)malloc(dir_size);
+    dir_b = (char *)malloc(dir_size);
+    path_value = (char *)malloc(path_size);
+    assert(dir_a != NULL);
+    assert(dir_b != NULL);
+    assert(path_value != NULL);
+
+    make_test_dir(dir_a, dir_size, "patha");
+    make_test_dir(dir_b, dir_size, "pathb");
     /*
      * The first component holds a file that exists but cannot be executed and
      * whose shebang names an interpreter that is not there: exactly the shape
@@ -8618,8 +8630,8 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
     cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
-    len = snprintf(path_value, sizeof(path_value), "%s:%s", dir_a, dir_b);
-    assert(len > 0 && (size_t)len < sizeof(path_value));
+    len = snprintf(path_value, path_size, "%s:%s", dir_a, dir_b);
+    assert(len > 0 && (size_t)len < path_size);
     exit_code = run_command_mode_with_path(&cfg, path_value, NULL);
     /* execvp() reaches the second directory, so that is what it must report. */
     assert(exit_code == 9);
@@ -8632,8 +8644,8 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
     write_test_script(dir_b, name, "#!/bin/sh\nexit 11\n", 0755);
     write_test_script(dir_a, name, "#!/nonexistent_interpreter_cpulimit_xyz\n",
                       0755);
-    len = snprintf(path_value, sizeof(path_value), ":%s", dir_a);
-    assert(len > 0 && (size_t)len < sizeof(path_value));
+    len = snprintf(path_value, path_size, ":%s", dir_a);
+    assert(len > 0 && (size_t)len < path_size);
     exit_code = run_command_mode_with_path(&cfg, path_value, dir_b);
     /* The empty component is the current directory, as execvp() reads it. */
     assert(exit_code == 11);
@@ -8642,6 +8654,10 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
     remove_test_script(dir_b, name);
     assert(rmdir(dir_a) == 0);
     assert(rmdir(dir_b) == 0);
+
+    free(path_value);
+    free(dir_b);
+    free(dir_a);
 }
 
 /**

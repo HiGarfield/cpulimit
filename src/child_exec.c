@@ -105,7 +105,7 @@ static int resolve_command_path(const char *name, char *out, size_t out_size) {
 
         if (dir_len == 0) {
             len = snprintf(out, out_size, "./%s", name);
-        } else if (dir_len <= (size_t)INT_MAX) {
+        } else if (dir_len <= (size_t)INT_MAX && dir_len < out_size) {
             len = snprintf(out, out_size, "%.*s/%s", (int)dir_len, path_env,
                            name);
         } else {
