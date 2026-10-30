@@ -10080,7 +10080,8 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
  *   - the monotonic clock and the sleeps driven by it,
  *   - what the process iterator reports,
  *   - whether kill() succeeds,
- *   - random() (duty-cycle jitter) and getloadavg() (time slot scaling).
+ *   - random() (duty-cycle jitter) and cpulimit_getloadavg() (time slot
+ *     scaling).
  *
  * tests/CMakeLists.txt renames those entry points at compile time, but
  * only for the sources compiled into this test binary: cpulimit_test.c
@@ -10154,7 +10155,7 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
 #define SEAM_SMOKE_CPU_STEP 45.0
 
 /**
- * @brief Load the fake getloadavg() reports
+ * @brief Load the fake cpulimit_getloadavg() reports
  *
  * Kept low enough that get_dynamic_time_slot() clamps the time slot to
  * BASE_TIME_SLOT_US for any CPU count, so the duty cycle does not depend
@@ -14052,7 +14053,7 @@ long cpulimit_test_random(void) {
 }
 
 /**
- * @brief Replacement for getloadavg()
+ * @brief Replacement for cpulimit_getloadavg()
  *
  * @param loadavg Array to fill
  * @param nelem Number of elements requested
@@ -14062,7 +14063,7 @@ long cpulimit_test_random(void) {
 int cpulimit_test_getloadavg(double *loadavg, int nelem) {
     int idx;
     if (!seam_active) {
-        return getloadavg(loadavg, nelem);
+        return cpulimit_getloadavg(loadavg, nelem);
     }
     if (loadavg == NULL || nelem <= 0) {
         return -1;

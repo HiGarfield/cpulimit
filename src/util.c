@@ -47,8 +47,8 @@
 #include <mach/thread_policy.h>
 #endif
 
-#ifdef CPULIMIT_IMPL_GETLOADAVG
 #include <stdlib.h>
+#ifdef CPULIMIT_IMPL_GETLOADAVG
 #include <sys/sysinfo.h>
 #endif
 
@@ -116,19 +116,19 @@ void increase_priority(void) {
     }
 }
 
-#ifdef CPULIMIT_IMPL_GETLOADAVG
 /**
- * @brief Get system load averages (custom implementation for old uClibc)
+ * @brief Get system load averages
  *
  * @param loadavg Array to receive load average values
  * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
  * @return Number of samples retrieved (nelem), or -1 on error
  *
- * Retrieves system load averages using the sysinfo() syscall and converts
- * the fixed-point values to floating-point. This implementation is used
- * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
+ * Forwards to the BSD/GNU getloadavg(). On uClibc/uClibc-ng versions
+ * < 1.0.42, which lack it, the values are derived from the sysinfo()
+ * syscall instead, converting its fixed-point loads to floating-point.
  */
-int getloadavg_impl(double *loadavg, int nelem) {
+int cpulimit_getloadavg(double *loadavg, int nelem) {
+#ifdef CPULIMIT_IMPL_GETLOADAVG
     struct sysinfo sys_info;
     int load_idx;
 
@@ -151,8 +151,10 @@ int getloadavg_impl(double *loadavg, int nelem) {
     }
 
     return nelem;
-}
+#else
+    return getloadavg(loadavg, nelem);
 #endif
+}
 
 /**
  * @brief Safely convert long to pid_t with overflow detection

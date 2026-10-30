@@ -27,7 +27,7 @@ add_checked_flags(multi_process_busy CPULIMIT_C_FLAGS)
 # The race tests in cpulimit_test.c must not depend on scheduling luck, so
 # they replace the sources of non-determinism: the monotonic clock and the
 # sleeps driven by it, the process iterator, kill(), random() (duty-cycle
-# jitter) and getloadavg() (time slot scaling).
+# jitter) and cpulimit_getloadavg() (time slot scaling).
 #
 # The replacements are reached by renaming those entry points at compile
 # time, only for the sources compiled into this test binary; cpulimit_test.c
@@ -46,15 +46,18 @@ add_checked_flags(multi_process_busy CPULIMIT_C_FLAGS)
 #   - limit_process.c defines limit_process()
 # so each of the three groups below gets every rename except its own.
 #
-# getloadavg() is only renamed here because util.h redirects it to
-# getloadavg_impl() solely for uClibc < 1.0.42, which is not a
-# supported test host; on Linux/macOS/FreeBSD it is the libc symbol.
+# The load average is reached through cpulimit_getloadavg(), the project's
+# own wrapper around the BSD/GNU getloadavg(), so it is renamed as a group
+# of its own: renaming the libc name would instead fight the fallback that
+# provides it on uClibc < 1.0.42.
 
 set(CPULIMIT_TEST_SEAM_ALL
     kill=cpulimit_test_kill
     random=cpulimit_test_random
-    getloadavg=cpulimit_test_getloadavg
     waitpid=cpulimit_test_waitpid)
+
+set(CPULIMIT_TEST_SEAM_LOADAVG
+    cpulimit_getloadavg=cpulimit_test_getloadavg)
 
 set(CPULIMIT_TEST_SEAM_TIME_ITER
     get_current_time=cpulimit_test_get_current_time
@@ -93,6 +96,10 @@ set(CPULIMIT_TEST_SEAM_UPDATE_DEFINERS
 set(CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS
     ${PROJECT_SOURCE_DIR}/src/process_iterator_common.c)
 
+# util.c defines cpulimit_getloadavg(), so it must keep the real name.
+set(CPULIMIT_TEST_SEAM_LOADAVG_DEFINERS
+    ${PROJECT_SOURCE_DIR}/src/util.c)
+
 # The groups have to be disjoint: a source file property is replaced, not
 # merged, so a file listed twice would end up with the last set only.
 set(CPULIMIT_TEST_SEAM_PLAIN_SOURCES ${CPULIMIT_SRC_COMMON})
@@ -100,17 +107,18 @@ list(REMOVE_ITEM CPULIMIT_TEST_SEAM_PLAIN_SOURCES
      ${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS}
      ${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS}
      ${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS}
-     ${CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS})
+     ${CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS}
+     ${CPULIMIT_TEST_SEAM_LOADAVG_DEFINERS})
 
 set_source_files_properties(${CPULIMIT_TEST_SEAM_PLAIN_SOURCES} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LOADAVG};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_TIME_ITER_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LOADAVG};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LOADAVG};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
 # process_set.c additionally gets add_list_elem() renamed, so a test can starve
 # one list element without guessing which call it is: the switch below fails the
 # very next one. malloc() itself is deliberately NOT renamed: a C++ build
@@ -120,10 +128,13 @@ set_source_files_properties(${CPULIMIT_TEST_SEAM_LIMIT_DEFINERS} PROPERTIES
 # C++ alike. Only this file is renamed, so every other allocation stays real.
 set_source_files_properties(${CPULIMIT_TEST_SEAM_UPDATE_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_STARTTIME};add_list_elem=cpulimit_test_add_list_elem")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LOADAVG};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_STARTTIME};add_list_elem=cpulimit_test_add_list_elem")
 set_source_files_properties(${CPULIMIT_TEST_SEAM_STARTTIME_DEFINERS} PROPERTIES
     COMPILE_DEFINITIONS
-    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_LOADAVG};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE}")
+set_source_files_properties(${CPULIMIT_TEST_SEAM_LOADAVG_DEFINERS} PROPERTIES
+    COMPILE_DEFINITIONS
+    "${CPULIMIT_TEST_SEAM_ALL};${CPULIMIT_TEST_SEAM_TIME_ITER};${CPULIMIT_TEST_SEAM_LIMIT};${CPULIMIT_TEST_SEAM_UPDATE};${CPULIMIT_TEST_SEAM_STARTTIME}")
 
 # --- cpulimit_test ---
 add_executable(cpulimit_test

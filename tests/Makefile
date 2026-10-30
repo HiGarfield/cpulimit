@@ -51,7 +51,10 @@ busy multi_process_busy: %: %.o $(LOAD_OBJS)
 # the ones it defines; the lists below are the definers.
 #
 SEAM_ALL_FLAGS := -Dkill=cpulimit_test_kill -Drandom=cpulimit_test_random \
-	-Dgetloadavg=cpulimit_test_getloadavg -Dwaitpid=cpulimit_test_waitpid 
+	-Dwaitpid=cpulimit_test_waitpid
+# The load average is reached through the project's own wrapper, not the libc
+# getloadavg(), so that the uClibc < 1.0.42 fallback stays a plain definition.
+SEAM_LOADAVG_FLAGS := -Dcpulimit_getloadavg=cpulimit_test_getloadavg
 SEAM_TIME_ITER_FLAGS := -Dget_current_time=cpulimit_test_get_current_time \
 	-Dsleep_timespec=cpulimit_test_sleep_timespec \
 	-Dinit_process_iterator=cpulimit_test_init_process_iterator \
@@ -80,12 +83,13 @@ SEAM_LIMIT_SRC := $(SRC)/limit_process.c
 SEAM_UPDATE_SRC := $(SRC)/process_set.c
 SEAM_STARTTIME_SRC := $(SRC)/process_iterator_common.c
 SEAM_LIST_ELEM_SRC := $(SRC)/process_set.c
+SEAM_LOADAVG_SRC := $(SRC)/util.c
 
 SEAM_OBJS := $(SEAM_SRC:$(SRC)/%.c=%.o)
 
 # One rule for all of them: each file gets every rename except its own.
 $(SEAM_OBJS): %.o: $(SRC)/%.c
-	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) $(if $(filter $<,$(SEAM_STARTTIME_SRC)),,$(SEAM_STARTTIME_FLAGS)) $(if $(filter $<,$(SEAM_LIST_ELEM_SRC)),$(SEAM_LIST_ELEM_FLAGS)) -c $< -o $@
+	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_LOADAVG_SRC)),,$(SEAM_LOADAVG_FLAGS)) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) $(if $(filter $<,$(SEAM_STARTTIME_SRC)),,$(SEAM_STARTTIME_FLAGS)) $(if $(filter $<,$(SEAM_LIST_ELEM_SRC)),$(SEAM_LIST_ELEM_FLAGS)) -c $< -o $@
 
 cpulimit_test: cpulimit_test.o $(SEAM_OBJS)
 	$(CC) $(ALL_CFLAGS) $^ $(ALL_LDFLAGS) -o $@

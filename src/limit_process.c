@@ -131,11 +131,12 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
     struct timespec now;
     double load;
     /*
-     * Standards note: getloadavg() is BSD/GNU -- neither C89 nor POSIX.1-2001
-     * has any interface reporting the load average -- so this file defines
-     * _GNU_SOURCE. srandom()/random() are POSIX.1-2001 XSI: C89's rand()
-     * could produce the jitter, but the test harness renames random() to
-     * make it deterministic, so the XSI pair stays.
+     * Standards note: the load average is read through cpulimit_getloadavg(),
+     * a project wrapper: neither C89 nor POSIX.1-2001 has any interface
+     * reporting it, and the underlying getloadavg() is BSD/GNU -- hence the
+     * _GNU_SOURCE this file defines. srandom()/random() are POSIX.1-2001
+     * XSI: C89's rand() could produce the jitter, but the test harness
+     * renames random() to make it deterministic, so the XSI pair stays.
      */
 
     if (!ctx->initialized) {
@@ -146,7 +147,7 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
         }
     } else if (get_current_time(&now) == 0 &&
                timediff_in_ms(&now, &ctx->last_update) >= 1000.0 &&
-               getloadavg(&load, 1) == 1) {
+               cpulimit_getloadavg(&load, 1) == 1) {
         double new_time_slot;
 
         ctx->last_update = now;

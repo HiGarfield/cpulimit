@@ -99,21 +99,18 @@ void increase_priority(void);
 #define CPULIMIT_IMPL_GETLOADAVG
 #endif
 
-#if defined(CPULIMIT_IMPL_GETLOADAVG)
 /**
- * @brief Get system load averages (custom implementation for old uClibc)
+ * @brief Get system load averages
  *
  * @param loadavg Array to receive load average values
  * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
  * @return Number of samples retrieved (nelem), or -1 on error
  *
- * Retrieves system load averages using the sysinfo() syscall and converts
- * the fixed-point values to floating-point. This implementation is used
- * only on uClibc/uClibc-ng versions < 1.0.42 which lack getloadavg().
+ * Wraps the BSD/GNU getloadavg(). On uClibc/uClibc-ng versions < 1.0.42,
+ * which lack it, the values come from sysinfo() instead. The project owns
+ * the name so that no macro shadows a libc symbol.
  */
-int getloadavg_impl(double *loadavg, int nelem);
-#define getloadavg(loadavg, nelem) getloadavg_impl((loadavg), (nelem))
-#endif
+int cpulimit_getloadavg(double *loadavg, int nelem);
 
 /**
  * @brief Safely convert long to pid_t with overflow detection
