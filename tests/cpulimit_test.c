@@ -2433,8 +2433,11 @@ static void test_signal_handler_race_concurrent_signals(void) {
  */
 static void test_signal_handler_race_signal_interrupts_sleep(void) {
     int ready_pipe[2];
-    pid_t child_pid;
-    int status, ret;
+    pid_t child_pid, waited;
+    int status, exited, exit_code, ret;
+    char ready_byte;
+    ssize_t n_read;
+    const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -2469,33 +2472,27 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
             _exit(3);
         }
         _exit(0);
-    } else {
-        const struct timespec small_delay = {0, 10000000L}; /* 10 ms */
-        char ready_byte;
-        ssize_t n_read;
-        int exited, exit_code;
-        pid_t waited;
-
-        /* Parent: wait for child to enter sleep, then send SIGTERM */
-        close(ready_pipe[1]);
-        do {
-            n_read = read(ready_pipe[0], &ready_byte, 1);
-        } while (n_read < 0 && errno == EINTR);
-        assert(n_read == 1 && ready_byte == 'R');
-        close(ready_pipe[0]);
-
-        /* Give child a moment to reach sleep_timespec before sending signal */
-        sleep_timespec(&small_delay);
-
-        kill(child_pid, SIGTERM);
-
-        waited = waitpid(child_pid, &status, 0);
-        assert(waited == child_pid);
-        exited = WIFEXITED(status);
-        assert(exited);
-        exit_code = WEXITSTATUS(status);
-        assert(exit_code == 0);
     }
+
+    /* Parent: wait for child to enter sleep, then send SIGTERM */
+    close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'R');
+    close(ready_pipe[0]);
+
+    /* Give child a moment to reach sleep_timespec before sending signal */
+    sleep_timespec(&small_delay);
+
+    kill(child_pid, SIGTERM);
+
+    waited = waitpid(child_pid, &status, 0);
+    assert(waited == child_pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
 }
 
 /**
@@ -2511,8 +2508,11 @@ static void test_signal_handler_race_signal_interrupts_sleep(void) {
  */
 static void test_signal_handler_race_rapid_all_signals(void) {
     int ready_pipe[2];
-    pid_t child_pid;
-    int status, ret;
+    pid_t child_pid, waited;
+    int status, exited, exit_code, ret;
+    char ready_byte;
+    ssize_t n_read;
+    size_t sig_idx;
     static const int all_sigs[] = {SIGTERM, SIGHUP, SIGPIPE, SIGINT, SIGQUIT};
     static const size_t num_sigs = sizeof(all_sigs) / sizeof(*all_sigs);
 
@@ -2571,32 +2571,26 @@ static void test_signal_handler_race_rapid_all_signals(void) {
             _exit(3);
         }
         _exit(0);
-    } else {
-        size_t sig_idx;
-        char ready_byte;
-        ssize_t n_read;
-        int exited, exit_code;
-        pid_t waited;
-
-        close(ready_pipe[1]);
-        do {
-            n_read = read(ready_pipe[0], &ready_byte, 1);
-        } while (n_read < 0 && errno == EINTR);
-        assert(n_read == 1 && ready_byte == 'R');
-        close(ready_pipe[0]);
-
-        /* Send all five signals in rapid succession */
-        for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
-            kill(child_pid, all_sigs[sig_idx]);
-        }
-
-        waited = waitpid(child_pid, &status, 0);
-        assert(waited == child_pid);
-        exited = WIFEXITED(status);
-        assert(exited);
-        exit_code = WEXITSTATUS(status);
-        assert(exit_code == 0);
     }
+
+    close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'R');
+    close(ready_pipe[0]);
+
+    /* Send all five signals in rapid succession */
+    for (sig_idx = 0; sig_idx < num_sigs; sig_idx++) {
+        kill(child_pid, all_sigs[sig_idx]);
+    }
+
+    waited = waitpid(child_pid, &status, 0);
+    assert(waited == child_pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == 0);
 }
 
 /***************************************************************************
@@ -6733,6 +6727,9 @@ static void test_limit_process_basic(void) {
     pid_t child_pid;
     int sync_pipe[2], num_procs;
     int ret;
+    int proc_idx;
+    volatile int keep_running = 1;
+    ssize_t nwritten;
 
     num_procs = get_ncpu();
     /* Ensure at least 2 processes to validate include_children option */
@@ -6841,51 +6838,47 @@ static void test_limit_process_basic(void) {
         /* limiter_pid == 0: CPU limiter process */
         limit_process(child_pid, cpu_usage_limit, 1, 0, 0);
         _exit(EXIT_SUCCESS);
-    } else {
-        /* child_pid == 0: Target process group */
-        int proc_idx;
-        volatile int keep_running = 1;
-        ssize_t nwritten;
-
-        /*
-         * Before forking the rest of the group, so every descendant
-         * inherits the timeshare class too: num_procs of these never
-         * block, which is one per CPU.
-         */
-        test_leave_realtime();
-
-        /* Create new process group */
-        setpgid(0, 0);
-
-        ret = close(sync_pipe[0]);
-        assert(ret == 0);
-
-        /* Fork (num_procs - 1) child processes */
-        for (proc_idx = 1; proc_idx < num_procs; proc_idx++) {
-            pid_t pid = fork();
-            assert(pid >= 0);
-
-            if (pid == 0) {
-                /* Child process: do not create more children */
-                break;
-            }
-        }
-
-        /* Send acknowledgement and close pipe */
-        nwritten = write(sync_pipe[1], "A", 1);
-        assert(nwritten == 1);
-        ret = close(sync_pipe[1]);
-        assert(ret == 0);
-
-        /* Keep processes running until terminated */
-        while (keep_running && !is_quit_flag_set()) {
-            volatile int dummy_var;
-            for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
-                ;
-            }
-        }
-        _exit(EXIT_SUCCESS);
     }
+
+    /* child_pid == 0: Target process group */
+    /*
+     * Before forking the rest of the group, so every descendant
+     * inherits the timeshare class too: num_procs of these never
+     * block, which is one per CPU.
+     */
+    test_leave_realtime();
+
+    /* Create new process group */
+    setpgid(0, 0);
+
+    ret = close(sync_pipe[0]);
+    assert(ret == 0);
+
+    /* Fork (num_procs - 1) child processes */
+    for (proc_idx = 1; proc_idx < num_procs; proc_idx++) {
+        pid_t pid = fork();
+        assert(pid >= 0);
+
+        if (pid == 0) {
+            /* Child process: do not create more children */
+            break;
+        }
+    }
+
+    /* Send acknowledgement and close pipe */
+    nwritten = write(sync_pipe[1], "A", 1);
+    assert(nwritten == 1);
+    ret = close(sync_pipe[1]);
+    assert(ret == 0);
+
+    /* Keep processes running until terminated */
+    while (keep_running && !is_quit_flag_set()) {
+        volatile int dummy_var;
+        for (dummy_var = 0; dummy_var < 1000; dummy_var = dummy_var + 1) {
+            ;
+        }
+    }
+    _exit(EXIT_SUCCESS);
 }
 
 /**
@@ -7315,9 +7308,14 @@ static void test_limit_process_race_process_exits_on_sigcont(void) {
 static void test_limit_process_race_quit_during_sleep(void) {
     int ready_pipe[2];
     pid_t target_pid;
-    pid_t limiter_pid;
+    pid_t limiter_pid, waited;
     int limiter_status;
     int ret;
+    const struct timespec delay = {0, 100000000L}; /* 100 ms */
+    char ready_byte;
+    ssize_t n_read;
+    int exited;
+    int exit_code;
 
     ret = pipe(ready_pipe);
     assert(ret == 0);
@@ -7352,38 +7350,31 @@ static void test_limit_process_race_quit_during_sleep(void) {
          * returning, so target_pid should be in a runnable state here.
          */
         _exit(EXIT_SUCCESS);
-    } else {
-        const struct timespec delay = {0, 100000000L}; /* 100 ms */
-        char ready_byte;
-        ssize_t n_read;
-        int exited;
-        int exit_code;
-        pid_t waited;
-
-        /* Wait for limiter to be ready */
-        close(ready_pipe[1]);
-        do {
-            n_read = read(ready_pipe[0], &ready_byte, 1);
-        } while (n_read < 0 && errno == EINTR);
-        assert(n_read == 1 && ready_byte == 'L');
-        close(ready_pipe[0]);
-
-        /* Give limiter a moment to enter its sleep loop */
-        sleep_timespec(&delay);
-
-        /* Deliver SIGTERM to the limiter: interrupts sleep, sets quit_flag */
-        kill(limiter_pid, SIGTERM);
-
-        /* Limiter must exit promptly */
-        waited = waitpid(limiter_pid, &limiter_status, 0);
-        assert(waited == limiter_pid);
-        exited = WIFEXITED(limiter_status);
-        assert(exited);
-        exit_code = WEXITSTATUS(limiter_status);
-        assert(exit_code == EXIT_SUCCESS);
-
-        kill_and_wait(target_pid, SIGKILL);
     }
+
+    /* Wait for limiter to be ready */
+    close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'L');
+    close(ready_pipe[0]);
+
+    /* Give limiter a moment to enter its sleep loop */
+    sleep_timespec(&delay);
+
+    /* Deliver SIGTERM to the limiter: interrupts sleep, sets quit_flag */
+    kill(limiter_pid, SIGTERM);
+
+    /* Limiter must exit promptly */
+    waited = waitpid(limiter_pid, &limiter_status, 0);
+    assert(waited == limiter_pid);
+    exited = WIFEXITED(limiter_status);
+    assert(exited);
+    exit_code = WEXITSTATUS(limiter_status);
+    assert(exit_code == EXIT_SUCCESS);
+
+    kill_and_wait(target_pid, SIGKILL);
 }
 
 /***************************************************************************
@@ -10028,23 +10019,31 @@ static NOINLINE_USED void test_invoke_indirect(void (*test_fn)(void)) {
     }
     fn_slot_ptr = fn_slot_array;
     rand_iter_count = (size_t)random() % 10 + 10;
+    /*
+     * random() yields a signed long, so its result is taken as unsigned long
+     * first. Every operand of a bitwise operator below is unsigned for the
+     * same reason, shift counts included: a plain 1 is a signed int, and
+     * bugprone-signed-bitwise reports any signed operand, not just the one
+     * being shifted.
+     */
     for (i = 0; i < rand_iter_count; i++) {
-        volatile long idx = (random() >> 1) & 1;
-        if (idx << ((random() >> 1) & 2) > 1) {
+        volatile long idx = (long)(((unsigned long)random() >> 1UL) & 1UL);
+        if (((unsigned long)idx << (((unsigned long)random() >> 1UL) & 2UL)) >
+            1UL) {
             *(fn_slot_array + !idx) = test_fn;
         } else {
             fn_slot_ptr[idx] = test_fn;
         }
-        idx = (random() >> 1) % 2;
+        idx = (long)(((unsigned long)random() >> 1UL) % 2UL);
         if (fn_slot_ptr[idx] != NULL) {
             *(fn_slot_ptr + !((idx > 0) - (idx < 0))) = fn_slot_array[idx];
         } else {
-            *(fn_slot_array + idx) = fn_slot_ptr[(!!idx) ^ 1];
+            *(fn_slot_array + idx) = fn_slot_ptr[(unsigned long)(!!idx) ^ 1UL];
         }
-        *(fn_slot_ptr + ((random() >> 1) & 1)) =
-            *(fn_slot_array + ((random() >> 1) & 1));
+        *(fn_slot_ptr + (((unsigned long)random() >> 1UL) & 1UL)) =
+            *(fn_slot_array + (((unsigned long)random() >> 1UL) & 1UL));
     }
-    fn_slot_ptr += ((random() >> 1) & 1);
+    fn_slot_ptr += (((unsigned long)random() >> 1UL) & 1UL);
     (*fn_slot_ptr)();
 }
 
@@ -14168,7 +14167,9 @@ int cpulimit_test_update_process_set(struct process_set *proc_set) {
 /* cppcheck-suppress unusedFunction */
 pid_t cpulimit_test_waitpid(pid_t pid, int *status, int options) {
     char go;
-    if (options & WNOHANG) {
+    /* WNOHANG is a bit in options, and both operands are int: take them as
+     * unsigned so the test is a bit operation on an unsigned value. */
+    if ((unsigned int)options & (unsigned int)WNOHANG) {
         seam_waitpid_wnohang_calls++;
     } else {
         seam_waitpid_blocking_calls++;
@@ -15184,7 +15185,13 @@ static void seed_random(void) {
                 strerror(errno));
         exit(EXIT_FAILURE);
     }
-    srandom((unsigned int)(time_seed.tv_sec ^ time_seed.tv_nsec));
+    /*
+     * The seed only has to mix the two fields, so they are taken as unsigned
+     * before the XOR: tv_sec and tv_nsec are signed, and XOR-ing them is a
+     * bit operation on signed operands.
+     */
+    srandom((unsigned int)((unsigned long)time_seed.tv_sec ^
+                           (unsigned long)time_seed.tv_nsec));
 }
 
 /**

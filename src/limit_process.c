@@ -373,25 +373,23 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
         }
         nsec_to_timespec(sleep_time_ns, &sleep_time);
 
-        if (verbose) {
-            if (cycle_counter % STATS_SAMPLE_PERIOD == 0) {
-                if (cycle_counter % STATS_HEADER_PERIOD == 0) {
-                    printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum",
-                           "sleep quantum", "active rate");
-                }
-                if (cpu_usage >= 0) {
-                    printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n",
-                           cpu_usage * 100, work_time_ns / 1000,
-                           sleep_time_ns / 1000, work_ratio * 100);
-                } else {
-                    /*
-                     * No measurement for this cycle yet; report that
-                     * rather than a fabricated figure.
-                     */
-                    printf("%9s%13.0f us%13.0f us%13.2f%%\n", "n/a",
-                           work_time_ns / 1000, sleep_time_ns / 1000,
-                           work_ratio * 100);
-                }
+        if (verbose && cycle_counter % STATS_SAMPLE_PERIOD == 0) {
+            if (cycle_counter % STATS_HEADER_PERIOD == 0) {
+                printf("\n%9s%16s%16s%14s\n", "%CPU", "work quantum",
+                       "sleep quantum", "active rate");
+            }
+            if (cpu_usage >= 0) {
+                printf("%8.2f%%%13.0f us%13.0f us%13.2f%%\n", cpu_usage * 100,
+                       work_time_ns / 1000, sleep_time_ns / 1000,
+                       work_ratio * 100);
+            } else {
+                /*
+                 * No measurement for this cycle yet; report that
+                 * rather than a fabricated figure.
+                 */
+                printf("%9s%13.0f us%13.0f us%13.2f%%\n", "n/a",
+                       work_time_ns / 1000, sleep_time_ns / 1000,
+                       work_ratio * 100);
             }
         }
 

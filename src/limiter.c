@@ -75,8 +75,15 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
         return EXIT_FAILURE;
     }
     fd_flags = fcntl(sync_pipe[1], F_GETFD);
+    /*
+     * Both operands go through unsigned int: the flags are a bit set, and
+     * OR-ing signed values is what bugprone-signed-bitwise reports. The
+     * result is narrowed back to the int fcntl() takes, and the value fits
+     * by construction -- FD_CLOEXEC is the only flag F_GETFD returns.
+     */
     if (fd_flags < 0 ||
-        fcntl(sync_pipe[1], F_SETFD, fd_flags | FD_CLOEXEC) < 0) {
+        fcntl(sync_pipe[1], F_SETFD,
+              (int)((unsigned int)fd_flags | (unsigned int)FD_CLOEXEC)) < 0) {
         perror("fcntl");
         close(sync_pipe[0]);
         close(sync_pipe[1]);

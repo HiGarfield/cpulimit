@@ -224,14 +224,14 @@ void configure_signal_handler(void) {
     return;
 
 error:
-    if (blocked) {
-        /*
-         * Undo the all-signals block first. Idempotent: the normal path
-         * jumping here after a failed restore simply restores once more.
-         */
-        if (sigprocmask(SIG_SETMASK, old_mask, NULL) != 0) {
-            perror("sigprocmask restore in error path");
-        }
+    /*
+     * Undo the all-signals block first. Idempotent: the normal path
+     * jumping here after a failed restore simply restores once more. The
+     * blocked test has to stay in front of the call: before the block was
+     * taken there is no mask to undo and old_mask holds nothing.
+     */
+    if (blocked && sigprocmask(SIG_SETMASK, old_mask, NULL) != 0) {
+        perror("sigprocmask restore in error path");
     }
     free(block_mask);
     free(old_mask);

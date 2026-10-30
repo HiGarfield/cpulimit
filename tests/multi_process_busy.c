@@ -67,8 +67,9 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "fork failed\n");
             kill(0, SIGKILL); /* Kill all created children */
             exit(EXIT_FAILURE);
-        } else if (pid == 0) { /* Child process (pid == 0) */
-            break;             /* Child should not create more processes */
+        }
+        if (pid == 0) { /* Child process (pid == 0) */
+            break;      /* Child should not create more processes */
         }
     }
 

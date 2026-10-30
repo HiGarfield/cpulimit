@@ -351,22 +351,21 @@ int resume_stopped_pids(struct process_set *proc_set, int verbose) {
              */
             if (!start_time_matches(rec->start_time, UNKNOWN_START_TIME)) {
                 double current = get_process_start_time(pid);
+                /*
+                 * The PID now holds a different process, but that alone
+                 * does not prove this group never stopped it. The recorded
+                 * start time is the one the scan had, and a SIGSTOP
+                 * delivered after the PID was reused stops the new owner
+                 * while the record still names the old one -- so skipping
+                 * here would leave an innocent process stopped for good,
+                 * with nothing left to release it. Only the state of the
+                 * PID right now settles it, so skip only when that PID is
+                 * not stopped.
+                 */
                 if (!start_time_matches(current, UNKNOWN_START_TIME) &&
-                    !start_time_matches(current, rec->start_time)) {
-                    /*
-                     * The PID now holds a different process, but that alone
-                     * does not prove this group never stopped it. The
-                     * recorded start time is the one the scan had, and a
-                     * SIGSTOP delivered after the PID was reused stops the
-                     * new owner while the record still names the old one --
-                     * so skipping here would leave an innocent process
-                     * stopped for good, with nothing left to release it.
-                     * Only the state of the PID right now settles it, so
-                     * skip only when that PID is not stopped.
-                     */
-                    if (!process_is_stopped(pid)) {
-                        continue;
-                    }
+                    !start_time_matches(current, rec->start_time) &&
+                    !process_is_stopped(pid)) {
+                    continue;
                 }
             }
             /*
