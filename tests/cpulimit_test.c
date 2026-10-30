@@ -14001,10 +14001,10 @@ int cpulimit_test_close_process_iterator(struct process_iterator *iter) {
         return -1;
     }
     if (seam_close_fails_after > 0) {
-        seam_close_call_count++;
-        if (seam_close_call_count > seam_close_fails_after) {
+        if (seam_close_call_count >= seam_close_fails_after) {
             return -1;
         }
+        seam_close_call_count++;
     }
     if (seam_frame_current != (size_t)-1 &&
         seam_frame_current < seam_frame_count) {
