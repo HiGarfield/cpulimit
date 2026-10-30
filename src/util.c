@@ -107,6 +107,12 @@ void increase_priority(void) {
         /* Error getting current priority, assume default priority */
         old_priority = 0;
     }
+    /*
+     * The ladder only makes sense inside the nice range, and pinning
+     * old_priority to it keeps the number of rungs a small non-negative
+     * value instead of an expression the optimiser may overflow.
+     */
+    old_priority = CLAMP(old_priority, PRIO_MIN, PRIO_MAX);
     for (priority = old_priority; priority > PRIO_MIN; priority--) {
         errno = 0;
         if (setpriority(PRIO_PROCESS, 0, priority - 1) != 0 && errno != EPERM &&
