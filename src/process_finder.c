@@ -154,7 +154,7 @@ int process_name_has_non_init_match(const char *process_name) {
         free(proc);
         return 0;
     }
-    while (found == 0 && get_next_process(&iter, proc) != -1) {
+    while (found == 0 && get_next_process(&iter, proc) == 0) {
         if (proc->pid != 1 &&
             process_name_matches_cmd(process_name, proc->command)) {
             found = 1;
@@ -306,7 +306,7 @@ pid_t find_process_by_name(const char *process_name) {
         return 0;
     }
 
-    while (get_next_process(&iter, proc) != -1) {
+    while (get_next_process(&iter, proc) == 0) {
         /*
          * Never select PID 1 (init) by name: -e init would otherwise
          * resolve to the system's init process and route it into the limit
