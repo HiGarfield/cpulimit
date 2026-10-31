@@ -306,7 +306,7 @@ pid_t find_process_by_name(const char *process_name) {
         return 0;
     }
 
-    while (get_next_process(&iter, proc) != -1) {
+    while (get_next_process(&iter, proc) == 0) {
         /*
          * Never select PID 1 (init) by name: -e init would otherwise
          * resolve to the system's init process and route it into the limit
