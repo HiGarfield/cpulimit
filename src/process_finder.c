@@ -154,7 +154,7 @@ int process_name_has_non_init_match(const char *process_name) {
         free(proc);
         return 0;
     }
-    while (found == 0 && get_next_process(&iter, proc) != -1) {
+    while (found == 0 && get_next_process(&iter, proc) == 0) {
         if (proc->pid != 1 &&
             process_name_matches_cmd(process_name, proc->command)) {
             found = 1;
