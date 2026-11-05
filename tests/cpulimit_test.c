@@ -16643,6 +16643,70 @@ static void test_exe_name_not_refused_when_init_scan_cannot_start(void) {
 #endif
 
 /**
+ * @brief A suspension undone by the re-record is not a stranded member
+ *
+ * @note process_set_send_signal() used to count every failed SIGCONT as
+ *       stranded before calling record_stopped_pid(). That function can
+ *       fail to allocate its record and undo the suspension at once, in
+ *       which case the member is running again; counting it made the
+ *       shutdown report name a process that was never left stopped and
+ *       turned a run that recovered into a non-zero exit status. Verified
+ *       by mutation: restoring the unconditional failed++ makes the count
+ *       assertion below fail.
+ */
+static void test_send_signal_does_not_count_resumed_member(void) {
+    struct process_set proc_set;
+    const struct process *tracked;
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    int ret, failed;
+
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(*frame));
+    frame->pid = (pid_t)SEAM_TARGET_PID;
+    frame->ppid = (pid_t)1;
+    frame->start_time = 10.0;
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    free(frame);
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
+    assert(ret == 0);
+    tracked =
+        find_in_process_table(proc_set.proc_table, (pid_t)SEAM_TARGET_PID);
+    assert(tracked != NULL);
+
+    /* One SIGSTOP, so this group really does owe the member a resume. */
+    failed = process_set_send_signal(&proc_set, SIGSTOP, 0);
+    assert(failed == 0);
+    assert(tracked->suspended_by_us == 1);
+
+    /*
+     * The second kill() is the group's SIGCONT and fails; the third is
+     * record_stopped_pid()'s undo after its list node is refused, and it
+     * succeeds. The member is running again by the time this round has to
+     * report its failures.
+     */
+    seam_fail_call = 2;
+    seam_fail_errno = EPERM;
+    seam_fail_sig = SIGCONT;
+    seam_list_elem_fails_next = 1;
+    failed = process_set_send_signal(&proc_set, SIGCONT, 0);
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    seam_fail_sig = 0;
+    seam_list_elem_fails_next = 0;
+    seam_active = 0;
+
+    assert(failed == 0);
+    assert(tracked->suspended_by_us == 0);
+
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+}
+
+/**
  * @brief A genuine miss says "cannot be found" even when the scan lists PID 1
  *
  * @note find_process_by_name() skips PID 1 silently no matter what name it
@@ -18019,6 +18083,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_reports_stop_failure_after_recovery);
     RUN_TEST(test_process_set_reports_each_member_stop_failure);
     RUN_TEST(test_process_set_unrecorded_suspend_not_flagged);
+    RUN_TEST(test_send_signal_does_not_count_resumed_member);
     RUN_TEST(test_process_set_clears_stale_suspend_flag_on_undo);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
     RUN_TEST(test_process_set_does_not_duplicate_pid);

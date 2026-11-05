@@ -1032,7 +1032,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                 *gate = 1;
                 /* Only a severe failure counts and can strand a member. */
                 if (kind == SIGNAL_FAILURE_SEVERE) {
-                    failed++;
+                    int resumed = 0;
                     if (sig == SIGCONT && proc->suspended_by_us) {
                         /*
                          * Re-record the suspension this group still owes an
@@ -1042,11 +1042,20 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                          * exits) the table entry keeping it visible goes too,
                          * and nothing would ever resume it.
                          * record_stopped_pid() folds a repeat into the first,
-                         * so no duplicate is created, and a failed allocation
-                         * resumes it at once.
+                         * so no duplicate is created. When the record cannot
+                         * be made it undoes the suspension at once; that
+                         * answer means the member is running, so the failed
+                         * delivery stranded nothing and MUST NOT be counted.
                          */
-                        (void)record_stopped_pid(proc_set, pid,
-                                                 proc->start_time);
+                        resumed = record_stopped_pid(proc_set, pid,
+                                                     proc->start_time) ==
+                                  RECORD_STOPPED_RESUMED;
+                        if (resumed) {
+                            proc->suspended_by_us = 0;
+                        }
+                    }
+                    if (!resumed) {
+                        failed++;
                     }
                 }
             }
