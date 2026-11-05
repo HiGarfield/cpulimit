@@ -16534,6 +16534,112 @@ static void test_exe_name_shared_with_init_still_accepted(void) {
     assert(cfg.exe_name != NULL);
     free(cmdline);
 }
+
+/**
+ * @brief A broken init-name scan must not refuse the target
+ *
+ * @note process_name_has_non_init_match() used to answer 0 both for "the
+ *       scan completed and found nothing" and for "the scan stopped with
+ *       PROCESS_ITER_ERROR". cli.c turns 0 into a hard refusal, so a /proc
+ *       read that broke part way through made cpulimit reject a name that
+ *       may still have limitable processes behind it, before the limiter
+ *       ever started. Verified by mutation: treating the broken scan as 0
+ *       makes parse_arguments() return EXIT_FAILURE.
+ */
+static void test_exe_name_not_refused_on_broken_init_scan(void) {
+    char *cmdline;
+    char *argv[6];
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_e[] = "-e";
+    struct cpulimit_cfg cfg;
+    int rc;
+
+    cmdline = read_file_contents("/proc/1/cmdline");
+    if (cmdline == NULL) {
+        printf("(skipped: could not read /proc/1/cmdline)\n");
+        fflush(stdout);
+        return;
+    }
+    if (cmdline[0] == '\0' || strlen(cmdline) >= CMD_BUFF_SIZE) {
+        printf("(skipped: PID 1 has an empty or oversized command line)\n");
+        fflush(stdout);
+        free(cmdline);
+        return;
+    }
+    argv[0] = arg0;
+    argv[1] = arg_l;
+    argv[2] = arg_50;
+    argv[3] = arg_e;
+    argv[4] = cmdline;
+    argv[5] = NULL;
+
+    seam_reset();
+    seam_active = 1;
+    seam_next_process_fails = 1;
+    test_mute_output();
+    rc = parse_arguments(5, argv, &cfg);
+    test_unmute_output();
+    seam_next_process_fails = 0;
+    seam_active = 0;
+
+    assert(rc == 0);
+    assert(cfg.exe_name != NULL);
+    free(cmdline);
+}
+
+/**
+ * @brief An init-name scan that cannot start must not refuse the target
+ *
+ * @note The same 0 was returned when the iterator would not open or the
+ *       snapshot could not be allocated. Neither says anything about
+ *       whether another process wears the name, so refusing on it ended a
+ *       run that could have been started. Verified by mutation: answering
+ *       0 on the failed init makes parse_arguments() return EXIT_FAILURE.
+ */
+static void test_exe_name_not_refused_when_init_scan_cannot_start(void) {
+    char *cmdline;
+    char *argv[6];
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_e[] = "-e";
+    struct cpulimit_cfg cfg;
+    int rc;
+
+    cmdline = read_file_contents("/proc/1/cmdline");
+    if (cmdline == NULL) {
+        printf("(skipped: could not read /proc/1/cmdline)\n");
+        fflush(stdout);
+        return;
+    }
+    if (cmdline[0] == '\0' || strlen(cmdline) >= CMD_BUFF_SIZE) {
+        printf("(skipped: PID 1 has an empty or oversized command line)\n");
+        fflush(stdout);
+        free(cmdline);
+        return;
+    }
+    argv[0] = arg0;
+    argv[1] = arg_l;
+    argv[2] = arg_50;
+    argv[3] = arg_e;
+    argv[4] = cmdline;
+    argv[5] = NULL;
+
+    seam_reset();
+    seam_active = 1;
+    seam_init_fails = 1;
+    test_mute_output();
+    rc = parse_arguments(5, argv, &cfg);
+    test_unmute_output();
+    seam_init_fails = 0;
+    seam_active = 0;
+
+    assert(rc == 0);
+    assert(cfg.exe_name != NULL);
+    free(cmdline);
+}
 #endif
 
 /**
@@ -17889,6 +17995,8 @@ static void run_process_set_module_tests(void) {
 #if defined(__linux__)
     RUN_TEST(test_exe_name_matching_init_rejected_at_argument_check);
     RUN_TEST(test_exe_name_shared_with_init_still_accepted);
+    RUN_TEST(test_exe_name_not_refused_on_broken_init_scan);
+    RUN_TEST(test_exe_name_not_refused_when_init_scan_cannot_start);
 #endif
     RUN_TEST(test_name_mode_miss_ignores_enumerated_init);
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);

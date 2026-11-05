@@ -229,7 +229,10 @@ static int validate_target_options(const struct cpulimit_cfg *cfg) {
  * ordinary processes behind it, and those are limitable targets like any
  * other. Only when nothing else wears it does the name have nowhere left to
  * go, and only then is a refusal worth more than the "cannot be found" line
- * the first attempt would print anyway. macOS and FreeBSD have no
+ * the first attempt would print anyway. Only a completed scan proves that:
+ * process_name_has_non_init_match() answers -1 when it could not establish
+ * the absence of another match, and a refusal on an inconclusive answer would
+ * end a run that the limiter could have started. macOS and FreeBSD have no
  * /proc/1/cmdline, so the finder's silent exclusion is their only guard and
  * this check is compiled out there; they never refuse the name, and simply
  * find whatever else is wearing it.
@@ -249,7 +252,7 @@ static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
      * stops at the first NUL, which is all the comparison may read.
      */
     if (process_name_matches_cmd(cfg->exe_name, cmdline) &&
-        !process_name_has_non_init_match(cfg->exe_name)) {
+        process_name_has_non_init_match(cfg->exe_name) == 0) {
         fprintf(
             stderr,
             "Error: target name '%s' resolves to PID 1 (init), which is never a valid target\n\n",

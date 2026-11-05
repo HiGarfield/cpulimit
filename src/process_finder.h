@@ -86,11 +86,17 @@ int process_name_matches_cmd(const char *process_name, const char *command);
  *
  * @param process_name Name or absolute path as typed by the operator
  * @return 1 when at least one process other than PID 1 has a matching argv[0],
- *         0 when none does, or when the name is unusable or the scan fails
+ *         0 when a completed scan proves none does, -1 when the answer cannot
+ *         be established (an unusable name, an allocation or iterator
+ *         failure, or a scan that stopped before the table was read to its end)
  *
  * Answers whether a name would lead anywhere beyond init: the lookup skips
  * PID 1 already, so such a name is a dead end only when nothing else wears it.
- * Read-only -- signals nothing, builds no candidate list, prints nothing.
+ * "No match" and "could not tell" MUST stay distinct: cli.c refuses the name
+ * on 0, and a scan that stopped early has seen only a prefix of the table, so
+ * reporting 0 there would reject a name with limitable processes behind it.
+ * Read-only -- signals nothing, builds no candidate list, prints nothing of
+ * its own beyond a failed iterator close.
  */
 int process_name_has_non_init_match(const char *process_name);
 

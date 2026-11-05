@@ -119,7 +119,9 @@ int process_name_matches_cmd(const char *process_name, const char *command) {
  *
  * @param process_name Name or absolute path as typed by the operator
  * @return 1 when at least one process other than PID 1 has a matching argv[0],
- *         0 when none does, or when the name is unusable or the scan fails
+ *         0 when a completed scan proves none does, -1 when the answer cannot
+ *         be established (an unusable name, an allocation or iterator
+ *         failure, or a scan that stopped before the table was read to its end)
  *
  * Answers the narrower question behind the Linux-only refusal in cli.c. The
  * name lookup skips PID 1 on every platform, so a name init happens to wear
@@ -128,33 +130,38 @@ int process_name_matches_cmd(const char *process_name, const char *command) {
  * of them answers to a signal is not asked here -- that is find_process_by_
  * name()'s job, and it decides which match wins, not whether one exists.
  *
- * Read-only: signals nothing, builds no candidate list, prints nothing.
+ * Read-only: signals nothing, builds no candidate list, prints nothing of its
+ * own beyond a failed iterator close.
  *
- * @note Returns 0 when the scan itself fails. Being told "nothing else" then
- *       costs a name refused here that every platform would have reported as
- *       not found a moment later, which is the one outcome shared anyway.
+ * @note Only a completed scan may answer 0. cli.c refuses the name outright
+ *       on that value, so an allocation or iterator failure, or a scan that
+ *       stopped before the table had been read to its end, has to answer -1
+ *       and leave the name to find_process_by_name(), which discards a broken
+ *       scan and re-resolves instead of ending the run on a half-answered
+ *       question.
  */
 int process_name_has_non_init_match(const char *process_name) {
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
     int found = 0;
+    int scan_rc = 0;
 
     if (process_name == NULL || process_name[0] == '\0') {
-        return 0;
+        return -1;
     }
     proc = (struct process *)malloc(sizeof(*proc));
     if (proc == NULL) {
-        return 0;
+        return -1;
     }
     filter.pid = 0;
     filter.include_children = 0;
     filter.read_cmd = 1;
     if (init_process_iterator(&iter, &filter) != 0) {
         free(proc);
-        return 0;
+        return -1;
     }
-    while (found == 0 && get_next_process(&iter, proc) == 0) {
+    while (found == 0 && (scan_rc = get_next_process(&iter, proc)) == 0) {
         if (proc->pid != 1 &&
             process_name_matches_cmd(process_name, proc->command)) {
             found = 1;
@@ -163,6 +170,9 @@ int process_name_has_non_init_match(const char *process_name) {
     free(proc);
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
+    }
+    if (scan_rc == PROCESS_ITER_ERROR) {
+        return -1;
     }
     return found;
 }
