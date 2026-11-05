@@ -8652,6 +8652,64 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
 }
 
 /**
+ * @brief An executable script with a dead interpreter must not shadow the
+ *        later PATH entry execvp() would reach
+ *
+ * @note The shebang pre-check resolved a bare name only as far as the first
+ *       executable PATH component. execve() reports ENOENT for a script whose
+ *       interpreter is gone and execvp() keeps searching, so the probe was
+ *       judging a file the exec never uses: it printed "shebang interpreter
+ *       is inaccessible" and exited 126, while the very same command run by
+ *       a shell executed the healthy copy later on PATH. Both components
+ *       are executable here, so only the interpreter decides. Verified by
+ *       mutation: restoring the first-match probe reports 126 instead of 9.
+ */
+static void test_limiter_command_mode_skips_bad_shebang_path_entry(void) {
+    char *dir_a, *dir_b, *path_value;
+    char name[] = "pathbadsh_cpulimit_xyz";
+    struct cpulimit_cfg cfg;
+    char *args[2];
+    size_t dir_size = 48, path_size = 48 * 2 + 2;
+    int len, exit_code;
+
+    dir_a = (char *)malloc(dir_size);
+    dir_b = (char *)malloc(dir_size);
+    path_value = (char *)malloc(path_size);
+    assert(dir_a != NULL);
+    assert(dir_b != NULL);
+    assert(path_value != NULL);
+
+    make_test_dir(dir_a, dir_size, "pbsha");
+    make_test_dir(dir_b, dir_size, "pbshb");
+    write_test_script(dir_a, name, "#!/nonexistent_interpreter_cpulimit_xyz\n",
+                      0755);
+    write_test_script(dir_b, name, "#!/bin/sh\nexit 9\n", 0755);
+
+    args[0] = name;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    len = snprintf(path_value, path_size, "%s:%s", dir_a, dir_b);
+    assert(len > 0 && (size_t)len < path_size);
+    exit_code = run_command_mode_with_path(&cfg, path_value, NULL);
+    assert(exit_code == 9);
+
+    remove_test_script(dir_a, name);
+    remove_test_script(dir_b, name);
+    assert(rmdir(dir_a) == 0);
+    assert(rmdir(dir_b) == 0);
+
+    free(path_value);
+    free(dir_b);
+    free(dir_a);
+}
+
+/**
  * @brief Detect whether the test binary is running under valgrind
  *
  * @return 1 when a valgrind preload library has been injected, 0 otherwise
@@ -18562,6 +18620,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_script_check_defers_on_truncated_shebang);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
     RUN_TEST(test_limiter_command_mode_skips_unusable_path_entry);
+    RUN_TEST(test_limiter_command_mode_skips_bad_shebang_path_entry);
     RUN_TEST(test_limiter_run_command_mode_fifo);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_without_group);

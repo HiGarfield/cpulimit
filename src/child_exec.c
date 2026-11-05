@@ -64,7 +64,9 @@
  * @param name Command name without a '/'
  * @param out  Buffer receiving the resolved path (must hold PATH_MAX bytes)
  * @param out_size Size of out in bytes
- * @return 1 if a component of PATH yields a file that can be executed, 0
+ * @param skipped_bad Out: non-zero when a candidate whose shebang interpreter
+ *        is inaccessible was passed over
+ * @return 1 if a component of PATH yields a file execvp() can use, 0
  *         otherwise
  *
  * Mirrors execvp()'s PATH search so the shebang pre-check below can inspect a
@@ -79,11 +81,21 @@
  * exec never reaches -- and the pre-check refuses on that judgement. An empty
  * component denotes the current directory (POSIX), which is what "." spells
  * here; strtok() dropped those along with the file execvp() would have run.
+ *
+ * An executable script whose interpreter is gone is another component
+ * execvp() passes over: execve() reports ENOENT and the search continues.
+ * Such a candidate must therefore not decide the pre-check either. When no
+ * usable component exists at all, the first passed-over script is returned
+ * so the pre-check still reports 126 instead of a misleading 127.
  */
-static int resolve_command_path(const char *name, char *out, size_t out_size) {
+static int resolve_command_path(const char *name, char *out, size_t out_size,
+                                int *skipped_bad) {
     const char *path_env;
+    const char *bad_dir = NULL;
+    size_t bad_dir_len = 0;
     int found = 0;
 
+    *skipped_bad = 0;
     if (strchr(name, '/') != NULL) {
         return 0;
     }
@@ -112,13 +124,36 @@ static int resolve_command_path(const char *name, char *out, size_t out_size) {
             len = -1;
         }
         if (len > 0 && (size_t)len < out_size && access(out, X_OK) == 0) {
-            found = 1;
-            break;
+            if (is_script_inaccessible_interpreter(out)) {
+                if (bad_dir == NULL) {
+                    bad_dir = path_env;
+                    bad_dir_len = dir_len;
+                }
+                *skipped_bad = 1;
+            } else {
+                found = 1;
+                break;
+            }
         }
         if (sep == NULL) {
             break;
         }
         path_env = sep + 1;
+    }
+    if (!found && bad_dir != NULL) {
+        int len;
+        if (bad_dir_len == 0) {
+            len = snprintf(out, out_size, "./%s", name);
+        } else if (bad_dir_len <= (size_t)INT_MAX && bad_dir_len < out_size) {
+            len = snprintf(out, out_size, "%.*s/%s", (int)bad_dir_len, bad_dir,
+                           name);
+        } else {
+            len = -1;
+        }
+        /* Only a complete path may be handed to the pre-check. */
+        if (len > 0 && (size_t)len < out_size) {
+            found = 1;
+        }
     }
     return found;
 }
@@ -136,8 +171,10 @@ static int resolve_command_path(const char *name, char *out, size_t out_size) {
 void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
                         int sync_write_fd) {
     int saved_errno;
+    int skipped_bad = 0;
     const char *check_path;
     const char *script_path;
+    const char *exec_path;
     char *resolved;
 
     /*
@@ -235,7 +272,8 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     if (strchr(check_path, '/') != NULL) {
         script_path = check_path;
     } else if (resolved != NULL &&
-               resolve_command_path(check_path, resolved, PATH_MAX)) {
+               resolve_command_path(check_path, resolved, PATH_MAX,
+                                    &skipped_bad)) {
         script_path = resolved;
     } else {
         script_path = NULL;
@@ -248,8 +286,16 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         free(resolved);
         _exit(EXIT_CMD_NOT_EXECUTABLE);
     }
-    free(resolved);
-    execvp(check_path, cfg->command_args);
+    /*
+     * When a PATH candidate was passed over because its interpreter is
+     * gone, execvp() would start its own search at that candidate again.
+     * Under an exec interceptor such as valgrind the resulting failed
+     * execve() is unrecoverable, so execute the file the probe selected
+     * instead. argv[0] is still what the operator typed, so the command
+     * sees exactly the same arguments.
+     */
+    exec_path = (skipped_bad && script_path != NULL) ? script_path : check_path;
+    execvp(exec_path, cfg->command_args);
 
     /*
      * Execution reaches here only if execvp() failed.
@@ -276,6 +322,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      */
     saved_errno = errno;
     perror("execvp");
+    free(resolved);
     close(sync_write_fd);
     if (strchr(cfg->command_args[0], '/') != NULL) {
         _exit(access(cfg->command_args[0], F_OK) == 0 ? EXIT_CMD_NOT_EXECUTABLE
