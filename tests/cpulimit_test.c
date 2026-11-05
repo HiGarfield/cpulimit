@@ -16990,6 +16990,81 @@ static void test_process_set_reports_failed_resume(void) {
  *       Verified by mutation: dropping the re-record makes both asserts fail
  *       (the resume count stays 0 and the round reports success).
  */
+/**
+ * @brief A deferred resume that failed mid-run must still be retried
+ *
+ * @note resume_stopped_pids() runs at the start of every SIGCONT round, not
+ *       only at shutdown, and the WORK PHASE discards its return value. It
+ *       used to destroy the whole record list, so the first failed attempt
+ *       on a PID that had left the group erased the only trace of a process
+ *       this group had suspended: no later round resumed it, and shutdown
+ *       reported success. A second round must now find the record and
+ *       deliver the SIGCONT. Verified by mutation: restoring destroy_list()
+ *       leaves the resume count at zero.
+ */
+static void test_process_set_retries_failed_deferred_resume(void) {
+    struct process_set proc_set;
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    size_t from_call, idx, resumed = 0;
+    int assert_rc, first_failed, later_failed;
+
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    frame[0].cpu_time = 10.0;
+    frame[0].start_time = 10.0;
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_active = 1;
+
+    assert_rc = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
+    assert(assert_rc == 0);
+
+    /* A successful stop puts the member's suspension on the books. */
+    assert_rc = process_set_send_signal(&proc_set, SIGSTOP, 0);
+    assert(assert_rc == 0);
+
+    /* The member leaves the group while it is still suspended. */
+    seam_push_frame(NULL, 0);
+    seam_repeat_last = 1;
+    assert_rc = update_process_set(&proc_set);
+    assert(assert_rc == 0);
+    assert_rc = process_set_is_empty(&proc_set);
+    assert(assert_rc);
+
+    /* An intermediate round fails; the control loop discards that count. */
+    seam_kill_calls = 0;
+    seam_fail_call = 1;
+    seam_fail_span = 1;
+    seam_fail_errno = EPERM;
+    first_failed = process_set_send_signal(&proc_set, SIGCONT, 0);
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    assert(first_failed == 1);
+
+    /* A later round must retry the record and deliver the missing SIGCONT. */
+    from_call = seam_signal_count;
+    later_failed = process_set_send_signal(&proc_set, SIGCONT, 0);
+    for (idx = from_call; idx < seam_signal_count; idx++) {
+        if (seam_signals[idx].pid == (pid_t)SEAM_TARGET_PID &&
+            seam_signals[idx].sig == SIGCONT && !seam_signals[idx].failed) {
+            resumed = 1;
+        }
+    }
+
+    close_process_set(&proc_set);
+    seam_active = 0;
+    seam_repeat_last = 0;
+    seam_reset();
+    free(frame);
+
+    assert(later_failed == 0);
+    assert(resumed == 1);
+}
+
 static void test_process_set_rerecords_member_failed_resume(void) {
     struct process_set ps;
     int assert_rc;
@@ -17715,6 +17790,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_excludes_self_from_group);
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
+    RUN_TEST(test_process_set_retries_failed_deferred_resume);
     RUN_TEST(test_process_set_rerecords_member_failed_resume);
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);

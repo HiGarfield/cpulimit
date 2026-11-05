@@ -239,6 +239,8 @@ static struct process *process_dup(const struct process *proc) {
 struct stopped_pid_record {
     pid_t pid;
     double start_time;
+    /* Gates the failed-resume warning so a retained record warns once. */
+    int warned;
 };
 
 /**
@@ -278,6 +280,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
     if (rec != NULL) {
         rec->pid = pid;
         rec->start_time = start_time;
+        rec->warned = 0;
         if (add_list_elem(proc_set->stopped_pids, rec) != NULL) {
             return 0;
         }
@@ -329,21 +332,24 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  *       the call is then a no-op returning 0
  */
 int resume_stopped_pids(struct process_set *proc_set, int verbose) {
-    const struct list_node *node;
+    struct list_node *node, *next_node;
     int failed = 0;
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
         return 0;
     }
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
-         node = node->next) {
-        const struct stopped_pid_record *rec =
-            (const struct stopped_pid_record *)node->data;
+         node = next_node) {
+        struct stopped_pid_record *rec =
+            (struct stopped_pid_record *)node->data;
         pid_t pid = rec->pid;
+        int keep_record = 0;
+        next_node = node->next;
         /*
          * Still-members are resumed by the regular round over proc_list;
          * signalling them here would be a redundant second SIGCONT.
          */
         if (find_process_in_list_by_pid(proc_set->proc_list, pid) == NULL) {
+            int resumed = 1;
             /*
              * If recorded, re-check the start time: a recycled PID must not
              * receive the resume meant for its predecessor. Unknown start
@@ -365,28 +371,36 @@ int resume_stopped_pids(struct process_set *proc_set, int verbose) {
                 if (!start_time_matches(current, UNKNOWN_START_TIME) &&
                     !start_time_matches(current, rec->start_time) &&
                     !process_is_stopped(pid)) {
-                    continue;
+                    resumed = 0;
                 }
             }
             /*
-             * Last chance for this process: the record is dropped below,
-             * so a failure here leaves it suspended with nothing left to
-             * retry it. Say so instead of letting it stop silently.
              * A failure with ESRCH means the process is already gone, so
-             * there is no suspension left to undo and nothing to report;
-             * every other errno keeps the always-report policy and counts
-             * as stranded so the caller can fail the shutdown.
+             * there is no suspension left to undo and nothing to report.
+             * Every other errno leaves the process stopped while this
+             * group still owes it a resume: keep the record so a later
+             * round retries it and the shutdown round counts it as
+             * stranded. This round is not always the shutdown one -- the
+             * WORK PHASE calls here too and discards the count -- so
+             * dropping the record here would turn a suspended process
+             * into a silent success.
              */
-            if (kill(pid, SIGCONT) != 0) {
+            if (resumed && kill(pid, SIGCONT) != 0) {
                 int err = errno;
-                warn_signal_failure(SIGCONT, pid, err, verbose, 1);
+                /* A retained record is retried every cycle: warn once. */
+                warn_signal_failure(SIGCONT, pid, err, verbose && !rec->warned,
+                                    1);
+                rec->warned = 1;
                 if (err != ESRCH) {
                     failed++;
+                    keep_record = 1;
                 }
             }
         }
+        if (!keep_record) {
+            destroy_list_node(proc_set->stopped_pids, node);
+        }
     }
-    destroy_list(proc_set->stopped_pids);
     return failed;
 }
 
@@ -1022,8 +1036,8 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                     if (sig == SIGCONT && proc->suspended_by_us) {
                         /*
                          * Re-record the suspension this group still owes an
-                         * undo for. The round destroyed every record, so this
-                         * stopped member has none left: if it leaves the group
+                         * undo for. The round removed this member's record,
+                         * so it has none left: if it leaves the group
                          * (e.g. a descendant re-parented when its ancestor
                          * exits) the table entry keeping it visible goes too,
                          * and nothing would ever resume it.

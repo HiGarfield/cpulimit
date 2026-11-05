@@ -183,7 +183,8 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
                        double start_time);
 
 /**
- * @brief Resume every PID recorded by record_stopped_pid() and empty the list
+ * @brief Resume every PID recorded by record_stopped_pid() and drop the
+ *        records whose resume succeeded
  *
  * @param proc_set Pointer to the process set structure
  * @param verbose Non-zero to name each PID that could not be resumed; without
@@ -193,6 +194,10 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
  *         than ESRCH (they may have been left stopped and the shutdown report
  *         must treat them like a failed resume of a current member)
  *
+ * @note A PID whose SIGCONT could not be delivered keeps its record, so a
+ *       later round retries it and the shutdown round can still count it.
+ *       The WORK PHASE also calls this and discards the count, so dropping
+ *       those records would lose the suspension entirely.
  * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
  *       the call is then a no-op returning 0
  */
