@@ -374,7 +374,9 @@ pid_t find_process_by_name(const char *process_name) {
                             process_cmp_name);
                     free(candidates);
                     free(proc);
-                    close_process_iterator(&iter);
+                    if (close_process_iterator(&iter) != 0) {
+                        fprintf(stderr, "Failed to close process iterator\n");
+                    }
                     return 0;
                 }
                 grown = (pid_t *)realloc(candidates, new_cap * sizeof(*grown));
@@ -383,7 +385,9 @@ pid_t find_process_by_name(const char *process_name) {
                             "Memory allocation failed for the candidates\n");
                     free(candidates);
                     free(proc);
-                    close_process_iterator(&iter);
+                    if (close_process_iterator(&iter) != 0) {
+                        fprintf(stderr, "Failed to close process iterator\n");
+                    }
                     return 0;
                 }
                 candidates = grown;
