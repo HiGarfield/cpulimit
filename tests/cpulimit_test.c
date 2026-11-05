@@ -10580,6 +10580,17 @@ static int seam_close_call_count = 0;
 static int seam_next_process_fails = 0;
 
 /**
+ * @brief When positive, get_next_process() reports PROCESS_ITER_ERROR after
+ *        this many processes have been served in the current scan.
+ *
+ * Stands for a /proc scan that breaks part way through: a scripted prefix is
+ * delivered, then readdir() fails. 0 disables the injection. The counter is
+ * reset on every init_process_iterator(), so it counts within one scan.
+ */
+static int seam_next_process_error_after = 0;
+static int seam_next_process_served = 0;
+
+/**
  * @brief After this many successful update_process_set() calls, force the
  *        next one to fail (-1). 0 disables the injection.
  *
@@ -10684,6 +10695,8 @@ static void seam_reset(void) {
     seam_close_call_count = 0;
     seam_list_elem_fails_next = 0;
     seam_next_process_fails = 0;
+    seam_next_process_error_after = 0;
+    seam_next_process_served = 0;
     seam_fail_update_after = 0;
     seam_update_call_count = 0;
     seam_hook_limit_process = 0;
@@ -10857,6 +10870,43 @@ static void test_find_by_name_probes_even_if_iterator_close_fails(void) {
  *       Verified by mutation: restoring the shortcut returns the preferred
  *       PID instead of the controllable one.
  */
+/**
+ * @brief A name scan that stopped on an error must not pick a winner
+ *
+ * @note get_next_process() distinguishes a completed scan (-1) from one
+ *       that broke before the end of the table (PROCESS_ITER_ERROR). The
+ *       name lookup used only "== 0" as its loop condition, so a partial
+ *       prefix of same-named processes was treated as the whole answer:
+ *       select_preferred_candidate() picked a PID from an incomplete set,
+ *       and a lazy run then limited the wrong process (or reported "not
+ *       found" when the prefix held no match). The scan is scripted to
+ *       deliver one matching candidate and then fail. Verified by
+ *       mutation: removing the PROCESS_ITER_ERROR check returns that PID.
+ */
+static void test_find_by_name_rejects_partial_scan(void) {
+    pid_t result;
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    assert(frame != NULL);
+
+    memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    strcpy(frame[0].command, "busy");
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_active = 1;
+    seam_next_process_error_after = 1;
+    result = find_process_by_name("busy");
+    seam_active = 0;
+    seam_reset();
+
+    /* The one match is only a prefix: nothing may be selected from it. */
+    assert(result == 0);
+    free(frame);
+}
+
 static void test_find_by_name_prefers_controllable_if_close_fails(void) {
     pid_t result;
     const pid_t other = (pid_t)(SEAM_TARGET_PID + 1);
@@ -13938,6 +13988,7 @@ int cpulimit_test_init_process_iterator(struct process_iterator *iter,
     }
     seam_mark_snapshot();
     seam_frames_served++;
+    seam_next_process_served = 0;
     seam_frame_current = (size_t)-1;
     if (seam_frames_served <= SEAM_MAX_SERVED_FRAMES) {
         if (seam_frame_next < seam_frame_count) {
@@ -13968,6 +14019,10 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
     if (seam_next_process_fails) {
         return PROCESS_ITER_ERROR;
     }
+    if (seam_next_process_error_after > 0 &&
+        seam_next_process_served >= seam_next_process_error_after) {
+        return PROCESS_ITER_ERROR;
+    }
     (void)iter;
     if (proc == NULL || seam_frame_current == (size_t)-1 ||
         seam_frame_pos >= seam_frame_len[seam_frame_current]) {
@@ -13982,6 +14037,7 @@ int cpulimit_test_get_next_process(struct process_iterator *iter,
     memcpy(proc->command, entry->command, sizeof(proc->command));
     proc->cpu_usage = -1;
     seam_frame_pos++;
+    seam_next_process_served++;
     return 0;
 }
 
@@ -18462,6 +18518,7 @@ static void run_process_finder_module_tests(void) {
     RUN_TEST(test_process_finder_find_by_pid_reports_eacces);
     RUN_TEST(test_process_finder_find_by_name_reports_permission_denied);
     RUN_TEST(test_find_by_name_probes_even_if_iterator_close_fails);
+    RUN_TEST(test_find_by_name_rejects_partial_scan);
     RUN_TEST(test_find_by_name_prefers_controllable_if_close_fails);
     RUN_TEST(test_find_by_name_keeps_every_candidate);
     RUN_TEST(test_process_finder_find_by_name);

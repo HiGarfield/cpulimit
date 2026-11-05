@@ -264,6 +264,7 @@ pid_t find_process_by_name(const char *process_name) {
     size_t n_candidates = 0;
     size_t candidates_cap = 0;
     size_t i;
+    int scan_rc = 0;
     struct process_iterator iter;
     struct process_filter filter;
     struct process *proc;
@@ -306,7 +307,7 @@ pid_t find_process_by_name(const char *process_name) {
         return 0;
     }
 
-    while (get_next_process(&iter, proc) == 0) {
+    while ((scan_rc = get_next_process(&iter, proc)) == 0) {
         /*
          * Never select PID 1 (init) by name: -e init would otherwise
          * resolve to the system's init process and route it into the limit
@@ -393,6 +394,19 @@ pid_t find_process_by_name(const char *process_name) {
      */
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
+    }
+    /*
+     * PROCESS_ITER_ERROR means readdir() failed before the table was read
+     * to its end, so candidates holds only a prefix of the processes that
+     * wear this name. Choosing from it would make the winner depend on where
+     * the scan broke, and an empty prefix would read as "not found". The
+     * scan's own contract is to report 0 on an iterator error; discard the
+     * partial result so a lazy run fails this attempt and a watching one
+     * re-resolves on its next poll.
+     */
+    if (scan_rc == PROCESS_ITER_ERROR) {
+        free(candidates);
+        return 0;
     }
 
     /*
