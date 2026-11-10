@@ -67,6 +67,13 @@ static kvm_t *open_kvm(void) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         return NULL;
     }
+    /*
+     * kvm_openfiles() writes a NUL-terminated message only on the failure
+     * paths it reaches, not on every one of them. Printing an untouched
+     * malloc() buffer with %s reads uninitialised heap bytes and can run
+     * past the allocation, so make it an empty C string up front.
+     */
+    errbuf[0] = '\0';
     kvm_descriptor = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
     if (kvm_descriptor == NULL) {
         fprintf(stderr, "kvm_openfiles: %s\n", errbuf);
