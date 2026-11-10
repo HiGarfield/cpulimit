@@ -108,6 +108,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     double start_time = UNKNOWN_START_TIME;
     int parsed;
     static long sc_clk_tck = -1;
+    /* Latches a failed lookup, which the negative sentinel alone cannot do. */
+    static int sc_clk_tck_failed = 0;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -158,21 +160,37 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         return -1;
     }
     if (sc_clk_tck < 0) {
+        /*
+         * Leaving the sentinel negative makes the guard true again on the
+         * next call, so a failure has to be latched separately: retrying
+         * sysconf() and printing the diagnostic once per process of every
+         * scan is exactly what "report once" is meant to avoid. A platform
+         * that refuses to report a clock frequency will not start reporting
+         * it a moment later.
+         */
+        if (sc_clk_tck_failed) {
+            return -1;
+        }
         errno = 0;
         sc_clk_tck = sysconf(_SC_CLK_TCK);
         if (sc_clk_tck <= 0) {
             /*
-             * Report once and leave the cached value negative. Storing the
-             * 0 a failed sysconf() can return would not read as "unset" --
-             * 0 is not < 0 -- so every later call would skip this block and
-             * divide by zero converting ticks to milliseconds, reporting an
-             * infinite cpu_time instead of failing. A clock frequency the
-             * platform refuses to report is not going to start being
-             * reported a moment later, so the line is printed here rather
-             * than for every process of every scan.
+             * Restore the negative sentinel rather than storing the 0 a
+             * failed sysconf() can return: 0 is not < 0, so a later call
+             * would skip this block and divide by zero converting ticks
+             * to milliseconds, reporting an infinite cpu_time instead of
+             * failing the read. A sysconf() that returns without setting
+             * errno has no error worth naming through perror(), which
+             * would otherwise print a misleading "Success".
              */
-            perror("sysconf(_SC_CLK_TCK)");
+            if (errno != 0) {
+                perror("sysconf(_SC_CLK_TCK)");
+            } else {
+                fprintf(stderr, "sysconf(_SC_CLK_TCK) returned %ld\n",
+                        sc_clk_tck);
+            }
             sc_clk_tck = -1;
+            sc_clk_tck_failed = 1;
             return -1;
         }
     }
