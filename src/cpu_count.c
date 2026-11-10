@@ -213,11 +213,19 @@ int get_ncpu(void) {
         sysctl_mib[1] = HW_NCPU;
 #endif
         if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
-            ncpu < 1) {
+            ncpu_size != sizeof(ncpu) || ncpu < 1) {
             /* Fallback: try HW_NCPU directly */
             sysctl_mib[1] = HW_NCPU;
+            /*
+             * sysctl() replaces oldlenp with the number of bytes it wrote,
+             * and a failed first call can leave it -- and ncpu -- holding
+             * values from that attempt. Reset both before the retry so
+             * HW_NCPU is read into a full-sized, known-clean buffer.
+             */
+            ncpu = 0;
+            ncpu_size = sizeof(ncpu);
             if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
-                ncpu < 1) {
+                ncpu_size != sizeof(ncpu) || ncpu < 1) {
                 ncpu = 1; /* Complete failure; assume 1 CPU */
             }
         }
