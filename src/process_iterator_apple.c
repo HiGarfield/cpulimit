@@ -344,13 +344,20 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
  *
  * Returns -1 for:
  * - Permission denied (EPERM) or process not found (ESRCH)
- * - Any other error from proc_pidinfo(): reported with perror(), because the
- *   errno is the only record of why the process was dropped; the caller sees
- *   it as a process the iterator skipped
+ * - Any other error from proc_pidinfo() that sets errno: reported with
+ *   perror(), because the errno is the only record of why the process was
+ *   dropped; the caller sees it as a process the iterator skipped
  * - Zombie processes (pbi_status == SZOMB)
  * - System processes (pbi_flags & PROC_FLAG_SYSTEM)
  */
 static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
+    /*
+     * proc_pidinfo() reports a short reading through its return value and
+     * need not set errno. Clear it first so the classification below cannot
+     * mistake a value left by an earlier sysctl() or malloc() for this
+     * call's reason.
+     */
+    errno = 0;
     if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info,
                      sizeof(*task_info)) != (int)sizeof(*task_info)) {
         /*
@@ -358,9 +365,11 @@ static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
          * user is not allowed to inspect, is the ordinary case during a
          * full scan, and a parent chain adds one lookup per hop. Reporting
          * each of those would bury the failures that do need explaining on
-         * stderr, so only the rest are reported.
+         * stderr, so only the rest are reported. errno == 0 means there is
+         * no error to name, and perror() would print a misleading
+         * "Success" for it.
          */
-        if (errno != ESRCH && errno != EPERM) {
+        if (errno != 0 && errno != ESRCH && errno != EPERM) {
             perror("proc_pidinfo");
         }
         return -1;
