@@ -1054,7 +1054,15 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                             proc->suspended_by_us = 0;
                         }
                     }
-                    if (!resumed) {
+                    /*
+                     * A SIGSTOP that was never delivered cannot have
+                     * stopped a running member, so it is not one of the
+                     * "may have been left suspended" failures this return
+                     * value counts. Only a member already suspended by
+                     * this group -- may_remain_stopped is its flag -- can
+                     * be stranded by a delivery that failed.
+                     */
+                    if (!resumed && may_remain_stopped) {
                         failed++;
                     }
                 }
