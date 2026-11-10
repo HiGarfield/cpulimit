@@ -197,6 +197,16 @@ static int candidate_is_topmost(const pid_t *candidates, size_t count,
     while (current > 1 && depth < IS_CHILD_MAX_DEPTH) {
         pid_t parent = getppid_of(current);
         size_t i;
+        /*
+         * getppid_of() returns -1 for a transient lookup failure, not just
+         * for a process with no parent. Reading that as the end of the
+         * chain would declare a worker topmost and let it beat the real
+         * launcher for -e. is_child_of_via() retries once for exactly this
+         * reason, so the same walk has to do the same here.
+         */
+        if (parent < 0) {
+            parent = getppid_of(current);
+        }
         if (parent <= 0 || parent == current) {
             break;
         }
