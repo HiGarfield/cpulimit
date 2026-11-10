@@ -194,8 +194,8 @@ static double platform_time_to_ms(double platform_time) {
  */
 static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     int mib[3] = {CTL_KERN, KERN_PROCARGS2},
-        mib_argmax[2] = {CTL_KERN, KERN_ARGMAX}, argmax;
-    size_t size, argv0_len;
+        mib_argmax[2] = {CTL_KERN, KERN_ARGMAX}, argmax = 0;
+    size_t size, payload_size, argv0_len;
     char *procargs;
     const char *sp, *end, *nul;
 
@@ -206,7 +206,13 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     mib[2] = (int)pid;
 
     size = sizeof(argmax);
-    if (sysctl(mib_argmax, 2, &argmax, &size, NULL, 0) != 0 || argmax <= 0) {
+    /*
+     * sysctl() overwrites size with the number of bytes it wrote. A short
+     * write leaves part of argmax unset, so a successful return alone is
+     * not enough before using it as an allocation length.
+     */
+    if (sysctl(mib_argmax, 2, &argmax, &size, NULL, 0) != 0 ||
+        size != sizeof(argmax) || argmax <= 0) {
         return -1;
     }
 
@@ -221,13 +227,23 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
      * (the -e/executable matching path) and to the read_cmd path used for
      * child command matching.
      */
-    procargs = (char *)malloc((size_t)argmax + sizeof(int));
+    payload_size = (size_t)argmax + sizeof(int);
+    procargs = (char *)malloc(payload_size);
     if (procargs == NULL) {
         return -1;
     }
 
-    size = (size_t)argmax + sizeof(int);
+    size = payload_size;
     if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
+        free(procargs);
+        return -1;
+    }
+    /*
+     * size now reports the bytes written. It must never exceed the buffer
+     * that was allocated, or the scans for the argv[0] NUL below would read
+     * past procargs.
+     */
+    if (size > payload_size) {
         free(procargs);
         return -1;
     }
