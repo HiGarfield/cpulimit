@@ -335,6 +335,13 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
 #endif
     opterr = 0; /* Suppress getopt's built-in error messages */
     /*
+     * optopt names the last unknown or argument-less option and the '?'
+     * and ':' branches below read it. Not every getopt_long() rewrites it
+     * for a long option, so a value left by an earlier invocation would
+     * make the diagnostic name an option this call never saw.
+     */
+    optopt = 0;
+    /*
      * Process all options using getopt_long.
      * Leading '+' stops parsing at first non-option (for COMMAND mode).
      */
