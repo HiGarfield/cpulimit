@@ -49,6 +49,7 @@ char *read_file_contents(const char *file_name) {
     ssize_t n_read;
 
     if (file_name == NULL) {
+        errno = EINVAL;
         return NULL;
     }
 
@@ -88,6 +89,15 @@ char *read_file_contents(const char *file_name) {
     }
 
     if (n_read < 0 || (n_read == 0 && buflen == 0)) {
+        /*
+         * Reaching EOF with no data sets no errno, so the error path below
+         * would preserve whatever unrelated value an earlier call left
+         * there. A NULL return is documented to carry its reason in errno,
+         * so give the empty-file case a defined one instead.
+         */
+        if (n_read == 0) {
+            errno = EINVAL;
+        }
         goto error;
     }
 
