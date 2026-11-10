@@ -109,6 +109,12 @@ int is_script_inaccessible_interpreter(const char *path) {
         return 0;
     }
 
-    /* Interpreter path is inaccessible -> report 126 */
-    return access(p, F_OK) != 0;
+    /*
+     * X_OK, not F_OK: execve() needs the interpreter to be executable, so
+     * a path that exists but has no execute bit is as inaccessible as a
+     * missing one. Testing existence alone lets that case fall through to
+     * execvp(), whose failed execve() is exactly the unrecoverable outcome
+     * this pre-check exists to avoid. Either way the script reports 126.
+     */
+    return access(p, X_OK) != 0;
 }
