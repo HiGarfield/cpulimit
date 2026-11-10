@@ -31,6 +31,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -159,6 +160,21 @@ static int resolve_command_path(const char *name, char *out, size_t out_size,
 }
 
 /**
+ * @brief Keep a broken stderr pipe from hiding an exec-failure exit code
+ *
+ * exec_child_process() resets its signals to SIG_DFL before exec so the
+ * command starts with the standard dispositions. On a path where exec is
+ * never going to succeed, writing the diagnostic to a stderr pipe whose
+ * reader has gone away would then raise SIGPIPE and kill this child with
+ * 141 instead of the shell-compatible 126/127 it is about to report.
+ * Ignoring SIGPIPE here is safe: no command will be exec'd afterwards, so
+ * the ignored disposition cannot leak into one.
+ */
+static void ignore_sigpipe_for_diagnostics(void) {
+    (void)signal(SIGPIPE, SIG_IGN);
+}
+
+/**
  * @brief Execute a child process for command mode
  *
  * @param cfg Pointer to configuration structure containing command and options
@@ -280,6 +296,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     }
     if (script_path != NULL &&
         is_script_inaccessible_interpreter(script_path)) {
+        ignore_sigpipe_for_diagnostics();
         fprintf(stderr,
                 "%s: cannot execute: shebang interpreter is inaccessible\n",
                 check_path);
@@ -321,6 +338,9 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * parent (the FD_CLOEXEC path only applies on success).
      */
     saved_errno = errno;
+    ignore_sigpipe_for_diagnostics();
+    /* perror() reads errno, and signal() may have changed it. */
+    errno = saved_errno;
     perror("execvp");
     free(resolved);
     close(sync_write_fd);
