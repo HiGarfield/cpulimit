@@ -176,8 +176,9 @@ int close_process_set(struct process_set *proc_set);
  *         running, so the caller treats the other two as suspended by this
  *         group
  *
- * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
- *       the call is then a RECORD_STOPPED_RESUMED no-op
+ * @note With a NULL proc_set or an unallocated suspended-PID list there is
+ *       nowhere to keep a record, so the suspension is undone at once and
+ *       the result is the same as for any other unrecordable suspension
  */
 int record_stopped_pid(struct process_set *proc_set, pid_t pid,
                        double start_time);

@@ -244,6 +244,30 @@ struct stopped_pid_record {
 };
 
 /**
+ * @brief Undo a suspension that could not be recorded
+ *
+ * @param pid PID that was successfully sent SIGSTOP
+ * @return RECORD_STOPPED_RESUMED when the member is running again or is
+ *         gone, RECORD_STOPPED_STILL_STOPPED when the undo was refused
+ *
+ * Common path for a set with no suspended-PID list and for an exhausted
+ * allocator: nothing else tracks the suspension, so it has to be undone
+ * rather than reported as already resumed.
+ */
+static int undo_unrecorded_suspension(pid_t pid) {
+    if (kill(pid, SIGCONT) != 0 && errno != ESRCH) {
+        int saved_errno = errno;
+        fprintf(
+            stderr,
+            "Warning: cannot resume PID %ld with SIGCONT: %s\n         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
+            (long)pid, strerror(saved_errno), (long)pid);
+        errno = saved_errno;
+        return RECORD_STOPPED_STILL_STOPPED;
+    }
+    return RECORD_STOPPED_RESUMED;
+}
+
+/**
  * @brief Record that a member was just suspended with SIGSTOP
  *
  * @param proc_set Pointer to the process set structure
@@ -255,8 +279,9 @@ struct stopped_pid_record {
  *         undone instead, RECORD_STOPPED_STILL_STOPPED when it could neither
  *         be recorded nor undone
  *
- * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
- *       the call is then a RECORD_STOPPED_RESUMED no-op
+ * @note With a NULL proc_set or an unallocated suspended-PID list there is
+ *       nowhere to keep a record, so the suspension is undone at once just
+ *       as it is when an allocation fails
  */
 
 int record_stopped_pid(struct process_set *proc_set, pid_t pid,
@@ -265,7 +290,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
     struct list_node *node;
 
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
-        return RECORD_STOPPED_RESUMED;
+        return undo_unrecorded_suspension(pid);
     }
 
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
@@ -295,16 +320,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
      * as resumed would hide it: the caller keeps it flagged as suspended so
      * the closing SIGCONT tries again and the shutdown report names it.
      */
-    if (kill(pid, SIGCONT) != 0 && errno != ESRCH) {
-        int saved_errno = errno;
-        fprintf(
-            stderr,
-            "Warning: cannot resume PID %ld with SIGCONT: %s\n         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
-            (long)pid, strerror(saved_errno), (long)pid);
-        errno = saved_errno;
-        return RECORD_STOPPED_STILL_STOPPED;
-    }
-    return RECORD_STOPPED_RESUMED;
+    return undo_unrecorded_suspension(pid);
 }
 
 /*
