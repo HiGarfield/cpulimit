@@ -742,13 +742,24 @@ int update_process_set(struct process_set *proc_set) {
     }
 
     /*
-     * Purge stale hash table entries unconditionally, even when the
-     * iterator failed to close. proc_list was rebuilt above and is
+     * Purge stale hash table entries when the scan finished, even when the
+     * iterator then failed to close. A completed scan makes proc_list
      * authoritative for this cycle, so returning early here would leave
      * entries for exited processes in proc_table forever, growing it
      * without bound during long runs (notably with --include-children).
+     *
+     * PROCESS_ITER_ERROR is different: the scan stopped part way through,
+     * so proc_list is only a prefix. Purging against it would free the
+     * records of live members the scan never reached, along with their CPU
+     * baseline, suspended_by_us flag and warn gates. A later cycle would
+     * rebuild them as new members, and a failed SIGCONT for one of them
+     * would be classed as benign because the suspension flag is gone.
+     * Keep those entries until a complete scan can decide.
      */
-    remove_stale_from_process_table(proc_set->proc_table, proc_set->proc_list);
+    if (scan_status != PROCESS_ITER_ERROR) {
+        remove_stale_from_process_table(proc_set->proc_table,
+                                        proc_set->proc_list);
+    }
 
     if (close_ret != 0) {
         return -1;
