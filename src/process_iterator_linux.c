@@ -107,9 +107,13 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     double user_time, sys_time;
     double start_time = UNKNOWN_START_TIME;
     int parsed;
+    /*
+     * -1 is "not looked up yet", -2 is "a lookup failed and must not be
+     * repeated", and a positive value is the cached clock frequency. Both
+     * sentinels are negative, so no failed lookup can reach the division
+     * below as a zero divisor.
+     */
     static long sc_clk_tck = -1;
-    /* Latches a failed lookup, which the negative sentinel alone cannot do. */
-    static int sc_clk_tck_failed = 0;
 
     memset(proc, 0, sizeof(struct process));
     proc->pid = pid;
@@ -161,27 +165,26 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     }
     if (sc_clk_tck < 0) {
         /*
-         * Leaving the sentinel negative makes the guard true again on the
-         * next call, so a failure has to be latched separately: retrying
-         * sysconf() and printing the diagnostic once per process of every
-         * scan is exactly what "report once" is meant to avoid. A platform
-         * that refuses to report a clock frequency will not start reporting
-         * it a moment later.
+         * A failed lookup is latched as -2 rather than restored to -1:
+         * restoring the unset value would make this guard true again on
+         * every later call, retrying sysconf() and printing the diagnostic
+         * once per process of every scan. A platform that refuses to
+         * report a clock frequency will not start reporting it later.
          */
-        if (sc_clk_tck_failed) {
+        if (sc_clk_tck == -2) {
             return -1;
         }
         errno = 0;
         sc_clk_tck = sysconf(_SC_CLK_TCK);
         if (sc_clk_tck <= 0) {
             /*
-             * Restore the negative sentinel rather than storing the 0 a
-             * failed sysconf() can return: 0 is not < 0, so a later call
-             * would skip this block and divide by zero converting ticks
-             * to milliseconds, reporting an infinite cpu_time instead of
-             * failing the read. A sysconf() that returns without setting
-             * errno has no error worth naming through perror(), which
-             * would otherwise print a misleading "Success".
+             * Keep the cached value negative. Storing the 0 a failed
+             * sysconf() can return would not read as "unset" -- 0 is not
+             * < 0 -- so a later call could reach the conversion and divide
+             * by zero, reporting an infinite cpu_time instead of failing.
+             * A sysconf() that returns without setting errno has no error
+             * worth naming through perror(), which would otherwise print
+             * a misleading "Success".
              */
             if (errno != 0) {
                 perror("sysconf(_SC_CLK_TCK)");
@@ -189,8 +192,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
                 fprintf(stderr, "sysconf(_SC_CLK_TCK) returned %ld\n",
                         sc_clk_tck);
             }
-            sc_clk_tck = -1;
-            sc_clk_tck_failed = 1;
+            sc_clk_tck = -2;
             return -1;
         }
     }
