@@ -101,6 +101,7 @@ static kvm_t *open_kvm(void) {
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
     const struct kinfo_proc *proc_snapshot;
+    size_t size_max = 0, snapshot_size;
 
     if (iter == NULL || filter == NULL) {
         return -1;
@@ -151,15 +152,28 @@ int init_process_iterator(struct process_iterator *iter,
         close_process_iterator(iter);
         return -1;
     }
-    iter->kinfo_procs = (struct kinfo_proc *)malloc(sizeof(struct kinfo_proc) *
-                                                    (size_t)iter->proc_count);
+    /*
+     * One byte size drives both malloc() and memcpy(). On a 32-bit host an
+     * unchecked multiplication can wrap size_t: the allocation would then
+     * be small while the copy still used the wrapped product's origin,
+     * overrunning the heap. Unsigned wraparound yields the largest size_t
+     * without relying on an out-of-range signed conversion.
+     */
+    size_max--;
+    if ((size_t)iter->proc_count > size_max / sizeof(struct kinfo_proc)) {
+        fprintf(stderr, "kvm_getprocs: process snapshot is too large: %d\n",
+                iter->proc_count);
+        close_process_iterator(iter);
+        return -1;
+    }
+    snapshot_size = sizeof(struct kinfo_proc) * (size_t)iter->proc_count;
+    iter->kinfo_procs = (struct kinfo_proc *)malloc(snapshot_size);
     if (iter->kinfo_procs == NULL) {
         fprintf(stderr, "Memory allocation failed for the process list\n");
         close_process_iterator(iter);
         return -1;
     }
-    memcpy(iter->kinfo_procs, proc_snapshot,
-           sizeof(struct kinfo_proc) * (size_t)iter->proc_count);
+    memcpy(iter->kinfo_procs, proc_snapshot, snapshot_size);
     iter->current_index = 0;
     return 0;
 }
