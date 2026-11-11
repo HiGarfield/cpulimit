@@ -30,6 +30,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Configure fast APT mirror (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu-')
+        uses: vegardit/fast-apt-mirror.sh@v1
+
       - name: Install tools (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu-')
         run: |
