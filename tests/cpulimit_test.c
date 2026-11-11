@@ -4104,6 +4104,53 @@ static void test_cli_accepts_subnormal_limit(void) {
 }
 
 /**
+ * @brief A parse that aborts inside a short-option cluster must not poison
+ *        the next parse in the same process
+ *
+ * @note getopt_long() keeps a private offset inside a clustered short
+ *       option. A run stopped by an unknown member ("-vQ") leaves that
+ *       offset set, and Linux libcs only clear it when optind is 0; the
+ *       __GLIBC__ guard left musl and uClibc on optind = 1, so the next
+ *       call resumed in the middle of a different cluster. The failing
+ *       parse has to run in-process, not in a child, to leave the state
+ *       behind. Verified by mutation: restoring the __GLIBC__ guard breaks
+ *       the second assertion on a musl build.
+ */
+static void test_cli_parse_is_reentrant_after_clustered_error(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_bad[] = "-vQ";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_p[] = "-p";
+    char arg_pid[] = "4242";
+    char *bad_argv[3];
+    char *ok_argv[6];
+    int parse_ret;
+
+    bad_argv[0] = arg0;
+    bad_argv[1] = arg_bad;
+    bad_argv[2] = NULL;
+    memset(&cfg, 0, sizeof(cfg));
+    test_mute_output();
+    parse_ret = parse_arguments(2, bad_argv, &cfg);
+    test_unmute_output();
+    assert(parse_ret == EXIT_FAILURE);
+
+    ok_argv[0] = arg0;
+    ok_argv[1] = arg_l;
+    ok_argv[2] = arg_50;
+    ok_argv[3] = arg_p;
+    ok_argv[4] = arg_pid;
+    ok_argv[5] = NULL;
+    memset(&cfg, 0, sizeof(cfg));
+    parse_ret = parse_arguments(5, ok_argv, &cfg);
+    assert(parse_ret == 0);
+    assert(cfg.target_pid == (pid_t)4242);
+    assert(cfg.cpu_limit > 0.49 && cfg.cpu_limit < 0.51);
+}
+
+/**
  * @brief Test parse_arguments with various invalid PID values
  *
  * @note 0, 1 (reserved), -1, non-numeric, and trailing-char PIDs all cause
@@ -16198,6 +16245,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_missing_limit);
     RUN_TEST(test_cli_invalid_limits);
     RUN_TEST(test_cli_accepts_subnormal_limit);
+    RUN_TEST(test_cli_parse_is_reentrant_after_clustered_error);
     RUN_TEST(test_cli_invalid_pids);
     RUN_TEST(test_cli_rejects_pid_one);
     RUN_TEST(test_cli_rejects_leading_whitespace_in_numbers);

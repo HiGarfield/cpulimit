@@ -399,11 +399,14 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
 #if defined(__APPLE__) || defined(__FreeBSD__)
     optreset = 1;
 #endif
-#if defined(__GLIBC__)
+#if defined(__linux__)
     /*
-     * glibc requires optind = 0 to fully reinitialize getopt_long() state.
-     * This preserves deterministic behavior across repeated calls in tests
-     * and on older glibc versions.
+     * Every Linux libc that provides getopt_long() (glibc, musl, uClibc)
+     * clears its private position inside a clustered short option only
+     * when optind is set to 0. Setting it to 1 leaves that position from
+     * a previous call, so a parse that stopped in the middle of "-vQ"
+     * makes the next invocation resume at the same offset of a different
+     * cluster. BSD libcs reset through optreset above instead.
      */
     optind = 0;
 #else
