@@ -4060,6 +4060,50 @@ static void test_cli_invalid_limits(void) {
 }
 
 /**
+ * @brief A subnormal limit inside the valid range must be accepted
+ *
+ * @note strtod() reports ERANGE for a tiny decimal that underflows into a
+ *       subnormal, yet "1e-308" is still a positive value inside the
+ *       documented (0, ncpu*100] range. The errno != 0 check turned it
+ *       into "invalid limit value". The range check alone rejects overflow
+ *       ("1e309" -> HUGE_VAL) and a value that underflows to zero
+ *       ("1e-400"), so those must stay rejected. Verified by mutation:
+ *       restoring errno != 0 makes the acceptance assertion fail.
+ */
+static void test_cli_accepts_subnormal_limit(void) {
+    struct cpulimit_cfg cfg;
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_tiny[] = "1e-308";
+    char arg_overflow[] = "1e309";
+    char arg_zero[] = "1e-400";
+    char arg_e[] = "-e";
+    char arg_exe[] = "foo";
+    char *test_argv[6];
+    int parse_ret;
+
+    test_argv[0] = arg0;
+    test_argv[1] = arg_l;
+    test_argv[3] = arg_e;
+    test_argv[4] = arg_exe;
+    test_argv[5] = NULL;
+
+    test_argv[2] = arg_tiny;
+    memset(&cfg, 0, sizeof(cfg));
+    parse_ret = parse_arguments(5, test_argv, &cfg);
+    assert(parse_ret == 0);
+    assert(cfg.cpu_limit > 0.0);
+
+    test_argv[2] = arg_overflow;
+    parse_ret = run_parse_in_child(5, test_argv);
+    assert(parse_ret == EXIT_FAILURE);
+
+    test_argv[2] = arg_zero;
+    parse_ret = run_parse_in_child(5, test_argv);
+    assert(parse_ret == EXIT_FAILURE);
+}
+
+/**
  * @brief Test parse_arguments with various invalid PID values
  *
  * @note 0, 1 (reserved), -1, non-numeric, and trailing-char PIDs all cause
@@ -16153,6 +16197,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_help);
     RUN_TEST(test_cli_missing_limit);
     RUN_TEST(test_cli_invalid_limits);
+    RUN_TEST(test_cli_accepts_subnormal_limit);
     RUN_TEST(test_cli_invalid_pids);
     RUN_TEST(test_cli_rejects_pid_one);
     RUN_TEST(test_cli_rejects_leading_whitespace_in_numbers);

@@ -164,7 +164,14 @@ static int parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
-    errno = 0;
+    /*
+     * Do not treat ERANGE as a conversion error: strtod() also sets it when
+     * a small but valid value underflows into a subnormal, and such a value
+     * belongs to the documented (0, ncpu*100] range. The range check below
+     * rejects overflow (HUGE_VAL) and underflow all the way to zero on its
+     * own, so a positive in-range result must be accepted whatever errno
+     * says.
+     */
     percent_limit = strtod(limit_str, &endptr);
     /*
      * Compute the upper bound as double to avoid int overflow on systems
@@ -173,13 +180,12 @@ static int parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
     max_limit = (double)ncpu * 100.0;
     /*
      * Validate the conversion and value:
-     * - No conversion errors
      * - String was not empty
      * - No trailing characters
      * - Not NaN
      * - Within valid range: (0, ncpu * 100]
      */
-    if (errno != 0 || endptr == limit_str || *endptr != '\0' ||
+    if (endptr == limit_str || *endptr != '\0' ||
         !(percent_limit > 0 && percent_limit <= max_limit)) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage(stderr, cfg);
