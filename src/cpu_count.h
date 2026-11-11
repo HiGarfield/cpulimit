@@ -31,15 +31,18 @@ extern "C" {
 #endif
 
 /**
- * @brief Get the number of online/available CPU cores
+ * @brief Get the number of online CPU cores
  *
- * @return Number of CPUs available to the process (>= 1)
+ * @return Number of CPUs online on the host (>= 1)
  *
- * Queries the system for the number of online CPUs using platform-specific
- * methods (sysconf on Linux/POSIX, sysctl on macOS/FreeBSD). The result is
- * cached after the first call for efficiency. On Linux, performs additional
- * validation by reading /sys/devices/system/cpu/online to work around older
- * library bugs. Returns 1 if count cannot be determined.
+ * Uses sysconf(_SC_NPROCESSORS_ONLN) wherever that POSIX option is
+ * available. The sysctl() branch on macOS/FreeBSD and the get_nprocs()
+ * branch on Linux are compiled only when the macro is absent, so they are
+ * fallbacks rather than those platforms' normal path. On Linux, the
+ * sysconf() answer is cross-checked against
+ * /sys/devices/system/cpu/online when it reports one core or fewer, to
+ * work around older libc bugs. Returns 1 when the count cannot be
+ * determined, and caches the result after the first call.
  *
  * @note Result is cached and never recalculated even if CPU hotplugging occurs
  */
