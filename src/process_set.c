@@ -759,15 +759,17 @@ int update_process_set(struct process_set *proc_set) {
      * entries for exited processes in proc_table forever, growing it
      * without bound during long runs (notably with --include-children).
      *
-     * PROCESS_ITER_ERROR is different: the scan stopped part way through,
-     * so proc_list is only a prefix. Purging against it would free the
-     * records of live members the scan never reached, along with their CPU
-     * baseline, suspended_by_us flag and warn gates. A later cycle would
-     * rebuild them as new members, and a failed SIGCONT for one of them
-     * would be classed as benign because the suspension flag is gone.
-     * Keep those entries until a complete scan can decide.
+     * A stopped scan is different: proc_list is only a prefix. Purging
+     * against it would free the records of live members the scan never
+     * reached, along with their CPU baseline, suspended_by_us flag and
+     * warn gates. A later cycle would rebuild them as new members, and a
+     * failed SIGCONT for one of them would be classed as benign because
+     * the suspension flag is gone. PROCESS_ITER_ERROR is one such stop;
+     * a failed allocation breaks out of the loop with scan_status still
+     * 0 and leaves the same prefix behind. Keep those entries until a
+     * complete scan can decide.
      */
-    if (scan_status != PROCESS_ITER_ERROR) {
+    if (scan_status != PROCESS_ITER_ERROR && !alloc_failed) {
         remove_stale_from_process_table(proc_set->proc_table,
                                         proc_set->proc_list);
     }

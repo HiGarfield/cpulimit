@@ -13829,6 +13829,71 @@ static void test_process_set_detects_pid_reuse_by_start_time(void) {
 }
 
 /**
+ * @brief An allocation failure mid-scan must not purge the process table
+ *
+ * @note update_process_set() breaks out of its scan when add_list_elem()
+ *       refuses a node, leaving proc_list holding only a prefix of the
+ *       group. scan_status stays 0 on that path, so the stale-table purge
+ *       still ran and freed the records of every live member the scan
+ *       never reached -- CPU baselines, suspension flags and warn gates
+ *       included, against the invariant the PROCESS_ITER_ERROR guard
+ *       documents. The test scripts two members, starves the first
+ *       re-link of the second scan, and asserts both records survive.
+ *       Verified by mutation: removing !alloc_failed fails both asserts.
+ */
+static void test_process_set_keeps_table_after_alloc_failure(void) {
+    struct process_set proc_set;
+    struct seam_proc(*frames)[2] =
+        (struct seam_proc(*)[2])malloc(sizeof(struct seam_proc[2][2]));
+    const struct process *tracked;
+    int ret;
+    assert(frames != NULL);
+
+    seam_reset();
+    memset(&frames[0][0], 0, sizeof(frames[0][0]));
+    memset(&frames[0][1], 0, sizeof(frames[0][1]));
+    frames[0][0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[0][0].ppid = (pid_t)1;
+    frames[0][0].start_time = 10.0;
+    frames[0][1].pid = (pid_t)(SEAM_TARGET_PID + 1);
+    frames[0][1].ppid = (pid_t)SEAM_TARGET_PID;
+    frames[0][1].start_time = 11.0;
+    frames[1][0] = frames[0][0];
+    frames[1][1] = frames[0][1];
+    seam_push_frame(frames[0], 2);
+    seam_push_frame(frames[1], 2);
+
+    seam_active = 1;
+    seam_clock_ms = 0.0;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
+    assert(ret == 0);
+    tracked =
+        find_in_process_table(proc_set.proc_table, (pid_t)SEAM_TARGET_PID);
+    assert(tracked != NULL);
+    tracked = find_in_process_table(proc_set.proc_table,
+                                    (pid_t)(SEAM_TARGET_PID + 1));
+    assert(tracked != NULL);
+
+    /* The first proc_list re-link of the second scan cannot allocate. */
+    seam_clock_ms = 100.0;
+    seam_list_elem_fails_next = 1;
+    ret = update_process_set(&proc_set);
+    assert(ret == -1);
+    tracked =
+        find_in_process_table(proc_set.proc_table, (pid_t)SEAM_TARGET_PID);
+    assert(tracked != NULL);
+    tracked = find_in_process_table(proc_set.proc_table,
+                                    (pid_t)(SEAM_TARGET_PID + 1));
+    assert(tracked != NULL);
+
+    seam_list_elem_fails_next = 0;
+    seam_active = 0;
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+    free(frames);
+}
+
+/**
  * @brief A PID appearing twice in one scan must not be double-counted
  *
  * @note update_process_set() clears the group list at the top of each cycle and
@@ -18463,6 +18528,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_send_signal_does_not_count_resumed_member);
     RUN_TEST(test_process_set_clears_stale_suspend_flag_on_undo);
     RUN_TEST(test_process_set_detects_pid_reuse_by_start_time);
+    RUN_TEST(test_process_set_keeps_table_after_alloc_failure);
     RUN_TEST(test_process_set_does_not_duplicate_pid);
     RUN_TEST(test_process_set_duplicate_pid_measured_once);
     RUN_TEST(test_process_set_new_member_uses_own_interval);
