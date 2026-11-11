@@ -4233,6 +4233,62 @@ static void test_cli_missing_arg(void) {
 }
 
 /**
+ * @brief A long option missing its argument must be named as it was typed
+ *
+ * @note getopt_long() records the short equivalent in optopt ('p' for
+ *       --pid). The '?' and ':' branches used to print -%c whenever optopt
+ *       was set, so "cpulimit --pid" complained about an option '-p' the
+ *       operator never typed, while "--bogus" was already named correctly.
+ *       The usage block also goes to stderr; only the first line is the
+ *       diagnostic under test.
+ */
+static void test_cli_long_option_missing_arg_names_long_form(void) {
+    char path[] = "/tmp/cpulimit_test_cli_stderr_XXXXXX";
+    char first_line[256];
+    char arg0[] = "cpulimit";
+    char arg_pid[] = "--pid";
+    char *args[3];
+    struct cpulimit_cfg cfg;
+    int fd, saved_stderr, ret;
+    const char *read_line;
+    FILE *stream;
+
+    fd = mkstemp(path);
+    assert(fd >= 0);
+    saved_stderr = dup(STDERR_FILENO);
+    assert(saved_stderr >= 0);
+    fflush(stderr);
+    ret = dup2(fd, STDERR_FILENO);
+    assert(ret >= 0);
+
+    args[0] = arg0;
+    args[1] = arg_pid;
+    args[2] = NULL;
+    ret = parse_arguments(2, args, &cfg);
+    assert(ret == EXIT_FAILURE);
+
+    fflush(stderr);
+    ret = dup2(saved_stderr, STDERR_FILENO);
+    assert(ret >= 0);
+    ret = close(saved_stderr);
+    assert(ret == 0);
+    ret = close(fd);
+    assert(ret == 0);
+
+    stream = fopen(path, "r");
+    assert(stream != NULL);
+    read_line = fgets(first_line, (int)sizeof(first_line), stream);
+    assert(read_line != NULL);
+    ret = fclose(stream);
+    assert(ret == 0);
+    ret = unlink(path);
+    assert(ret == 0);
+
+    assert(strstr(first_line, "--pid") != NULL);
+    assert(strstr(first_line, "'-p'") == NULL);
+}
+
+/**
  * @brief Test parse_arguments with --include-children long option
  *
  * @note --include-children must set include_children=1
@@ -16052,6 +16108,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_multiple_targets);
     RUN_TEST(test_cli_unknown_option);
     RUN_TEST(test_cli_missing_arg);
+    RUN_TEST(test_cli_long_option_missing_arg_names_long_form);
     RUN_TEST(test_cli_long_option_include_children);
     RUN_TEST(test_cli_limit_at_max);
     RUN_TEST(test_cli_pid_minimum_valid);

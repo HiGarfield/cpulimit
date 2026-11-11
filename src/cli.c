@@ -209,6 +209,23 @@ static int validate_target_options(const struct cpulimit_cfg *cfg) {
     return 0;
 }
 
+/**
+ * @brief Whether the option getopt_long() stopped on was spelled short
+ *
+ * @param arg The argv element getopt_long() left optind pointing at
+ * @return Non-zero for a single-dash option, zero for a long option or "-"
+ *
+ * A long option carries a short equivalent in optopt ('p' for --pid), so a
+ * diagnostic built from optopt alone names an option the operator never
+ * typed. Only a single-dash spelling may be reported through optopt.
+ */
+static int is_short_option_spelling(const char *arg) {
+    if (arg[0] != '-' || arg[1] == '-') {
+        return 0;
+    }
+    return arg[1] != '\0';
+}
+
 #if defined(__linux__)
 /**
  * @brief Refuse a name target that leads nowhere but PID 1 (init)
@@ -430,7 +447,7 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
             return -1;
 
         case '?': /* Unknown option */
-            if (optopt) {
+            if (optopt && is_short_option_spelling(argv[optind - 1])) {
                 fprintf(stderr, "Error: invalid option '-%c'\n\n", optopt);
             } else {
                 fprintf(stderr, "Error: invalid option '%s'\n\n",
@@ -440,7 +457,7 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
             return EXIT_FAILURE;
 
         case ':': /* Missing required argument for an option */
-            if (optopt) {
+            if (optopt && is_short_option_spelling(argv[optind - 1])) {
                 fprintf(stderr, "Error: option '-%c' requires an argument\n\n",
                         optopt);
             } else {
