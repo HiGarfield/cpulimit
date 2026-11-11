@@ -8404,6 +8404,83 @@ static void test_script_check_requires_executable_interpreter(void) {
 }
 
 /**
+ * @brief Write a shebang into a FIFO and ask the pre-check about it
+ *
+ * Holds a read end open so the write end can be opened without blocking,
+ * and keeps the writer open so a further read reports EAGAIN rather than
+ * EOF. Returns the verdict for exactly the bytes currently in the pipe.
+ */
+static int fifo_shebang_verdict(const char *path, const char *data,
+                                size_t len) {
+    int read_fd, write_fd, ret, verdict;
+    ssize_t nwritten;
+
+    read_fd = open(path, O_RDONLY | O_NONBLOCK);
+    assert(read_fd >= 0);
+    write_fd = open(path, O_WRONLY | O_NONBLOCK);
+    assert(write_fd >= 0);
+    nwritten = write(write_fd, data, len);
+    assert(nwritten == (ssize_t)len);
+
+    verdict = is_script_inaccessible_interpreter(path);
+
+    ret = close(write_fd);
+    assert(ret == 0);
+    ret = close(read_fd);
+    assert(ret == 0);
+    return verdict;
+}
+
+/**
+ * @brief A partial shebang read must not be judged as a missing interpreter
+ *
+ * @note A single read used to stop in the middle of an interpreter path on
+ *       a non-blocking FIFO. buf[n] then terminated a prefix such as
+ *       "/usr/b", access() reported it missing, and the pre-check refused
+ *       the command with 126 before execvp() ever ran. The reader now
+ *       continues to EOF and refuses to judge a path that never ended.
+ *       A complete line is still judged, even with the writer still open.
+ */
+static void test_script_check_defers_on_partial_fifo_read(void) {
+    char partial_path[] = "/tmp/cpulimit_test_partial_fifo_XXXXXX";
+    char full_path[] = "/tmp/cpulimit_test_full_fifo_XXXXXX";
+    static const char partial[] = "#!/usr/b";
+    static const char full[] = "#!/no_such_interpreter_cpulimit_xyz\n";
+    int fd, ret;
+
+    fd = mkstemp(partial_path);
+    assert(fd >= 0);
+    ret = close(fd);
+    assert(ret == 0);
+    ret = unlink(partial_path);
+    assert(ret == 0);
+    ret = mkfifo(partial_path, 0600);
+    assert(ret == 0);
+
+    fd = mkstemp(full_path);
+    assert(fd >= 0);
+    ret = close(fd);
+    assert(ret == 0);
+    ret = unlink(full_path);
+    assert(ret == 0);
+    ret = mkfifo(full_path, 0600);
+    assert(ret == 0);
+
+    /* No terminator and no EOF: the path may still be growing. */
+    ret = fifo_shebang_verdict(partial_path, partial, sizeof(partial) - 1);
+    assert(ret == 0);
+
+    /* A complete line, even without EOF, is still a usable reading. */
+    ret = fifo_shebang_verdict(full_path, full, sizeof(full) - 1);
+    assert(ret == 1);
+
+    ret = unlink(partial_path);
+    assert(ret == 0);
+    ret = unlink(full_path);
+    assert(ret == 0);
+}
+
+/**
  * @brief A script resolved via PATH with a missing shebang interpreter must
  *        also report 126
  *
@@ -18842,6 +18919,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
     RUN_TEST(test_script_check_defers_on_truncated_shebang);
     RUN_TEST(test_script_check_requires_executable_interpreter);
+    RUN_TEST(test_script_check_defers_on_partial_fifo_read);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
     RUN_TEST(test_limiter_command_mode_skips_unusable_path_entry);
     RUN_TEST(test_limiter_command_mode_skips_bad_shebang_path_entry);
