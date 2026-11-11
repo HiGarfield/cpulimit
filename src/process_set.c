@@ -334,7 +334,8 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
                                 int may_remain_stopped);
 
 /**
- * @brief Resume every PID recorded by record_stopped_pid() and empty the list
+ * @brief Resume every recorded PID that has left the group and drop the
+ *        records whose resume succeeded
  *
  * @param proc_set Pointer to the process set structure
  * @param verbose Non-zero to name each PID that could not be resumed; without
@@ -344,6 +345,15 @@ static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
  *         than ESRCH (they may have been left stopped and the shutdown report
  *         must treat them like a failed resume of a current member)
  *
+ * @note This is the deferred-resume half of process_set_send_signal(SIGCONT).
+ *       Members still present in proc_list are resumed by that function's
+ *       subsequent round over the list, not here, so they are not signalled
+ *       twice; their records are removed either way. A caller that uses this
+ *       function on its own must resume current members itself.
+ * @note A PID whose SIGCONT could not be delivered keeps its record, so a
+ *       later round retries it and the shutdown round can still count it.
+ *       The WORK PHASE also calls this and discards the count, so dropping
+ *       those records would lose the suspension entirely.
  * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
  *       the call is then a no-op returning 0
  */

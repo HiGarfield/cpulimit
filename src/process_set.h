@@ -184,7 +184,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
                        double start_time);
 
 /**
- * @brief Resume every PID recorded by record_stopped_pid() and drop the
+ * @brief Resume every recorded PID that has left the group and drop the
  *        records whose resume succeeded
  *
  * @param proc_set Pointer to the process set structure
@@ -195,6 +195,11 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
  *         than ESRCH (they may have been left stopped and the shutdown report
  *         must treat them like a failed resume of a current member)
  *
+ * @note This is the deferred-resume half of process_set_send_signal(SIGCONT).
+ *       Members still present in proc_list are resumed by that function's
+ *       subsequent round over the list, not here, so they are not signalled
+ *       twice; their records are removed either way. A caller that uses this
+ *       function on its own must resume current members itself.
  * @note A PID whose SIGCONT could not be delivered keeps its record, so a
  *       later round retries it and the shutdown round can still count it.
  *       The WORK PHASE also calls this and discards the count, so dropping
