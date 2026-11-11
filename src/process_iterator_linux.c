@@ -107,6 +107,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     double user_time, sys_time;
     double start_time = UNKNOWN_START_TIME;
     int parsed;
+    size_t cmd_len;
     /*
      * -1 is "not looked up yet", -2 is "a lookup failed and must not be
      * repeated", and a positive value is the cached clock frequency. Both
@@ -222,12 +223,23 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (buffer == NULL) {
         return -1;
     }
-    strncpy(proc->command, buffer, sizeof(proc->command) - 1);
+    /*
+     * argv[0] ends at the first NUL; read_file_contents() NUL-terminates the
+     * whole buffer, so strlen() stays bounded. strncpy() would pad the
+     * remaining CMD_BUFF_SIZE-1 bytes with zeros for every process of every
+     * -e scan, even for a ten-byte argv[0]. Copy only the bytes that are
+     * actually there: proc was memset to zero at entry, so the tail already
+     * reads as NULs.
+     */
+    cmd_len = strlen(buffer);
+    if (cmd_len > sizeof(proc->command) - 1) {
+        cmd_len = sizeof(proc->command) - 1;
+    }
+    memcpy(proc->command, buffer, cmd_len);
     /*
      * Terminate explicitly rather than trusting the memset above to have left
-     * the last byte zero: strncpy() writes no NUL when the source fills the
-     * whole destination, so a command this long would otherwise be accepted
-     * unterminated. The FreeBSD backend terminates the same way.
+     * the last byte zero: a command that fills the buffer has no NUL in the
+     * part that was copied. The FreeBSD backend terminates the same way.
      *
      * What fits is all a name match ever sees: an argv[0] longer than the
      * buffer is cut here, and a name longer than that cannot be matched
@@ -235,7 +247,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
      * under a name that is not its own -- and a name that long is not one a
      * -e run can be expected to reach.
      */
-    proc->command[sizeof(proc->command) - 1] = '\0';
+    proc->command[cmd_len] = '\0';
     free(buffer);
     /*
      * Reject processes with empty command names (e.g. execve with
