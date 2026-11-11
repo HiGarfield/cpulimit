@@ -66,7 +66,15 @@ char *read_file_contents(const char *file_name) {
     while (1) {
         if (buflen >= bufsize - 1) {
             char *temp;
-            if (bufsize > (size_t)-1 / 2) {
+            size_t size_max = 0;
+            /*
+             * Largest size_t via unsigned wraparound, the form the rest of
+             * the project uses: (size_t)-1 relies on an out-of-range
+             * signed-to-unsigned conversion, which C89 6.3.1.3 calls
+             * implementation-defined.
+             */
+            size_max--;
+            if (bufsize > size_max / 2) {
                 goto error; /* Prevent overflow */
             }
             bufsize *= 2;

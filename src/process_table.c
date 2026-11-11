@@ -58,6 +58,7 @@
  *       out of memory is worth naming wherever it happens.
  */
 int init_process_table(struct process_table *proc_table, size_t hash_size) {
+    size_t size_max = 0;
     if (proc_table == NULL) {
         return -1;
     }
@@ -76,8 +77,13 @@ int init_process_table(struct process_table *proc_table, size_t hash_size) {
      * the standard library: ASan aborts the process and some hardened
      * allocators do the same, so the "return -1, never die" contract this
      * function promises would hold only on plain malloc.
+     *
+     * size_max is the largest size_t via unsigned wraparound, the form the
+     * rest of the project uses; (size_t)-1 would rely on C89 6.3.1.3's
+     * implementation-defined signed-to-unsigned conversion.
      */
-    if (hash_size > (size_t)-1 / sizeof(struct list *)) {
+    size_max--;
+    if (hash_size > size_max / sizeof(struct list *)) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         return -1;
     }
