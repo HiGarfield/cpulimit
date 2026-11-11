@@ -1187,6 +1187,45 @@ static void test_util_read_file_contents(void) {
     remove(long_tmp_nonl);
     free(long_content);
 }
+
+/**
+ * @brief A NULL return from read_file_contents() must carry a defined errno
+ *
+ * @note The failure path deliberately preserves errno across close() for
+ *       the caller, but read() at EOF sets none and the NULL-path guard
+ *       returns before any syscall. Both used to expose whatever unrelated
+ *       value an earlier call had left, so perror() named the wrong reason.
+ *       Seeding EPERM first makes that visible. EINVAL now marks those two
+ *       cases, while a genuine syscall failure keeps its own errno.
+ */
+static void test_util_read_file_contents_errno(void) {
+    char empty_file[] = "/tmp/cpulimit_test_empty_errno_XXXXXX";
+    char *content;
+    int fd, ret;
+
+    fd = mkstemp(empty_file);
+    assert(fd >= 0);
+    ret = close(fd);
+    assert(ret == 0);
+
+    errno = EPERM;
+    content = read_file_contents(empty_file);
+    assert(content == NULL);
+    assert(errno == EINVAL);
+
+    errno = EPERM;
+    content = read_file_contents(NULL);
+    assert(content == NULL);
+    assert(errno == EINVAL);
+
+    errno = 0;
+    content = read_file_contents("/nonexistent/cpulimit_test_no_such_file");
+    assert(content == NULL);
+    assert(errno == ENOENT);
+
+    ret = unlink(empty_file);
+    assert(ret == 0);
+}
 #endif /* __linux__ */
 
 #ifdef __linux__
@@ -18734,6 +18773,7 @@ static void run_util_module_tests(void) {
     RUN_TEST(test_util_long_to_pid_t);
 #if defined(__linux__)
     RUN_TEST(test_util_read_file_contents);
+    RUN_TEST(test_util_read_file_contents_errno);
     RUN_TEST(test_util_parse_cpu_range);
 #endif
     RUN_TEST(test_util_macros);
