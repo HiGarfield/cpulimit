@@ -40,6 +40,11 @@ extern "C" {
  *
  * @param file_name Path to the file.
  * @return Heap-allocated NUL-terminated string, or NULL on error or empty file.
+ *
+ * @note A NULL return leaves a defined errno for the caller: a real syscall
+ *       failure keeps its own value, while an empty file or a NULL path --
+ *       neither of which has a failing syscall to report -- sets EINVAL.
+ *       errno is preserved across the close() on the failure path.
  */
 char *read_file_contents(const char *file_name);
 #endif
