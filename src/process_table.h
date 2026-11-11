@@ -107,6 +107,12 @@ struct process *find_in_process_table(const struct process_table *proc_table,
  * Adds the process to the appropriate bucket based on its PID hash.
  * If the bucket doesn't exist, creates a new linked list for it.
  *
+ * @note Ownership follows insertion, not the return value: the table takes
+ *       over proc only when the record is actually added. On a duplicate
+ *       PID, on a NULL or destroyed table, and on a -1 allocation failure
+ *       the record is untouched and stays owned by the caller, which must
+ *       free it. Treating a 0 return from one of those no-op paths as a
+ *       hand-off would leak the record.
  * @note If a process with the same PID is already present in the table, the
  *       existing entry is left unchanged and the new process is not inserted
  *       (duplicate PIDs are ignored); the call still returns 0.
