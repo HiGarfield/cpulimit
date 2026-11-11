@@ -44,10 +44,6 @@
 #include <sys/sysctl.h>
 #include <sys/types.h>
 
-#ifndef SIZE_MAX
-#define SIZE_MAX ((size_t)(-1))
-#endif
-
 /**
  * @brief Initialize a process iterator with the given filter
  *
