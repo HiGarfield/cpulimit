@@ -4258,8 +4258,15 @@ static void test_cli_long_option_missing_arg_names_long_form(void) {
     saved_stderr = dup(STDERR_FILENO);
     assert(saved_stderr >= 0);
     fflush(stderr);
-    ret = dup2(fd, STDERR_FILENO);
-    assert(ret >= 0);
+    /*
+     * dup2() returns newfd, which this process already owns: there is no
+     * new descriptor to track and none to close. -Wanalyzer-fd-leak reads a
+     * checked return value as a descriptor that is never closed and reports
+     * it, so discard the result as test_mute_output() does. A failed
+     * redirection only leaves the diagnostic on the real stderr, and the
+     * assertions below then find nothing in the capture file.
+     */
+    (void)dup2(fd, STDERR_FILENO);
 
     args[0] = arg0;
     args[1] = arg_pid;
@@ -4268,8 +4275,8 @@ static void test_cli_long_option_missing_arg_names_long_form(void) {
     assert(ret == EXIT_FAILURE);
 
     fflush(stderr);
-    ret = dup2(saved_stderr, STDERR_FILENO);
-    assert(ret >= 0);
+    /* Discarded for the same reason as above. */
+    (void)dup2(saved_stderr, STDERR_FILENO);
     ret = close(saved_stderr);
     assert(ret == 0);
     ret = close(fd);
