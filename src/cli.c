@@ -226,6 +226,46 @@ static int is_short_option_spelling(const char *arg) {
     return arg[1] != '\0';
 }
 
+/**
+ * @brief Name a rejected option without trusting getopt_long()'s optind
+ *
+ * @param buf Destination buffer, always NUL-terminated
+ * @param buf_size Size of buf
+ * @param argc Number of arguments
+ * @param argv Argument vector
+ * @param long_index Index getopt_long() reported for a matched long option,
+ *                   or -1
+ * @param long_options Long option table
+ *
+ * Where optind points after an unknown option or a missing argument is not
+ * portable: BSD libc leaves it on the element just read, while glibc and
+ * musl can advance it past argc, so argv[optind - 1] may be the NULL
+ * terminator or out of bounds. Reading it unconditionally made the process
+ * die of SIGSEGV on those platforms. Prefer the spelling actually typed
+ * when the index is safe, then the canonical --name of the matched long
+ * option, then -optopt for a short option, and finally a neutral name.
+ */
+static void format_rejected_option(char *buf, size_t buf_size, int argc,
+                                   char **argv, int long_index,
+                                   const struct option *long_options) {
+    int index = optind - 1;
+    const char *typed = NULL;
+
+    if (index >= 0 && index < argc && argv[index] != NULL &&
+        argv[index][0] == '-') {
+        typed = argv[index];
+    }
+    if (typed != NULL && !is_short_option_spelling(typed)) {
+        (void)snprintf(buf, buf_size, "%s", typed);
+    } else if (long_index >= 0) {
+        (void)snprintf(buf, buf_size, "--%s", long_options[long_index].name);
+    } else if (optopt) {
+        (void)snprintf(buf, buf_size, "-%c", optopt);
+    } else {
+        (void)snprintf(buf, buf_size, "?");
+    }
+}
+
 #if defined(__linux__)
 /**
  * @brief Refuse a name target that leads nowhere but PID 1 (init)
@@ -292,8 +332,9 @@ static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
  * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested
  */
 int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
-    int option_char, ncpu, i;
+    int option_char, ncpu, i, long_index;
     int pid_option_seen = 0, exe_option_seen = 0, limit_option_seen = 0;
+    char rejected_option[64];
     const struct option long_options[] = {
         {"pid", required_argument, NULL, 'p'},
         {"exe", required_argument, NULL, 'e'},
@@ -375,8 +416,9 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
      * Leading '+' stops parsing at first non-option (for COMMAND mode).
      */
     while (1) {
+        long_index = -1;
         option_char =
-            getopt_long(argc, argv, "+:p:e:l:vzih", long_options, NULL);
+            getopt_long(argc, argv, "+:p:e:l:vzih", long_options, &long_index);
         if (option_char == -1) {
             break;
         }
@@ -459,23 +501,17 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
             return -1;
 
         case '?': /* Unknown option */
-            if (optopt && is_short_option_spelling(argv[optind - 1])) {
-                fprintf(stderr, "Error: invalid option '-%c'\n\n", optopt);
-            } else {
-                fprintf(stderr, "Error: invalid option '%s'\n\n",
-                        argv[optind - 1]);
-            }
+            format_rejected_option(rejected_option, sizeof(rejected_option),
+                                   argc, argv, long_index, long_options);
+            fprintf(stderr, "Error: invalid option '%s'\n\n", rejected_option);
             print_usage(stderr, cfg);
             return EXIT_FAILURE;
 
         case ':': /* Missing required argument for an option */
-            if (optopt && is_short_option_spelling(argv[optind - 1])) {
-                fprintf(stderr, "Error: option '-%c' requires an argument\n\n",
-                        optopt);
-            } else {
-                fprintf(stderr, "Error: option '%s' requires an argument\n\n",
-                        argv[optind - 1]);
-            }
+            format_rejected_option(rejected_option, sizeof(rejected_option),
+                                   argc, argv, long_index, long_options);
+            fprintf(stderr, "Error: option '%s' requires an argument\n\n",
+                    rejected_option);
             print_usage(stderr, cfg);
             return EXIT_FAILURE;
 

@@ -4215,8 +4215,10 @@ static void test_cli_missing_arg(void) {
     char arg0[] = "cpulimit";
     char arg_p[] = "-p";
     char arg_l[] = "-l";
+    char arg_long_p[] = "--pid";
     char *args1[3];
     char *args2[3];
+    char *args3[3];
     int parse_ret;
 
     args1[0] = arg0;
@@ -4229,6 +4231,19 @@ static void test_cli_missing_arg(void) {
     args2[1] = arg_l;
     args2[2] = NULL;
     parse_ret = run_parse_in_child(2, args2);
+    assert(parse_ret == EXIT_FAILURE);
+
+    /*
+     * The long form too: some libc implementations advance optind past
+     * argc when an option lacks its argument, and the error diagnostic
+     * used to read argv[optind - 1] unconditionally. That killed the
+     * child with SIGSEGV, which run_parse_in_child() reports through its
+     * WIFEXITED assertion.
+     */
+    args3[0] = arg0;
+    args3[1] = arg_long_p;
+    args3[2] = NULL;
+    parse_ret = run_parse_in_child(2, args3);
     assert(parse_ret == EXIT_FAILURE);
 }
 
