@@ -29,6 +29,13 @@ jobs:
         uses: actions/checkout@main
         with:
           fetch-depth: 0
+      
+      - name: Add more DNS servers (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu-')
+        run: |
+          set -euo pipefail
+          sudo sed -i 's/#DNS=/DNS=8.8.8.8 1.1.1.1 9.9.9.9/g' /etc/systemd/resolved.conf
+          sudo systemctl restart systemd-resolved
 
       - name: Configure fast APT mirror (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu-')
