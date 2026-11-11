@@ -102,6 +102,11 @@ struct cpulimit_cfg {
  * @param argv Array of command-line argument strings (from main)
  * @param cfg Pointer to configuration structure to be filled with parsed values
  * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested
+ *
+ * @note Malformed API input is rejected rather than dereferenced: a NULL
+ *       cfg or argv, a non-positive argc, and any NULL element in
+ *       argv[0..argc-1] each return EXIT_FAILURE. argv[argc] is the
+ *       terminator and is not inspected.
  */
 int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg);
 

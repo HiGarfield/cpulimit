@@ -292,7 +292,7 @@ static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
  * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested
  */
 int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
-    int option_char, ncpu;
+    int option_char, ncpu, i;
     int pid_option_seen = 0, exe_option_seen = 0, limit_option_seen = 0;
     const struct option long_options[] = {
         {"pid", required_argument, NULL, 'p'},
@@ -324,6 +324,18 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     if (argv[0] == NULL) {
         fprintf(stderr, "Error: parse_arguments: argv[0] is NULL\n");
         return EXIT_FAILURE;
+    }
+    /*
+     * getopt_long() and the command-mode checks read argv[1..argc-1];
+     * argv[argc] is the NULL terminator, not an argument. Checking argv[0]
+     * alone leaves a malformed vector with a NULL inside that range to be
+     * dereferenced before any later check can reject it.
+     */
+    for (i = 1; i < argc; i++) {
+        if (argv[i] == NULL) {
+            fprintf(stderr, "Error: parse_arguments: argv[%d] is NULL\n", i);
+            return EXIT_FAILURE;
+        }
     }
 
     ncpu = get_ncpu();

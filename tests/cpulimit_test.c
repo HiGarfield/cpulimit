@@ -4551,6 +4551,40 @@ static void test_cli_invalid_api_inputs(void) {
 }
 
 /**
+ * @brief Test parse_arguments rejects a NULL element inside argv
+ *
+ * @note The defensive API checks covered argv[0] but not the rest of the
+ *       vector. An argc that counts the NULL terminator, or a NULL where
+ *       an option value should be, reached getopt_long() or the
+ *       argv[optind][0] command-name check and crashed with SIGSEGV
+ *       instead of returning EXIT_FAILURE. Verified by mutation: removing
+ *       the NULL-element loop makes run_parse_in_child() see a child that
+ *       died from a signal rather than exited.
+ */
+static void test_cli_rejects_null_argv_element(void) {
+    char arg0[] = "cpulimit";
+    char arg_sep[] = "--";
+    char arg_l[] = "-l";
+    char *tail_argv[3];
+    char *mid_argv[3];
+    int parse_ret;
+
+    tail_argv[0] = arg0;
+    tail_argv[1] = arg_sep;
+    tail_argv[2] = NULL;
+    /* argc counts the terminator, so command mode would read argv[2]. */
+    parse_ret = run_parse_in_child(3, tail_argv);
+    assert(parse_ret == EXIT_FAILURE);
+
+    mid_argv[0] = arg0;
+    mid_argv[1] = arg_l;
+    mid_argv[2] = NULL;
+    /* "-l" needs its value from argv[2], which getopt_long would deref. */
+    parse_ret = run_parse_in_child(3, mid_argv);
+    assert(parse_ret == EXIT_FAILURE);
+}
+
+/**
  * @brief Test parse_arguments with --lazy and --verbose long options
  *
  * @note Long forms of -z and -v must behave identically to short forms
@@ -12898,7 +12932,7 @@ static void test_cli_rejects_empty_command_name(void) {
     /* A non-empty command still parses and enables command mode. */
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "cpulimit";
-    assert_rc = parse_arguments(5, ok_cmd, &cfg);
+    assert_rc = parse_arguments(4, ok_cmd, &cfg);
     assert(assert_rc == 0);
     assert(cfg.command_mode == 1);
 }
@@ -16117,6 +16151,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_duplicate_options);
     RUN_TEST(test_cli_null_cfg);
     RUN_TEST(test_cli_invalid_api_inputs);
+    RUN_TEST(test_cli_rejects_null_argv_element);
 }
 
 /**
