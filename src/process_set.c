@@ -253,15 +253,16 @@ struct stopped_pid_record {
  * Common path for a set with no suspended-PID list and for an exhausted
  * allocator: nothing else tracks the suspension, so it has to be undone
  * rather than reported as already resumed.
+ *
+ * @note A refusal is reported through the caller, not here. The member stays
+ *       flagged as suspended, so the closing SIGCONT round reports the
+ *       failure through warn_signal_failure() (verbose only, once per
+ *       episode) and the shutdown summary counts it. Printing that hint
+ *       here duplicated it and bypassed process_set_send_signal()'s
+ *       contract that a silent run prints nothing.
  */
 static int undo_unrecorded_suspension(pid_t pid) {
     if (kill(pid, SIGCONT) != 0 && errno != ESRCH) {
-        int saved_errno = errno;
-        fprintf(
-            stderr,
-            "Warning: cannot resume PID %ld with SIGCONT: %s\n         It may remain stopped; run 'kill -CONT %ld' to recover.\n",
-            (long)pid, strerror(saved_errno), (long)pid);
-        errno = saved_errno;
         return RECORD_STOPPED_STILL_STOPPED;
     }
     return RECORD_STOPPED_RESUMED;

@@ -18250,6 +18250,9 @@ static void test_reap_before_error_return_does_not_block(void);
 /* test, which is defined later (next to the other record tests). */
 static void test_record_stopped_pid_reports_undo_failure(void);
 
+/* test, which is defined later (next to the other record tests). */
+static void test_record_stopped_pid_undo_failure_is_silent(void);
+
 static void run_process_set_module_tests(void) {
     printf("\n=== PROCESS_SET MODULE TESTS ===\n");
     RUN_TEST(test_process_set_cpu_usage);
@@ -18294,6 +18297,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_reap_before_error_return_does_not_block);
     RUN_TEST(test_stopped_pids_record_does_not_duplicate);
     RUN_TEST(test_record_stopped_pid_reports_undo_failure);
+    RUN_TEST(test_record_stopped_pid_undo_failure_is_silent);
     RUN_TEST(test_send_signal_clears_state_only_for_sigcont);
     RUN_TEST(test_limit_process_scan_failed_and_stranded);
     RUN_TEST(test_process_set_excludes_self_from_group);
@@ -18543,6 +18547,75 @@ static void test_record_stopped_pid_reports_undo_failure(void) {
     seam_fail_call = 0;
     seam_fail_sig = 0;
     assert(ret == RECORD_STOPPED_STILL_STOPPED);
+
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+}
+
+/**
+ * @brief A suspension that can neither be recorded nor undone stays silent
+ *
+ * @note process_set_send_signal() promises that a run without -v prints
+ *       nothing, and record_stopped_pid() is called from inside it. An
+ *       unconditional warning on the undo path broke that contract and
+ *       duplicated warn_signal_failure()'s once-per-episode hint in verbose
+ *       runs. The refusal must reach the caller through the return value
+ *       and the shutdown summary instead. Verified by mutation: restoring
+ *       the fprintf() makes the captured stderr non-empty.
+ */
+static void test_record_stopped_pid_undo_failure_is_silent(void) {
+    struct process_set proc_set;
+    int fds[2], saved_stderr, ret, record_result;
+    char err_buf[64];
+    ssize_t got;
+    size_t err_len = 0;
+
+    seam_reset();
+    ret = init_process_set(&proc_set, (pid_t)4242, 0);
+    assert(ret == 0);
+
+    /* No list to hold a record, and the undo SIGCONT is refused. */
+    destroy_list(proc_set.stopped_pids);
+    free(proc_set.stopped_pids);
+    proc_set.stopped_pids = NULL;
+    seam_fail_call = 1;
+    seam_fail_errno = EPERM;
+    seam_fail_sig = SIGCONT;
+
+    ret = pipe(fds);
+    assert(ret == 0);
+    fflush(stderr);
+    saved_stderr = dup(STDERR_FILENO);
+    assert(saved_stderr >= 0);
+    (void)dup2(fds[1], STDERR_FILENO);
+
+    record_result =
+        record_stopped_pid(&proc_set, (pid_t)4242, UNKNOWN_START_TIME);
+
+    fflush(stderr);
+    (void)dup2(saved_stderr, STDERR_FILENO);
+    ret = close(saved_stderr);
+    assert(ret == 0);
+    ret = close(fds[1]);
+    assert(ret == 0);
+
+    do {
+        got = read(fds[0], err_buf + err_len, sizeof(err_buf) - 1 - err_len);
+        if (got > 0) {
+            err_len = err_len + (size_t)got;
+        }
+    } while (got > 0 || (got < 0 && errno == EINTR));
+    ret = close(fds[0]);
+    assert(ret == 0);
+    err_buf[err_len] = '\0';
+
+    seam_fail_call = 0;
+    seam_fail_errno = 0;
+    seam_fail_sig = 0;
+    seam_reset();
+
+    assert(record_result == RECORD_STOPPED_STILL_STOPPED);
+    assert(err_len == 0);
 
     ret = close_process_set(&proc_set);
     assert(ret == 0);
