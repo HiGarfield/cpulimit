@@ -3,6 +3,12 @@ include ../common.mk
 # Target binaries and source directory
 TARGETS := $(patsubst %.c,%,$(wildcard *.c))
 SRC := ../src
+# Every object here compiles code that includes headers from src/, so a
+# header change has to invalidate it. src/Makefile already lists all of its
+# headers as prerequisites for the same reason; without this, "make test"
+# after editing a src/ header links a stale test binary while the main
+# cpulimit binary is rebuilt from the new declarations.
+TEST_HEADER_DEPS := $(wildcard $(SRC)/*.h)
 
 # The test binary is multi-threaded
 PROJECT_CFLAGS += -pthread
@@ -27,7 +33,7 @@ LOAD_HELPER_SRC := \
 # different -D flags and must not end up sharing a .o with them.
 LOAD_OBJS := $(patsubst $(SRC)/%.c,load_%.o,$(filter %.c,$(LOAD_HELPER_SRC)))
 
-$(LOAD_OBJS): load_%.o: $(SRC)/%.c
+$(LOAD_OBJS): load_%.o: $(SRC)/%.c $(TEST_HEADER_DEPS)
 	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
 # Target rules: one static pattern rule builds both load helpers from
@@ -35,7 +41,7 @@ $(LOAD_OBJS): load_%.o: $(SRC)/%.c
 busy multi_process_busy: %: %.o $(LOAD_OBJS)
 	$(CC) $(ALL_CFLAGS) $^ $(ALL_LDFLAGS) -o $@
 
-%.o: %.c
+%.o: %.c $(TEST_HEADER_DEPS)
 	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
 # Deterministic timing seam (test binary only)
@@ -88,7 +94,7 @@ SEAM_LOADAVG_SRC := $(SRC)/util.c
 SEAM_OBJS := $(SEAM_SRC:$(SRC)/%.c=%.o)
 
 # One rule for all of them: each file gets every rename except its own.
-$(SEAM_OBJS): %.o: $(SRC)/%.c
+$(SEAM_OBJS): %.o: $(SRC)/%.c $(TEST_HEADER_DEPS)
 	$(CC) $(ALL_CFLAGS) $(SEAM_ALL_FLAGS) $(if $(filter $<,$(SEAM_LOADAVG_SRC)),,$(SEAM_LOADAVG_FLAGS)) $(if $(filter $<,$(SEAM_TIME_ITER_SRC)),,$(SEAM_TIME_ITER_FLAGS)) $(if $(filter $<,$(SEAM_LIMIT_SRC)),,$(SEAM_LIMIT_FLAGS)) $(if $(filter $<,$(SEAM_UPDATE_SRC)),,$(SEAM_UPDATE_FLAGS)) $(if $(filter $<,$(SEAM_STARTTIME_SRC)),,$(SEAM_STARTTIME_FLAGS)) $(if $(filter $<,$(SEAM_LIST_ELEM_SRC)),$(SEAM_LIST_ELEM_FLAGS)) -c $< -o $@
 
 cpulimit_test: cpulimit_test.o $(SEAM_OBJS)
