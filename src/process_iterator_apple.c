@@ -282,8 +282,8 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     argv0_len = (size_t)(nul - sp);
     if (argv0_len >= bufsize) {
         /*
-         * Truncate instead of refusing. The Linux backend copies a cmdline
-         * that does not fit with strncpy() and keeps the process, so
+         * Truncate instead of refusing. The Linux backend truncates a
+         * cmdline that does not fit and keeps the process, so
          * rejecting here would make a process with a long argv[0] vanish
          * from the scan on macOS -- invisible to -e matching and to the
          * "is this still the target" re-check -- while the very same
