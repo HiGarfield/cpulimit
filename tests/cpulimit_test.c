@@ -8354,6 +8354,56 @@ static void test_script_check_defers_on_truncated_shebang(void) {
 }
 
 /**
+ * @brief An interpreter that exists but is not executable must be refused
+ *
+ * @note The pre-check exists so a script whose execve() would fail is
+ *       classified before an exec interceptor such as valgrind reaches it.
+ *       access(F_OK) only proved that the path existed, so a present but
+ *       non-executable interpreter fell straight through to execvp().
+ *       The X_OK check must refuse it, and must accept the very same script
+ *       as soon as the interpreter gains an execute bit.
+ */
+static void test_script_check_requires_executable_interpreter(void) {
+    char interp_path[] = "/tmp/cpulimit_test_interp_XXXXXX";
+    char script_path[] = "/tmp/cpulimit_test_script_XXXXXX";
+    char shebang[sizeof(interp_path) + sizeof("#!\n")];
+    int interp_fd, script_fd, len, ret;
+    ssize_t nwritten;
+
+    interp_fd = mkstemp(interp_path);
+    assert(interp_fd >= 0);
+    ret = close(interp_fd);
+    assert(ret == 0);
+    ret = chmod(interp_path, 0644);
+    assert(ret == 0);
+
+    script_fd = mkstemp(script_path);
+    assert(script_fd >= 0);
+    len = snprintf(shebang, sizeof(shebang), "#!%s\n", interp_path);
+    assert(len > 0 && len < (int)sizeof(shebang));
+    nwritten = write(script_fd, shebang, (size_t)len);
+    assert(nwritten == len);
+    ret = close(script_fd);
+    assert(ret == 0);
+    ret = chmod(script_path, 0755);
+    assert(ret == 0);
+
+    /* Exists but has no execute bit: execve() would fail with EACCES. */
+    ret = is_script_inaccessible_interpreter(script_path);
+    assert(ret == 1);
+
+    ret = chmod(interp_path, 0755);
+    assert(ret == 0);
+    ret = is_script_inaccessible_interpreter(script_path);
+    assert(ret == 0);
+
+    ret = unlink(interp_path);
+    assert(ret == 0);
+    ret = unlink(script_path);
+    assert(ret == 0);
+}
+
+/**
  * @brief A script resolved via PATH with a missing shebang interpreter must
  *        also report 126
  *
@@ -18791,6 +18841,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_command_mode_nonexistent);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
     RUN_TEST(test_script_check_defers_on_truncated_shebang);
+    RUN_TEST(test_script_check_requires_executable_interpreter);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
     RUN_TEST(test_limiter_command_mode_skips_unusable_path_entry);
     RUN_TEST(test_limiter_command_mode_skips_bad_shebang_path_entry);
