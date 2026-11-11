@@ -54,6 +54,9 @@ extern "C" {
  * quit signal, so the only thing left to the caller is the SIGKILL
  * escalation, which reports the command as killed (128 + SIGKILL) rather
  * than as having exited on its own.
+ *
+ * A non-positive PID and PID 1 (init) are ignored: for them the group
+ * form would signal cpulimit itself or broadcast to every process.
  */
 void signal_command(pid_t child_pid, int sig, int verbose);
 

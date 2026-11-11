@@ -61,10 +61,12 @@ void signal_command(pid_t child_pid, int sig, int verbose) {
      * Only a real PID may be signalled here. kill() reads 0 as this
      * process's own group and a negative one as some other group, so a
      * PID that is not positive would land on the limiter itself or on
-     * processes this run never started. Nothing to forward to means
-     * nothing to send.
+     * processes this run never started. PID 1 (init) must never be
+     * signalled either: for it the group form below is kill(-1, sig),
+     * which would broadcast to every process on the system. Nothing to
+     * forward to means nothing to send.
      */
-    if (child_pid <= 0) {
+    if (child_pid <= 1) {
         return;
     }
     /*

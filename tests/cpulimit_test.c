@@ -19053,6 +19053,29 @@ static void test_signal_command_ignores_nonpositive_pid(void) {
 }
 
 /**
+ * @brief signal_command() must never signal PID 1 (init)
+ *
+ * @note With child_pid == 1 the group form is kill(-1, sig), a broadcast
+ *       to every process this user can signal, and the PID form would
+ *       reach init directly. The guard only excluded non-positive PIDs,
+ *       so PID 1 slipped through both. The kill seam keeps the calls
+ *       virtual, so the test only counts deliveries. Verified by
+ *       mutation: restoring child_pid <= 0 makes the count non-zero.
+ */
+static void test_signal_command_never_signals_pid_one(void) {
+    int calls;
+
+    seam_reset();
+    seam_active = 1;
+    signal_command((pid_t)1, SIGCONT, 0);
+    signal_command((pid_t)1, SIGTERM, 0);
+    calls = seam_kill_calls;
+    seam_active = 0;
+    seam_reset();
+    assert(calls == 0);
+}
+
+/**
  * @brief Run the SIGNAL_HANDLER MODULE TESTS tests
  *
  * @note Grouped in a helper rather than inlined in main(), which then
@@ -19069,6 +19092,7 @@ static void run_signal_handler_module_tests(void) {
     RUN_TEST(test_signal_handler_get_quit_signal);
     RUN_TEST(test_signal_handler_reconfigure_resets_state);
     RUN_TEST(test_signal_command_ignores_nonpositive_pid);
+    RUN_TEST(test_signal_command_never_signals_pid_one);
     RUN_TEST(test_signal_handler_mask_restored_after_configure);
     RUN_TEST(test_signal_handler_reconfigure_delivers_pending);
     RUN_TEST(test_signal_handler_reset_to_default);
