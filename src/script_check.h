@@ -35,12 +35,17 @@ extern "C" {
  *
  * @param path Path to the file to inspect
  * @return 1 if the file begins with "#!" and the interpreter path cannot be
- *         accessed; 0 otherwise.
+ *         accessed; 0 otherwise, including when the path cannot be read in
+ *         full and no conclusion is possible.
  *
  * Opens with O_NONBLOCK so argv[0] being a FIFO or device (which would block
  * until a peer appears) cannot strand this child before exec and freeze the
- * parent on the sync pipe; regular files are unaffected. Done before exec
- * because under tools like valgrind the execve interception is unrecoverable.
+ * parent on the sync pipe; regular files are unaffected. Reads until the
+ * buffer fills or the file ends: a path that never ended -- a full buffer,
+ * or a non-blocking read that stopped on EAGAIN with a writer possibly
+ * still appending -- yields no verdict, so a truncated interpreter path is
+ * never judged. Done before exec because under tools like valgrind the
+ * execve interception is unrecoverable.
  */
 int is_script_inaccessible_interpreter(const char *path);
 
