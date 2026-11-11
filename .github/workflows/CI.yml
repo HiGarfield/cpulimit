@@ -33,8 +33,9 @@ jobs:
       - name: Install tools (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu-')
         run: |
-          sudo apt -qq update
-          sudo apt -qq install gcc-multilib libc6-dev-i386
+          set -euo pipefail
+          sudo apt-get -qq -o APT::Update::Error-Mode=any update
+          sudo apt-get -qq -o APT::Install::Error-Mode=any install gcc-multilib libc6-dev-i386
 
       - name: Restore musl i486 extracted cache (Ubuntu)
         id: musl-cache-bin
