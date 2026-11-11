@@ -1200,7 +1200,7 @@ static void test_util_read_file_contents(void) {
  */
 static void test_util_read_file_contents_errno(void) {
     char empty_file[] = "/tmp/cpulimit_test_empty_errno_XXXXXX";
-    char *content;
+    const char *content;
     int fd, ret;
 
     fd = mkstemp(empty_file);
