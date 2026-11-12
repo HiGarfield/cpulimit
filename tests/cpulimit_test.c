@@ -17181,6 +17181,75 @@ static void test_init_name_scan_close_failure_is_inconclusive(void) {
 }
 
 /**
+ * @brief The process-set enforcement path must never signal PID 1
+ *
+ * @note update_process_set() drops init from the scan, but
+ *       process_set_send_signal() and resume_stopped_pids() are also
+ *       reachable with a set built by another caller. Both used to signal
+ *       whatever PID a record named, so a member or a deferred suspension
+ *       record for PID 1 reached init. The kill seam keeps every delivery
+ *       virtual and logs its PID. Verified by mutation: removing either
+ *       guard makes a pid == 1 entry appear in that log.
+ */
+static void test_process_set_never_signals_pid_one(void) {
+    struct process_set proc_set;
+    struct process *init_member;
+    struct seam_proc *frame;
+    struct list_node *node;
+    size_t i;
+    int ret;
+
+    frame = (struct seam_proc *)malloc(sizeof(*frame));
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(*frame));
+    frame->pid = (pid_t)SEAM_TARGET_PID;
+    frame->ppid = (pid_t)1;
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    free(frame);
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
+    assert(ret == 0);
+
+    /* A set built outside the scan, with init among its members. */
+    init_member = (struct process *)malloc(sizeof(*init_member));
+    assert(init_member != NULL);
+    memset(init_member, 0, sizeof(*init_member));
+    init_member->pid = (pid_t)1;
+    init_member->ppid = (pid_t)0;
+    init_member->cpu_usage = -1;
+    init_member->start_time = UNKNOWN_START_TIME;
+    ret = add_to_process_table(proc_set.proc_table, init_member);
+    assert(ret == 0);
+    assert(add_list_elem(proc_set.proc_list, init_member) != NULL);
+
+    process_set_send_signal(&proc_set, SIGSTOP, 0);
+
+    /* Leave init only in the deferred-resume records, not in proc_list. */
+    for (node = first_list_node(proc_set.proc_list); node != NULL;
+         node = node->next) {
+        struct process *proc = (struct process *)node->data;
+        if (proc != NULL && proc->pid == (pid_t)1) {
+            delete_list_node(proc_set.proc_list, node);
+            break;
+        }
+    }
+    ret = record_stopped_pid(&proc_set, (pid_t)1, UNKNOWN_START_TIME);
+    assert(ret == 0);
+    process_set_send_signal(&proc_set, SIGCONT, 0);
+
+    for (i = 0; i < seam_signal_count; i++) {
+        assert(seam_signals[i].pid != (pid_t)1);
+    }
+
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+    seam_active = 0;
+    seam_reset();
+}
+
+/**
  * @brief A suspension undone by the re-record is not a stranded member
  *
  * @note process_set_send_signal() used to count every failed SIGCONT as
@@ -18604,6 +18673,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_exe_name_not_refused_when_init_scan_cannot_start);
 #endif
     RUN_TEST(test_init_name_scan_close_failure_is_inconclusive);
+    RUN_TEST(test_process_set_never_signals_pid_one);
     RUN_TEST(test_name_mode_miss_ignores_enumerated_init);
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);
 

@@ -372,6 +372,15 @@ int resume_stopped_pids(struct process_set *proc_set, int verbose) {
         int keep_record = 0;
         next_node = node->next;
         /*
+         * PID 1 (init) is never signalled on any platform, in any mode.
+         * A record for it can only come from a caller outside the scan,
+         * so drop it without sending the deferred SIGCONT.
+         */
+        if (pid == 1) {
+            destroy_list_node(proc_set->stopped_pids, node);
+            continue;
+        }
+        /*
          * Still-members are resumed by the regular round over proc_list;
          * signalling them here would be a redundant second SIGCONT.
          */
@@ -1005,6 +1014,16 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
         }
         proc = (struct process *)node->data;
         pid = proc->pid;
+        /*
+         * PID 1 (init) is never signalled on any platform, in any mode.
+         * update_process_set() already drops it from the scan; keep the
+         * rule here too, so a set built by any other caller cannot
+         * suspend or resume init either.
+         */
+        if (pid == 1) {
+            node = next_node;
+            continue;
+        }
         /*
          * Confirm the identity before suspending. The scan that put this
          * member in the list ran a work quantum ago, and a PID recycled

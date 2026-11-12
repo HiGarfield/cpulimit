@@ -204,6 +204,8 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
  *       later round retries it and the shutdown round can still count it.
  *       The WORK PHASE also calls this and discards the count, so dropping
  *       those records would lose the suspension entirely.
+ * @note A record for PID 1 (init) is dropped without a signal: no signal
+ *       may reach init on any platform, in any mode.
  * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
  *       the call is then a no-op returning 0
  */
@@ -275,6 +277,8 @@ size_t process_set_member_count(const struct process_set *proc_set);
  * suspended. A failed SIGCONT for a member this group never suspended is benign
  * and does not count; an ESRCH (process gone) never counts.
  *
+ * @note PID 1 (init) members are skipped, so the enforcement path sends
+ *       no signal to init even when a set was built outside the scan.
  * @note Safe iteration: stores the next node before a potential deletion
  */
 int process_set_send_signal(struct process_set *proc_set, int sig, int verbose);
