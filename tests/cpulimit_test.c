@@ -17229,7 +17229,7 @@ static void test_process_set_never_signals_pid_one(void) {
     /* Leave init only in the deferred-resume records, not in proc_list. */
     for (node = first_list_node(proc_set.proc_list); node != NULL;
          node = node->next) {
-        struct process *proc = (struct process *)node->data;
+        const struct process *proc = (const struct process *)node->data;
         if (proc != NULL && proc->pid == (pid_t)1) {
             delete_list_node(proc_set.proc_list, node);
             break;

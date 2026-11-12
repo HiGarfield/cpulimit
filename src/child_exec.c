@@ -324,6 +324,12 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
      * sees exactly the same arguments.
      */
     exec_path = (skipped_bad && script_path != NULL) ? script_path : check_path;
+    /*
+     * The command and its PATH come from the operator by design: command
+     * mode exists to exec exactly what was typed, so the taint check's
+     * "sanitize untrusted data" advice does not apply to this call.
+     */
+    /* NOLINTNEXTLINE(clang-analyzer-optin.taint.GenericTaint) */
     execvp(exec_path, cfg->command_args);
 
     /*
