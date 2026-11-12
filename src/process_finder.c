@@ -275,7 +275,9 @@ static pid_t select_preferred_candidate(const pid_t *candidates, size_t count) {
  * one, and a vanished winner falls back to another live candidate.
  *
  * @note Iterates every process, so prefer find_process_by_pid() when the PID is
- *       known; returns 0 on allocation or iterator errors.
+ *       known; returns 0 on allocation errors, an iterator that will not
+ *       open, or a scan that stopped before the table was read to its end.
+ *       A failed close is reported but does not discard a completed scan.
  */
 pid_t find_process_by_name(const char *process_name) {
     pid_t pid = 0;
