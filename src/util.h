@@ -104,11 +104,14 @@ void increase_priority(void);
  *
  * @param loadavg Array to receive load average values
  * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
- * @return Number of samples retrieved (nelem), or -1 on error
+ * @return Number of samples retrieved (nelem capped at 3), or -1 on a
+ *         negative count or a system error; a count of 0 returns 0
  *
  * Wraps the BSD/GNU getloadavg(). On uClibc/uClibc-ng versions < 1.0.42,
  * which lack it, the values come from sysinfo() instead. The project owns
- * the name so that no macro shadows a libc symbol.
+ * the name so that no macro shadows a libc symbol. Both paths reject a
+ * negative count and clamp a larger one to three, so a caller never sees
+ * a count larger than the number of samples actually written.
  */
 int cpulimit_getloadavg(double *loadavg, int nelem);
 

@@ -127,11 +127,15 @@ void increase_priority(void) {
  *
  * @param loadavg Array to receive load average values
  * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
- * @return Number of samples retrieved (nelem), or -1 on error
+ * @return Number of samples retrieved (nelem capped at 3), or -1 on a
+ *         negative count or a system error; a count of 0 returns 0
  *
  * Forwards to the BSD/GNU getloadavg(). On uClibc/uClibc-ng versions
  * < 1.0.42, which lack it, the values are derived from the sysinfo()
  * syscall instead, converting its fixed-point loads to floating-point.
+ * Both paths reject a negative count and clamp a larger one to the three
+ * samples the interface can supply, so neither writes outside loadavg
+ * nor reports samples it did not write.
  */
 int cpulimit_getloadavg(double *loadavg, int nelem) {
 #ifdef CPULIMIT_IMPL_GETLOADAVG
@@ -158,6 +162,23 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
 
     return nelem;
 #else
+    /*
+     * getloadavg() writes at most three samples, but not every libc
+     * validates nelem first: Darwin's returns 3 for a negative count
+     * after writing three doubles, which a caller that sized its array
+     * for that count cannot absorb. Apply the same bounds the sysinfo()
+     * branch above uses so both paths agree on invalid input, and never
+     * let a larger count claim more samples than the call wrote.
+     */
+    if (nelem < 0) {
+        return -1;
+    }
+    if (nelem == 0) {
+        return 0;
+    }
+    if (nelem > 3) {
+        nelem = 3;
+    }
     return getloadavg(loadavg, nelem);
 #endif
 }

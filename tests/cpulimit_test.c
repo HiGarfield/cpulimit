@@ -1025,6 +1025,52 @@ static void test_util_long_to_pid_t(void) {
     long_to_pid_t(LONG_MAX);
 }
 
+/**
+ * @brief The load-average wrapper validates its sample count on every libc
+ *
+ * @note The sysinfo() fallback rejected a negative count and capped a
+ *       larger one at three, while the getloadavg() path forwarded both
+ *       unchecked. Darwin's getloadavg() answers -1 elements with a
+ *       return value of 3 and writes three doubles, so a caller that
+ *       sized its array for the count it passed was overrun and saw a
+ *       success it could not trust. The sentinels prove that no sample
+ *       is written on a rejected count and that the reported count never
+ *       exceeds the three samples the interface can supply. Verified by
+ *       mutation: restoring the bare forwarding fails both assertions.
+ */
+static void test_util_getloadavg_validates_sample_count(void) {
+    double samples[4];
+    int ret, i;
+
+    for (i = 0; i < 4; i++) {
+        samples[i] = -1.0;
+    }
+    ret = cpulimit_getloadavg(samples, -1);
+    assert(ret == -1);
+    /* Load averages are never negative, so a sentinel survives untouched. */
+    for (i = 0; i < 4; i++) {
+        assert(samples[i] < 0.0);
+    }
+
+    ret = cpulimit_getloadavg(samples, 0);
+    assert(ret == 0);
+
+    for (i = 0; i < 4; i++) {
+        samples[i] = -1.0;
+    }
+    ret = cpulimit_getloadavg(samples, 4);
+    assert(ret == 3);
+    assert(samples[3] < 0.0);
+
+    for (i = 0; i < 4; i++) {
+        samples[i] = -1.0;
+    }
+    ret = cpulimit_getloadavg(samples, 1);
+    assert(ret == 1);
+    assert(samples[0] >= 0.0);
+    assert(samples[1] < 0.0);
+}
+
 #if defined(__linux__)
 /**
  * @brief Test read_file_contents with NULL, missing, and valid files
@@ -19314,6 +19360,7 @@ static void run_util_module_tests(void) {
     RUN_TEST(test_util_burner_leaves_realtime_class);
     RUN_TEST(test_util_realtime_does_not_reach_children);
     RUN_TEST(test_util_long_to_pid_t);
+    RUN_TEST(test_util_getloadavg_validates_sample_count);
 #if defined(__linux__)
     RUN_TEST(test_util_read_file_contents);
     RUN_TEST(test_util_read_file_contents_errno);
