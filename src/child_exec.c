@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /**
@@ -79,9 +80,11 @@
  * candidate be executed? A file that merely exists is not the one the exec
  * will use, because execvp() skips a component it cannot execute and keeps
  * searching, so a probe by existence would judge the command from a file the
- * exec never reaches -- and the pre-check refuses on that judgement. An empty
- * component denotes the current directory (POSIX), which is what "." spells
- * here; strtok() dropped those along with the file execvp() would have run.
+ * exec never reaches -- and the pre-check refuses on that judgement. Only a
+ * regular file counts: X_OK also passes for directories and FIFOs, which
+ * execvp() skips while searching. An empty component denotes the current
+ * directory (POSIX), which is what "." spells here; strtok() dropped those
+ * along with the file execvp() would have run.
  *
  * An executable script whose interpreter is gone is another component
  * execvp() passes over: execve() reports ENOENT and the search continues.
@@ -115,6 +118,7 @@ static int resolve_command_path(const char *name, char *out, size_t out_size,
         size_t dir_len =
             sep != NULL ? (size_t)(sep - path_env) : strlen(path_env);
         int len;
+        struct stat candidate_stat;
 
         if (dir_len == 0) {
             len = snprintf(out, out_size, "./%s", name);
@@ -124,7 +128,15 @@ static int resolve_command_path(const char *name, char *out, size_t out_size,
         } else {
             len = -1;
         }
-        if (len > 0 && (size_t)len < out_size && access(out, X_OK) == 0) {
+        /*
+         * X_OK alone also passes for a directory (search permission) or a
+         * FIFO, neither of which execvp() can execute. Such a component is
+         * one execvp() skips while searching, so it must not become the
+         * resolved path that the caller later hands to execvp() directly.
+         */
+        if (len > 0 && (size_t)len < out_size && access(out, X_OK) == 0 &&
+            stat(out, &candidate_stat) == 0 &&
+            S_ISREG(candidate_stat.st_mode)) {
             if (is_script_inaccessible_interpreter(out)) {
                 if (bad_dir == NULL) {
                     bad_dir = path_env;

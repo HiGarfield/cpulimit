@@ -9079,6 +9079,79 @@ static void test_limiter_command_mode_skips_bad_shebang_path_entry(void) {
 }
 
 /**
+ * @brief A non-regular PATH candidate must not hide a later executable
+ *
+ * @note resolve_command_path() accepted every candidate for which
+ *       access(out, X_OK) succeeded. X_OK also passes for a directory
+ *       (search permission), yet execvp() cannot execute one: it skips
+ *       that component and keeps searching. Because a bad-shebang script
+ *       earlier on PATH sets skipped_bad, exec_child_process() handed the
+ *       directory path to execvp() directly instead of the bare command
+ *       name, so the healthy executable in the third PATH component was
+ *       never reached and the run reported 126. Verified by mutation:
+ *       dropping the S_ISREG check makes this assert see 126 instead of 9.
+ */
+static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
+    char *dir_a, *dir_b, *dir_c, *path_value, *entry;
+    char name[] = "pathdir_cpulimit_xyz";
+    struct cpulimit_cfg cfg;
+    char *args[2];
+    size_t dir_size = 48, path_size = 48 * 3 + 3, entry_size = 48 + 32;
+    int len, exit_code, rc;
+
+    dir_a = (char *)malloc(dir_size);
+    dir_b = (char *)malloc(dir_size);
+    dir_c = (char *)malloc(dir_size);
+    path_value = (char *)malloc(path_size);
+    entry = (char *)malloc(entry_size);
+    assert(dir_a != NULL);
+    assert(dir_b != NULL);
+    assert(dir_c != NULL);
+    assert(path_value != NULL);
+    assert(entry != NULL);
+
+    make_test_dir(dir_a, dir_size, "pdr_a");
+    make_test_dir(dir_b, dir_size, "pdr_b");
+    make_test_dir(dir_c, dir_size, "pdr_c");
+    /* First: an executable script whose interpreter is gone -> skipped_bad. */
+    write_test_script(dir_a, name, "#!/nonexistent_interpreter_cpulimit_xyz\n",
+                      0755);
+    /* Second: a directory the old probe mistook for a usable candidate. */
+    len = snprintf(entry, entry_size, "%s/%s", dir_b, name);
+    assert(len > 0 && (size_t)len < entry_size);
+    rc = mkdir(entry, 0755);
+    assert(rc == 0);
+    /* Third: the executable execvp() really should reach. */
+    write_test_script(dir_c, name, "#!/bin/sh\nexit 9\n", 0755);
+
+    args[0] = name;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(struct cpulimit_cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    len = snprintf(path_value, path_size, "%s:%s:%s", dir_a, dir_b, dir_c);
+    assert(len > 0 && (size_t)len < path_size);
+    exit_code = run_command_mode_with_path(&cfg, path_value, NULL);
+    assert(exit_code == 9);
+
+    remove_test_script(dir_a, name);
+    assert(rmdir(entry) == 0);
+    remove_test_script(dir_c, name);
+    assert(rmdir(dir_a) == 0);
+    assert(rmdir(dir_b) == 0);
+    assert(rmdir(dir_c) == 0);
+    free(entry);
+    free(path_value);
+    free(dir_c);
+    free(dir_b);
+    free(dir_a);
+}
+
+/**
  * @brief Detect whether the test binary is running under valgrind
  *
  * @return 1 when a valgrind preload library has been injected, 0 otherwise
@@ -19333,6 +19406,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
     RUN_TEST(test_limiter_command_mode_skips_unusable_path_entry);
     RUN_TEST(test_limiter_command_mode_skips_bad_shebang_path_entry);
+    RUN_TEST(test_limiter_command_mode_skips_non_regular_path_entry);
     RUN_TEST(test_limiter_run_command_mode_fifo);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_without_group);
