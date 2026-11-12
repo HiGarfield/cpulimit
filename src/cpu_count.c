@@ -51,8 +51,9 @@
  * Accepts single CPUs ("0"), inclusive ranges ("0-3" counts as four) and
  * comma-separated combinations ("0-3,8-11,15"); whitespace around the
  * numbers is tolerated. Returns -1 for a NULL or empty string, invalid
- * syntax, a negative number, a reversed range (end < start), or a total that
- * would overflow int; a whitespace-only string is rejected as invalid syntax.
+ * syntax, a negative number, a sign prefix on either number, a reversed
+ * range (end < start), or a total that would overflow int; a whitespace-only
+ * string is rejected as invalid syntax.
  */
 int parse_cpu_range(const char *str) {
     const char *parse_pos = str;
@@ -65,6 +66,20 @@ int parse_cpu_range(const char *str) {
 
     while (*parse_pos != '\0') {
         long start;
+        const char *number_pos = parse_pos;
+        /*
+         * strtol() also accepts a leading '+' or '-'. Neither is part of
+         * this parser's grammar, and a sign that cancels out ("-0") or a
+         * second one after the range dash ("0--0") would otherwise turn
+         * malformed input into a valid one-CPU answer. Skip the whitespace
+         * strtol() skips, then reject either sign before converting.
+         */
+        while (isspace((unsigned char)*number_pos)) {
+            number_pos++;
+        }
+        if (*number_pos == '+' || *number_pos == '-') {
+            return -1;
+        }
         /* Parse first number (strtol automatically skips leading whitespace) */
         errno = 0;
         start = strtol(parse_pos, &endptr, 10);
@@ -79,6 +94,15 @@ int parse_cpu_range(const char *str) {
 
         if (*parse_pos == '-') {
             long end, range_len;
+            const char *end_pos = parse_pos + 1;
+
+            /* A second sign is malformed syntax, not a signed endpoint. */
+            while (isspace((unsigned char)*end_pos)) {
+                end_pos++;
+            }
+            if (*end_pos == '+' || *end_pos == '-') {
+                return -1;
+            }
 
             parse_pos++;
 

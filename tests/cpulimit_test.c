@@ -1333,6 +1333,23 @@ static void test_util_parse_cpu_range(void) {
     assert(assert_rc == -1); /* reversed range */
     assert_rc = parse_cpu_range("-1");
     assert(assert_rc == -1); /* negative start */
+    /*
+     * strtol() accepts a sign that cancels out numerically ("-0"), a
+     * leading '+', and a second sign after the range dash. All three are
+     * outside the documented grammar and used to be read as one CPU.
+     */
+    assert_rc = parse_cpu_range("-0");
+    assert(assert_rc == -1);
+    assert_rc = parse_cpu_range("+0");
+    assert(assert_rc == -1);
+    assert_rc = parse_cpu_range(" -0");
+    assert(assert_rc == -1);
+    assert_rc = parse_cpu_range("0--0");
+    assert(assert_rc == -1);
+    assert_rc = parse_cpu_range("0-+0");
+    assert(assert_rc == -1);
+    assert_rc = parse_cpu_range("0- +0");
+    assert(assert_rc == -1);
     assert_rc = parse_cpu_range("0-");
     assert(assert_rc == -1); /* missing end */
     assert_rc = parse_cpu_range("0x1");
