@@ -120,8 +120,9 @@ int process_name_matches_cmd(const char *process_name, const char *command) {
  * @param process_name Name or absolute path as typed by the operator
  * @return 1 when at least one process other than PID 1 has a matching argv[0],
  *         0 when a completed scan proves none does, -1 when the answer cannot
- *         be established (an unusable name, an allocation or iterator
- *         failure, or a scan that stopped before the table was read to its end)
+ *         be established (an unusable name, an allocation or iterator failure
+ *         including a failed close, or a scan that stopped before the table
+ *         was read to its end)
  *
  * Answers the narrower question behind the Linux-only refusal in cli.c. The
  * name lookup skips PID 1 on every platform, so a name init happens to wear
@@ -133,12 +134,12 @@ int process_name_matches_cmd(const char *process_name, const char *command) {
  * Read-only: signals nothing, builds no candidate list, prints nothing of its
  * own beyond a failed iterator close.
  *
- * @note Only a completed scan may answer 0. cli.c refuses the name outright
- *       on that value, so an allocation or iterator failure, or a scan that
- *       stopped before the table had been read to its end, has to answer -1
- *       and leave the name to find_process_by_name(), which discards a broken
- *       scan and re-resolves instead of ending the run on a half-answered
- *       question.
+ * @note Only a scan that completed and closed cleanly may answer 0. cli.c
+ *       refuses the name outright on that value, so an allocation or
+ *       iterator failure, a failed close, or a scan that stopped before the
+ *       table had been read to its end has to answer -1 and leave the name
+ *       to find_process_by_name(), which discards a broken scan and
+ *       re-resolves instead of ending the run on a half-answered question.
  */
 int process_name_has_non_init_match(const char *process_name) {
     struct process_iterator iter;
@@ -168,8 +169,15 @@ int process_name_has_non_init_match(const char *process_name) {
         }
     }
     free(proc);
+    /*
+     * A close that failed is not a completed scan either: the answer 0 is
+     * a hard "this name resolves to PID 1" refusal in cli.c, so it must be
+     * reserved for a scan that both finished and closed cleanly. Report the
+     * failure and leave the name to the limiter's own lookup instead.
+     */
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
+        return -1;
     }
     if (scan_rc == PROCESS_ITER_ERROR) {
         return -1;

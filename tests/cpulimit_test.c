@@ -17154,6 +17154,33 @@ static void test_exe_name_not_refused_when_init_scan_cannot_start(void) {
 #endif
 
 /**
+ * @brief An init-name scan that failed to close must not refuse the target
+ *
+ * @note process_name_has_non_init_match() answers 0 only for a scan that
+ *       completed and closed cleanly: cli.c turns that 0 into a hard
+ *       "resolves to PID 1" refusal. A failed close used to leave the
+ *       answer at 0, so an ordinary name was rejected before the limiter
+ *       ever got to resolve it. The seam scripts an empty, completed scan
+ *       whose close fails, and the result has to be inconclusive on every
+ *       platform. Verified by mutation: returning found on that path makes
+ *       this assertion see 0 instead of -1.
+ */
+static void test_init_name_scan_close_failure_is_inconclusive(void) {
+    int result;
+
+    seam_reset();
+    seam_active = 1;
+    seam_close_fails = 1;
+    test_mute_output();
+    result = process_name_has_non_init_match("no_such_process_name");
+    test_unmute_output();
+    seam_close_fails = 0;
+    seam_active = 0;
+
+    assert(result == -1);
+}
+
+/**
  * @brief A suspension undone by the re-record is not a stranded member
  *
  * @note process_set_send_signal() used to count every failed SIGCONT as
@@ -18576,6 +18603,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_exe_name_not_refused_on_broken_init_scan);
     RUN_TEST(test_exe_name_not_refused_when_init_scan_cannot_start);
 #endif
+    RUN_TEST(test_init_name_scan_close_failure_is_inconclusive);
     RUN_TEST(test_name_mode_miss_ignores_enumerated_init);
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);
 
