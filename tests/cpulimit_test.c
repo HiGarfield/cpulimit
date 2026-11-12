@@ -17250,6 +17250,31 @@ static void test_process_set_never_signals_pid_one(void) {
 }
 
 /**
+ * @brief An unrecordable suspension of PID 1 must not resume init
+ *
+ * @note record_stopped_pid() has to undo a suspension at once when no
+ *       list can hold the record. That undo used to send SIGCONT to the
+ *       PID it was given, so a set without a suspended-PID list reached
+ *       init. The kill seam keeps the delivery virtual and logs its PID.
+ *       Verified by mutation: removing the PID 1 guard logs a signal to
+ *       PID 1.
+ */
+static void test_record_stopped_pid_never_resumes_init(void) {
+    size_t i;
+    int result;
+
+    seam_reset();
+    seam_active = 1;
+    result = record_stopped_pid(NULL, (pid_t)1, UNKNOWN_START_TIME);
+    for (i = 0; i < seam_signal_count; i++) {
+        assert(seam_signals[i].pid != (pid_t)1);
+    }
+    assert(result == RECORD_STOPPED_RESUMED);
+    seam_active = 0;
+    seam_reset();
+}
+
+/**
  * @brief A suspension undone by the re-record is not a stranded member
  *
  * @note process_set_send_signal() used to count every failed SIGCONT as
@@ -18674,6 +18699,7 @@ static void run_process_set_module_tests(void) {
 #endif
     RUN_TEST(test_init_name_scan_close_failure_is_inconclusive);
     RUN_TEST(test_process_set_never_signals_pid_one);
+    RUN_TEST(test_record_stopped_pid_never_resumes_init);
     RUN_TEST(test_name_mode_miss_ignores_enumerated_init);
     RUN_TEST(test_watch_mode_exits_promptly_on_signal);
 

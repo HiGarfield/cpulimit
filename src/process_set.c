@@ -252,7 +252,8 @@ struct stopped_pid_record {
  *
  * Common path for a set with no suspended-PID list and for an exhausted
  * allocator: nothing else tracks the suspension, so it has to be undone
- * rather than reported as already resumed.
+ * rather than reported as already resumed. PID 1 is the one exception:
+ * no signal may reach init, so its suspension is dropped instead.
  *
  * @note A refusal is reported through the caller, not here. The member stays
  *       flagged as suspended, so the closing SIGCONT round reports the
@@ -262,6 +263,14 @@ struct stopped_pid_record {
  *       contract that a silent run prints nothing.
  */
 static int undo_unrecorded_suspension(pid_t pid) {
+    /*
+     * PID 1 (init) is never signalled on any platform, in any mode. There
+     * is no suspension left for this group to own when the PID is init,
+     * so report it as resumed without sending the undoing SIGCONT.
+     */
+    if (pid == 1) {
+        return RECORD_STOPPED_RESUMED;
+    }
     if (kill(pid, SIGCONT) != 0 && errno != ESRCH) {
         return RECORD_STOPPED_STILL_STOPPED;
     }
