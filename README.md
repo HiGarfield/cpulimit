@@ -127,6 +127,10 @@ path of the executable on disk:
   `/usr/bin/myapp` and `./dir/myapp` alike.
 - An argument with an empty name (`-e /`, `-e bin/`) is rejected with
   `invalid match name`.
+- An argument whose comparison name is too long for cpulimit's command
+  buffer is rejected with `comparison name is too long`. Process command
+  names are stored truncated to that buffer, so such an argument could
+  never match; for a relative name only its basename has to fit.
 
 When several processes match, the topmost ancestor wins; if the matches are
 unrelated, the smaller PID wins. A match cpulimit cannot signal loses to any

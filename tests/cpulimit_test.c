@@ -13379,6 +13379,69 @@ static void test_cli_rejects_unmatchable_names(void) {
 }
 
 /**
+ * @brief -e must reject a comparison name that cannot fit the command buffer
+ *
+ * @note Every iterator truncates the stored argv[0] to CMD_BUFF_SIZE-1
+ *       characters, so a name at least CMD_BUFF_SIZE long can never
+ *       match. It used to be accepted, leaving a watching run printing
+ *       "cannot be found" forever. A name one character shorter, and a
+ *       long relative path whose basename is short, must still parse.
+ *       Verified by mutation: removing the length check makes the first
+ *       assertion see EXIT_SUCCESS.
+ */
+static void test_cli_rejects_overlong_match_name(void) {
+    char arg0[] = "cpulimit";
+    char arg_l[] = "-l";
+    char arg_50[] = "50";
+    char arg_e[] = "-e";
+    char *long_name;
+    char *args[6];
+    char err_buf[160];
+    int parse_ret;
+    const char *assert_hit;
+    size_t i, limit;
+
+    limit = (size_t)CMD_BUFF_SIZE;
+    long_name = (char *)malloc(limit + 4);
+    assert(long_name != NULL);
+    for (i = 0; i < limit; i++) {
+        long_name[i] = 'a';
+    }
+    long_name[limit] = '\0';
+
+    args[0] = arg0;
+    args[1] = arg_l;
+    args[2] = arg_50;
+    args[3] = arg_e;
+    args[4] = long_name;
+    args[5] = NULL;
+
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_FAILURE);
+    assert_hit = strstr(err_buf, "comparison name is too long");
+    assert(assert_hit != NULL);
+
+    /* One character less is still a usable name. */
+    long_name[limit - 1] = '\0';
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_SUCCESS);
+
+    /* A long relative path is compared by its short basename only. */
+    for (i = 0; i < limit; i++) {
+        long_name[i] = 'a';
+    }
+    long_name[limit - 1] = '/';
+    long_name[limit] = 'f';
+    long_name[limit + 1] = 'o';
+    long_name[limit + 2] = 'o';
+    long_name[limit + 3] = '\0';
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    assert(parse_ret == EXIT_SUCCESS);
+
+    free(long_name);
+}
+
+/**
  * @brief A repeated SIGCONT failure must not flood stderr
  *
  * @note A member that can never be resumed (EPERM) is retried every control
@@ -16453,6 +16516,7 @@ static void run_cli_tests(void) {
     RUN_TEST(test_cli_rejects_empty_command_name);
     RUN_TEST(test_cli_rejects_root_match_name);
     RUN_TEST(test_cli_rejects_unmatchable_names);
+    RUN_TEST(test_cli_rejects_overlong_match_name);
     RUN_TEST(test_cli_empty_exe);
     RUN_TEST(test_cli_no_target);
     RUN_TEST(test_cli_multiple_targets);

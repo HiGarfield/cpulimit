@@ -29,6 +29,7 @@
 #include "file_io.h"
 #include "path_util.h"
 #include "process_finder.h"
+#include "process_iterator.h"
 #include "util.h"
 
 #include <ctype.h>
@@ -473,6 +474,24 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
              */
             if (get_file_basename(optarg)[0] == '\0') {
                 fprintf(stderr, "Error: invalid match name '%s'\n\n", optarg);
+                print_usage(stderr, cfg);
+                return EXIT_FAILURE;
+            }
+            /*
+             * Every iterator stores argv[0] in a CMD_BUFF_SIZE buffer and
+             * truncates it to CMD_BUFF_SIZE-1 characters, so a comparison
+             * name that long can never equal anything the scan reports.
+             * Relative names are compared by basename, so only that part
+             * has to fit; an absolute name is compared in full. Rejecting
+             * it here keeps a name that can never match from sending a
+             * watching run into an endless "cannot be found" loop.
+             */
+            if (strlen(optarg[0] == '/' ? optarg : get_file_basename(optarg)) >=
+                (size_t)CMD_BUFF_SIZE) {
+                fprintf(
+                    stderr,
+                    "Error: invalid match name: comparison name is too long (limit %d characters)\n\n",
+                    (int)CMD_BUFF_SIZE - 1);
                 print_usage(stderr, cfg);
                 return EXIT_FAILURE;
             }
