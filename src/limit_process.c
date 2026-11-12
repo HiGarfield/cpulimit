@@ -135,8 +135,8 @@ static double get_dynamic_time_slot(struct dynamic_time_slot_ctx *ctx) {
      * a project wrapper: neither C89 nor POSIX.1-2001 has any interface
      * reporting it, and the underlying getloadavg() is BSD/GNU -- hence the
      * _GNU_SOURCE this file defines. srandom()/random() are POSIX.1-2001
-     * XSI: C89's rand() could produce the jitter, but the test harness
-     * renames random() to make it deterministic, so the XSI pair stays.
+     * XSI: C89's rand() could produce the jitter too, but the XSI pair
+     * keeps the seed and the generated sequence explicit.
      */
 
     if (!ctx->initialized) {
