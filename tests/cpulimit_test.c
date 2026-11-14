@@ -8876,6 +8876,36 @@ static void test_limiter_run_command_mode_bad_shebang_via_path(void) {
 }
 
 /**
+ * @brief Heap blocks a forked test child must release before _exit()
+ *
+ * @note Even the pointer array is heap-allocated: no global or static
+ *       storage carries test data across a fork.
+ */
+struct fork_owned_heap {
+    void **blocks;
+    size_t count;
+};
+
+/**
+ * @brief Release a forked child's copy of the registered heap blocks
+ *
+ * @param owned Blocks registered by the test, or NULL when it holds none
+ *
+ * @note Only the child calls this; the parent keeps and frees its copies.
+ */
+static void free_fork_owned(const struct fork_owned_heap *owned) {
+    size_t i;
+
+    if (owned == NULL) {
+        return;
+    }
+    for (i = 0; i < owned->count; i++) {
+        free(owned->blocks[i]);
+    }
+    free((void *)owned->blocks);
+}
+
+/**
  * @brief Create a test directory, reusing one a crashed run left behind
  *
  * @param buf Buffer receiving the directory's path
@@ -8950,12 +8980,12 @@ static void remove_test_script(const char *dir, const char *name) {
  *
  * PATH and the working directory are changed in the forked child only, so the
  * parent's environment and directory stay untouched and nothing has to be
- * restored. The child leaves through _exit(), so no buffer is flushed twice
- * and nothing it inherited is reported as lost.
+ * restored. The child releases the heap blocks it inherited before _exit().
  */
 static int run_command_mode_with_path(const struct cpulimit_cfg *cfg,
                                       const char *path_value,
-                                      const char *chdir_to) {
+                                      const char *chdir_to,
+                                      const struct fork_owned_heap *owned) {
     pid_t pid, waited;
     int status, exited, exit_code;
 
@@ -8971,6 +9001,8 @@ static int run_command_mode_with_path(const struct cpulimit_cfg *cfg,
         }
         rc = setenv("PATH", path_value, 1);
         assert(rc == 0);
+        /* The child no longer needs the heap buffers it inherited. */
+        free_fork_owned(owned);
         /* Nothing the command prints is part of what this test asserts. */
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -9015,6 +9047,7 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
      * contents covers both shapes without a second pair of directories.
      */
     char *dir_a, *dir_b, *path_value;
+    struct fork_owned_heap owned;
     char name[] = "pathprobe_cpulimit_xyz";
     struct cpulimit_cfg cfg;
     char *args[2];
@@ -9032,6 +9065,13 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
     assert(dir_a != NULL);
     assert(dir_b != NULL);
     assert(path_value != NULL);
+
+    owned.blocks = (void **)malloc(3 * sizeof(*owned.blocks));
+    assert(owned.blocks != NULL);
+    owned.count = 3;
+    owned.blocks[0] = dir_a;
+    owned.blocks[1] = dir_b;
+    owned.blocks[2] = path_value;
 
     make_test_dir(dir_a, dir_size, "patha");
     make_test_dir(dir_b, dir_size, "pathb");
@@ -9055,7 +9095,7 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
 
     len = snprintf(path_value, path_size, "%s:%s", dir_a, dir_b);
     assert(len > 0 && (size_t)len < path_size);
-    exit_code = run_command_mode_with_path(&cfg, path_value, NULL);
+    exit_code = run_command_mode_with_path(&cfg, path_value, NULL, &owned);
     /* execvp() reaches the second directory, so that is what it must report. */
     assert(exit_code == 9);
 
@@ -9069,7 +9109,7 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
                       0755);
     len = snprintf(path_value, path_size, ":%s", dir_a);
     assert(len > 0 && (size_t)len < path_size);
-    exit_code = run_command_mode_with_path(&cfg, path_value, dir_b);
+    exit_code = run_command_mode_with_path(&cfg, path_value, dir_b, &owned);
     /* The empty component is the current directory, as execvp() reads it. */
     assert(exit_code == 11);
 
@@ -9081,6 +9121,7 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
     free(path_value);
     free(dir_b);
     free(dir_a);
+    free((void *)owned.blocks);
 }
 
 /**
@@ -9098,6 +9139,7 @@ static void test_limiter_command_mode_skips_unusable_path_entry(void) {
  */
 static void test_limiter_command_mode_skips_bad_shebang_path_entry(void) {
     char *dir_a, *dir_b, *path_value;
+    struct fork_owned_heap owned;
     char name[] = "pathbadsh_cpulimit_xyz";
     struct cpulimit_cfg cfg;
     char *args[2];
@@ -9110,6 +9152,13 @@ static void test_limiter_command_mode_skips_bad_shebang_path_entry(void) {
     assert(dir_a != NULL);
     assert(dir_b != NULL);
     assert(path_value != NULL);
+
+    owned.blocks = (void **)malloc(3 * sizeof(*owned.blocks));
+    assert(owned.blocks != NULL);
+    owned.count = 3;
+    owned.blocks[0] = dir_a;
+    owned.blocks[1] = dir_b;
+    owned.blocks[2] = path_value;
 
     make_test_dir(dir_a, dir_size, "pbsha");
     make_test_dir(dir_b, dir_size, "pbshb");
@@ -9128,7 +9177,7 @@ static void test_limiter_command_mode_skips_bad_shebang_path_entry(void) {
 
     len = snprintf(path_value, path_size, "%s:%s", dir_a, dir_b);
     assert(len > 0 && (size_t)len < path_size);
-    exit_code = run_command_mode_with_path(&cfg, path_value, NULL);
+    exit_code = run_command_mode_with_path(&cfg, path_value, NULL, &owned);
     assert(exit_code == 9);
 
     remove_test_script(dir_a, name);
@@ -9139,6 +9188,7 @@ static void test_limiter_command_mode_skips_bad_shebang_path_entry(void) {
     free(path_value);
     free(dir_b);
     free(dir_a);
+    free((void *)owned.blocks);
 }
 
 /**
@@ -9156,6 +9206,7 @@ static void test_limiter_command_mode_skips_bad_shebang_path_entry(void) {
  */
 static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     char *dir_a, *dir_b, *dir_c, *path_value, *entry;
+    struct fork_owned_heap owned;
     char name[] = "pathdir_cpulimit_xyz";
     struct cpulimit_cfg cfg;
     char *args[2];
@@ -9172,6 +9223,15 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     assert(dir_c != NULL);
     assert(path_value != NULL);
     assert(entry != NULL);
+
+    owned.blocks = (void **)malloc(5 * sizeof(*owned.blocks));
+    assert(owned.blocks != NULL);
+    owned.count = 5;
+    owned.blocks[0] = dir_a;
+    owned.blocks[1] = dir_b;
+    owned.blocks[2] = dir_c;
+    owned.blocks[3] = path_value;
+    owned.blocks[4] = entry;
 
     make_test_dir(dir_a, dir_size, "pdr_a");
     make_test_dir(dir_b, dir_size, "pdr_b");
@@ -9198,7 +9258,7 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
 
     len = snprintf(path_value, path_size, "%s:%s:%s", dir_a, dir_b, dir_c);
     assert(len > 0 && (size_t)len < path_size);
-    exit_code = run_command_mode_with_path(&cfg, path_value, NULL);
+    exit_code = run_command_mode_with_path(&cfg, path_value, NULL, &owned);
     assert(exit_code == 9);
 
     remove_test_script(dir_a, name);
@@ -9212,6 +9272,7 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     free(dir_c);
     free(dir_b);
     free(dir_a);
+    free((void *)owned.blocks);
 }
 
 /**
@@ -13249,8 +13310,8 @@ static void test_cli_rejects_root_match_name(void) {
  * the test log. Only the first err_size-1 bytes are kept; the diagnostic
  * line always comes first.
  */
-static int run_parse_capture_stderr(char **args, char *err_out,
-                                    size_t err_size) {
+static int run_parse_capture_stderr(char **args, char *err_out, size_t err_size,
+                                    const struct fork_owned_heap *owned) {
     int pipe_fds[2];
     int ret, status, exited;
     pid_t pid, waited;
@@ -13275,6 +13336,8 @@ static int run_parse_capture_stderr(char **args, char *err_out,
         memset(&cfg, 0, sizeof(struct cpulimit_cfg));
         cfg.program_name = "cpulimit";
         parse_ret = parse_arguments(5, args, &cfg);
+        /* The child no longer needs the heap buffers it inherited. */
+        free_fork_owned(owned);
         _exit(parse_ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
     }
     close(pipe_fds[1]);
@@ -13339,42 +13402,42 @@ static void test_cli_rejects_unmatchable_names(void) {
 
     /* Every empty-basename spelling must be rejected with the message. */
     args[4] = arg_slash2;
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf), NULL);
     assert(parse_ret == EXIT_FAILURE);
     assert_hit = strstr(err_buf, "invalid match name");
     assert(assert_hit != NULL);
 
     args[4] = arg_dir;
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf), NULL);
     assert(parse_ret == EXIT_FAILURE);
     assert_hit = strstr(err_buf, "invalid match name");
     assert(assert_hit != NULL);
 
     args[4] = arg_nested;
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf), NULL);
     assert(parse_ret == EXIT_FAILURE);
     assert_hit = strstr(err_buf, "invalid match name");
     assert(assert_hit != NULL);
 
     args[4] = arg_absdir;
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf), NULL);
     assert(parse_ret == EXIT_FAILURE);
     assert_hit = strstr(err_buf, "invalid match name");
     assert(assert_hit != NULL);
 
     /* Usable names still parse, without any diagnostic. */
     args[4] = arg_name;
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf), NULL);
     assert(parse_ret == EXIT_SUCCESS);
     assert_hit = strstr(err_buf, "invalid");
     assert(assert_hit == NULL);
 
     args[4] = arg_rel;
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf), NULL);
     assert(parse_ret == EXIT_SUCCESS);
 
     args[4] = arg_abs;
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf), NULL);
     assert(parse_ret == EXIT_SUCCESS);
 }
 
@@ -13395,6 +13458,7 @@ static void test_cli_rejects_overlong_match_name(void) {
     char arg_50[] = "50";
     char arg_e[] = "-e";
     char *long_name;
+    struct fork_owned_heap owned;
     char *args[6];
     char err_buf[160];
     int parse_ret;
@@ -13409,6 +13473,11 @@ static void test_cli_rejects_overlong_match_name(void) {
     }
     long_name[limit] = '\0';
 
+    owned.blocks = (void **)malloc(1 * sizeof(*owned.blocks));
+    assert(owned.blocks != NULL);
+    owned.count = 1;
+    owned.blocks[0] = long_name;
+
     args[0] = arg0;
     args[1] = arg_l;
     args[2] = arg_50;
@@ -13416,14 +13485,16 @@ static void test_cli_rejects_overlong_match_name(void) {
     args[4] = long_name;
     args[5] = NULL;
 
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret =
+        run_parse_capture_stderr(args, err_buf, sizeof(err_buf), &owned);
     assert(parse_ret == EXIT_FAILURE);
     assert_hit = strstr(err_buf, "comparison name is too long");
     assert(assert_hit != NULL);
 
     /* One character less is still a usable name. */
     long_name[limit - 1] = '\0';
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret =
+        run_parse_capture_stderr(args, err_buf, sizeof(err_buf), &owned);
     assert(parse_ret == EXIT_SUCCESS);
 
     /* A long relative path is compared by its short basename only. */
@@ -13435,10 +13506,12 @@ static void test_cli_rejects_overlong_match_name(void) {
     long_name[limit + 1] = 'o';
     long_name[limit + 2] = 'o';
     long_name[limit + 3] = '\0';
-    parse_ret = run_parse_capture_stderr(args, err_buf, sizeof(err_buf));
+    parse_ret =
+        run_parse_capture_stderr(args, err_buf, sizeof(err_buf), &owned);
     assert(parse_ret == EXIT_SUCCESS);
 
     free(long_name);
+    free((void *)owned.blocks);
 }
 
 /**
