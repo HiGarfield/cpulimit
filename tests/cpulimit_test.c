@@ -17125,6 +17125,7 @@ static void test_lazy_name_miss_reports_cannot_be_found_once(void) {
  *        another host -- it depends on no external file or relative path.
  */
 static void test_exe_name_matching_init_rejected_at_argument_check(void) {
+    struct seam_proc *frame;
     char *cmdline;
     char *init_arg;
     char *argv[6];
@@ -17161,11 +17162,31 @@ static void test_exe_name_matching_init_rejected_at_argument_check(void) {
      * process. reject_init_name_target() reads init's argv[0] from /proc/1/
      * cmdline and refuses a name that matches it, so a valid -l/-e pair whose
      * name is init returns EXIT_FAILURE without ever starting the limiter.
+     *
+     * The refusal only fires when no other process wears the name, so the
+     * process scan is scripted to a single PID-1 frame: that makes
+     * process_name_has_non_init_match() answer 0 deterministically instead of
+     * depending on whether the runner happens to run another process sharing
+     * init's name (which would otherwise legitimately keep the name
+     * acceptable and break this assertion on some CI images).
      */
+    frame = (struct seam_proc *)malloc(sizeof(*frame));
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(*frame));
+    frame->pid = (pid_t)1;
+    frame->ppid = (pid_t)1;
+    strcpy(frame->command, init_arg);
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    /* Copied into the snapshot above, so nothing reads it from here on. */
+    free(frame);
+    seam_active = 1;
     /* The rejection prints its reason and the whole usage text. */
     test_mute_output();
     rc = parse_arguments(5, argv, &cfg);
     test_unmute_output();
+    seam_active = 0;
     assert(rc == EXIT_FAILURE);
     free(cmdline);
 }
