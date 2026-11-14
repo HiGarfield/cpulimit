@@ -40,57 +40,26 @@
 
 /**
  * @def EXIT_CMD_NOT_EXECUTABLE
- * @brief Shell-compatible exit code: command found but not executable
- *
- * Used when the target file exists but cannot be executed (e.g., missing
- * execute permission, unsupported binary format, or missing shebang
- * interpreter). Mirrors the POSIX shell convention for exit status 126.
+ * @brief Shell exit status 126: the command exists but cannot be executed.
  */
 #define EXIT_CMD_NOT_EXECUTABLE 126
 
 /**
  * @def EXIT_CMD_NOT_FOUND
- * @brief Shell-compatible exit code for execvp() ENOENT failures
- *
- * Used when execvp() fails with ENOENT and the limiter cannot verify that
- * the target file exists (for example, for a non-absolute argv[0] looked
- * up via PATH). This includes the classic "command not found" case as well
- * as other ENOENT-at-exec scenarios. Mirrors the POSIX shell convention
- * for exit status 127.
+ * @brief Shell exit status 127: the command could not be found.
  */
 #define EXIT_CMD_NOT_FOUND 127
 
 /**
- * @brief Resolve a bare command name to the path execvp() would execute
+ * @brief Resolve a bare command name through PATH for the shebang pre-check.
  *
- * @param name Command name without a '/'
- * @param out  Buffer receiving the resolved path (must hold PATH_MAX bytes)
- * @param out_size Size of out in bytes
- * @param skipped_bad Out: non-zero when a candidate whose shebang interpreter
- *        is inaccessible was passed over
- * @return 1 if a component of PATH yields a file execvp() can use, 0
- *         otherwise
- *
- * Mirrors execvp()'s PATH search so the shebang pre-check below can inspect a
- * PATH-resolved script the same way it inspects an explicit path. Returns 0
- * (no resolution) for names that already contain a '/', leaving the existing
- * explicit-path path untouched.
- *
- * The question asked of each component is the one execvp() asks: can this
- * candidate be executed? A file that merely exists is not the one the exec
- * will use, because execvp() skips a component it cannot execute and keeps
- * searching, so a probe by existence would judge the command from a file the
- * exec never reaches -- and the pre-check refuses on that judgement. Only a
- * regular file counts: X_OK also passes for directories and FIFOs, which
- * execvp() skips while searching. An empty component denotes the current
- * directory (POSIX), which is what "." spells here; strtok() dropped those
- * along with the file execvp() would have run.
- *
- * An executable script whose interpreter is gone is another component
- * execvp() passes over: execve() reports ENOENT and the search continues.
- * Such a candidate must therefore not decide the pre-check either. When no
- * usable component exists at all, the first passed-over script is returned
- * so the pre-check still reports 126 instead of a misleading 127.
+ * @param name Command name without a '/'.
+ * @param out Buffer receiving the resolved path.
+ * @param out_size Size of out in bytes.
+ * @param skipped_bad Set when a candidate with an inaccessible interpreter
+ *        was passed over.
+ * @return 1 when out holds a usable candidate, or the first passed-over
+ *         script when none is usable; 0 when resolution fails.
  */
 static int resolve_command_path(const char *name, char *out, size_t out_size,
                                 int *skipped_bad) {
@@ -107,12 +76,7 @@ static int resolve_command_path(const char *name, char *out, size_t out_size,
     if (path_env == NULL) {
         path_env = "/usr/bin:/bin";
     }
-    /*
-     * Walk PATH in place, never copying it: the components are only read, and
-     * a component that does not fit in out is skipped like any other
-     * candidate that cannot be used. An empty component means the current
-     * directory (POSIX), which is what "." spells here.
-     */
+    /* An empty PATH component denotes the current directory. */
     while (1) {
         const char *sep = strchr(path_env, ':');
         size_t dir_len =
@@ -128,12 +92,7 @@ static int resolve_command_path(const char *name, char *out, size_t out_size,
         } else {
             len = -1;
         }
-        /*
-         * X_OK alone also passes for a directory (search permission) or a
-         * FIFO, neither of which execvp() can execute. Such a component is
-         * one execvp() skips while searching, so it must not become the
-         * resolved path that the caller later hands to execvp() directly.
-         */
+        /* X_OK also passes for directories and FIFOs, which execvp() skips. */
         if (len > 0 && (size_t)len < out_size && access(out, X_OK) == 0 &&
             stat(out, &candidate_stat) == 0 &&
             S_ISREG(candidate_stat.st_mode)) {
@@ -172,28 +131,22 @@ static int resolve_command_path(const char *name, char *out, size_t out_size,
 }
 
 /**
- * @brief Keep a broken stderr pipe from hiding an exec-failure exit code
+ * @brief Ignore SIGPIPE while reporting an exec failure.
  *
- * exec_child_process() resets its signals to SIG_DFL before exec so the
- * command starts with the standard dispositions. On a path where exec is
- * never going to succeed, writing the diagnostic to a stderr pipe whose
- * reader has gone away would then raise SIGPIPE and kill this child with
- * 141 instead of the shell-compatible 126/127 it is about to report.
- * Ignoring SIGPIPE here is safe: no command will be exec'd afterwards, so
- * the ignored disposition cannot leak into one.
+ * @note No command is exec'd afterwards, so the disposition cannot leak.
  */
 static void ignore_sigpipe_for_diagnostics(void) {
     (void)signal(SIGPIPE, SIG_IGN);
 }
 
 /**
- * @brief Execute a child process for command mode
+ * @brief Set up and execute the command in the forked child.
  *
- * @param cfg Pointer to configuration structure containing command and options
- * @param sync_read_fd Read end of the synchronization pipe
- * @param sync_write_fd Write end of the synchronization pipe
+ * @param cfg Command configuration.
+ * @param sync_read_fd Read end of the exec synchronization pipe.
+ * @param sync_write_fd Write end of the exec synchronization pipe.
  *
- * @note This function never returns; it calls _exit() on any failure
+ * @note Never returns: the child either execs or calls _exit().
  */
 
 void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
@@ -205,11 +158,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     const char *exec_path;
     char *resolved;
 
-    /*
-     * Create new process group with child as leader.
-     * This allows limiting the entire process tree (child + descendants)
-     * and enables sending signals to all related processes via -PGID.
-     */
+    /* Lead a new process group so signals reach the whole command tree. */
     if (setpgid(0, 0) < 0) {
         perror("setpgid");
         close(sync_read_fd);
@@ -217,16 +166,8 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         goto error_out;
     }
 
-    /*
-     * Reset inherited signal handlers to SIG_DFL before notifying
-     * the parent. After fork(), this child inherits the parent's
-     * configured handlers. execvp() resets them, but on systems
-     * where exec takes measurable time (e.g., macOS 10.15+ with
-     * library validation), a signal forwarded by the parent between
-     * reading the sync byte and exec completing would be silently
-     * caught by the inherited handler instead of terminating this
-     * process. Resetting here closes that race window.
-     */
+    /* Reset inherited handlers before notifying the parent. */
+    /* A signal arriving mid-exec must not hit an inherited handler. */
     if (reset_signal_handlers_to_default() != 0) {
         close(sync_read_fd);
         close(sync_write_fd);
@@ -234,69 +175,22 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     }
 
     close(sync_read_fd);
-    /*
-     * Signal parent that child initialization is complete.
-     * Parent blocks until receiving this byte.
-     * Do NOT close sync_write_fd here: it must remain open until exec
-     * so that the close-on-exec flag (FD_CLOEXEC) causes it to be
-     * closed automatically on a successful execvp(), signalling exec
-     * completion to the parent. On exec failure the code below closes
-     * it explicitly.
-     */
+    /* Keep sync_write_fd open until exec: FD_CLOEXEC closes it on success. */
     if (write(sync_write_fd, "A", 1) != 1) {
         perror("write sync");
         close(sync_write_fd);
         goto error_out;
     }
 
-    /*
-     * Replace child process image with the user command.
-     * execvp() searches PATH for the executable and transfers control.
-     * If successful, this function never returns and the close-on-exec
-     * flag (FD_CLOEXEC) on sync_write_fd causes the kernel to close it
-     * automatically, signalling exec completion to the parent.
-     *
-     * Pre-check: detect a script whose shebang interpreter is inaccessible
-     * before calling execvp(). Under normal execution execvp() would fail in
-     * this case, but under valgrind the exec interception is unrecoverable, so
-     * the check must happen before exec. _exit() closes all fds (including
-     * sync_write_fd), which also signals exec completion to the parent.
-     *
-     * The check runs for an explicit path AND for a bare name resolved through
-     * PATH, so both spellings of the same script report the same code: an
-     * inaccessible interpreter always yields 126, never a misleading 127.
-     */
-    /*
-     * cli.c assigns command_args only when a command was given, and rejects
-     * an empty one, so command_args[0] is never NULL here. State that
-     * explicitly: the analyser cannot carry the guarantee across translation
-     * units and would otherwise read execvp() as being handed a NULL file
-     * name.
-     */
+    /* Detect an inaccessible shebang interpreter before exec. */
+    /* Valgrind cannot recover from a failed intercepted execve(). */
     if (cfg->command_args == NULL || cfg->command_args[0] == NULL) {
         goto error_out;
     }
     check_path = cfg->command_args[0];
     resolved = (char *)malloc(PATH_MAX);
-    /*
-     * Heap-allocate the PATH resolution buffer instead of putting a
-     * PATH_MAX-sized array on the stack, which would blow the project's
-     * -Wstack-usage=512 limit. Only the PATH-resolved branch needs it:
-     * the explicit-path branch works on check_path itself and therefore
-     * runs whether or not the allocation succeeded. A failed
-     * allocation costs just the PATH pre-check -- a bare name then falls
-     * through to execvp() and reports the usual code -- never the
-     * explicit-path check whose 126 classification must not depend on a
-     * 4 KiB allocation succeeding.
-     */
-    /*
-     * Decide which path to pre-check, then check it once. An explicit path
-     * is checked as given so that its 126 classification never depends on
-     * whether the allocation above succeeded; a bare name has to be resolved
-     * through PATH first, and one that resolves nowhere has nothing to
-     * check and falls through to execvp(). The message names what the user
-     * typed either way.
-     */
+    /* Heap-allocate the PATH buffer: a stack array exceeds 512 bytes. */
+    /* Check explicit paths as given, bare names after PATH resolution. */
     if (strchr(check_path, '/') != NULL) {
         script_path = check_path;
     } else if (resolved != NULL &&
@@ -315,49 +209,17 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         free(resolved);
         _exit(EXIT_CMD_NOT_EXECUTABLE);
     }
-    /*
-     * When a PATH candidate was passed over because its interpreter is
-     * gone, execvp() would start its own search at that candidate again.
-     * Under an exec interceptor such as valgrind the resulting failed
-     * execve() is unrecoverable, so execute the file the probe selected
-     * instead. argv[0] is still what the operator typed, so the command
-     * sees exactly the same arguments.
-     */
+    /* Execute the selected candidate directly: */
+    /* execvp() would restart the PATH search under an exec interceptor. */
     exec_path = (skipped_bad && script_path != NULL) ? script_path : check_path;
-    /*
-     * The command and its PATH come from the operator by design: command
-     * mode exists to exec exactly what was typed, so the taint check's
-     * "sanitize untrusted data" advice does not apply to this call.
-     */
     /* NOLINTNEXTLINE(clang-analyzer-optin.taint.GenericTaint) */
     execvp(exec_path, cfg->command_args);
 
-    /*
-     * Execution reaches here only if execvp() failed.
-     * Use shell-compatible exit codes:
-     * - EXIT_CMD_NOT_FOUND (127): command not found
-     * - EXIT_CMD_NOT_EXECUTABLE (126): found but not executable
-     *
-     * For explicit paths (containing '/') the correct classification is
-     * determined by access(F_OK): if the file does not exist, the
-     * command was not found (127); if it does exist, it was found but
-     * could not be executed (126, e.g. missing dynamic linker, bad
-     * permissions, or a shebang interpreter that exec cannot locate).
-     * Using access(F_OK) rather than relying on errno is necessary
-     * because some kernel/libc combinations (e.g. 32-bit musl on Linux
-     * with seccomp-restricted execve) return EACCES instead of ENOENT
-     * for non-existent paths, which would otherwise be misclassified as
-     * "not executable" (126) rather than "not found" (127).
-     *
-     * For PATH-resolved names (no '/' in argument) the errno from
-     * execvp is the only signal available.
-     *
-     * Close sync_write_fd explicitly to signal exec failure to the
-     * parent (the FD_CLOEXEC path only applies on success).
-     */
+    /* Map an exec failure to the shell-compatible 126/127 status. */
+    /* Explicit paths use access(F_OK), not errno, for classification. */
     saved_errno = errno;
     ignore_sigpipe_for_diagnostics();
-    /* perror() reads errno, and signal() may have changed it. */
+    /* perror() reads errno, which signal() may have changed. */
     errno = saved_errno;
     perror("execvp");
     free(resolved);

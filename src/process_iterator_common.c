@@ -32,18 +32,14 @@
 #include <sys/types.h>
 
 /**
- * @brief Determine whether a process ID satisfies the iterator filter
+ * @brief Determine whether a PID satisfies the iterator filter.
  *
- * @param pid Process ID to evaluate
- * @param filter Filter criteria to apply
- * @return 1 if the process matches the filter, 0 otherwise
+ * @param pid PID to evaluate.
+ * @param filter Filter criteria.
+ * @return 1 when the PID matches, 0 otherwise or when filter is NULL.
  *
- * A process matches when:
- * - no PID filter is set (filter->pid == 0), or
- * - its PID equals the filter PID, or
- * - include_children is enabled and it is a descendant of the filter PID.
- *
- * Returns 0 when filter is NULL.
+ * A match is the filter PID itself, or a descendant when include_children
+ * is set; a zero filter PID matches every process.
  */
 int process_matches_filter(pid_t pid, const struct process_filter *filter) {
     if (filter == NULL) {
@@ -62,23 +58,13 @@ int process_matches_filter(pid_t pid, const struct process_filter *filter) {
 }
 
 /**
- * @brief Get the start time of a single process, if available
+ * @brief Read the start time of one process.
  *
- * @param pid Process ID to query
- * @return The process start time in seconds, or UNKNOWN_START_TIME when the
- *         process does not exist or the platform could not provide a value.
+ * @param pid PID to query.
+ * @return Start time in seconds, or UNKNOWN_START_TIME when unavailable.
  *
- * A thin wrapper over the process iterator that returns just the start_time
- * field for one PID. Used to confirm a PID still belongs to the same process
- * before acting on it (e.g. sending a deferred signal to a PID that may have
- * been recycled). Callers must treat UNKNOWN_START_TIME as "cannot compare"
- * and fall back to acting on the PID.
- *
- * @note A failed iterator close changes nothing about the result: the reading
- *       was already taken, and downgrading a known start time to "cannot
- *       compare" would be worse than the close failure itself. It is still
- *       reported, because an iterator that does not close cleanly is worth
- *       knowing about before it corrupts a later reading.
+ * @note Used to confirm a PID still names the same process. A failed
+ *       iterator close is reported but does not change the reading.
  */
 double get_process_start_time(pid_t pid) {
     struct process_iterator iter;
@@ -105,17 +91,7 @@ double get_process_start_time(pid_t pid) {
             break;
         }
     }
-    /*
-     * The reading is already taken, and every backend has released what it
-     * allocated by the time it reports a failed close, so the value stands
-     * either way. Downgrading to UNKNOWN_START_TIME on a failed close would
-     * tell both callers "cannot compare", and each answers that by signalling
-     * the PID on guesswork -- the first by resuming a recycled one, the
-     * second by suspending whatever inherited it. The failed close is still
-     * reported: it says nothing about this reading, but it does say the
-     * platform's iterator is not closing cleanly, and that is worth knowing
-     * before it corrupts a later one.
-     */
+    /* A failed close does not change the reading already taken. */
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
     }
@@ -124,23 +100,15 @@ double get_process_start_time(pid_t pid) {
 }
 
 /**
- * @brief Determine if one process is a descendant of another
+ * @brief Walk a parent chain using a platform-specific lookup.
  *
- * @param get_parent How to read one process's parent, platform specific
- * @param context Handle handed back to get_parent on every step
- * @param child_pid Process ID to check for descendant relationship
- * @param parent_pid Process ID of the potential ancestor
- * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ * @param get_parent Reads one process's parent.
+ * @param context Handle passed back to get_parent.
+ * @param child_pid PID to test.
+ * @param parent_pid PID of the potential ancestor.
+ * @return 1 when parent_pid is in the ancestry chain, 0 otherwise.
  *
- * The walk every platform shares; see is_child_of() in the header for the
- * cases this answers 0 in.
- *
- * cppcheck's funcArgNamesDifferentUnnamed fires on every argument that
- * follows a function-pointer one: the names are lost when the prototype
- * is read, so context, child_pid and parent_pid answer <unnamed> there.
- * All four are named in both places, so it cannot be acted on; the
- * suppression below is scoped to this one definition, and the three
- * arguments therefore sit on the one line it covers.
+ * @note Shared by every backend; see is_child_of().
  */
 int is_child_of_via(process_get_parent_fn get_parent,
                     /* cppcheck-suppress funcArgNamesDifferentUnnamed */
@@ -149,32 +117,18 @@ int is_child_of_via(process_get_parent_fn get_parent,
     if (child_pid <= 1 || parent_pid <= 0 || child_pid == parent_pid) {
         return 0;
     }
-    /* Walk up the parent chain looking for parent_pid */
     while (child_pid > 1 && child_pid != parent_pid) {
         pid_t next_ppid;
-        /*
-         * Depth limit guards against PID reuse cycles of length >= 2.
-         * Example: A has ppid=B and B has ppid=A. The self-parenting check
-         * (next_ppid == child_pid) only catches length-1 cycles; without
-         * this counter the loop would never terminate on length-2+ cycles.
-         */
+        /* Bound the walk against PID-reuse cycles. */
         if (depth++ >= IS_CHILD_MAX_DEPTH) {
             return 0;
         }
         next_ppid = get_parent(context, child_pid);
-        /*
-         * A transient lookup failure (e.g. the process exited or became a
-         * zombie between the previous step and this one) must not be taken as
-         * proof of non-membership: retry once before giving up, so a single
-         * -1 does not break the ancestor chain.
-         */
+        /* Retry once: a transient lookup failure is not a broken chain. */
         if (next_ppid < 0) {
             next_ppid = get_parent(context, child_pid);
         }
-        /*
-         * Guard against invalid parent links or self-parenting processes,
-         * either of which would cause an infinite loop.
-         */
+        /* A non-positive or self parent ends the walk. */
         if (next_ppid <= 0 || next_ppid == child_pid) {
             return 0;
         }

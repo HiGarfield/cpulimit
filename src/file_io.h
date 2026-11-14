@@ -32,19 +32,15 @@ extern "C" {
 
 #if defined(__linux__)
 /**
- * @brief Read the entire contents of a text file.
- *
- * Opens the file and reads all bytes into a heap-allocated, NUL-terminated
- * buffer, past any newline -- needed for /proc/[pid]/stat whose comm field may
- * embed a newline. The caller must free the result.
+ * @brief Read a whole text file into a NUL-terminated heap buffer.
  *
  * @param file_name Path to the file.
- * @return Heap-allocated NUL-terminated string, or NULL on error or empty file.
+ * @return The allocated string, or NULL on error or an empty file; the caller
+ *         must free it.
  *
- * @note A NULL return leaves a defined errno for the caller: a real syscall
- *       failure keeps its own value, while an empty file or a NULL path --
- *       neither of which has a failing syscall to report -- sets EINVAL.
- *       errno is preserved across the close() on the failure path.
+ * Reads past any newline, because /proc/[pid]/stat may embed one in the comm
+ * field. A NULL path or an empty file sets errno to EINVAL, and a real
+ * syscall failure keeps its own errno.
  */
 char *read_file_contents(const char *file_name);
 #endif
@@ -53,4 +49,4 @@ char *read_file_contents(const char *file_name);
 }
 #endif
 
-#endif /* CPULIMIT_FILE_IO_H */
+#endif

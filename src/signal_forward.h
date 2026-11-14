@@ -33,53 +33,27 @@ extern "C" {
 #include <sys/types.h>
 
 /**
- * @brief Send a signal to the command, falling back to its own PID
+ * @brief Send a signal to the command, falling back to its own PID.
  *
- * @param child_pid PID of the command; also the ID of the process group
- *                  created for it
- * @param sig Signal number to send
- * @param verbose Non-zero to report a delivery that failed; without it the
- *                failure is silent, because nothing here ends the run
+ * @param child_pid PID of the command and of the group created for it.
+ * @param sig Signal number to send.
+ * @param verbose Non-zero to report a failed delivery.
  *
- * The negative-PID form is tried first so that descendants the limiter
- * cannot wait for are reached as well. It is not a reliable way to reach
- * the command itself, however:
- * - ESRCH once the command has moved itself into another process group.
- * - EPERM on macOS when no member of the group can be signalled, which a
- *   zombie still awaiting reap is enough to cause.
- *
- * Neither says anything about the command, which is this process's own
- * child and stays reachable by PID. Dropping the signal instead leaves a
- * suspended command suspended: it never resumes to take the forwarded
- * quit signal, so the only thing left to the caller is the SIGKILL
- * escalation, which reports the command as killed (128 + SIGKILL) rather
- * than as having exited on its own.
- *
- * A non-positive PID and PID 1 (init) are ignored: for them the group
- * form would signal cpulimit itself or broadcast to every process.
+ * The group form is tried first so descendants are reached too; a failed
+ * group delivery falls back to the child PID, which stays reachable even
+ * when the command has left the group or a zombie blocks the group signal.
+ * Non-positive PIDs and PID 1 are ignored.
  */
 void signal_command(pid_t child_pid, int sig, int verbose);
 
 /**
- * @brief Forward the received quit signal to the child process group
+ * @brief Forward the received quit signal to the child process group.
  *
- * @param child_pid PID of the command; also the ID of its process group
- * @param verbose Non-zero to report a delivery that failed; without it the
- *                failure is silent, because a forwarded signal that does not
- *                land is not what ends the run
+ * @param child_pid PID of the command and of its process group.
+ * @param verbose Non-zero to report a failed delivery.
  *
- * The exact signal that caused cpulimit to quit is forwarded so the
- * command exits with the status a shell would report (128 + signal
- * number). Two special cases:
- * - get_quit_signal() == 0: theoretically unreachable once the quit
- *   flag is set, because a signal must have been recorded to set it;
- *   guarded defensively.
- * - SIGPIPE: an internal broken-pipe signal relevant only to the
- *   writing process; forwarding it could terminate children that write
- *   to unrelated pipes.
- * Both are mapped to SIGTERM so the child group is asked to exit
- * gracefully. The process group is targeted first, the command itself
- * as a fallback; see signal_command().
+ * The recorded signal is forwarded so the command exits with 128 + signal.
+ * A zero recorded signal and SIGPIPE are mapped to SIGTERM instead.
  */
 void forward_quit_signal(pid_t child_pid, int verbose);
 
@@ -87,4 +61,4 @@ void forward_quit_signal(pid_t child_pid, int verbose);
 }
 #endif
 
-#endif /* CPULIMIT_SIGNAL_FORWARD_H */
+#endif

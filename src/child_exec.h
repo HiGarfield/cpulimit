@@ -33,13 +33,13 @@ extern "C" {
 #include "cli.h"
 
 /**
- * @brief Execute a child process for command mode
+ * @brief Set up and execute the command in the forked child.
  *
- * @param cfg Pointer to configuration structure containing command and options
- * @param sync_read_fd Read end of the synchronization pipe
- * @param sync_write_fd Write end of the synchronization pipe
+ * @param cfg Command configuration.
+ * @param sync_read_fd Read end of the exec synchronization pipe.
+ * @param sync_write_fd Write end of the exec synchronization pipe.
  *
- * @note This function never returns; it calls _exit() on any failure
+ * @note Never returns: the child either execs or calls _exit().
  */
 void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
                         int sync_write_fd);
@@ -48,4 +48,4 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
 }
 #endif
 
-#endif /* CPULIMIT_CHILD_EXEC_H */
+#endif

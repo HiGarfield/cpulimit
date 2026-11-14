@@ -31,21 +31,16 @@ extern "C" {
 #endif
 
 /**
- * @brief Check whether a script shebang references an inaccessible interpreter
+ * @brief Check whether a script shebang names an inaccessible interpreter.
  *
- * @param path Path to the file to inspect
- * @return 1 if the file begins with "#!" and the interpreter path cannot be
- *         accessed; 0 otherwise, including when the path cannot be read in
- *         full and no conclusion is possible.
+ * @param path Path to the file to inspect.
+ * @return 1 when the file starts with "#!" and its interpreter is not
+ *         executable; 0 otherwise, including when no conclusion is possible.
  *
- * Opens with O_NONBLOCK so argv[0] being a FIFO or device (which would block
- * until a peer appears) cannot strand this child before exec and freeze the
- * parent on the sync pipe; regular files are unaffected. Reads until the
- * buffer fills or the file ends: a path that never ended -- a full buffer,
- * or a non-blocking read that stopped on EAGAIN with a writer possibly
- * still appending -- yields no verdict, so a truncated interpreter path is
- * never judged. Done before exec because under tools like valgrind the
- * execve interception is unrecoverable.
+ * Opens with O_NONBLOCK so a FIFO or device cannot block the child before
+ * exec, and judges the interpreter only after a complete path has been read.
+ * The check runs before exec because exec interception under valgrind is
+ * unrecoverable.
  */
 int is_script_inaccessible_interpreter(const char *path);
 
@@ -53,4 +48,4 @@ int is_script_inaccessible_interpreter(const char *path);
 }
 #endif
 
-#endif /* CPULIMIT_SCRIPT_CHECK_H */
+#endif

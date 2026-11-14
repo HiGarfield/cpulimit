@@ -40,13 +40,12 @@
 #endif
 
 /**
- * @brief Check for potential Y2038 risk based on platform and time_t size
+ * @brief Warn about a potential Y2038 risk.
  *
- * Prints a warning when time_t is narrower than 64 bits on a platform without
- * monotonic-clock or Apple time guarantees; otherwise does nothing.
+ * Prints a warning when time_t is narrower than 64 bits on a platform
+ * without monotonic-clock or Apple time guarantees.
  *
- * @note This is a heuristic check and does not guarantee full compliance
- *       with 2038-safe time handling across all environments
+ * @note This is a heuristic, not a guarantee of Y2038 safety.
  */
 void check_y2038(void) {
 #if !defined(__APPLE__) &&                                                     \
@@ -58,24 +57,18 @@ void check_y2038(void) {
 }
 
 /**
- * @brief Convert nanoseconds to timespec structure
+ * @brief Convert nanoseconds to a timespec structure.
  *
- * @param nsec Number of nanoseconds (can be >= 1 billion)
- * @param result_ts Pointer to timespec structure to populate
+ * @param nsec Number of nanoseconds, possibly above one billion.
+ * @param result_ts Structure to populate.
  *
- * Splits into seconds (integer /1e9) and nanoseconds (remainder), adjusting
- * tv_sec together with tv_nsec to keep it in [0, 999999999] against rounding.
- *
- * Y2038: values are sub-second sleep durations (or macOS boot-time values,
- * where time_t is 64-bit), so tv_sec never approaches a 32-bit overflow.
+ * Keeps tv_nsec in [0, 999999999] even when floating-point rounding shifts
+ * the split, by adjusting tv_sec with it.
  */
 void nsec_to_timespec(double nsec, struct timespec *result_ts) {
     result_ts->tv_sec = (time_t)(nsec / 1e9);
     result_ts->tv_nsec = (long)(nsec - (double)result_ts->tv_sec * 1e9);
-    /*
-     * Correct tv_sec when floating-point rounding shifts tv_nsec out of
-     * range.
-     */
+    /* Correct tv_sec when rounding pushes tv_nsec out of range. */
     if (result_ts->tv_nsec < 0L) {
         result_ts->tv_sec--;
         result_ts->tv_nsec += 1000000000L;
@@ -86,28 +79,17 @@ void nsec_to_timespec(double nsec, struct timespec *result_ts) {
 }
 
 /**
- * @brief Get a high-resolution timestamp, preferring a monotonic clock
+ * @brief Read a high-resolution timestamp, preferring a monotonic clock.
  *
- * @param result_ts Pointer to timespec structure to receive current time
- * @return 0 on success, -1 on failure; a NULL result_ts is -1 with errno
- *         EINVAL on every platform
+ * @param result_ts Structure receiving the timestamp.
+ * @return 0 on success, -1 on failure; a NULL argument sets errno to EINVAL.
  *
- * Uses CLOCK_MONOTONIC if available (immune to system time changes), else
- * CLOCK_REALTIME, else gettimeofday(). Provides at least microsecond
- * resolution on all supported platforms.
- *
- * Y2038: CLOCK_MONOTONIC (preferred) counts from boot and never hits the 2038
- * wall-clock overflow; the gettimeofday() fallback is only used when neither
- * monotonic nor realtime clock exists, and callers use difftime() for interval
- * math, so differences stay correct even past 2038.
+ * Uses mach_absolute_time() on macOS, CLOCK_MONOTONIC where available,
+ * then CLOCK_REALTIME and finally gettimeofday(). Callers use difftime()
+ * for interval math, so wall-clock based fallbacks stay safe past 2038.
  */
 int get_current_time(struct timespec *result_ts) {
-    /*
-     * Every branch declares its locals here, above the shared guard, because
-     * C89 wants declarations before statements and the guard has to run
-     * whichever branch is compiled. The second group is only declared on the
-     * one branch that needs it.
-     */
+    /* Declare branch locals before the shared guard to satisfy C89. */
 #if defined(__APPLE__)
     static long double factor = -1;
     long double nsec;
@@ -124,14 +106,7 @@ int get_current_time(struct timespec *result_ts) {
         mach_timebase_info_data_t timebase_info;
         kern_return_t ret = mach_timebase_info(&timebase_info);
         if (ret != KERN_SUCCESS) {
-            /*
-             * mach_timebase_info() answers with a kern_return_t and sets no
-             * errno, so set one: every caller answers a -1 with
-             * perror("get_current_time") and would otherwise print whatever
-             * errno was left over from an unrelated call. Zero the
-             * timestamp too, so a caller that misses the return value reads
-             * a defined epoch instead of an uninitialized struct.
-             */
+            /* mach_timebase_info() sets no errno; set EINVAL for perror(). */
             errno = EINVAL;
             result_ts->tv_sec = 0;
             result_ts->tv_nsec = 0;
@@ -143,13 +118,10 @@ int get_current_time(struct timespec *result_ts) {
     nsec_to_timespec((double)nsec, result_ts);
     return 0;
 #elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
-    /* Prefer monotonic clock: immune to system time adjustments */
     return clock_gettime(CLOCK_MONOTONIC, result_ts);
 #elif defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_REALTIME)
-    /* Fall back to real-time clock if monotonic unavailable */
     return clock_gettime(CLOCK_REALTIME, result_ts);
 #else
-    /* Final fallback: use gettimeofday and convert to timespec */
     if (gettimeofday(&time_val, NULL)) {
         return -1;
     }
@@ -160,43 +132,22 @@ int get_current_time(struct timespec *result_ts) {
 }
 
 /**
- * @brief Sleep for a specified duration
+ * @brief Sleep for a specified duration.
  *
- * @param duration Pointer to timespec specifying sleep duration
- * @return 0 on success, -1 on error (errno set by underlying call)
+ * @param duration Sleep duration.
+ * @return 0 on success, -1 on error with errno set.
  *
- * Uses clock_nanosleep() with CLOCK_MONOTONIC when available, so the sleep is
- * unaffected by system time changes, and falls back to nanosleep() otherwise.
- * The fallback is taken on macOS, where nanosleep() is driven by the calendar
- * clock: a wall-clock jump there does change how long the sleep really lasts.
- * That is accepted rather than worked around, because the remaining options
- * (mach_wait_until(), or a polling loop) would change the throttling timing
- * this sleep drives.
- *
- * Neither call is restarted by SA_RESTART: a delivered signal ends the sleep
- * early with -1 and errno EINTR, and the unslept remainder is deliberately not
- * resumed. That is what lets a wait of any length -- the watch interval
- * between target lookups, or a throttle phase -- end as soon as the user asks
- * cpulimit to quit, instead of finishing its full duration first. Callers
- * re-check the quit flag (or waitpid()) right after the call, so an early
- * return only costs one extra loop turn; with no signal pending the whole
- * duration is still slept, so the duty cycle is unchanged.
- *
- * EINTR is therefore a wake-up, not a failure: callers that must distinguish
- * it from a real error test errno.
+ * Uses clock_nanosleep() with CLOCK_MONOTONIC where available and falls
+ * back to nanosleep(); on macOS that fallback follows the calendar clock.
+ * Neither call is restarted by SA_RESTART, so a signal ends the sleep with
+ * EINTR and the remainder is deliberately not resumed.
  */
 int sleep_timespec(const struct timespec *duration) {
 #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L &&                  \
     defined(_POSIX_CLOCK_SELECTION) && _POSIX_CLOCK_SELECTION > 0 &&           \
     defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC) && \
     (defined(__linux__) || defined(__FreeBSD__))
-    /*
-     * Use monotonic clock sleep if available. clock_nanosleep returns 0 on
-     * success or a positive error number on failure, so convert to the
-     * -1/errno convention shared with nanosleep and the documented return
-     * value contract. 'remaining' is not requested: an interrupted sleep is
-     * meant to end the wait, not to be topped up.
-     */
+    /* Convert clock_nanosleep()'s error number to the -1/errno form. */
     int ret = clock_nanosleep(CLOCK_MONOTONIC, 0, duration, NULL);
     if (ret == 0) {
         return 0;
@@ -204,7 +155,7 @@ int sleep_timespec(const struct timespec *duration) {
     errno = ret;
     return -1;
 #else
-    /* Fall back to standard nanosleep; it too is not restarted on EINTR. */
+    /* nanosleep() is also not restarted on EINTR. */
     if (nanosleep(duration, NULL) == 0) {
         return 0;
     }
@@ -213,17 +164,13 @@ int sleep_timespec(const struct timespec *duration) {
 }
 
 /**
- * @brief Calculate elapsed time between two timestamps in milliseconds
+ * @brief Calculate the elapsed time between two timestamps in milliseconds.
  *
- * @param later Pointer to the more recent timestamp
- * @param earlier Pointer to the older timestamp
- * @return Time difference in milliseconds (later - earlier)
+ * @param later More recent timestamp.
+ * @param earlier Older timestamp.
+ * @return later - earlier in milliseconds.
  *
- * Combines the seconds difference (via difftime) and the nanosecond delta.
- *
- * Y2038: difftime() yields the seconds difference as a double, avoiding
- * overflow in direct time_t subtraction; results still assume representable
- * timestamps.
+ * Uses difftime() for the seconds part to avoid overflowing time_t.
  */
 
 double timediff_in_ms(const struct timespec *later,

@@ -32,19 +32,15 @@
 
 #if defined(__linux__)
 /**
- * @brief Read the entire contents of a text file.
- *
- * Opens the file and reads all bytes into a heap-allocated, NUL-terminated
- * buffer, past any newline -- needed for /proc/[pid]/stat whose comm field may
- * embed a newline. The caller must free the result.
+ * @brief Read a whole text file into a NUL-terminated heap buffer.
  *
  * @param file_name Path to the file.
- * @return Heap-allocated NUL-terminated string, or NULL on error or empty file.
+ * @return The allocated string, or NULL on error or an empty file; the caller
+ *         must free it.
  *
- * @note A NULL return leaves a defined errno for the caller: a real syscall
- *       failure keeps its own value, while an empty file or a NULL path --
- *       neither of which has a failing syscall to report -- sets EINVAL.
- *       errno is preserved across the close() on the failure path.
+ * Reads past any newline, because /proc/[pid]/stat may embed one in the comm
+ * field. A NULL path or an empty file sets errno to EINVAL, and a real
+ * syscall failure keeps its own errno.
  */
 char *read_file_contents(const char *file_name) {
     int fd = -1;
@@ -72,15 +68,10 @@ char *read_file_contents(const char *file_name) {
         if (buflen >= bufsize - 1) {
             char *temp;
             size_t size_max = 0;
-            /*
-             * Largest size_t via unsigned wraparound, the form the rest of
-             * the project uses: (size_t)-1 relies on an out-of-range
-             * signed-to-unsigned conversion, which C89 6.3.1.3 calls
-             * implementation-defined.
-             */
+            /* Use unsigned wraparound for SIZE_MAX, not a signed cast. */
             size_max--;
             if (bufsize > size_max / 2) {
-                goto error; /* Prevent overflow */
+                goto error;
             }
             bufsize *= 2;
             temp = (char *)realloc(buf, bufsize);
@@ -102,12 +93,7 @@ char *read_file_contents(const char *file_name) {
     }
 
     if (n_read < 0 || (n_read == 0 && buflen == 0)) {
-        /*
-         * Reaching EOF with no data sets no errno, so the error path below
-         * would preserve whatever unrelated value an earlier call left
-         * there. A NULL return is documented to carry its reason in errno,
-         * so give the empty-file case a defined one instead.
-         */
+        /* An empty file has no failing syscall, so set EINVAL explicitly. */
         if (n_read == 0) {
             errno = EINVAL;
         }
@@ -120,11 +106,7 @@ char *read_file_contents(const char *file_name) {
 
 error:
     if (fd >= 0) {
-        /*
-         * Preserve errno across close() only on the failure path: close()
-         * may replace it, and the caller reads this function's failure
-         * through it. On the success path there is nothing to preserve.
-         */
+        /* Preserve errno across close() on the failure path. */
         int saved_errno = errno;
         close(fd);
         errno = saved_errno;
@@ -132,4 +114,4 @@ error:
     free(buf);
     return NULL;
 }
-#endif /* __linux__ */
+#endif

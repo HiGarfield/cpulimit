@@ -31,25 +31,12 @@
 #include <stdlib.h>
 
 /**
- * @brief Global quit flag indicating a termination signal was received
- *
- * Type sig_atomic_t ensures atomic access in signal handlers.
- * Volatile qualifier prevents compiler optimizations that could cache the
- * value.
+ * @brief Quit flag set by the termination-signal handler.
  */
 static volatile sig_atomic_t quit_flag = 0;
 
 /**
- * @brief Compile-time assertion: sig_atomic_t can hold values up to 127
- *
- * POSIX.1-2001 requires SIG_ATOMIC_MAX >= 127, so any value in the range
- * [0, 127] can be stored in a sig_atomic_t without truncation or overflow.
- * In this module we only store a small set of termination signal numbers
- * (SIGHUP, SIGINT, SIGQUIT, SIGPIPE, SIGTERM) in quit_signal_num, all of
- * which are well within that guaranteed range.
- * When SIG_ATOMIC_MAX is available as a preprocessor constant, a direct
- * #if check is used; otherwise a C89-compatible typedef (negative array
- * size trick) provides the equivalent guarantee.
+ * @brief Assert that sig_atomic_t can hold every handled signal number.
  */
 #ifdef SIG_ATOMIC_MAX
 #if SIG_ATOMIC_MAX < 127
@@ -60,23 +47,12 @@ typedef char sig_atomic_large_enough[((sig_atomic_t)127 == 127) ? 1 : -1];
 #endif
 
 /**
- * @brief Signal number of the first termination signal received
- *
- * Records the signal number that caused the quit flag to be set.
- * Initialized to 0 (no signal). Set once when the first termination
- * signal is received; subsequent signals do not overwrite it.
- * All stored signal numbers for the handled signals (SIGHUP, SIGINT,
- * SIGQUIT, SIGPIPE, SIGTERM) are expected to fall within the
- * POSIX.1-2001 guaranteed sig_atomic_t range [0, 127].
+ * @brief Number of the first termination signal received.
  */
 static volatile sig_atomic_t quit_signal_num = 0;
 
 /**
- * @brief Reset internal signal-handler state flags to their initial values
- *
- * Clears quit_flag and quit_signal_num so subsequent monitoring sessions start
- * from a clean state. Intended to be called during signal-handler setup in
- * process context (never from within a signal handler).
+ * @brief Clear the internal quit flag and signal number.
  */
 static void reset_signal_state(void) {
     quit_flag = 0;
@@ -84,13 +60,9 @@ static void reset_signal_state(void) {
 }
 
 /**
- * @brief Unified signal handler for termination signals
+ * @brief Record the first termination signal and set the quit flag.
  *
- * @param sig Signal number that triggered this handler
- *
- * Handles SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE by setting the quit
- * flag. Records the first received signal number for later forwarding. Uses
- * only async-signal-safe operations.
+ * @param sig Signal number that triggered the handler.
  */
 static void sig_handler(int sig) {
     if (quit_signal_num == 0) {
@@ -100,13 +72,10 @@ static void sig_handler(int sig) {
 }
 
 /**
- * @brief Internal common routine to install a specific signal action
+ * @brief Install one signal action for every termination signal.
  *
- * @param handler Handler to install (sig_handler or SIG_DFL)
- * @return 0 on success, -1 on failure (errno is set by underlying syscalls)
- *
- * Uses a fixed internal list of termination signals. All error handling is
- * delegated to the caller.
+ * @param handler Handler to install, or SIG_DFL.
+ * @return 0 on success, -1 on failure with errno set.
  */
 static int set_signal_action(void (*handler)(int)) {
     static const int term_sigs[] = {SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE};
@@ -122,7 +91,7 @@ static int set_signal_action(void (*handler)(int)) {
     }
 
     act->sa_handler = handler;
-    /* Only enable SA_RESTART for our custom handler, not for SIG_DFL */
+    /* SA_RESTART applies only to the custom handler, not to SIG_DFL. */
     act->sa_flags = (handler == SIG_DFL) ? 0 : SA_RESTART;
 
     ret = sigemptyset(&act->sa_mask);
@@ -130,19 +99,9 @@ static int set_signal_action(void (*handler)(int)) {
         goto error;
     }
 
-    /*
-     * Keep the handlers from interrupting one another. With an empty mask
-     * a second termination signal could land inside the first one's
-     * handler and take the latch after the first had claimed it, so the
-     * signal forwarded to the command, and the 128+n exit status, named
-     * one that arrived later.
-     */
+    /* Block other termination signals so the first one owns the latch. */
     for (i = 0; i < num_sigs; i++) {
-        /*
-         * Assign before comparing, like sigemptyset above: Darwin defines
-         * sigaddset as a macro that folds to 0, and an inline comparison
-         * makes the error branch read as dead code.
-         */
+        /* Assign before comparing: Darwin's sigaddset macro folds to 0. */
         ret = sigaddset(&act->sa_mask, term_sigs[i]);
         if (ret != 0) {
             goto error;
@@ -164,21 +123,16 @@ error:
 }
 
 /**
- * @brief Install the unified termination-signal handler
+ * @brief Install the unified termination-signal handler.
  *
- * Blocks all signals, clears the internal latch state, installs SA_RESTART
- * handlers for SIGINT/SIGQUIT/SIGTERM/SIGHUP/SIGPIPE, then restores the mask.
+ * Blocks all signals, clears the latch state, installs SA_RESTART handlers
+ * for SIGINT, SIGQUIT, SIGTERM, SIGHUP and SIGPIPE, then restores the mask.
  *
- * @note Exits with error if the mask or registration fails
+ * @note Exits with an error when the mask or a registration fails.
  */
 void configure_signal_handler(void) {
-    /* Initialize to NULL to make free(NULL) safe in error paths */
     sigset_t *block_mask = NULL, *old_mask = NULL;
-    /*
-     * Non-zero once all signals are blocked: every error path after that
-     * point must restore the original mask before leaving, because the
-     * documented contract is that the mask is unchanged on return.
-     */
+    /* Every error path after the block must restore the original mask. */
     int blocked = 0;
     int ret;
 
@@ -194,7 +148,6 @@ void configure_signal_handler(void) {
         goto error;
     }
 
-    /* Block all signals at function entry to eliminate race conditions */
     ret = sigfillset(block_mask);
     if (ret != 0) {
         perror("sigfillset");
@@ -224,12 +177,7 @@ void configure_signal_handler(void) {
     return;
 
 error:
-    /*
-     * Undo the all-signals block first. Idempotent: the normal path
-     * jumping here after a failed restore simply restores once more. The
-     * blocked test has to stay in front of the call: before the block was
-     * taken there is no mask to undo and old_mask holds nothing.
-     */
+    /* Undo the block first; the restore is idempotent. */
     if (blocked && sigprocmask(SIG_SETMASK, old_mask, NULL) != 0) {
         perror("sigprocmask restore in error path");
     }
@@ -239,31 +187,27 @@ error:
 }
 
 /**
- * @brief Check if a termination signal has been received
+ * @brief Check whether a termination signal has been received.
  *
- * @return 1 if a termination signal was caught, 0 otherwise
+ * @return 1 when a termination signal was caught, 0 otherwise.
  */
 int is_quit_flag_set(void) {
     return !!quit_flag;
 }
 
 /**
- * @brief Get the signal number that set the quit flag
+ * @brief Get the signal number that set the quit flag.
  *
- * @return Signal number (e.g. SIGTERM, SIGINT) of the first termination signal,
- *         or 0 if none has been received
+ * @return Number of the first termination signal, or 0 if none was received.
  */
 int get_quit_signal(void) {
     return (int)quit_signal_num;
 }
 
 /**
- * @brief Reset all signal handlers installed by configure_signal_handler()
- *        back to their default dispositions (SIG_DFL)
+ * @brief Reset the installed signal handlers to SIG_DFL.
  *
- * @return 0 on success, -1 on failure (errno set; error logged to stderr)
- *
- * Resets SIGINT, SIGQUIT, SIGTERM, SIGHUP, and SIGPIPE to SIG_DFL.
+ * @return 0 on success, -1 on failure with errno set.
  */
 int reset_signal_handlers_to_default(void) {
     if (set_signal_action(SIG_DFL) != 0) {

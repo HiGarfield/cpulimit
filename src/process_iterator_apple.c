@@ -45,15 +45,14 @@
 #include <sys/types.h>
 
 /**
- * @brief Initialize a process iterator with the given filter
+ * @brief Initialize a process iterator with the given filter.
  *
- * @param iter Pointer to the process_iterator structure to initialize
- * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL iter/filter or OOM);
- *         this function does not call exit()
+ * @param iter Iterator to initialize.
+ * @param filter Filter criteria, which must stay valid during iteration.
+ * @return 0 on success, -1 on a NULL argument, an allocation failure or a
+ *         backend-specific initialization error; never calls exit().
  *
- * @note The filter pointer is stored and must remain valid until
- *       close_process_iterator() is called.
+ * @note The filter pointer is stored until close_process_iterator().
  */
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
@@ -66,28 +65,16 @@ int init_process_iterator(struct process_iterator *iter,
     memset(iter, 0, sizeof(*iter));
     iter->filter = filter;
 
-    /* Optimization: single process without children requires no snapshot */
+    /* A single PID without children needs no snapshot. */
     if (filter->pid != 0 && !filter->include_children) {
-        /*
-         * Skip retrieving process list; get_next_process() will
-         * query the single process directly.
-         */
         iter->proc_count = 1;
         return 0;
     }
-    /*
-     * Query required buffer size for process list.
-     * proc_listpids() returns number of bytes needed.
-     */
     buffer_size = proc_listpids(PROC_ALL_PIDS, 0, NULL, 0);
     if (buffer_size < min_buffer_size) {
         buffer_size = min_buffer_size;
     }
-    /*
-     * Retry loop to handle race conditions where process list changes
-     * between size query and actual retrieval. Buffer is doubled on
-     * each retry attempt.
-     */
+    /* Retry with a larger buffer if the table changed between calls. */
     for (retries = 0; retries < max_retries; retries++) {
         int bytes;
 
@@ -96,24 +83,16 @@ int init_process_iterator(struct process_iterator *iter,
             break;
         }
 
-        /* Populate buffer with process IDs */
         bytes = proc_listpids(PROC_ALL_PIDS, 0, iter->pid_list, buffer_size);
         if (bytes <= 0) {
-            /* System call failed - cannot recover */
             break;
         }
-        /*
-         * Success if returned bytes fit in buffer with room to spare.
-         * Some slack prevents race conditions where processes spawn
-         * between our allocation and the system call.
-         */
         if (bytes < buffer_size) {
             iter->proc_count = bytes / (int)sizeof(pid_t);
             success = 1;
             break;
         }
 
-        /* Buffer too small - free and retry with larger size */
         free(iter->pid_list);
         iter->pid_list = NULL;
         if (buffer_size > INT_MAX / 2) {
@@ -122,7 +101,6 @@ int init_process_iterator(struct process_iterator *iter,
         buffer_size *= 2;
     }
 
-    /* Fatal error if all retries exhausted or allocation failed */
     if (!success) {
         close_process_iterator(iter);
         return -1;
@@ -132,36 +110,19 @@ int init_process_iterator(struct process_iterator *iter,
 }
 
 /**
- * @brief Convert Mach time units to milliseconds
+ * @brief Convert Mach absolute time to milliseconds.
  *
- * @param platform_time Time value in Mach absolute time units
- * @return Time in milliseconds
+ * @param platform_time Time in Mach ticks.
+ * @return Time in milliseconds.
  *
- * Mach uses platform-dependent time units that must be converted using
- * the timebase ratio (numer/denom) from mach_timebase_info(). This
- * function caches the conversion factor on first call.
- *
- * The values it converts -- pti_total_user and pti_total_system from
- * proc_pidinfo() -- are Mach absolute time units, NOT nanoseconds, so
- * this conversion is required and must not be removed: the ratio is
- * 1/1 on Intel Macs (which hides the difference) and 125/3 on Apple
- * silicon, where dropping it reports CPU time about 42 times too low.
- *
- * The result is in milliseconds to match the cpu_time field of the
- * process structure.
+ * @note Caches the timebase ratio from mach_timebase_info().
  */
 static double platform_time_to_ms(double platform_time) {
     static int initialized = 0;
-    static double timebase_factor = 1.0; /* safe default: 1 ns per tick */
+    static double timebase_factor = 1.0; /* Default: 1 ns per tick. */
     if (!initialized) {
         mach_timebase_info_data_t timebase_info;
-        /*
-         * mach_timebase_info() is documented to always succeed on Apple
-         * platforms. Check the return value defensively and keep the
-         * safe default (1.0) if it ever fails.
-         */
         if (mach_timebase_info(&timebase_info) == KERN_SUCCESS) {
-            /* Convert to milliseconds: (numer/denom) gives ns per tick */
             timebase_factor =
                 (double)timebase_info.numer / (double)timebase_info.denom;
         }
@@ -171,22 +132,14 @@ static double platform_time_to_ms(double platform_time) {
 }
 
 /**
- * @brief Retrieve argv[0] for a process
+ * @brief Read argv[0] of a process through KERN_PROCARGS2.
  *
- * @param pid Process ID to query
- * @param buf Buffer to store argv[0]
- * @param bufsize Size of the buffer in bytes (must be > 0)
- * @return 0 on success, -1 on failure
+ * @param pid PID to query.
+ * @param buf Destination buffer.
+ * @param bufsize Size of buf, must be positive.
+ * @return 0 on success, -1 when the payload cannot be parsed.
  *
- * The KERN_PROCARGS2 buffer layout:
- *   [argc (int)][exec_path\0][padding \0s][argv[0]\0][argv[1]\0]...
- *
- * exec_path is the fully resolved executable path (symlinks resolved).
- * argv[0] is the string passed to execve() by the caller.
- * This function skips exec_path and its padding to locate the true argv[0].
- * Returns -1 if argv[0] is empty, the process does not exist, or the payload
- * is malformed. An argv[0] longer than the caller's buffer is truncated, not
- * rejected, so that a process never drops out of the scan for that reason.
+ * @note A long argv[0] is truncated rather than rejected.
  */
 static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     int mib[3] = {CTL_KERN, KERN_PROCARGS2},
@@ -202,27 +155,13 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     mib[2] = (int)pid;
 
     size = sizeof(argmax);
-    /*
-     * sysctl() overwrites size with the number of bytes it wrote. A short
-     * write leaves part of argmax unset, so a successful return alone is
-     * not enough before using it as an allocation length.
-     */
+    /* sysctl() reports the bytes written; guard against a short read. */
     if (sysctl(mib_argmax, 2, &argmax, &size, NULL, 0) != 0 ||
         size != sizeof(argmax) || argmax <= 0) {
         return -1;
     }
 
-    /*
-     * KERN_PROCARGS2 layout is [int argc][argument data...]. The kernel
-     * writes sizeof(int) bytes for argc plus up to argmax bytes of argument
-     * data, so the buffer must be argmax + sizeof(int) to hold the full
-     * payload. Allocating only argmax bytes would truncate the payload and
-     * make sysctl() return ENOMEM, which would make get_proc_argv0() fail
-     * for processes whose command line is longer than argmax - sizeof(int).
-     * That in turn makes the process invisible to find_process_by_name()
-     * (the -e/executable matching path) and to the read_cmd path used for
-     * child command matching.
-     */
+    /* Reserve sizeof(int) for argc in KERN_PROCARGS2. */
     payload_size = (size_t)argmax + sizeof(int);
     procargs = (char *)malloc(payload_size);
     if (procargs == NULL) {
@@ -234,17 +173,13 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
         free(procargs);
         return -1;
     }
-    /*
-     * size now reports the bytes written. It must never exceed the buffer
-     * that was allocated, or the scans for the argv[0] NUL below would read
-     * past procargs.
-     */
+    /* Never scan past the bytes sysctl() reported. */
     if (size > payload_size) {
         free(procargs);
         return -1;
     }
 
-    sp = procargs + sizeof(int); /* skip argc field */
+    sp = procargs + sizeof(int);
     end = procargs + size;
 
     while (sp < end && *sp != '\0') {
@@ -256,16 +191,10 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 
     if (sp >= end || *sp == '\0') {
         free(procargs);
-        return -1; /* argv[0] missing */
+        return -1;
     }
 
-    /*
-     * Verify argv[0] is NUL-terminated within the valid sysctl payload
-     * [sp, end) before copying. If no NUL exists, the kernel data is
-     * malformed; return -1 rather than reading past the payload. An argv[0]
-     * longer than buf is cut short below rather than rejected, so the copy
-     * stays inside both the payload and buf.
-     */
+    /* Require a NUL-terminated argv[0] inside the payload. */
     nul = sp;
 
     while (nul < end && *nul != '\0') {
@@ -273,20 +202,11 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     }
     if (nul >= end) {
         free(procargs);
-        return -1; /* no NUL terminator within valid payload */
+        return -1;
     }
     argv0_len = (size_t)(nul - sp);
     if (argv0_len >= bufsize) {
-        /*
-         * Truncate instead of refusing. The Linux backend truncates a
-         * cmdline that does not fit and keeps the process, so
-         * rejecting here would make a process with a long argv[0] vanish
-         * from the scan on macOS -- invisible to -e matching and to the
-         * "is this still the target" re-check -- while the very same
-         * process is matched on Linux. Truncating can make the basename
-         * comparison miss, which is what Linux does too; losing the
-         * process entirely is not.
-         */
+        /* Truncate a long argv[0] instead of dropping the process. */
         argv0_len = bufsize - 1;
     }
     memcpy(buf, sp, argv0_len);
@@ -297,24 +217,17 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 }
 
 /**
- * @brief Convert macOS proc_taskallinfo to portable process structure
+ * @brief Convert proc_taskallinfo to the portable process structure.
  *
- * @param task_info Pointer to source proc_taskallinfo structure
- * @param proc Pointer to destination process structure to populate
- * @param read_cmd Whether to read command path (0=skip, 1=read)
- * @return 0 on success, -1 on failure
- *
- * Extracts process information from macOS-specific proc_taskallinfo and
- * converts it to the platform-independent process structure. CPU time is
- * calculated as the sum of user and system time, converted to milliseconds.
- *
- * When read_cmd is set, retrieves the executable path via sysctl.
+ * @param task_info Source structure.
+ * @param proc Destination structure.
+ * @param read_cmd Non-zero to read argv[0].
+ * @return 0 on success, -1 on failure.
  */
 static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
     proc->pid = (pid_t)task_info->pbsd.pbi_pid;
     proc->ppid = (pid_t)task_info->pbsd.pbi_ppid;
-    /* Sum user and system CPU time, convert to milliseconds */
     proc->cpu_time =
         platform_time_to_ms((double)task_info->ptinfo.pti_total_user) +
         platform_time_to_ms((double)task_info->ptinfo.pti_total_system);
@@ -329,42 +242,18 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
 }
 
 /**
- * @brief Retrieve detailed task information for a process
+ * @brief Read detailed task information for one PID.
  *
- * @param pid Process ID to query
- * @param task_info Pointer to structure to populate with task information
- * @return 0 on success, -1 on failure or if process should be skipped
- *
- * Uses proc_pidinfo() with PROC_PIDTASKALLINFO to retrieve comprehensive
- * process information including BSD process info and task statistics.
- *
- * Returns -1 for:
- * - Permission denied (EPERM) or process not found (ESRCH)
- * - Any other error from proc_pidinfo() that sets errno: reported with
- *   perror(), because the errno is the only record of why the process was
- *   dropped; the caller sees it as a process the iterator skipped
- * - Zombie processes (pbi_status == SZOMB)
- * - System processes (pbi_flags & PROC_FLAG_SYSTEM)
+ * @param pid PID to query.
+ * @param task_info Structure to populate.
+ * @return 0 on success, -1 when the process must be skipped.
  */
 static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
-    /*
-     * proc_pidinfo() reports a short reading through its return value and
-     * need not set errno. Clear it first so the classification below cannot
-     * mistake a value left by an earlier sysctl() or malloc() for this
-     * call's reason.
-     */
+    /* Clear errno: proc_pidinfo() need not set it on a short read. */
     errno = 0;
     if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info,
                      sizeof(*task_info)) != (int)sizeof(*task_info)) {
-        /*
-         * A process that exited since the snapshot was taken, or one this
-         * user is not allowed to inspect, is the ordinary case during a
-         * full scan, and a parent chain adds one lookup per hop. Reporting
-         * each of those would bury the failures that do need explaining on
-         * stderr, so only the rest are reported. errno == 0 means there is
-         * no error to name, and perror() would print a misleading
-         * "Success" for it.
-         */
+        /* Only unexpected errors are worth printing during a full scan. */
         if (errno != 0 && errno != ESRCH && errno != EPERM) {
             perror("proc_pidinfo");
         }
@@ -380,21 +269,18 @@ static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
 }
 
 /**
- * @brief Retrieve the parent process ID for a given process
+ * @brief Read the parent PID of a process.
  *
- * @param pid Process ID to query
- * @return Parent process ID on success, -1 on error
+ * @param pid PID to query.
+ * @return The parent PID, or -1 when the process is gone, a zombie, or the
+ *         platform lookup fails.
  *
- * @note Returns -1 if the process does not exist, is a zombie, or the lookup
- *       fails (per-platform backend: /proc, kvm, or libproc).
+ * @note getppid_of(1) differs: Linux returns -1, FreeBSD 0, macOS 0 or -1.
  */
 pid_t getppid_of(pid_t pid) {
     struct proc_taskallinfo *task_info;
     pid_t ppid;
-    /*
-     * struct proc_taskallinfo exceeds 256 bytes; allocate on heap to stay
-     * within the per-function stack-object size limit.
-     */
+    /* Heap-allocate: proc_taskallinfo exceeds the 256-byte stack limit. */
     task_info = (struct proc_taskallinfo *)malloc(sizeof(*task_info));
     if (task_info == NULL) {
         return (pid_t)(-1);
@@ -407,25 +293,17 @@ pid_t getppid_of(pid_t pid) {
 }
 
 /**
- * @brief Report whether a process is currently in the stopped state
+ * @brief Report whether a process is currently stopped.
  *
- * @param pid Process ID to query
- * @return 1 when pid exists and is stopped, 0 when it is running, is gone,
- *         or when its state could not be read
+ * @param pid PID to query.
+ * @return 1 when stopped, 0 when running, gone or unreadable.
  *
- * pbi_status is SSTOP for both a job-control stop and a ptrace stop on
- * Darwin, so one comparison covers both. A process libproc will not describe
- * -- gone, or not ours to inspect -- reads as "not stopped", which is the
- * conclusion the caller drew before this existed.
+ * @note Read-only: sends no signal and starts no scan.
  */
 int process_is_stopped(pid_t pid) {
     struct proc_taskallinfo *task_info;
     int stopped = 0;
 
-    /*
-     * struct proc_taskallinfo exceeds 256 bytes; allocate on heap to stay
-     * within the per-function stack-object size limit.
-     */
     task_info = (struct proc_taskallinfo *)malloc(sizeof(*task_info));
     if (task_info == NULL) {
         return 0;
@@ -438,11 +316,11 @@ int process_is_stopped(pid_t pid) {
 }
 
 /**
- * @brief How this platform reads one process's parent
+ * @brief Read one process's parent for is_child_of_via().
  *
- * @param context Unused: macOS needs no handle
- * @param pid Process whose parent is wanted
- * @return Parent PID, or -1 when the lookup failed
+ * @param context Unused.
+ * @param pid PID whose parent is wanted.
+ * @return The parent PID, or -1 on failure.
  */
 static pid_t is_child_lookup(void *context, pid_t pid) {
     (void)context;
@@ -450,47 +328,32 @@ static pid_t is_child_lookup(void *context, pid_t pid) {
 }
 
 /**
- * @brief Determine if one process is a descendant of another
+ * @brief Determine whether one process descends from another.
  *
- * @param child_pid Process ID to check for descendant relationship
- * @param parent_pid Process ID of the potential ancestor
- * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ * @param child_pid PID to test.
+ * @param parent_pid PID of the potential ancestor.
+ * @return 1 when parent_pid is in the ancestry chain, 0 otherwise.
  *
- * Traverses the parent chain from child_pid up to the init process (PID 1),
- * checking if parent_pid is encountered. Returns 1 if parent_pid is found
- * in the ancestry chain, indicating child_pid is a descendant (child,
- * grandchild, etc.) of parent_pid.
- *
- * Special cases:
- * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
- *   against infinite loops caused by PID reuse cycles)
+ * Walks the shared parent chain with the platform's lookup. Returns 0 for
+ * an invalid or self pair, a chain longer than IS_CHILD_MAX_DEPTH, or two
+ * consecutive lookup failures.
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     return is_child_of_via(is_child_lookup, NULL, child_pid, parent_pid);
 }
 
 /**
- * @brief Retrieve process information for a specific PID
+ * @brief Read information for one PID into the process structure.
  *
- * @param pid Process ID to query
- * @param proc Pointer to process structure to populate
- * @param read_cmd Whether to read command path (0=skip, 1=read)
- * @return 0 on success, -1 on failure
- *
- * Internal helper that retrieves task information via get_proc_taskinfo()
- * and converts it to the platform-independent process structure via
- * proc_taskinfo_to_proc(). Used by get_next_process() for both
- * single-process and multi-process iteration.
+ * @param pid PID to query.
+ * @param proc Structure to populate.
+ * @param read_cmd Non-zero to read argv[0].
+ * @return 0 on success, -1 on failure.
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     struct proc_taskallinfo *task_info;
     int ret;
     memset(proc, 0, sizeof(struct process));
-    /*
-     * struct proc_taskallinfo exceeds 256 bytes; allocate on heap to stay
-     * within the per-function stack-object size limit.
-     */
     task_info = (struct proc_taskallinfo *)malloc(sizeof(*task_info));
     if (task_info == NULL) {
         return -1;
@@ -501,12 +364,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     }
     ret = proc_taskinfo_to_proc(task_info, proc, read_cmd);
     if (ret == 0) {
-        /*
-         * Start time from the BSD half of proc_taskallinfo: seconds since
-         * the epoch. pbi_start_tvusec holds microseconds, not nanoseconds,
-         * so it is divided by 1e6. Only equality with another macOS start
-         * time matters.
-         */
+        /* pbi_start_tvusec is microseconds; only equality matters. */
         proc->start_time = (double)task_info->pbsd.pbi_start_tvsec +
                            (double)task_info->pbsd.pbi_start_tvusec / 1e6;
     }
@@ -515,21 +373,17 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
 }
 
 /**
- * @brief Retrieve the next process matching the filter criteria
+ * @brief Retrieve the next process matching the filter.
  *
- * @param iter Pointer to the process_iterator structure
- * @param proc Pointer to process structure to populate with process information
- * @return 0 on success with process data in proc, -1 if no more processes or
- *         if iter, proc, or iter->filter is NULL
+ * @param iter Iterator to advance.
+ * @param proc Structure to populate.
+ * @return 0 with data in proc, -1 when the scan ends or an argument is
+ *         NULL; the Linux backend also returns PROCESS_ITER_ERROR when a
+ *         scan stops early on an error.
  *
- * Advances the iterator to the next process that satisfies the filter
- * criteria. The process structure is populated with information based on
- * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cpu_time
- * - Conditionally populated: command (only if filter->read_cmd is set)
- *
- * This function skips zombie processes, system processes (on FreeBSD/macOS),
- * and processes not matching the PID filter criteria.
+ * Always populates pid, ppid, cpu_time and start_time; command is filled
+ * only when filter->read_cmd is set. Zombies and system processes are
+ * skipped where the platform can identify them.
  */
 int get_next_process(struct process_iterator *iter, struct process *proc) {
     if (iter == NULL || proc == NULL || iter->filter == NULL) {
@@ -547,14 +401,9 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         iter->current_index = iter->proc_count = 1;
         return 0;
     }
-    /* Iterate through process ID list, applying filters */
     while (iter->current_index < iter->proc_count) {
         pid_t pid = iter->pid_list[iter->current_index];
-        /*
-         * Apply the filter before reading, as the other backends do: a
-         * process that cannot match is not worth a read, and the argv[0]
-         * lookup a read costs is the expensive part of scanning.
-         */
+        /* Filter before reading: argv[0] lookup is the costly part. */
         if (process_matches_filter(pid, iter->filter) &&
             read_process_info(pid, proc, iter->filter->read_cmd) == 0) {
             iter->current_index++;
@@ -566,17 +415,12 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
 }
 
 /**
- * @brief Close the process iterator and release allocated resources
+ * @brief Release the iterator's platform-specific resources.
  *
- * @param iter Pointer to the process_iterator structure to close
- * @return 0 on success, -1 on failure
+ * @param iter Iterator to close.
+ * @return 0 on success, -1 on a close failure; macOS has none to fail.
  *
- * Releases platform-specific resources allocated during initialization:
- * - Linux: Closes /proc directory stream
- * - FreeBSD: Frees process array and closes kvm descriptor
- * - macOS: Frees process ID list
- *
- * After this call, the iterator must not be used until re-initialized.
+ * @note Re-initialize the iterator before using it again.
  */
 int close_process_iterator(struct process_iterator *iter) {
     if (iter == NULL) {
@@ -587,8 +431,8 @@ int close_process_iterator(struct process_iterator *iter) {
     return 0;
 }
 
-#endif /* CPULIMIT_PROCESS_ITERATOR_APPLE_C */
+#endif
 #else
-/* Placeholder to avoid empty compilation unit on non-Apple platforms */
+/* Keep the translation unit non-empty on other platforms. */
 typedef int cpulimit_process_iterator_apple_placeholder;
-#endif /* __APPLE__ */
+#endif

@@ -33,76 +33,59 @@ extern "C" {
 #include <time.h>
 
 /**
- * @brief Check for potential Y2038 risk based on platform and time_t size
+ * @brief Warn about a potential Y2038 risk.
  *
- * Prints a warning when time_t is narrower than 64 bits on a platform without
- * monotonic-clock or Apple time guarantees; otherwise does nothing.
+ * Prints a warning when time_t is narrower than 64 bits on a platform
+ * without monotonic-clock or Apple time guarantees.
  *
- * @note This is a heuristic check and does not guarantee full compliance
- *       with 2038-safe time handling across all environments
+ * @note This is a heuristic, not a guarantee of Y2038 safety.
  */
 void check_y2038(void);
 
 /**
- * @brief Convert nanoseconds to timespec structure
+ * @brief Convert nanoseconds to a timespec structure.
  *
- * @param nsec Number of nanoseconds (can be >= 1 billion)
- * @param result_ts Pointer to timespec structure to populate
+ * @param nsec Number of nanoseconds, possibly above one billion.
+ * @param result_ts Structure to populate.
  *
- * Splits into seconds (integer /1e9) and nanoseconds (remainder), adjusting
- * tv_sec together with tv_nsec to keep it in [0, 999999999] against rounding.
- *
- * Y2038: values are sub-second sleep durations (or macOS boot-time values,
- * where time_t is 64-bit), so tv_sec never approaches a 32-bit overflow.
+ * Keeps tv_nsec in [0, 999999999] even when floating-point rounding shifts
+ * the split, by adjusting tv_sec with it.
  */
 void nsec_to_timespec(double nsec, struct timespec *result_ts);
 
 /**
- * @brief Get a high-resolution timestamp, preferring a monotonic clock
+ * @brief Read a high-resolution timestamp, preferring a monotonic clock.
  *
- * @param result_ts Pointer to timespec structure to receive current time
- * @return 0 on success, -1 on failure; a NULL result_ts is -1 with errno
- *         EINVAL on every platform
+ * @param result_ts Structure receiving the timestamp.
+ * @return 0 on success, -1 on failure; a NULL argument sets errno to EINVAL.
  *
- * Uses CLOCK_MONOTONIC if available (immune to system time changes), else
- * CLOCK_REALTIME, else gettimeofday(). Provides at least microsecond
- * resolution on all supported platforms.
- *
- * Y2038: CLOCK_MONOTONIC (preferred) counts from boot and never hits the 2038
- * wall-clock overflow; the gettimeofday() fallback is only used when neither
- * monotonic nor realtime clock exists, and callers use difftime() for interval
- * math, so differences stay correct even past 2038.
+ * Uses mach_absolute_time() on macOS, CLOCK_MONOTONIC where available,
+ * then CLOCK_REALTIME and finally gettimeofday(). Callers use difftime()
+ * for interval math, so wall-clock based fallbacks stay safe past 2038.
  */
 int get_current_time(struct timespec *result_ts);
 
 /**
- * @brief Sleep for a specified duration
+ * @brief Sleep for a specified duration.
  *
- * @param duration Pointer to timespec specifying sleep duration
- * @return 0 on success, -1 on error (errno set by underlying call)
+ * @param duration Sleep duration.
+ * @return 0 on success, -1 on error with errno set.
  *
- * Uses clock_nanosleep() with CLOCK_MONOTONIC when available, so the sleep is
- * unaffected by system time changes, and falls back to nanosleep() otherwise.
- * Neither is restarted by SA_RESTART: a delivered signal ends the sleep early
- * with -1 and errno EINTR, and the remainder is not resumed, so a wait of any
- * length ends as soon as the user asks cpulimit to quit. With no signal
- * pending the full duration is slept, so the duty cycle is unchanged. Callers
- * treat EINTR as a wake-up and re-check their termination condition.
+ * Uses clock_nanosleep() with CLOCK_MONOTONIC where available and falls
+ * back to nanosleep(); on macOS that fallback follows the calendar clock.
+ * Neither call is restarted by SA_RESTART, so a signal ends the sleep with
+ * EINTR and the remainder is deliberately not resumed.
  */
 int sleep_timespec(const struct timespec *duration);
 
 /**
- * @brief Calculate elapsed time between two timestamps in milliseconds
+ * @brief Calculate the elapsed time between two timestamps in milliseconds.
  *
- * @param later Pointer to the more recent timestamp
- * @param earlier Pointer to the older timestamp
- * @return Time difference in milliseconds (later - earlier)
+ * @param later More recent timestamp.
+ * @param earlier Older timestamp.
+ * @return later - earlier in milliseconds.
  *
- * Combines the seconds difference (via difftime) and the nanosecond delta.
- *
- * Y2038: difftime() yields the seconds difference as a double, avoiding
- * overflow in direct time_t subtraction; results still assume representable
- * timestamps.
+ * Uses difftime() for the seconds part to avoid overflowing time_t.
  */
 double timediff_in_ms(const struct timespec *later,
                       const struct timespec *earlier);
@@ -111,4 +94,4 @@ double timediff_in_ms(const struct timespec *later,
 }
 #endif
 
-#endif /* CPULIMIT_TIME_UTIL_H */
+#endif

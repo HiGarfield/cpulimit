@@ -49,15 +49,9 @@
 #include <sys/user.h>
 
 /**
- * @brief Open the kvm(3) interface for process information access
+ * @brief Open the kvm(3) interface read-only.
  *
- * @return Opened kvm descriptor on success, NULL on failure
- *
- * Allocates a temporary error buffer, opens the kvm interface in read-only
- * mode, and frees the buffer. On kvm_openfiles() failure, prints an error and
- * returns NULL.
- *
- * Callers must close the returned descriptor with kvm_close().
+ * @return An open kvm descriptor, or NULL on failure.
  */
 static kvm_t *open_kvm(void) {
     kvm_t *kvm_descriptor;
@@ -67,12 +61,7 @@ static kvm_t *open_kvm(void) {
         fprintf(stderr, "Memory allocation failed for the error buffer\n");
         return NULL;
     }
-    /*
-     * kvm_openfiles() writes a NUL-terminated message only on the failure
-     * paths it reaches, not on every one of them. Printing an untouched
-     * malloc() buffer with %s reads uninitialised heap bytes and can run
-     * past the allocation, so make it an empty C string up front.
-     */
+    /* kvm_openfiles() may leave the error buffer untouched. */
     errbuf[0] = '\0';
     kvm_descriptor = kvm_openfiles(NULL, _PATH_DEVNULL, NULL, O_RDONLY, errbuf);
     if (kvm_descriptor == NULL) {
@@ -83,20 +72,14 @@ static kvm_t *open_kvm(void) {
 }
 
 /**
- * @brief Initialize a process iterator with the given filter
+ * @brief Initialize a process iterator with the given filter.
  *
- * @param iter Pointer to the process_iterator structure to initialize
- * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL iter/filter or OOM);
- *         this function does not call exit()
+ * @param iter Iterator to initialize.
+ * @param filter Filter criteria, which must stay valid during iteration.
+ * @return 0 on success, -1 on a NULL argument, an allocation failure or a
+ *         backend-specific initialization error; never calls exit().
  *
- * An allocation failure is reported outright: out of memory leaves no
- * iterator to build and nothing to retry. Everything else is reported through
- * the -1, because whether a failure here ends the run or only one attempt of a
- * watching one is the caller's to decide.
- *
- * @note The filter pointer is stored and must remain valid until
- *       close_process_iterator() is called.
+ * @note The filter pointer is stored until close_process_iterator().
  */
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
@@ -109,31 +92,19 @@ int init_process_iterator(struct process_iterator *iter,
     memset(iter, 0, sizeof(*iter));
     iter->filter = filter;
 
-    /*
-     * Open kvm(3) interface to access kernel virtual memory and
-     * process information.
-     */
     iter->kvm_descriptor = open_kvm();
     if (iter->kvm_descriptor == NULL) {
         return -1;
     }
 
-    /* Optimization for single process without children */
+    /* A single PID without children needs no snapshot. */
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
-        /*
-         * Skip retrieving full process list when querying a single
-         * process; get_next_process() will use kvm_getprocs() directly.
-         */
         iter->kinfo_procs = NULL;
         iter->current_index = 0;
         iter->proc_count = 1;
         return 0;
     }
 
-    /*
-     * Retrieve snapshot of all processes via KERN_PROC_PROC.
-     * This returns a pointer to kernel data that must be copied.
-     */
     proc_snapshot = kvm_getprocs(iter->kvm_descriptor, KERN_PROC_PROC, 0,
                                  &iter->proc_count);
     if (proc_snapshot == NULL) {
@@ -141,24 +112,14 @@ int init_process_iterator(struct process_iterator *iter,
         close_process_iterator(iter);
         return -1;
     }
-    /*
-     * proc_count must be positive: zero means no processes returned
-     * (unexpected), and negative would cause (size_t) cast to wrap,
-     * producing a huge allocation. Treat both as errors.
-     */
+    /* A non-positive count would wrap when cast to size_t. */
     if (iter->proc_count <= 0) {
         fprintf(stderr, "kvm_getprocs: unexpected proc_count %d\n",
                 iter->proc_count);
         close_process_iterator(iter);
         return -1;
     }
-    /*
-     * One byte size drives both malloc() and memcpy(). On a 32-bit host an
-     * unchecked multiplication can wrap size_t: the allocation would then
-     * be small while the copy still used the wrapped product's origin,
-     * overrunning the heap. Unsigned wraparound yields the largest size_t
-     * without relying on an out-of-range signed conversion.
-     */
+    /* Reject an overflowing snapshot allocation before malloc(). */
     size_max--;
     if ((size_t)iter->proc_count > size_max / sizeof(struct kinfo_proc)) {
         fprintf(stderr, "kvm_getprocs: process snapshot is too large: %d\n",
@@ -179,20 +140,13 @@ int init_process_iterator(struct process_iterator *iter,
 }
 
 /**
- * @brief Convert FreeBSD kinfo_proc structure to portable process structure
+ * @brief Convert kinfo_proc to the portable process structure.
  *
- * @param kvm_descriptor Kernel virtual memory descriptor for kvm_getargv()
- * @param kproc Pointer to source kinfo_proc structure
- * @param proc Pointer to destination process structure to populate
- * @param read_cmd Whether to read command path (0=skip, 1=read)
- * @return 0 on success, -1 on failure
- *
- * Extracts essential process information from FreeBSD's kinfo_proc and
- * converts it to the platform-independent process structure. The ki_runtime
- * field (in microseconds) is converted to milliseconds for cpu_time.
- *
- * When read_cmd is set, retrieves command arguments via kvm_getargv()
- * and uses the first argument (argv[0]) as the command path.
+ * @param kvm_descriptor Descriptor used for kvm_getargv().
+ * @param kproc Source structure.
+ * @param proc Destination structure.
+ * @param read_cmd Non-zero to read argv[0].
+ * @return 0 on success, -1 on failure.
  */
 static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
                               struct process *proc, int read_cmd) {
@@ -204,27 +158,19 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
     memset(proc, 0, sizeof(struct process));
     proc->pid = kproc->ki_pid;
     proc->ppid = kproc->ki_ppid;
-    /* Convert runtime from microseconds to milliseconds */
     proc->cpu_time = (double)kproc->ki_runtime / 1000.0;
-    /* Start time: seconds since the epoch. */
     proc->start_time =
         (double)kproc->ki_start.tv_sec + (double)kproc->ki_start.tv_usec / 1e6;
     if (!read_cmd) {
         return 0;
     }
-    /* CMD_BUFF_SIZE (MAXPATHLEN) always fits in int */
     len_max = (int)(sizeof(proc->command) - 1);
-    /* Retrieve command arguments as string array */
     args = kvm_getargv(kvm_descriptor, kproc, len_max);
     if (args == NULL || args[0] == NULL) {
         return -1;
     }
     strncpy(proc->command, args[0], (size_t)len_max);
     proc->command[len_max] = '\0';
-    /*
-     * Reject processes with empty command names (e.g. execve with
-     * argv[0]=="").
-     */
     if (proc->command[0] == '\0') {
         return -1;
     }
@@ -232,26 +178,17 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
 }
 
 /**
- * @brief Retrieve information for a single process by PID
+ * @brief Read information for one PID into the process structure.
  *
- * @param kvm_descriptor Kernel virtual memory descriptor
- * @param pid Process ID to query
- * @param proc Pointer to process structure to populate
- * @param read_cmd Whether to read command path (0=skip, 1=read)
- * @return 0 on success, -1 on failure or if process not found
- *
- * Uses kvm_getprocs() with KERN_PROC_PID to query a specific process.
- * Returns failure if the process doesn't exist, is a zombie, is a kernel
- * thread, or if conversion fails.
+ * @param kvm_descriptor Open kvm descriptor.
+ * @param pid PID to query.
+ * @param proc Structure to populate.
+ * @param read_cmd Non-zero to read argv[0].
+ * @return 0 on success, -1 on failure.
  */
 static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
                              struct process *proc, int read_cmd) {
-    /*
-     * count must be initialized: kvm_getprocs() does not store into
-     * *cnt on error paths (it returns NULL early), so reading an
-     * uninitialized count after a failed call would be undefined
-     * behavior.
-     */
+    /* kvm_getprocs() leaves count untouched on failure. */
     int count = 0;
     struct kinfo_proc *kproc =
         kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
@@ -264,17 +201,13 @@ static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
 }
 
 /**
- * @brief Internal helper to get parent process ID without opening kvm
+ * @brief Read a parent PID through an existing kvm descriptor.
  *
- * @param kvm_descriptor Kernel virtual memory descriptor (must be already open)
- * @param pid Process ID to query
- * @return Parent process ID on success, -1 on error or if process not found
- *
- * Uses an existing kvm descriptor to query PPID. This avoids the overhead
- * of repeatedly opening and closing kvm when checking multiple processes.
+ * @param kvm_descriptor Open kvm descriptor.
+ * @param pid PID to query.
+ * @return The parent PID, or -1 on failure.
  */
 static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
-    /* kvm_getprocs() leaves *cnt untouched on failure. */
     int count = 0;
     const struct kinfo_proc *kproc;
     if (pid <= 0) {
@@ -284,12 +217,7 @@ static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
     if (count == 0 || kproc == NULL) {
         return (pid_t)(-1);
     }
-    /*
-     * Exclude zombie processes from the ancestry walk: a zombie has a
-     * valid ki_ppid, but treating it as an active parent would violate
-     * the documented contract (returns -1 for zombies) and could
-     * attribute processes to an incorrect parent group.
-     */
+    /* Exclude zombies from the ancestry walk. */
     if (kproc->ki_stat == SZOMB) {
         return (pid_t)(-1);
     }
@@ -297,13 +225,13 @@ static pid_t getppid_via_kvm(kvm_t *kvm_descriptor, pid_t pid) {
 }
 
 /**
- * @brief Retrieve the parent process ID for a given process
+ * @brief Read the parent PID of a process.
  *
- * @param pid Process ID to query
- * @return Parent process ID on success, -1 on error
+ * @param pid PID to query.
+ * @return The parent PID, or -1 when the process is gone, a zombie, or the
+ *         platform lookup fails.
  *
- * @note Returns -1 if the process does not exist, is a zombie, or the lookup
- *       fails (per-platform backend: /proc, kvm, or libproc).
+ * @note getppid_of(1) differs: Linux returns -1, FreeBSD 0, macOS 0 or -1.
  */
 pid_t getppid_of(pid_t pid) {
     pid_t ppid;
@@ -320,17 +248,12 @@ pid_t getppid_of(pid_t pid) {
 }
 
 /**
- * @brief Report whether a process is currently in the stopped state
+ * @brief Report whether a process is currently stopped.
  *
- * @param pid Process ID to query
- * @return 1 when pid exists and is stopped, 0 when it is running, is gone,
- *         or when its state could not be read
+ * @param pid PID to query.
+ * @return 1 when stopped, 0 when running, gone or unreadable.
  *
- * SSTOP covers both a job-control stop and a ptrace stop on FreeBSD, so no
- * second state has to be considered. A kvm(3) interface that will not open,
- * or a process it will not describe, is reported as "not stopped": that is
- * the same conclusion the caller drew before this existed, so it changes no
- * existing decision.
+ * @note Read-only: sends no signal and starts no scan.
  */
 int process_is_stopped(pid_t pid) {
     int count = 0;
@@ -356,35 +279,26 @@ int process_is_stopped(pid_t pid) {
 }
 
 /**
- * @brief How this platform reads one process's parent
+ * @brief Read one process's parent through the walk's kvm descriptor.
  *
- * @param context Open kvm descriptor to query through
- * @param pid Process whose parent is wanted
- * @return Parent PID, or -1 when the lookup failed
- *
- * Reads through the descriptor is_child_of() already opened, so one walk
- * costs one open instead of one per step.
+ * @param context Open kvm descriptor.
+ * @param pid PID whose parent is wanted.
+ * @return The parent PID, or -1 on failure.
  */
 static pid_t is_child_lookup_via_kvm(void *context, pid_t pid) {
     return getppid_via_kvm((kvm_t *)context, pid);
 }
 
 /**
- * @brief Determine if one process is a descendant of another
+ * @brief Determine whether one process descends from another.
  *
- * @param child_pid Process ID to check for descendant relationship
- * @param parent_pid Process ID of the potential ancestor
- * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ * @param child_pid PID to test.
+ * @param parent_pid PID of the potential ancestor.
+ * @return 1 when parent_pid is in the ancestry chain, 0 otherwise.
  *
- * Traverses the parent chain from child_pid up to the init process (PID 1),
- * checking if parent_pid is encountered. Returns 1 if parent_pid is found
- * in the ancestry chain, indicating child_pid is a descendant (child,
- * grandchild, etc.) of parent_pid.
- *
- * Special cases:
- * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
- *   against infinite loops caused by PID reuse cycles)
+ * Walks the shared parent chain with the platform's lookup. Returns 0 for
+ * an invalid or self pair, a chain longer than IS_CHILD_MAX_DEPTH, or two
+ * consecutive lookup failures.
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     int ret;
@@ -402,21 +316,17 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
 }
 
 /**
- * @brief Retrieve the next process matching the filter criteria
+ * @brief Retrieve the next process matching the filter.
  *
- * @param iter Pointer to the process_iterator structure
- * @param proc Pointer to process structure to populate with process information
- * @return 0 on success with process data in proc, -1 if no more processes or
- *         if iter, proc, or iter->filter is NULL
+ * @param iter Iterator to advance.
+ * @param proc Structure to populate.
+ * @return 0 with data in proc, -1 when the scan ends or an argument is
+ *         NULL; the Linux backend also returns PROCESS_ITER_ERROR when a
+ *         scan stops early on an error.
  *
- * Advances the iterator to the next process that satisfies the filter
- * criteria. The process structure is populated with information based on
- * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cpu_time
- * - Conditionally populated: command (only if filter->read_cmd is set)
- *
- * This function skips zombie processes, system processes (on FreeBSD/macOS),
- * and processes not matching the PID filter criteria.
+ * Always populates pid, ppid, cpu_time and start_time; command is filled
+ * only when filter->read_cmd is set. Zombies and system processes are
+ * skipped where the platform can identify them.
  */
 int get_next_process(struct process_iterator *iter, struct process *proc) {
     if (iter == NULL || proc == NULL || iter->filter == NULL) {
@@ -437,21 +347,16 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         return 0;
     }
 
-    /* Iterate through process snapshot */
     while (iter->current_index < iter->proc_count) {
         struct kinfo_proc *kproc = &iter->kinfo_procs[iter->current_index++];
         if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
             continue;
         }
-        /*
-         * Apply PID filter early using kinfo_proc data before
-         * performing expensive conversion and command reading.
-         */
+        /* Filter before the expensive conversion and argv[0] read. */
         if (!process_matches_filter(kproc->ki_pid, iter->filter)) {
             continue;
         }
 
-        /* Convert to platform-independent structure */
         if (kinfo_proc_to_proc(iter->kvm_descriptor, kproc, proc,
                                iter->filter->read_cmd) != 0) {
             continue;
@@ -464,17 +369,12 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
 }
 
 /**
- * @brief Close the process iterator and release allocated resources
+ * @brief Release the iterator's platform-specific resources.
  *
- * @param iter Pointer to the process_iterator structure to close
- * @return 0 on success, -1 on failure
+ * @param iter Iterator to close.
+ * @return 0 on success, -1 on a close failure; macOS has none to fail.
  *
- * Releases platform-specific resources allocated during initialization:
- * - Linux: Closes /proc directory stream
- * - FreeBSD: Frees process array and closes kvm descriptor
- * - macOS: Frees process ID list
- *
- * After this call, the iterator must not be used until re-initialized.
+ * @note Re-initialize the iterator before using it again.
  */
 int close_process_iterator(struct process_iterator *iter) {
     int ret = 0;
@@ -490,8 +390,8 @@ int close_process_iterator(struct process_iterator *iter) {
     return ret;
 }
 
-#endif /* CPULIMIT_PROCESS_ITERATOR_FREEBSD_C */
+#endif
 #else
-/* Placeholder to avoid empty compilation unit on non-FreeBSD platforms */
+/* Keep the translation unit non-empty on other platforms. */
 typedef int cpulimit_process_iterator_freebsd_placeholder;
-#endif /* __FreeBSD__ */
+#endif

@@ -44,15 +44,14 @@
 #include <unistd.h>
 
 /**
- * @brief Initialize a process iterator with the given filter
+ * @brief Initialize a process iterator with the given filter.
  *
- * @param iter Pointer to the process_iterator structure to initialize
- * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL iter/filter or OOM);
- *         this function does not call exit()
+ * @param iter Iterator to initialize.
+ * @param filter Filter criteria, which must stay valid during iteration.
+ * @return 0 on success, -1 on a NULL argument, an allocation failure or a
+ *         backend-specific initialization error; never calls exit().
  *
- * @note The filter pointer is stored and must remain valid until
- *       close_process_iterator() is called.
+ * @note The filter pointer is stored until close_process_iterator().
  */
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter) {
@@ -62,10 +61,7 @@ int init_process_iterator(struct process_iterator *iter,
     memset(iter, 0, sizeof(*iter));
     iter->filter = filter;
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
-        /*
-         * Optimization: when querying a single process without children,
-         * we can skip opening /proc directory entirely.
-         */
+        /* A single PID without children needs no /proc scan. */
         iter->proc_dir = NULL;
         return 0;
     }
@@ -79,24 +75,12 @@ int init_process_iterator(struct process_iterator *iter,
 }
 
 /**
- * @brief Extract process information from Linux /proc filesystem
+ * @brief Read information for one PID into the process structure.
  *
- * @param pid Process ID to query
- * @param proc Pointer to process structure to populate
- * @param read_cmd Whether to read command path (0=skip, 1=read)
- * @return 0 on success, -1 on failure or if process is invalid
- *
- * Reads /proc/[pid]/stat for basic process information including PPID,
- * state, and CPU times. Optionally reads /proc/[pid]/cmdline for the
- * command path.
- *
- * The function rejects:
- * - Zombie or dead processes (state Z, X, or x)
- * - Processes with invalid PPID (<= 0)
- * - Processes with negative CPU times
- *
- * CPU times are converted from clock ticks to milliseconds using
- * sysconf(_SC_CLK_TCK).
+ * @param pid PID to query.
+ * @param proc Structure to populate.
+ * @param read_cmd Non-zero to read argv[0].
+ * @return 0 on success, -1 on failure.
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char statfile[64], cmdline_path[64];
@@ -108,12 +92,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     double start_time = UNKNOWN_START_TIME;
     int parsed;
     size_t cmd_len;
-    /*
-     * -1 is "not looked up yet", -2 is "a lookup failed and must not be
-     * repeated", and a positive value is the cached clock frequency. Both
-     * sentinels are negative, so no failed lookup can reach the division
-     * below as a zero divisor.
-     */
+    /* -1: not looked up; -2: a failed lookup is latched. */
     static long sc_clk_tck = -1;
 
     memset(proc, 0, sizeof(struct process));
@@ -127,28 +106,13 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (buffer == NULL) {
         return -1;
     }
-    /*
-     * Find the last ')' to handle process names containing parentheses.
-     * The whole file is read so a newline embedded in comm cannot hide
-     * the closing ')'. Format: pid (comm) state ppid ... utime stime ...
-     */
+    /* The last ')' ends comm, which may contain parentheses or newlines. */
     p = strrchr(buffer, ')');
     if (p == NULL) {
         free(buffer);
         return -1;
     }
-    /*
-     * Parse stat fields via sscanf. After ')':
-     *   state ppid pgrp session tty_nr tpgid flags
-     *   minflt cminflt majflt cmajflt utime stime
-     *   cutime cstime priority nice num_threads itrealvalue starttime
-     * The leading space in the format string skips whitespace before state.
-     *
-     * starttime (field 22) is read last and accepted as optional: a
-     * container runtime that truncates the line must not make the process
-     * invisible, so a result of 4 means "no start time" rather than a
-     * parse failure, and start_time stays unknown.
-     */
+    /* starttime is optional so a truncated stat line stays usable. */
     parsed = sscanf(
         p + 1,
         " %c %ld %*s %*s %*s %*s %*s %*s %*s %*s %*s %lf %lf %*s %*s %*s %*s %*s %*s %lf",
@@ -165,28 +129,14 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
         return -1;
     }
     if (sc_clk_tck < 0) {
-        /*
-         * A failed lookup is latched as -2 rather than restored to -1:
-         * restoring the unset value would make this guard true again on
-         * every later call, retrying sysconf() and printing the diagnostic
-         * once per process of every scan. A platform that refuses to
-         * report a clock frequency will not start reporting it later.
-         */
+        /* Latch a failed clock lookup to avoid retrying it per process. */
         if (sc_clk_tck == -2) {
             return -1;
         }
         errno = 0;
         sc_clk_tck = sysconf(_SC_CLK_TCK);
         if (sc_clk_tck <= 0) {
-            /*
-             * Keep the cached value negative. Storing the 0 a failed
-             * sysconf() can return would not read as "unset" -- 0 is not
-             * < 0 -- so a later call could reach the conversion and divide
-             * by zero, reporting an infinite cpu_time instead of failing.
-             * A sysconf() that returns without setting errno has no error
-             * worth naming through perror(), which would otherwise print
-             * a misleading "Success".
-             */
+            /* Keep the cache negative to avoid a zero divisor. */
             if (errno != 0) {
                 perror("sysconf(_SC_CLK_TCK)");
             } else {
@@ -197,24 +147,14 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
             return -1;
         }
     }
-    /* Convert CPU times from clock ticks to milliseconds */
     proc->cpu_time = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
-    /* Convert the start time from clock ticks to seconds since boot */
     proc->start_time =
         (parsed == 5) ? start_time / (double)sc_clk_tck : UNKNOWN_START_TIME;
 
     if (!read_cmd) {
         return 0;
     }
-    /*
-     * Read argv[0] from /proc/[pid]/cmdline. The file uses NUL bytes as
-     * argument separators (no newlines), so only the first token -- argv[0] --
-     * is needed by callers; copy it (stopping at the first NUL) into
-     * proc->command. The whole file is read through read_file_contents()
-     * rather than a bare open()/read(), matching the /proc/stat read above.
-     * A missing or empty cmdline (read_file_contents() returns NULL) is
-     * rejected, as is an empty argv[0].
-     */
+    /* /proc/[pid]/cmdline is NUL-separated; copy only argv[0]. */
     if (snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%ld/cmdline",
                  (long)pid) >= (int)sizeof(cmdline_path)) {
         return -1;
@@ -223,36 +163,16 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (buffer == NULL) {
         return -1;
     }
-    /*
-     * argv[0] ends at the first NUL; read_file_contents() NUL-terminates the
-     * whole buffer, so strlen() stays bounded. strncpy() would pad the
-     * remaining CMD_BUFF_SIZE-1 bytes with zeros for every process of every
-     * -e scan, even for a ten-byte argv[0]. Copy only the bytes that are
-     * actually there: proc was memset to zero at entry, so the tail already
-     * reads as NULs.
-     */
+    /* Copy only the bytes present; proc was zeroed at entry. */
     cmd_len = strlen(buffer);
     if (cmd_len > sizeof(proc->command) - 1) {
         cmd_len = sizeof(proc->command) - 1;
     }
     memcpy(proc->command, buffer, cmd_len);
-    /*
-     * Terminate explicitly rather than trusting the memset above to have left
-     * the last byte zero: a command that fills the buffer has no NUL in the
-     * part that was copied. The FreeBSD backend terminates the same way.
-     *
-     * What fits is all a name match ever sees: an argv[0] longer than the
-     * buffer is cut here, and a name longer than that cannot be matched
-     * against it. The cut is on the safe side -- a process is never limited
-     * under a name that is not its own -- and a name that long is not one a
-     * -e run can be expected to reach.
-     */
+    /* Terminate explicitly: a full buffer has no copied NUL. */
     proc->command[cmd_len] = '\0';
     free(buffer);
-    /*
-     * Reject processes with empty command names (e.g. execve with
-     * argv[0]=="").
-     */
+    /* Reject an empty argv[0]. */
     if (proc->command[0] == '\0') {
         return -1;
     }
@@ -260,13 +180,13 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
 }
 
 /**
- * @brief Retrieve the parent process ID for a given process
+ * @brief Read the parent PID of a process.
  *
- * @param pid Process ID to query
- * @return Parent process ID on success, -1 on error
+ * @param pid PID to query.
+ * @return The parent PID, or -1 when the process is gone, a zombie, or the
+ *         platform lookup fails.
  *
- * @note Returns -1 if the process does not exist, is a zombie, or the lookup
- *       fails (per-platform backend: /proc, kvm, or libproc).
+ * @note getppid_of(1) differs: Linux returns -1, FreeBSD 0, macOS 0 or -1.
  */
 pid_t getppid_of(pid_t pid) {
     char statfile[64];
@@ -283,16 +203,11 @@ pid_t getppid_of(pid_t pid) {
     if (buffer == NULL) {
         return (pid_t)-1;
     }
-    /* Find last ')' to handle process names with parentheses */
     p = strrchr(buffer, ')');
     if (p == NULL) {
         free(buffer);
         return (pid_t)-1;
     }
-    /*
-     * Parse state and ppid via sscanf. Format after ')': " state ppid ...".
-     * The leading space skips whitespace before state.
-     */
     if (sscanf(p + 1, " %c %ld", &state, &ppid) != 2 ||
         !isalpha((unsigned char)state) || strchr("ZXx", state) != NULL ||
         ppid <= 0) {
@@ -304,18 +219,12 @@ pid_t getppid_of(pid_t pid) {
 }
 
 /**
- * @brief Report whether a process is currently in the stopped state
+ * @brief Report whether a process is currently stopped.
  *
- * @param pid Process ID to query
- * @return 1 when pid exists and is stopped, 0 when it is running, is gone,
- *         or when its state could not be read
+ * @param pid PID to query.
+ * @return 1 when stopped, 0 when running, gone or unreadable.
  *
- * Reads the state field of /proc/[pid]/stat, the same field
- * read_process_info() rejects zombies on. 'T' is a job-control stop, which is
- * what a SIGSTOP from this program produces, and 't' is a ptrace stop, which
- * a stopped process can be in while a tracer is attached: both count, because
- * the question is only whether the PID is currently not running, and leaving a
- * process stopped is the worse answer to get wrong.
+ * @note Read-only: sends no signal and starts no scan.
  */
 int process_is_stopped(pid_t pid) {
     char statfile[64];
@@ -331,7 +240,6 @@ int process_is_stopped(pid_t pid) {
     if (buffer == NULL) {
         return 0;
     }
-    /* Find last ')' to handle process names with parentheses */
     p = strrchr(buffer, ')');
     if (p == NULL) {
         free(buffer);
@@ -346,11 +254,11 @@ int process_is_stopped(pid_t pid) {
 }
 
 /**
- * @brief How this platform reads one process's parent
+ * @brief Read one process's parent for is_child_of_via().
  *
- * @param context Unused: Linux needs no handle
- * @param pid Process whose parent is wanted
- * @return Parent PID, or -1 when the lookup failed
+ * @param context Unused.
+ * @param pid PID whose parent is wanted.
+ * @return The parent PID, or -1 on failure.
  */
 static pid_t is_child_lookup(void *context, pid_t pid) {
     (void)context;
@@ -358,43 +266,32 @@ static pid_t is_child_lookup(void *context, pid_t pid) {
 }
 
 /**
- * @brief Determine if one process is a descendant of another
+ * @brief Determine whether one process descends from another.
  *
- * @param child_pid Process ID to check for descendant relationship
- * @param parent_pid Process ID of the potential ancestor
- * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ * @param child_pid PID to test.
+ * @param parent_pid PID of the potential ancestor.
+ * @return 1 when parent_pid is in the ancestry chain, 0 otherwise.
  *
- * Traverses the parent chain from child_pid up to the init process (PID 1),
- * checking if parent_pid is encountered. Returns 1 if parent_pid is found
- * in the ancestry chain, indicating child_pid is a descendant (child,
- * grandchild, etc.) of parent_pid.
- *
- * Special cases:
- * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
- *   against infinite loops caused by PID reuse cycles)
+ * Walks the shared parent chain with the platform's lookup. Returns 0 for
+ * an invalid or self pair, a chain longer than IS_CHILD_MAX_DEPTH, or two
+ * consecutive lookup failures.
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid) {
     return is_child_of_via(is_child_lookup, NULL, child_pid, parent_pid);
 }
 
 /**
- * @brief Retrieve the next process matching the filter criteria
+ * @brief Retrieve the next process matching the filter.
  *
- * @param iter Pointer to the process_iterator structure
- * @param proc Pointer to process structure to populate with process information
- * @return 0 on success with process data in proc, -1 if no more processes or
- *         if iter, proc, or iter->filter is NULL, PROCESS_ITER_ERROR if the
- *         scan stopped on an error before reaching the end of the table
+ * @param iter Iterator to advance.
+ * @param proc Structure to populate.
+ * @return 0 with data in proc, -1 when the scan ends or an argument is
+ *         NULL; the Linux backend also returns PROCESS_ITER_ERROR when a
+ *         scan stops early on an error.
  *
- * Advances the iterator to the next process that satisfies the filter
- * criteria. The process structure is populated with information based on
- * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cpu_time
- * - Conditionally populated: command (only if filter->read_cmd is set)
- *
- * This function skips zombie processes, system processes (on FreeBSD/macOS),
- * and processes not matching the PID filter criteria.
+ * Always populates pid, ppid, cpu_time and start_time; command is filled
+ * only when filter->read_cmd is set. Zombies and system processes are
+ * skipped where the platform can identify them.
  */
 int get_next_process(struct process_iterator *iter, struct process *proc) {
     const struct dirent *dir_entry = NULL;
@@ -413,50 +310,32 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         return ret == 0 ? 0 : -1;
     }
 
-    /* Guard against an uninitialized or failed iterator */
     if (iter->proc_dir == NULL) {
         iter->end_of_processes = 1;
         return -1;
     }
 
-    /* Iterate through /proc entries to find matching processes */
     while (1) {
         pid_t pid;
         char *endptr;
         long long_pid;
-        /*
-         * readdir() reports the end of the directory and a read failure
-         * the same way, by returning NULL, so errno has to be cleared
-         * first to tell them apart. Ending the scan on a failure as if
-         * the table had been read to its end would hand the caller a
-         * partial result it has no way to recognise as incomplete.
-         */
+        /* readdir() reports EOF and failure alike; clear errno first. */
         errno = 0;
         dir_entry = readdir(iter->proc_dir);
         if (dir_entry == NULL) {
             if (errno != 0) {
-                /* errno still carries the readdir() failure for the caller. */
+                /* errno still carries the readdir() failure. */
                 iter->end_of_processes = 1;
                 return PROCESS_ITER_ERROR;
             }
             break;
         }
 #ifdef _DIRENT_HAVE_D_TYPE
-        /*
-         * Optimization: skip non-directories if d_type is available.
-         * DT_UNKNOWN must be checked because not all filesystems support
-         * d_type.
-         *
-         * d_type and the DT_* constants are a Linux/BSD extension, not
-         * POSIX.1-2001; the equivalent POSIX call, stat() on every entry,
-         * would add one syscall per /proc entry to each scan. This is the
-         * Linux backend, where reading /proc is already outside POSIX.
-         */
+        /* d_type needs a numeric-name check for DT_UNKNOWN. */
         if (dir_entry->d_type != DT_DIR && dir_entry->d_type != DT_UNKNOWN) {
             continue;
         }
 #endif
-        /* Process directories have numeric names */
         errno = 0;
         long_pid = strtol(dir_entry->d_name, &endptr, 10);
         if (errno != 0 || endptr == dir_entry->d_name || *endptr != '\0') {
@@ -474,23 +353,17 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         }
         return 0;
     }
-    /* Reached end of /proc directory */
     iter->end_of_processes = 1;
     return -1;
 }
 
 /**
- * @brief Close the process iterator and release allocated resources
+ * @brief Release the iterator's platform-specific resources.
  *
- * @param iter Pointer to the process_iterator structure to close
- * @return 0 on success, -1 on failure
+ * @param iter Iterator to close.
+ * @return 0 on success, -1 on a close failure; macOS has none to fail.
  *
- * Releases platform-specific resources allocated during initialization:
- * - Linux: Closes /proc directory stream
- * - FreeBSD: Frees process array and closes kvm descriptor
- * - macOS: Frees process ID list
- *
- * After this call, the iterator must not be used until re-initialized.
+ * @note Re-initialize the iterator before using it again.
  */
 int close_process_iterator(struct process_iterator *iter) {
     int ret = 0;
@@ -508,8 +381,8 @@ int close_process_iterator(struct process_iterator *iter) {
     return ret;
 }
 
-#endif /* CPULIMIT_PROCESS_ITERATOR_LINUX_C */
+#endif
 #else
-/* Placeholder to avoid empty compilation unit on non-Linux platforms */
+/* Keep the translation unit non-empty on other platforms. */
 typedef int cpulimit_process_iterator_linux_placeholder;
-#endif /* __linux__ */
+#endif

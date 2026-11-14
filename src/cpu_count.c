@@ -43,17 +43,14 @@
 
 #if defined(__linux__)
 /**
- * @brief Parse a Linux sysfs CPU range string into a CPU count
+ * @brief Parse a Linux sysfs CPU range string into a CPU count.
  *
- * @param str CPU range specification (e.g. "0-3", "0,2,4", "0-1,4-7")
- * @return Number of CPUs described by the range, or -1 on parse error
+ * @param str CPU range, e.g. "0-3", "0,2,4" or "0-1,4-7".
+ * @return Number of CPUs described, or -1 on a parse error.
  *
- * Accepts single CPUs ("0"), inclusive ranges ("0-3" counts as four) and
- * comma-separated combinations ("0-3,8-11,15"); whitespace around the
- * numbers is tolerated. Returns -1 for a NULL or empty string, invalid
- * syntax, a negative number, a sign prefix on either number, a reversed
- * range (end < start), or a total that would overflow int; a whitespace-only
- * string is rejected as invalid syntax.
+ * Accepts single CPUs, inclusive ranges and comma-separated combinations,
+ * with whitespace around numbers. Rejects NULL, empty, signed, reversed or
+ * overflowing input.
  */
 int parse_cpu_range(const char *str) {
     const char *parse_pos = str;
@@ -67,20 +64,13 @@ int parse_cpu_range(const char *str) {
     while (*parse_pos != '\0') {
         long start;
         const char *number_pos = parse_pos;
-        /*
-         * strtol() also accepts a leading '+' or '-'. Neither is part of
-         * this parser's grammar, and a sign that cancels out ("-0") or a
-         * second one after the range dash ("0--0") would otherwise turn
-         * malformed input into a valid one-CPU answer. Skip the whitespace
-         * strtol() skips, then reject either sign before converting.
-         */
+        /* strtol() accepts signs, but the sysfs grammar does not. */
         while (isspace((unsigned char)*number_pos)) {
             number_pos++;
         }
         if (*number_pos == '+' || *number_pos == '-') {
             return -1;
         }
-        /* Parse first number (strtol automatically skips leading whitespace) */
         errno = 0;
         start = strtol(parse_pos, &endptr, 10);
         if (endptr == parse_pos || errno != 0 || start < 0) {
@@ -96,7 +86,6 @@ int parse_cpu_range(const char *str) {
             long end, range_len;
             const char *end_pos = parse_pos + 1;
 
-            /* A second sign is malformed syntax, not a signed endpoint. */
             while (isspace((unsigned char)*end_pos)) {
                 end_pos++;
             }
@@ -111,15 +100,10 @@ int parse_cpu_range(const char *str) {
             if (endptr == parse_pos || errno != 0 || start > end || end < 0) {
                 return -1;
             }
-            /* Compute range length safely (start <= end and both >= 0 here) */
             range_len = end - start;
-            /*
-             * Check for integer overflow in cpu_count accumulation:
-             * ensure cpu_count + (range_len + 1) <= INT_MAX without
-             * forming an overflowing signed expression.
-             */
+            /* Check overflow without forming an overflowing sum. */
             if (range_len > (long)INT_MAX - (long)cpu_count - 1L) {
-                return -1; /* Would overflow int */
+                return -1;
             }
             cpu_count += (int)(range_len + 1L);
 
@@ -130,7 +114,7 @@ int parse_cpu_range(const char *str) {
             }
         } else {
             if (cpu_count == INT_MAX) {
-                return -1; /* Would overflow int */
+                return -1;
             }
             cpu_count++;
         }
@@ -152,19 +136,9 @@ int parse_cpu_range(const char *str) {
 }
 
 /**
- * @brief Get online CPU count by reading sysfs
+ * @brief Read the online CPU count from Linux sysfs.
  *
- * @return Number of online CPUs on success, or -1 on error (failed to
- *         open/read /sys/devices/system/cpu/online or invalid format)
- *
- * Reads /sys/devices/system/cpu/online and parses the CPU range string.
- * This file uses the same format as parse_cpu_range() supports:
- * - "0" for single CPU
- * - "0-3" for range (4 CPUs)
- * - "0,2-4,7" for complex patterns
- *
- * Used as a workaround for older uClibc versions where sysconf() or
- * get_nprocs() may return incorrect values.
+ * @return Number of online CPUs, or -1 when sysfs cannot be read or parsed.
  */
 static int get_online_cpu_count(void) {
     char *line;
@@ -172,7 +146,7 @@ static int get_online_cpu_count(void) {
 
     line = read_file_contents("/sys/devices/system/cpu/online");
     if (line == NULL) {
-        return -1; /* Failed to read file */
+        return -1;
     }
     cpu_count = parse_cpu_range(line);
     free(line);
@@ -181,42 +155,27 @@ static int get_online_cpu_count(void) {
 #endif
 
 /**
- * @brief Get the number of online CPU cores
+ * @brief Get the number of online CPU cores.
  *
- * @return Number of CPUs online on the host (>= 1)
+ * @return Number of online CPUs, at least 1.
  *
- * Uses sysconf(_SC_NPROCESSORS_ONLN) wherever that POSIX option is
- * available. The sysctl() branch on macOS/FreeBSD and the get_nprocs()
- * branch on Linux are compiled only when the macro is absent, so they are
- * fallbacks rather than those platforms' normal path. On Linux, the
- * sysconf() answer is cross-checked against
- * /sys/devices/system/cpu/online when it reports one core or fewer, to
- * work around older libc bugs. Returns 1 when the count cannot be
- * determined, and caches the result after the first call.
+ * Uses sysconf(_SC_NPROCESSORS_ONLN) where available; the sysctl() and
+ * get_nprocs() branches are fallbacks for hosts without it. On Linux a
+ * result of one core or fewer is cross-checked against sysfs to work around
+ * older libc bugs. The result is cached after the first call.
  *
- * @note Result is cached and never recalculated even if CPU hotplugging occurs
+ * @note The cached value is never refreshed after CPU hotplugging.
  */
 int get_ncpu(void) {
-    /* Static cache: -1 indicates not yet initialized */
     static int cached_ncpu = -1;
 
     if (cached_ncpu < 0) {
 #if defined(_SC_NPROCESSORS_ONLN)
-        /* Primary path: sysconf() is available on all supported hosts. */
         long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
 #if defined(__linux__)
-        /*
-         * Workaround for older libc bug: sysconf may incorrectly return 1
-         * even when multiple CPUs are online. Verify by reading sysfs.
-         */
+        /* Some older libc versions report one CPU even when more are online. */
         if (ncpu <= 1) {
-            /*
-             * Cross-check with sysfs, but only let a usable answer replace
-             * what sysconf() reported: get_online_cpu_count() returns -1
-             * when /sys cannot be read (a restricted container, or sysfs
-             * not mounted), and taking that for the count would replace a
-             * perfectly good value with 1.
-             */
+            /* Only a usable sysfs answer may replace the sysconf() value. */
             long sysfs_ncpu = get_online_cpu_count();
             if (sysfs_ncpu > 0) {
                 ncpu = sysfs_ncpu;
@@ -226,48 +185,33 @@ int get_ncpu(void) {
         cached_ncpu = (ncpu > 0 && ncpu <= INT_MAX) ? (int)ncpu : 1;
 
 #elif defined(__APPLE__) || defined(__FreeBSD__)
-        /* macOS and FreeBSD: use sysctl interface */
         int ncpu = 0;
         size_t ncpu_size = sizeof(ncpu);
         int sysctl_mib[2];
 
         sysctl_mib[0] = CTL_HW;
 #if defined(HW_AVAILCPU)
-        /* Try HW_AVAILCPU first (available CPUs) */
         sysctl_mib[1] = HW_AVAILCPU;
 #else
-        /* Fall back to HW_NCPU if HW_AVAILCPU unavailable */
         sysctl_mib[1] = HW_NCPU;
 #endif
         if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
             ncpu_size != sizeof(ncpu) || ncpu < 1) {
-            /* Fallback: try HW_NCPU directly */
             sysctl_mib[1] = HW_NCPU;
-            /*
-             * sysctl() replaces oldlenp with the number of bytes it wrote,
-             * and a failed first call can leave it -- and ncpu -- holding
-             * values from that attempt. Reset both before the retry so
-             * HW_NCPU is read into a full-sized, known-clean buffer.
-             */
+            /* Reset the length and value before the HW_NCPU retry. */
             ncpu = 0;
             ncpu_size = sizeof(ncpu);
             if (sysctl(sysctl_mib, 2, &ncpu, &ncpu_size, NULL, 0) != 0 ||
                 ncpu_size != sizeof(ncpu) || ncpu < 1) {
-                ncpu = 1; /* Complete failure; assume 1 CPU */
+                ncpu = 1;
             }
         }
         cached_ncpu = ncpu;
 
 #elif defined(__linux__)
-        /* Linux without _SC_NPROCESSORS_ONLN: use get_nprocs */
         int ncpu;
         ncpu = get_nprocs();
-        /*
-         * Workaround for older libc bug: get_nprocs may incorrectly return 1.
-         * Verify by reading sysfs.
-         */
         if (ncpu <= 1) {
-            /* Same guard as above: only a usable sysfs answer counts. */
             int sysfs_ncpu = get_online_cpu_count();
             if (sysfs_ncpu > 0) {
                 ncpu = sysfs_ncpu;

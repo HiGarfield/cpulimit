@@ -35,42 +35,28 @@
 #include <string.h>
 
 /**
- * @brief Number of candidate slots the fallback list starts with
- *
- * Only a starting size: the list doubles on demand, so the number of
- * processes sharing one executable name is bounded by nothing and is not
- * capped here.
+ * @def PROC_FINDER_INITIAL_CANDIDATES
+ * @brief Initial candidate capacity; the list grows on demand.
  */
 #define PROC_FINDER_INITIAL_CANDIDATES 8
 
 /**
- * @brief Check if a process exists and can be controlled by cpulimit
+ * @brief Check whether a process exists and can be controlled.
  *
- * @param pid Process ID to search for
- * @return Positive PID if process exists and can be signaled
- *         (kill(pid,0)==0), negative -PID if it exists but permission is
- *         denied (EPERM/EACCES), 0 if it does not exist, the PID is invalid,
- *         or the PID is 1 (init), which is never signalled on any platform
+ * @param pid PID to probe.
+ * @return pid when kill(pid, 0) succeeds, -pid on EPERM or EACCES, 0 when
+ *         the PID is invalid, absent or PID 1.
  */
 pid_t find_process_by_pid(pid_t pid) {
-    /*
-     * Reject non-positive PIDs and PID 1 (init) before any kill() call.
-     * PID 1 must never be signalled on any platform -- a kill to it, even
-     * the kill(pid,0) existence probe, is forbidden because suspending or
-     * interfering with init would freeze or crash the system. This guard
-     * therefore covers the probe too, so no code path reaches kill() with
-     * pid 1; there is no container or OS exception.
-     */
+    /* Reject non-positive PIDs and PID 1 before any kill() call. */
+    /* No signal, including the kill(pid, 0) probe, may reach init. */
     if (pid <= 0 || pid == 1) {
         return 0;
     }
-    /* kill(pid, 0): existence + permission probe without signalling */
     if (kill(pid, 0) == 0) {
         return pid;
     }
-    /* Process exists but we lack permission to signal it. Some systems
-     * report EACCES rather than EPERM for an inaccessible process, so accept
-     * both: neither is "does not exist". */
+    /* EACCES and EPERM both mean the process exists but is out of reach. */
     if (errno == EPERM || errno == EACCES) {
         return -pid;
     }
@@ -78,20 +64,15 @@ pid_t find_process_by_pid(pid_t pid) {
 }
 
 /**
- * @brief Compare a target name or path against one process's argv[0]
+ * @brief Compare a target name against one process's argv[0].
  *
- * @param process_name Name or absolute path as typed by the operator
- * @param command argv[0] of the process being compared, as the OS reports it
- * @return 1 when the two name the same executable under cpulimit's rules,
- *         0 when they do not or either string is unusable
+ * @param process_name Name or absolute path as typed by the operator.
+ * @param command argv[0] as reported by the OS.
+ * @return 1 when the two name the same executable, 0 otherwise.
  *
- * An argument starting with '/' is compared in full, anything else by basename
- * only, so "-e myapp" matches "/usr/bin/myapp" and "./dir/myapp" alike while
- * "-e /usr/bin/myapp" matches nothing else. One definition rather than one per
- * caller because three questions -- which match wins, whether a PID still runs
- * the target, and whether a name leads anywhere beyond init -- must agree on
- * what counts as a match; they answer it for the same operator argument, and a
- * second copy is free to drift.
+ * An absolute argument is compared in full; any other name by basename.
+ * Shared by the finder, the PID-reuse check and cli.c's init-name check so
+ * all three agree on what counts as a match.
  */
 int process_name_matches_cmd(const char *process_name, const char *command) {
     const char *cmp_name;
@@ -103,10 +84,7 @@ int process_name_matches_cmd(const char *process_name, const char *command) {
     }
     full_path_cmp = process_name[0] == '/';
     cmp_name = full_path_cmp ? process_name : get_file_basename(process_name);
-    /*
-     * An empty comparison name is structurally unmatchable: matching against
-     * "" would claim every process whose argv[0] also ends with '/'.
-     */
+    /* An empty comparison name would match every argv[0] ending in '/'. */
     if (cmp_name[0] == '\0') {
         return 0;
     }
@@ -115,31 +93,14 @@ int process_name_matches_cmd(const char *process_name, const char *command) {
 }
 
 /**
- * @brief Check whether any process other than PID 1 carries this name
+ * @brief Check whether any process other than PID 1 carries this name.
  *
- * @param process_name Name or absolute path as typed by the operator
- * @return 1 when at least one process other than PID 1 has a matching argv[0],
- *         0 when a completed scan proves none does, -1 when the answer cannot
- *         be established (an unusable name, an allocation or iterator failure
- *         including a failed close, or a scan that stopped before the table
- *         was read to its end)
+ * @param process_name Name or absolute path as typed by the operator.
+ * @return 1 when a non-init match exists, 0 when a clean, completed scan
+ *         proves none does, -1 when the answer cannot be established.
  *
- * Answers the narrower question behind the Linux-only refusal in cli.c. The
- * name lookup skips PID 1 on every platform, so a name init happens to wear
- * can still have ordinary, perfectly limitable processes behind it; only a
- * name with nothing else is the dead end worth refusing up front. Whether any
- * of them answers to a signal is not asked here -- that is find_process_by_
- * name()'s job, and it decides which match wins, not whether one exists.
- *
- * Read-only: signals nothing, builds no candidate list, prints nothing of its
- * own beyond a failed iterator close.
- *
- * @note Only a scan that completed and closed cleanly may answer 0. cli.c
- *       refuses the name outright on that value, so an allocation or
- *       iterator failure, a failed close, or a scan that stopped before the
- *       table had been read to its end has to answer -1 and leave the name
- *       to find_process_by_name(), which discards a broken scan and
- *       re-resolves instead of ending the run on a half-answered question.
+ * @note Only a completed scan closed cleanly may answer 0, because cli.c
+ *       refuses the name on that value.
  */
 int process_name_has_non_init_match(const char *process_name) {
     struct process_iterator iter;
@@ -169,12 +130,7 @@ int process_name_has_non_init_match(const char *process_name) {
         }
     }
     free(proc);
-    /*
-     * A close that failed is not a completed scan either: the answer 0 is
-     * a hard "this name resolves to PID 1" refusal in cli.c, so it must be
-     * reserved for a scan that both finished and closed cleanly. Report the
-     * failure and leave the name to the limiter's own lookup instead.
-     */
+    /* A failed close is not a completed scan. */
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
         return -1;
@@ -186,17 +142,12 @@ int process_name_has_non_init_match(const char *process_name) {
 }
 
 /**
- * @brief Whether no other candidate is an ancestor of this one
+ * @brief Tell whether no other candidate is an ancestor of this one.
  *
- * @param candidates Every PID that matched the name
- * @param count Number of entries in candidates
- * @param pid The candidate to test, a member of candidates
- * @return Non-zero when no other candidate sits above pid in the process
- *         tree, so pid is the topmost of its family
- *
- * Walks the parent chain instead of testing every other candidate with
- * is_child_of(): one chain is a handful of reads, while a candidate per
- * test is a chain walk for each of them.
+ * @param candidates Every PID that matched the name.
+ * @param count Number of candidates.
+ * @param pid The candidate to test.
+ * @return Non-zero when pid is the topmost of its family.
  */
 static int candidate_is_topmost(const pid_t *candidates, size_t count,
                                 pid_t pid) {
@@ -205,13 +156,7 @@ static int candidate_is_topmost(const pid_t *candidates, size_t count,
     while (current > 1 && depth < IS_CHILD_MAX_DEPTH) {
         pid_t parent = getppid_of(current);
         size_t i;
-        /*
-         * getppid_of() returns -1 for a transient lookup failure, not just
-         * for a process with no parent. Reading that as the end of the
-         * chain would declare a worker topmost and let it beat the real
-         * launcher for -e. is_child_of_via() retries once for exactly this
-         * reason, so the same walk has to do the same here.
-         */
+        /* Retry a transient getppid_of() failure, as is_child_of_via() does. */
         if (parent < 0) {
             parent = getppid_of(current);
         }
@@ -230,22 +175,15 @@ static int candidate_is_topmost(const pid_t *candidates, size_t count,
 }
 
 /**
- * @brief Pick one match out of every process sharing a name
+ * @brief Pick the preferred match out of every process sharing a name.
  *
- * @param candidates Every PID that matched the name
- * @param count Number of entries in candidates
- * @return The preferred PID, or 0 when count is 0
+ * @param candidates Matching PIDs.
+ * @param count Number of candidates.
+ * @return The preferred PID, or 0 when count is 0.
  *
- * Two keys, both of them properties of the candidate alone: a candidate no
- * other candidate descends from beats one that does -- the launcher rather
- * than the worker it started -- and otherwise the smallest PID wins.
- *
- * Those keys have to be properties of one candidate. Preferring "is an
- * ancestor of the other" directly is not transitive: with a parent, its
- * child and an unrelated process sharing one name, each pair prefers a
- * different one, so folding that comparison over the scan picks whichever
- * the platform happened to enumerate last, and the target of a -e run
- * changes from one scan to the next.
+ * A topmost candidate is preferred over a descendant, then the smallest PID
+ * wins. Both keys depend on one candidate alone, so the result does not
+ * depend on the platform's scan order.
  */
 static pid_t select_preferred_candidate(const pid_t *candidates, size_t count) {
     size_t i;
@@ -263,33 +201,24 @@ static pid_t select_preferred_candidate(const pid_t *candidates, size_t count) {
 }
 
 /**
- * @brief Find a running process by its executable name or path
+ * @brief Find a running process by executable name or path.
  *
- * @param process_name Name or absolute path of the executable to search for
- * @return Positive PID if found and accessible, negative -PID if found but
- *         permission denied, 0 if not found or invalid name
+ * @param process_name Name or absolute path of the executable.
+ * @return Positive PID when found and accessible, negative -PID when
+ *         permission is denied, 0 when not found or on a failed scan.
  *
- * Compares against argv[0] (full path if absolute, else basename). With
- * several matches the topmost ancestor wins, and among unrelated ones the
- * smallest PID wins; a controllable match is preferred over an uncontrollable
- * one, and a vanished winner falls back to another live candidate.
+ * Compares against argv[0], in full for an absolute argument and otherwise
+ * by basename. Among matches the topmost ancestor wins, then the smallest
+ * PID; a controllable match is preferred and a vanished winner falls back.
  *
- * @note Iterates every process, so prefer find_process_by_pid() when the PID is
- *       known; returns 0 on allocation errors, an iterator that will not
- *       open, or a scan that stopped before the table was read to its end.
- *       A failed close is reported but does not discard a completed scan.
+ * @note Scans every process; prefer find_process_by_pid() when the PID is
+ *       known. A failed close is reported but does not discard the result.
  */
 pid_t find_process_by_name(const char *process_name) {
     pid_t pid = 0;
     pid_t probe, best_pid, best_probe;
     int best_topmost;
-    /*
-     * Every match is kept so a vanished winner can fall back to another live
-     * candidate. The list lives on the heap and doubles on demand, because
-     * nothing bounds how many processes share one executable name (20 python3
-     * interpreters, a pool of node workers, a batch of shell jobs) and a
-     * fixed ceiling would drop the tail of a large group without a word.
-     */
+    /* Keep every match: the list grows so no candidate is silently dropped. */
     pid_t *candidates = NULL;
     size_t n_candidates = 0;
     size_t candidates_cap = 0;
@@ -305,20 +234,9 @@ pid_t find_process_by_name(const char *process_name) {
         return 0;
     }
 
-    /*
-     * Determine comparison mode:
-     * - Absolute path (starts with '/'): compare full paths
-     * - Relative path/name: compare basenames only
-     */
     full_path_cmp = process_name[0] == '/';
     process_cmp_name =
         full_path_cmp ? process_name : get_file_basename(process_name);
-    /*
-     * Reject an empty comparison name (e.g. process_name == "bin/").
-     * get_file_basename("bin/") returns "" because the last '/' has nothing
-     * after it. Matching against an empty string would produce false
-     * positives for any process whose argv[0] also ends with '/'.
-     */
     if (process_cmp_name[0] == '\0') {
         return 0;
     }
@@ -338,56 +256,21 @@ pid_t find_process_by_name(const char *process_name) {
     }
 
     while ((scan_rc = get_next_process(&iter, proc)) == 0) {
-        /*
-         * Never select PID 1 (init) by name: -e init would otherwise
-         * resolve to the system's init process and route it into the limit
-         * set, from which no kill must ever be sent. Skipping it here keeps
-         * the name resolver consistent with the PID-input rejection in cli.c
-         * and the process-set guard, on every platform.
-         *
-         * This branch is silent on purpose: the operator-visible "this name
-         * is PID 1" refusal is emitted once at argument-checking time
-         * (cli.c, before the limiter starts), not on every watch-loop scan.
-         */
+        /* Never select PID 1 by name; cli.c reports that once. */
         if (proc->pid == 1) {
             continue;
         }
         if (process_name_matches_cmd(process_name, proc->command)) {
-            /*
-             * Remember every match so a vanished winner can fall back to
-             * another live candidate, and so the winner can be chosen once
-             * every match is known: which match is preferred depends on
-             * which other processes share the name, and the scan order is
-             * not something the choice may depend on. See
-             * select_preferred_candidate().
-             *
-             * A dropped candidate is one the fallback
-             * can no longer reach, and reaching exactly those is the only job
-             * this list has, so the list grows instead of capping: the primary
-             * selection above would still pick the right winner with a fixed
-             * ceiling in place, which is what made the cap invisible.
-             */
+            /* Grow the list: a dropped match cannot be a fallback. */
             if (n_candidates == candidates_cap) {
                 size_t size_max = 0;
                 size_t new_cap;
                 pid_t *grown;
-                /*
-                 * Largest value size_t can hold, obtained by unsigned
-                 * wraparound: 0 decremented once is reduced modulo one greater
-                 * than the largest representable value (C89 6.1.2.1), which
-                 * yields 2^N - 1 in every integer representation. Deliberately
-                 * not spelled (size_t)-1: C89 6.3.1.3 calls an out-of-range
-                 * signed-to-unsigned conversion implementation-defined, while
-                 * the wraparound form never performs one.
-                 */
+                /* Use unsigned wraparound for SIZE_MAX, not a signed cast. */
                 size_max--;
                 new_cap = candidates_cap != 0 ? candidates_cap * 2
                                               : PROC_FINDER_INITIAL_CANDIDATES;
-                /*
-                 * Two ways to run out: the doubling wraps around, which a
-                 * capacity below the current one can only mean, or the byte
-                 * count would not fit into a size_t.
-                 */
+                /* Doubling wrapped or the byte count overflows. */
                 if (new_cap < candidates_cap ||
                     new_cap > size_max / sizeof(*candidates)) {
                     fprintf(stderr, "Too many processes named '%s'\n",
@@ -417,51 +300,18 @@ pid_t find_process_by_name(const char *process_name) {
         }
     }
     free(proc);
-    /*
-     * A failed close does not change the selection below, which runs exactly
-     * as it does on the normal path: the scan itself completed, and its
-     * result is what the existence recheck, the controllability probe and the
-     * -PID contract are for. Aborting here instead would hand the caller a
-     * PID it could not trust, or a positive PID for a process it cannot
-     * control at all -- a limit run that cannot be enforced and a zero exit
-     * status. The failure is still reported.
-     */
+    /* A failed close is reported but does not discard a completed scan. */
     if (close_process_iterator(&iter) != 0) {
         fprintf(stderr, "Failed to close process iterator\n");
     }
-    /*
-     * PROCESS_ITER_ERROR means readdir() failed before the table was read
-     * to its end, so candidates holds only a prefix of the processes that
-     * wear this name. Choosing from it would make the winner depend on where
-     * the scan broke, and an empty prefix would read as "not found". The
-     * scan's own contract is to report 0 on an iterator error; discard the
-     * partial result so a lazy run fails this attempt and a watching one
-     * re-resolves on its next poll.
-     */
+    /* Discard a partial scan: candidates holds only a prefix of the table. */
     if (scan_rc == PROCESS_ITER_ERROR) {
         free(candidates);
         return 0;
     }
 
-    /*
-     * Verify the selected process still exists. If it vanished between the
-     * scan and this recheck, fall back to another live candidate rather than
-     * reporting a spurious "not found" that would throttle nothing.
-     *
-     * The fallback ranks the survivors by three tiers, highest first:
-     * 1. controllable (probe > 0) beats uncontrollable (probe < 0);
-     * 2. within one tier, a candidate no other candidate descends from
-     *    beats one that does;
-     * 3. otherwise the smaller PID wins.
-     *
-     * Reusing the scan's rule keeps the choice independent of the platform's
-     * iteration order, and the controllability tier stops an uncontrollable
-     * match from winning on PID alone and giving up a run that could have
-     * limited something. The probe's sign still reaches the caller: -PID is
-     * what makes it emit one "No permission to control process N", and it is
-     * returned only after every survivor has been probed and none turned out
-     * to be controllable.
-     */
+    /* Re-probe the winner; a vanished one falls back. */
+    /* Rank survivors by controllability, then ancestry, then PID. */
     if (n_candidates == 0) {
         free(candidates);
         return 0;
@@ -476,10 +326,6 @@ pid_t find_process_by_name(const char *process_name) {
     best_probe = 0;
     best_topmost = 0;
     if (probe < 0) {
-        /*
-         * The preferred match is alive but out of reach: remember it as a
-         * second-choice result so a controllable candidate still beats it.
-         */
         best_pid = pid;
         best_probe = probe;
         best_topmost = candidate_is_topmost(candidates, n_candidates, pid);
@@ -501,11 +347,7 @@ pid_t find_process_by_name(const char *process_name) {
             best_topmost = topmost;
             continue;
         }
-        /*
-         * The same two keys the scan's own choice uses, in the same order,
-         * so the fallback agrees with it instead of offering a process the
-         * scan would have ranked lower.
-         */
+        /* Use the same keys as the scan so the fallback agrees with it. */
         if ((probe > 0) != (best_probe > 0)) {
             better = probe > 0;
         } else if (topmost != best_topmost) {
@@ -524,15 +366,11 @@ pid_t find_process_by_name(const char *process_name) {
 }
 
 /**
- * @brief Check whether a PID has since been taken over by another program
+ * @brief Check whether a PID now runs a different executable.
  *
- * @param pid Process ID to inspect
- * @param process_name Executable name or absolute path expected for that PID
- * @return 1 only when the PID is confirmed running a different executable, 0
- *         when it matches or no conclusion can be drawn
- *
- * Closes the window between resolving a name to a PID and starting to limit it;
- * the test is one-sided so any uncertainty keeps prior behavior unchanged.
+ * @param pid PID to inspect.
+ * @param process_name Expected executable name or path.
+ * @return 1 only when a different executable is confirmed, 0 otherwise.
  */
 int process_has_other_name(pid_t pid, const char *process_name) {
     struct process_iterator iter;
@@ -556,10 +394,7 @@ int process_has_other_name(pid_t pid, const char *process_name) {
         fprintf(stderr, "Memory allocation failed for the process\n");
         return 0;
     }
-    /*
-     * A single-PID filter reads one /proc entry, which is all this check
-     * costs; there is no need to walk the whole process table again.
-     */
+    /* A single-PID filter reads just one process entry. */
     filter.pid = pid;
     filter.include_children = 0;
     filter.read_cmd = 1;

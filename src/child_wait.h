@@ -35,32 +35,28 @@ extern "C" {
 #include <sys/types.h>
 
 /**
- * @brief Resume and reap the command's child, without blocking on it
+ * @brief Reap the child without blocking on an error path.
  *
- * @param child_pid PID of the child process to reap
+ * @param child_pid PID of the child to reap.
  *
- * For failure paths that return EXIT_FAILURE: the child is still out there, so
- * resume it (the caller already sent SIGCONT) and reap it with WNOHANG -- a
- * blocking wait would hang on a child that ignores the signal, since this path
- * skips the polling loop's SIGKILL escalation. A child that has not exited is
- * reparented to init.
+ * @note The caller sends SIGCONT; a child that is still running is left to
+ *       be reparented.
  */
 void reap_child_before_error_return(pid_t child_pid);
 
 /**
- * @brief Wait for the child to exit and collect its exit status
+ * @brief Wait for the child to exit and collect its exit status.
  *
- * @param child_pid PID of the child process to wait for
- * @param cfg Pointer to configuration structure (used for verbose output)
+ * @param child_pid PID of the child to wait for.
+ * @param cfg Configuration, used for verbose output.
  * @param signal_forwarded Non-zero if the caller already forwarded the quit
- *                         signal to the child process group
- * @return The child's exit status if reaped, EXIT_FAILURE otherwise
+ *        signal to the child's process group.
+ * @return The child's exit status if reaped, EXIT_FAILURE otherwise.
  *
- * Polls with WNOHANG, translating death by signal into 128 + signal. Once the
- * quit signal is forwarded, escalates to SIGKILL after CHILD_KILL_TIMEOUT_MS
- * (once, on the group); a late quit signal is forwarded here at most once. An
- * unreadable clock does not end the process: the child is resumed and reaped
- * first, then EXIT_FAILURE is returned.
+ * Polls with WNOHANG and maps death by signal to 128 + signal. After a quit
+ * signal is forwarded, SIGKILL escalation is requested once, after
+ * CHILD_KILL_TIMEOUT_MS. A clock failure resumes and reaps the child before
+ * returning EXIT_FAILURE.
  */
 int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                               int signal_forwarded);
@@ -69,4 +65,4 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
 }
 #endif
 
-#endif /* CPULIMIT_CHILD_WAIT_H */
+#endif

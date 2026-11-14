@@ -31,16 +31,11 @@ extern "C" {
 #endif
 
 /**
- * @brief Extract filename from a full path
+ * @brief Extract the filename portion of a path.
  *
- * @param path Full file path (may contain directory separators), or NULL
- * @return Pointer to the filename portion within the path string
- *
- * Returns a pointer to the substring after the last '/' character, or the
- * original string if no '/' is found. Does not allocate memory; the returned
- * pointer references part of the input string.
- *
- * If path is NULL, returns an empty string.
+ * @param path Full path, or NULL.
+ * @return Pointer into path after the last '/', or path itself when it has
+ *         none; an empty string when path is NULL.
  */
 const char *get_file_basename(const char *path);
 
@@ -48,4 +43,4 @@ const char *get_file_basename(const char *path);
 }
 #endif
 
-#endif /* CPULIMIT_PATH_UTIL_H */
+#endif

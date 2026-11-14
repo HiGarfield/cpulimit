@@ -33,16 +33,18 @@ extern "C" {
 #include <sys/types.h>
 
 /**
- * @brief Wait for the child process to complete exec setup
+ * @brief Wait for the child to finish its exec setup.
  *
- * @param child_pid PID of the forked child process
- * @param sync_read_fd Read end of the synchronization pipe
+ * @param child_pid PID of the forked child.
+ * @param sync_read_fd Read end of the exec synchronization pipe.
+ * @return 0 on success, -1 on error (the child is killed and reaped).
  *
- * Reads the readiness byte written by the child after setpgid() and signal
- * handler reset, then blocks until the pipe EOF that proves exec completed (or
- * the child exited on exec failure). Closes sync_read_fd on return.
+ * Reads the readiness byte written after setpgid() and handler reset, then
+ * drains the pipe to EOF: FD_CLOEXEC closes the write end on a successful
+ * exec, and _exit() closes it on failure. Closes sync_read_fd on return.
  *
- * @return 0 on success, -1 on error (the child is killed and reaped)
+ * @note The reads run with SA_RESTART, so a termination signal received
+ *       during exec setup does not end this wait.
  */
 int wait_for_child_exec(pid_t child_pid, int sync_read_fd);
 
@@ -50,4 +52,4 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd);
 }
 #endif
 
-#endif /* CPULIMIT_EXEC_SYNC_H */
+#endif

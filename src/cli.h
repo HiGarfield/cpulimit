@@ -34,79 +34,65 @@ extern "C" {
 
 /**
  * @struct cpulimit_cfg
- * @brief Configuration structure containing all runtime parameters for CPU
- *        limiting
- *
- * This structure stores the parsed command-line options and determines
- * the program's execution mode and behavior.
+ * @brief Parsed command-line options and the resulting run mode.
  */
 struct cpulimit_cfg {
     /**
-     * @brief Program name (basename of argv[0]) used in usage messages.
+     * @brief Basename of argv[0], used in diagnostics.
      */
     const char *program_name;
 
     /**
-     * @brief Target process ID when using -p/--pid option.
-     * 0 if not specified.
+     * @brief PID from -p, or 0 when unset.
      */
     pid_t target_pid;
 
     /**
-     * @brief Executable name/path when using -e/--exe option.
-     * NULL if not specified.
+     * @brief Executable name from -e, or NULL.
      */
     const char *exe_name;
 
     /**
-     * @brief CPU usage limit expressed in CPU cores (core equivalents), in
-     * the range (0, N_CPU].
+     * @brief CPU limit in core equivalents, in (0, N_CPU].
      */
     double cpu_limit;
 
     /**
-     * @brief Non-zero to apply the limit to the target and all descendants.
-     * Zero to limit only the target process.
+     * @brief Non-zero to include descendants.
      */
     int include_children;
 
     /**
-     * @brief Non-zero to exit when the target terminates or is not found.
-     * Zero to keep searching.
+     * @brief Non-zero to exit when the target is gone.
      */
     int lazy_mode;
 
     /**
-     * @brief Non-zero to print CPU usage and control statistics.
-     * Zero for silent operation.
+     * @brief Non-zero to print statistics and diagnostics.
      */
     int verbose;
 
     /**
-     * @brief Non-zero to fork and execute command_args.
-     * Zero to search for an existing process.
+     * @brief Non-zero to execute command_args.
      */
     int command_mode;
 
     /**
-     * @brief Array of command-line arguments to execute (NULL-terminated) in
-     * command mode.
+     * @brief NULL-terminated command vector for command mode.
      */
     char **command_args;
 };
 
 /**
- * @brief Parse command line arguments and populate configuration structure
+ * @brief Parse command-line arguments into a configuration structure.
  *
- * @param argc Number of command-line arguments (from main)
- * @param argv Array of command-line argument strings (from main)
- * @param cfg Pointer to configuration structure to be filled with parsed values
- * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested
+ * @param argc Number of arguments.
+ * @param argv Argument vector.
+ * @param cfg Structure to fill.
+ * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested.
  *
- * @note Malformed API input is rejected rather than dereferenced: a NULL
- *       cfg or argv, a non-positive argc, and any NULL element in
- *       argv[0..argc-1] each return EXIT_FAILURE. argv[argc] is the
- *       terminator and is not inspected.
+ * @note Rejects a NULL cfg or argv, a non-positive argc, and any NULL
+ *       element in argv[0..argc-1].
  */
 int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg);
 
@@ -114,4 +100,4 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg);
 }
 #endif
 
-#endif /* CPULIMIT_CLI_H */
+#endif

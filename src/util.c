@@ -29,20 +29,11 @@
 #include <sys/resource.h>
 
 #if defined(__linux__) || defined(__FreeBSD__)
-/*
- * sched_setscheduler(2) and SCHED_FIFO live in <sched.h> on Linux (glibc) and
- * FreeBSD. They are intentionally not pulled in on macOS, which has no POSIX
- * real-time scheduler and instead uses the Mach THREAD_TIME_CONSTRAINT_POLICY
- * (see try_become_realtime() below).
- */
+/* <sched.h> is Linux/FreeBSD only; macOS uses the Mach thread policy API. */
 #include <sched.h>
 #endif
 
 #ifdef __APPLE__
-/*
- * macOS/Darwin has no POSIX real-time scheduler; the real-time lever is the
- * Mach thread-policy API in these headers (used by try_become_realtime()).
- */
 #include <mach/mach.h>
 #include <mach/thread_policy.h>
 #endif
@@ -54,10 +45,9 @@
 
 #if defined(__linux__) || defined(__FreeBSD__)
 /**
- * @brief Attempt to raise the current process to real-time priority
+ * @brief Try to raise the current process to a real-time policy.
  *
- * @note This is a best-effort attempt; if the privilege is unavailable, the
- *       call fails silently.
+ * @note Best effort; an unavailable privilege fails silently.
  */
 static void try_become_realtime(void) {
     struct sched_param sp;
@@ -70,10 +60,9 @@ static void try_become_realtime(void) {
 }
 #elif defined(__APPLE__)
 /**
- * @brief Attempt to raise the current process to real-time priority
+ * @brief Try to raise the current process to a real-time policy.
  *
- * @note This is a best-effort attempt; if the privilege is unavailable, the
- *       call fails silently.
+ * @note Best effort; an unavailable privilege fails silently.
  */
 static void try_become_realtime(void) {
     thread_time_constraint_policy_data_t policy;
@@ -88,15 +77,13 @@ static void try_become_realtime(void) {
                             THREAD_TIME_CONSTRAINT_POLICY_COUNT);
     (void)mach_port_deallocate(mach_task_self(), thread);
 }
-#endif /* platform selection */
+#endif
 
 /**
- * @brief Raise the scheduling priority of the current process
+ * @brief Raise the scheduling priority of the current process.
  *
- * Best-effort real-time promotion first (see try_become_realtime()); then the
- * nice ladder is climbed one level at a time from the current priority down to
- * PRIO_MIN, retrying levels denied by permissions (EPERM/EACCES, e.g.
- * RLIMIT_NICE) and stopping only on a non-permission error.
+ * Tries a real-time policy first, then lowers the nice value one step at a
+ * time, retrying levels denied by EPERM or EACCES. Best effort throughout.
  */
 void increase_priority(void) {
     int old_priority, priority;
@@ -104,14 +91,9 @@ void increase_priority(void) {
     errno = 0;
     old_priority = getpriority(PRIO_PROCESS, 0);
     if (old_priority == -1 && errno != 0) {
-        /* Error getting current priority, assume default priority */
         old_priority = 0;
     }
-    /*
-     * The ladder only makes sense inside the nice range, and pinning
-     * old_priority to it keeps the number of rungs a small non-negative
-     * value instead of an expression the optimiser may overflow.
-     */
+    /* Clamp to the nice range so the number of ladder steps stays bounded. */
     old_priority = CLAMP(old_priority, PRIO_MIN, PRIO_MAX);
     for (priority = old_priority; priority > PRIO_MIN; priority--) {
         errno = 0;
@@ -123,19 +105,15 @@ void increase_priority(void) {
 }
 
 /**
- * @brief Get system load averages
+ * @brief Get system load averages.
  *
- * @param loadavg Array to receive load average values
- * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
- * @return Number of samples retrieved (nelem capped at 3), or -1 on a
- *         negative count or a system error; a count of 0 returns 0
+ * @param loadavg Array receiving the samples.
+ * @param nelem Number of samples requested (1-3: 1, 5 and 15 minutes).
+ * @return Number of samples written, capped at 3; 0 for nelem 0; -1 for a
+ *         negative count or a system error.
  *
- * Forwards to the BSD/GNU getloadavg(). On uClibc/uClibc-ng versions
- * < 1.0.42, which lack it, the values are derived from the sysinfo()
- * syscall instead, converting its fixed-point loads to floating-point.
- * Both paths reject a negative count and clamp a larger one to the three
- * samples the interface can supply, so neither writes outside loadavg
- * nor reports samples it did not write.
+ * Wraps getloadavg(), or derives the values from sysinfo() on uClibc
+ * versions that lack it. Both paths validate nelem before writing.
  */
 int cpulimit_getloadavg(double *loadavg, int nelem) {
 #ifdef CPULIMIT_IMPL_GETLOADAVG
@@ -162,14 +140,7 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
 
     return nelem;
 #else
-    /*
-     * getloadavg() writes at most three samples, but not every libc
-     * validates nelem first: Darwin's returns 3 for a negative count
-     * after writing three doubles, which a caller that sized its array
-     * for that count cannot absorb. Apply the same bounds the sysinfo()
-     * branch above uses so both paths agree on invalid input, and never
-     * let a larger count claim more samples than the call wrote.
-     */
+    /* Some libc getloadavg() skip validation; bound and clamp nelem. */
     if (nelem < 0) {
         return -1;
     }
@@ -184,13 +155,10 @@ int cpulimit_getloadavg(double *loadavg, int nelem) {
 }
 
 /**
- * @brief Safely convert long to pid_t with overflow detection
+ * @brief Convert a long to pid_t with overflow detection.
  *
- * @param long_pid Long value to convert to pid_t
- * @return The pid_t value on success, or -1 if long_pid < 0 or overflow occurs
- *
- * @note The cast is implementation-defined when out of pid_t range, but the
- *       round-trip check detects overflow on Linux, macOS and FreeBSD.
+ * @param long_pid Value to convert.
+ * @return The converted PID, or -1 for a negative value or overflow.
  */
 pid_t long_to_pid_t(long long_pid) {
     pid_t result;

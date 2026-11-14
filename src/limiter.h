@@ -33,27 +33,28 @@ extern "C" {
 #include "cli.h"
 
 /**
- * @brief Execute and monitor a user-specified command with CPU limiting
+ * @brief Execute and monitor a command with CPU limiting.
  *
- * @param cfg Pointer to configuration with command and options
- * @return Exit status code; the caller is responsible for calling exit()
+ * @param cfg Configuration with the command and options.
+ * @return The process exit status.
  *
- * Forks a child into its own process group, applies the limit, and waits for
- * completion, sending SIGKILL after a termination-request timeout.
+ * Forks the child into its own process group, applies the limit and waits
+ * for completion, escalating to SIGKILL after a termination timeout.
  */
 int run_command_mode(const struct cpulimit_cfg *cfg);
 
 /**
- * @brief Search for and limit an existing process by PID or executable name
+ * @brief Find and limit an existing process by PID or executable name.
  *
- * @param cfg Pointer to configuration with the target specification
- * @return Exit status code; the caller is responsible for calling exit()
+ * @param cfg Configuration naming the target.
+ * @return The process exit status.
  *
- * In lazy mode one attempt is made and the program exits on any non-target
- * exit. Otherwise it watches until a failure to build the process group or a
- * stranded member stops it; a scan that fails while the group is already
- * built is reported once and retried, and a target reappearing on a recycled
- * PID is re-limited. cpulimit itself is always refused as a target.
+ * Lazy mode makes one attempt. Otherwise the run keeps re-resolving and
+ * re-limiting until a group-building failure or a stranded member ends it;
+ * a scan failure after the group is built is reported once per streak and
+ * retried. cpulimit itself is never a target.
+ *
+ * @note A PID target always runs in lazy mode, even without -z.
  */
 int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg);
 
@@ -61,4 +62,4 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg);
 }
 #endif
 
-#endif /* CPULIMIT_LIMITER_H */
+#endif

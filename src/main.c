@@ -35,16 +35,7 @@ int main(int argc, char *argv[]) {
     int parse_result;
     int status;
 
-    /*
-     * Install the handlers before parsing: parse_arguments() prints the
-     * usage block on stderr, and a reader that has already gone away
-     * (e.g. "cpulimit 2>&1 | head -1") turns those writes into SIGPIPE.
-     * With the default disposition still in place that killed the process
-     * mid-usage, so a usage error reported 141 instead of 1. It is a race
-     * with the reader's exit, so the wrong status appeared only sometimes.
-     * configure_signal_handler() only installs handlers and clears the
-     * internal flags, so it does not depend on cfg and can run first.
-     */
+    /* Install handlers before parsing: usage output can raise SIGPIPE. */
     configure_signal_handler();
 
     parse_result = parse_arguments(argc, argv, &cfg);

@@ -31,36 +31,29 @@ extern "C" {
 #endif
 
 /**
- * @brief Get the number of online CPU cores
+ * @brief Get the number of online CPU cores.
  *
- * @return Number of CPUs online on the host (>= 1)
+ * @return Number of online CPUs, at least 1.
  *
- * Uses sysconf(_SC_NPROCESSORS_ONLN) wherever that POSIX option is
- * available. The sysctl() branch on macOS/FreeBSD and the get_nprocs()
- * branch on Linux are compiled only when the macro is absent, so they are
- * fallbacks rather than those platforms' normal path. On Linux, the
- * sysconf() answer is cross-checked against
- * /sys/devices/system/cpu/online when it reports one core or fewer, to
- * work around older libc bugs. Returns 1 when the count cannot be
- * determined, and caches the result after the first call.
+ * Uses sysconf(_SC_NPROCESSORS_ONLN) where available; the sysctl() and
+ * get_nprocs() branches are fallbacks for hosts without it. On Linux a
+ * result of one core or fewer is cross-checked against sysfs to work around
+ * older libc bugs. The result is cached after the first call.
  *
- * @note Result is cached and never recalculated even if CPU hotplugging occurs
+ * @note The cached value is never refreshed after CPU hotplugging.
  */
 int get_ncpu(void);
 
 #if defined(__linux__)
 /**
- * @brief Parse a Linux sysfs CPU range string into a CPU count
+ * @brief Parse a Linux sysfs CPU range string into a CPU count.
  *
- * @param str CPU range specification (e.g. "0-3", "0,2,4", "0-1,4-7")
- * @return Number of CPUs described by the range, or -1 on parse error
+ * @param str CPU range, e.g. "0-3", "0,2,4" or "0-1,4-7".
+ * @return Number of CPUs described, or -1 on a parse error.
  *
- * Accepts single CPUs ("0"), inclusive ranges ("0-3" counts as four) and
- * comma-separated combinations ("0-3,8-11,15"); whitespace around the
- * numbers is tolerated. Returns -1 for a NULL or empty string, invalid
- * syntax, a negative number, a sign prefix on either number, a reversed
- * range (end < start), or a total that would overflow int; a whitespace-only
- * string is rejected as invalid syntax.
+ * Accepts single CPUs, inclusive ranges and comma-separated combinations,
+ * with whitespace around numbers. Rejects NULL, empty, signed, reversed or
+ * overflowing input.
  */
 int parse_cpu_range(const char *str);
 #endif
@@ -69,4 +62,4 @@ int parse_cpu_range(const char *str);
 }
 #endif
 
-#endif /* CPULIMIT_CPU_COUNT_H */
+#endif

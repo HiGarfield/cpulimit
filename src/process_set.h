@@ -35,251 +35,190 @@ extern "C" {
 
 /**
  * @struct process_set
- * @brief A monitored process and optionally its descendant tree
+ * @brief A monitored process and optionally its descendant tree.
  *
- * proc_table OWNS the process records and survives update cycles, so PID-reuse
- * detection and the CPU-usage EMA retain each PID's previous sample.
- * proc_list is a NON-OWNING per-cycle snapshot rebuilt every cycle for
- * iteration and signal delivery.
+ * proc_table owns the records across update cycles; proc_list is a
+ * non-owning snapshot rebuilt each cycle.
  */
 struct process_set {
     /**
-     * @brief Owning PID->record hashtable (O(1) lookup).
-     *
-     * Allocates records on discovery and frees them when a PID leaves the
-     * group; survives update cycles so PID-reuse detection and EMA keep the
-     * previous cpu_time sample.
+     * @brief Owning PID-to-record hash table, kept across update cycles.
      */
     struct process_table *proc_table;
 
     /**
-     * @brief Non-owning list of processes active in the current cycle.
-     *
-     * Holds borrowed pointers into proc_table and is rebuilt from scratch by
-     * update_process_set(); used for iteration and SIGSTOP/SIGCONT delivery.
+     * @brief Non-owning list of members active in the current cycle.
      */
     struct list *proc_list;
 
     /**
-     * @brief PIDs this group suspended with SIGSTOP and has not resumed yet.
-     *
-     * Each element is a heap-allocated {pid, start_time} record owned by the
-     * list. It outlives a cycle because proc_list is rebuilt and a suspended
-     * process that leaves the group would otherwise never get its SIGCONT;
-     * start_time guards against resuming a recycled PID.
+     * @brief Heap-allocated records (PID, start time, warning flag) for PIDs
+     *        this group suspended and has not resumed.
      */
     struct list *stopped_pids;
 
     /**
-     * @brief PID of the primary target process (root of the monitored tree).
+     * @brief PID of the primary target.
      */
     pid_t target_pid;
 
     /**
-     * @brief Start time target_pid had when the group was created, or
-     *        UNKNOWN_START_TIME if unavailable.
+     * @brief Start time of the primary target, or UNKNOWN_START_TIME.
      *
-     * Stored here (not in a proc_table record) because records of departed
-     * members are purged each cycle; this lets a recycled PID be rejected.
+     * Kept outside proc_table because records of departed members are purged.
      */
     double target_start_time;
 
     /**
-     * @brief Non-zero once a scan found target_pid held by a different
-     *        process than the one the group was built around.
-     *
-     * The scan that detects the replacement empties the group, and an empty
-     * group is on its own indistinguishable from a target that simply exited:
-     * both read as an empty proc_list, and a caller that treats that as
-     * success reports a run that ended up limiting nothing as a successful
-     * one. This flag carries the finding out of the scan so the caller can
-     * tell the two apart.
+     * @brief Non-zero when a scan found the target PID held by another process.
      */
     int target_replaced;
 
     /**
-     * @brief Non-zero to monitor target and descendants, zero for target only.
+     * @brief Non-zero to track descendants.
      */
     int include_children;
 
     /**
-     * @brief Timestamp of the most recent update, for CPU-usage dt.
+     * @brief Timestamp of the last update cycle, gating the sample interval.
      */
     struct timespec last_update;
 };
 
 /**
- * @brief Compare two process start times for approximate equality
+ * @brief Compare two process start times for approximate equality.
  *
- * @param a First start time, or UNKNOWN_START_TIME
- * @param b Second start time, or UNKNOWN_START_TIME
- * @return 1 if the values are approximately equal, 0 otherwise
+ * @param a First start time, or UNKNOWN_START_TIME.
+ * @param b Second start time, or UNKNOWN_START_TIME.
+ * @return 1 when the readings are approximately equal, 0 otherwise.
  *
- * The single definition of "still the same process" that the PID-reuse checks
- * in process_set.c and the closing-resume check in limiter.c share. Callers
- * must test for UNKNOWN_START_TIME themselves: this only says whether two
- * readings are the same value, not whether either is usable.
+ * @note Shared by PID-reuse checks so both use one definition of "same
+ *       process". Callers must handle UNKNOWN_START_TIME themselves.
  */
 int start_time_matches(double a, double b);
 
 /**
- * @brief Initialize a process set for monitoring and CPU limiting
+ * @brief Initialize a process set for monitoring.
  *
- * @param proc_set Pointer to uninitialized process_set structure to set up
- * @param target_pid PID of the primary process to monitor
- * @param include_children Non-zero to monitor descendants, zero for target only
- * @return 0 on success, -1 on error; it never calls exit(), so the caller can
- *         resume the group and exit cleanly instead of stranding a stopped
- *         process
+ * @param proc_set Set to initialize.
+ * @param target_pid PID of the primary target.
+ * @param include_children Non-zero to track descendants.
+ * @return 0 on success, -1 on error; never calls exit().
  *
- * @note Returns -1 immediately if proc_set is NULL, and releases partially
- *       allocated resources on any later failure
+ * @note A NULL proc_set fails immediately; a later failure releases what
+ *       has already been allocated.
  */
 int init_process_set(struct process_set *proc_set, pid_t target_pid,
                      int include_children);
 
 /**
- * @brief Release all resources associated with a process set
+ * @brief Release every resource owned by a process set.
  *
- * @param proc_set Pointer to the process_set structure to clean up
- * @return 0 on success (always succeeds)
+ * @param proc_set Set to clean up.
+ * @return 0, always.
  *
- * @note Safe to call with NULL proc_set or a partially initialized one
+ * @note Safe to call with NULL or a partially initialized set.
  */
 int close_process_set(struct process_set *proc_set);
 
 /**
  * @def RECORD_STOPPED_RESUMED
- * @brief record_stopped_pid() result: no record was made and the member was
- *        resumed, so it is not suspended by this group
+ * @brief record_stopped_pid(): the suspension was undone.
  */
 #define RECORD_STOPPED_RESUMED (-1)
 
 /**
  * @def RECORD_STOPPED_STILL_STOPPED
- * @brief record_stopped_pid() result: no record was made and the member
- *        could not be resumed either, so it may still be stopped
+ * @brief record_stopped_pid(): neither a record nor an undo was possible.
  */
 #define RECORD_STOPPED_STILL_STOPPED (-2)
 
 /**
- * @brief Record that a member was just suspended with SIGSTOP
+ * @brief Record a member that was just suspended with SIGSTOP.
  *
- * @param proc_set Pointer to the process set structure
- * @param pid PID that was successfully sent SIGSTOP
- * @param start_time Start time of pid at suspension, from
- *        get_process_start_time(); pass UNKNOWN_START_TIME when the platform
- *        cannot report one, which disables the recycle check for this PID
+ * @param proc_set Set owning the record.
+ * @param pid PID that was suspended.
+ * @param start_time Start time at suspension, or UNKNOWN_START_TIME.
  * @return 0 when recorded, RECORD_STOPPED_RESUMED when the suspension was
- *         undone instead, RECORD_STOPPED_STILL_STOPPED when it could neither
- *         be recorded nor undone; only the middle one leaves the member
- *         running, so the caller treats the other two as suspended by this
- *         group
+ *         undone, RECORD_STOPPED_STILL_STOPPED when neither was possible.
  *
- * @note With a NULL proc_set or an unallocated suspended-PID list there is
- *       nowhere to keep a record, so the suspension is undone at once and
- *       the result is the same as for any other unrecordable suspension
+ * @note With no suspended-PID list the suspension is undone at once.
  */
 int record_stopped_pid(struct process_set *proc_set, pid_t pid,
                        double start_time);
 
 /**
- * @brief Resume every recorded PID that has left the group and drop the
- *        records whose resume succeeded
+ * @brief Resume recorded PIDs that have left the group.
  *
- * @param proc_set Pointer to the process set structure
- * @param verbose Non-zero to name each PID that could not be resumed; without
- *                it the count alone is reported, by the caller that turns it
- *                into the run's verdict
- * @return Number of recorded PIDs that could not be resumed for a reason other
- *         than ESRCH (they may have been left stopped and the shutdown report
- *         must treat them like a failed resume of a current member)
+ * @param proc_set Set owning the records.
+ * @param verbose Non-zero to name each PID that could not be resumed.
+ * @return Number of PIDs that may still be stopped, ignoring ESRCH.
  *
- * @note This is the deferred-resume half of process_set_send_signal(SIGCONT).
- *       Members still present in proc_list are resumed by that function's
- *       subsequent round over the list, not here, so they are not signalled
- *       twice; their records are removed either way. A caller that uses this
- *       function on its own must resume current members itself.
- * @note A PID whose SIGCONT could not be delivered keeps its record, so a
- *       later round retries it and the shutdown round can still count it.
- *       The WORK PHASE also calls this and discards the count, so dropping
- *       those records would lose the suspension entirely.
- * @note A record for PID 1 (init) is dropped without a signal: no signal
- *       may reach init on any platform, in any mode.
- * @note Safe to call with NULL proc_set or an unallocated suspended-PID list;
- *       the call is then a no-op returning 0
+ * @note Current members are resumed by process_set_send_signal(SIGCONT).
+ *       A failed delivery keeps its record for a later retry. PID 1 records
+ *       are dropped without a signal. Safe on NULL or unallocated state.
  */
 int resume_stopped_pids(struct process_set *proc_set, int verbose);
 
 /**
- * @brief Drop a PID from the suspension record without resuming it
+ * @brief Drop a suspension record without resuming the PID.
  *
- * @param proc_set Pointer to the process set structure
- * @param pid PID to forget
+ * @param proc_set Set owning the record.
+ * @param pid PID to forget.
  *
- * Called when a signal to the process failed, so it can no longer be
- * controlled and there is no suspension left to undo. Resuming it later would
- * be unsafe: the PID may have been recycled and the resume would reach an
- * unrelated process.
+ * @note Used after a failed signal: the PID may have been recycled, so a
+ *       later resume could reach an unrelated process.
  */
 void forget_stopped_pid(struct process_set *proc_set, pid_t pid);
 
 /**
- * @brief Refresh process set state and recalculate CPU usage
+ * @brief Refresh the process set and recalculate CPU usage.
  *
- * @param proc_set Pointer to the process_set structure to update
- * @return 0 on success, -1 on a critical error (iterator, clock or
- *         allocation); the caller must then break its limiting loop rather
- *         than exit, so cleanup can resume whatever is stopped
+ * @param proc_set Set to update.
+ * @return 0 on success, -1 on an iterator, clock or allocation error; the
+ *         caller must then break its loop so cleanup can resume the group.
  *
- * @note Safe to call with NULL proc_set (returns 0 immediately)
+ * @note A NULL proc_set returns 0 immediately.
  */
 int update_process_set(struct process_set *proc_set);
 
 /**
- * @brief Aggregate CPU usage across all processes in the group
+ * @brief Aggregate CPU usage across the group.
  *
- * @param proc_set Pointer to the process_set structure to query
- * @return Sum of cpu_usage for members with a known measurement, or -1.0 if
- *         none are known yet or proc_set is NULL
+ * @param proc_set Set to query.
+ * @return Sum of known cpu_usage values, or -1.0 when none is known.
  *
- * @note Returns -1 rather than 0 to distinguish "no usage" from "unknown"
+ * @note -1 distinguishes "unknown" from "no usage".
  */
 double get_process_set_cpu_usage(const struct process_set *proc_set);
 
 /**
- * @brief Check whether the process set currently has no active members
+ * @brief Check whether the set has no active members.
  *
- * @param proc_set Pointer to the process_set structure to query
- * @return Non-zero if proc_list is empty or proc_set is NULL
+ * @param proc_set Set to query.
+ * @return Non-zero when proc_list is empty or proc_set is NULL.
  */
 int process_set_is_empty(const struct process_set *proc_set);
 
 /**
- * @brief Return the number of active members in the process set
+ * @brief Return the number of active members.
  *
- * @param proc_set Pointer to the process_set structure to query
- * @return Number of nodes in proc_list, or 0 if proc_set is NULL
+ * @param proc_set Set to query.
+ * @return Number of nodes in proc_list, or 0 when proc_set is NULL.
  */
 size_t process_set_member_count(const struct process_set *proc_set);
 
 /**
- * @brief Send a signal to every active member of the process set
+ * @brief Send a signal to every active member.
  *
- * @param proc_set Pointer to the process set structure
- * @param sig Signal number to send (e.g., SIGSTOP, SIGCONT)
- * @param verbose Non-zero to report a delivery that failed; the per-member
- *                stop_warned/cont_warned/resume_warned flags keep each report
- *                to one line per episode. Without it nothing is printed, but
- *                the count below still carries the outcome, so a silent run
- *                reports a stranded member through the shutdown summary
- * @return Number of deliveries that failed and may have left a member
- * suspended. A failed SIGCONT for a member this group never suspended is benign
- * and does not count; an ESRCH (process gone) never counts.
+ * @param proc_set Set to signal.
+ * @param sig Signal number, e.g. SIGSTOP or SIGCONT.
+ * @param verbose Non-zero to report a failed delivery, once per episode.
+ * @return Number of failures that may have left a member stopped; ESRCH and
+ *         a benign SIGCONT failure do not count.
  *
- * @note PID 1 (init) members are skipped, so the enforcement path sends
- *       no signal to init even when a set was built outside the scan.
- * @note Safe iteration: stores the next node before a potential deletion
+ * @note PID 1 is skipped. Iteration records the next node before any
+ *       deletion.
  */
 int process_set_send_signal(struct process_set *proc_set, int sig, int verbose);
 
@@ -287,4 +226,4 @@ int process_set_send_signal(struct process_set *proc_set, int sig, int verbose);
 }
 #endif
 
-#endif /* CPULIMIT_PROCESS_SET_H */
+#endif

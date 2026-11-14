@@ -33,12 +33,11 @@
 #include <string.h>
 
 /**
- * @brief Initialize an empty doubly linked list
+ * @brief Initialize an empty doubly linked list.
  *
- * @param lst Pointer to the list structure to initialize
+ * @param lst List to initialize.
  *
- * Sets first and last pointers to NULL and count to 0, preparing the list
- * for use. Safe to call with NULL pointer (does nothing).
+ * @note A NULL lst is a no-op.
  */
 void init_list(struct list *lst) {
     if (lst == NULL) {
@@ -48,20 +47,14 @@ void init_list(struct list *lst) {
 }
 
 /**
- * @brief Append an element to the end of the list
+ * @brief Append an element to the end of the list.
  *
- * @param lst Pointer to the list
- * @param elem Pointer to the data element to add
- * @return Pointer to the newly created node, or NULL if lst is NULL or
- *         memory allocation for the new node fails
+ * @param lst List to append to.
+ * @param elem Data pointer to store.
+ * @return The new node, or NULL for a NULL lst or an allocation failure.
  *
- * Creates a new node containing the data pointer and appends it to the end
- * of the list in O(1) time. The list stores only the pointer; ownership of
- * the data remains with the caller.
- *
- * @note Returning NULL instead of terminating lets an out-of-memory condition
- *       in the limiting loop be turned into a clean SIGCONT to the group
- *       rather than an abrupt exit that strands a stopped process.
+ * @note The list borrows elem; ownership stays with the caller. Returning
+ *       NULL lets the caller resume a stopped group instead of exiting.
  */
 struct list_node *add_list_elem(struct list *lst, void *elem) {
     struct list_node *new_node;
@@ -87,16 +80,12 @@ struct list_node *add_list_elem(struct list *lst, void *elem) {
 }
 
 /**
- * @brief Remove a node from the list without freeing its data
+ * @brief Remove a node without freeing its data.
  *
- * @param lst Pointer to the list
- * @param node Pointer to the node to remove
+ * @param lst List to modify.
+ * @param node Node to unlink and free.
  *
- * Unlinks the node from the list and frees the node structure itself, but
- * does not free the data pointer. Use this when the data is managed
- * externally or when multiple references to the data exist.
- *
- * @note Safe to call with NULL list or node (does nothing)
+ * @note A NULL lst or node is a no-op.
  */
 void delete_list_node(struct list *lst, struct list_node *node) {
     if (lst == NULL || node == NULL || lst->count == 0) {
@@ -120,16 +109,13 @@ void delete_list_node(struct list *lst, struct list_node *node) {
 }
 
 /**
- * @brief Remove a node from the list and free its data
+ * @brief Remove a node and free its data.
  *
- * @param lst Pointer to the list
- * @param node Pointer to the node to remove
+ * @param lst List to modify.
+ * @param node Node to unlink and free.
  *
- * Unlinks the node from the list, frees the data pointer using free(),
- * then frees the node structure. Use this only when the data was allocated
- * with malloc() and has no other references.
- *
- * @note Safe to call with NULL list or node; does nothing when either is NULL
+ * @note Only safe when the data was allocated with malloc() and is not
+ *       referenced elsewhere. A NULL lst or node is a no-op.
  */
 void destroy_list_node(struct list *lst, struct list_node *node) {
     if (lst == NULL || node == NULL) {
@@ -140,40 +126,31 @@ void destroy_list_node(struct list *lst, struct list_node *node) {
 }
 
 /**
- * @brief Check if the list is empty
+ * @brief Check whether the list has no elements.
  *
- * @param lst Pointer to the list
- * @return 1 if the list is empty or NULL, 0 otherwise
- *
- * Provides O(1) emptiness check by examining the count field.
+ * @param lst List to query.
+ * @return 1 when empty or NULL, 0 otherwise.
  */
 int is_empty_list(const struct list *lst) {
     return lst == NULL || lst->count == 0;
 }
 
 /**
- * @brief Get the first node in the list
+ * @brief Get the first node of the list.
  *
- * @param lst Pointer to the list
- * @return Pointer to the first node, or NULL if list is empty or NULL
- *
- * Provides O(1) access to the list head. Use for starting forward iteration.
+ * @param lst List to query.
+ * @return The first node, or NULL when empty or NULL.
  */
 struct list_node *first_list_node(const struct list *lst) {
     return lst != NULL ? lst->first : NULL;
 }
 
 /**
- * @brief Search for a process in the list by its PID
+ * @brief Find a process in the list by PID.
  *
- * @param lst Pointer to the list to search
- * @param pid Process ID to search for
- * @return Pointer to the matching process structure, or NULL if not found
- *
- * Performs linear search comparing the pid field of each node's data.
- * The list is expected to contain struct process pointers.
- *
- * @note Returns NULL if list is NULL
+ * @param lst List of struct process pointers.
+ * @param pid PID to find.
+ * @return The matching process, or NULL when absent or lst is NULL.
  */
 struct process *find_process_in_list_by_pid(const struct list *lst, pid_t pid) {
     struct list_node *current_node;
@@ -196,16 +173,11 @@ struct process *find_process_in_list_by_pid(const struct list *lst, pid_t pid) {
 }
 
 /**
- * @brief Remove all nodes from the list without freeing node data
+ * @brief Remove all nodes without freeing their data.
  *
- * @param lst Pointer to the list to clear
+ * @param lst List to clear.
  *
- * Frees all node structures but leaves the data pointers intact. Use this
- * when the data is managed externally or when you need to preserve the data
- * while resetting the list. After clearing, the list is empty but can be
- * reused.
- *
- * @note Safe to call with NULL list (does nothing)
+ * @note Ownership of the data stays with the caller. A NULL lst is a no-op.
  */
 void clear_list(struct list *lst) {
     struct list_node *current_node, *next_node;
@@ -221,15 +193,12 @@ void clear_list(struct list *lst) {
 }
 
 /**
- * @brief Remove all nodes from the list and free their data
+ * @brief Remove all nodes and free their data.
  *
- * @param lst Pointer to the list to destroy
+ * @param lst List to destroy.
  *
- * Frees all node structures and their associated data pointers using free().
- * Use this only when all data was allocated with malloc() and has no other
- * references. After destruction, the list is empty but can be reused.
- *
- * @note Safe to call with NULL list (does nothing)
+ * @note Only safe when every data pointer came from malloc() and has no
+ *       other owner. A NULL lst is a no-op.
  */
 void destroy_list(struct list *lst) {
     struct list_node *current_node, *next_node;

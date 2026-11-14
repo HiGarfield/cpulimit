@@ -34,76 +34,29 @@
 #include <unistd.h>
 
 /**
- * @brief Send a signal to the command, falling back to its own PID
+ * @brief Send a signal to the command, falling back to its own PID.
  *
- * @param child_pid PID of the command; also the ID of the process group
- *                  created for it
- * @param sig Signal number to send
- * @param verbose Non-zero to report a delivery that failed; without it the
- *                failure is silent, because nothing here ends the run
+ * @param child_pid PID of the command and of the group created for it.
+ * @param sig Signal number to send.
+ * @param verbose Non-zero to report a failed delivery.
  *
- * The negative-PID form is tried first so that descendants the limiter
- * cannot wait for are reached as well. It is not a reliable way to reach
- * the command itself, however:
- * - ESRCH once the command has moved itself into another process group.
- * - EPERM on macOS when no member of the group can be signalled, which a
- *   zombie still awaiting reap is enough to cause.
- *
- * Neither says anything about the command, which is this process's own
- * child and stays reachable by PID. Dropping the signal instead leaves a
- * suspended command suspended: it never resumes to take the forwarded
- * quit signal, so the only thing left to the caller is the SIGKILL
- * escalation, which reports the command as killed (128 + SIGKILL) rather
- * than as having exited on its own.
+ * The group form is tried first so descendants are reached too; a failed
+ * group delivery falls back to the child PID, which stays reachable even
+ * when the command has left the group or a zombie blocks the group signal.
+ * Non-positive PIDs and PID 1 are ignored.
  */
 void signal_command(pid_t child_pid, int sig, int verbose) {
-    /*
-     * Only a real PID may be signalled here. kill() reads 0 as this
-     * process's own group and a negative one as some other group, so a
-     * PID that is not positive would land on the limiter itself or on
-     * processes this run never started. PID 1 (init) must never be
-     * signalled either: for it the group form below is kill(-1, sig),
-     * which would broadcast to every process on the system. Nothing to
-     * forward to means nothing to send.
-     */
+    /* Only a positive PID other than 1 is safe to signal. */
     if (child_pid <= 1) {
         return;
     }
-    /*
-     * The negative-PID form signals the whole process group, which is only
-     * ours while child_pid is still the group leader. exec_child_process()
-     * creates that group, but the program it execs is free to move itself
-     * to another one, and once the child exits the id can be handed to an
-     * unrelated group. Sending to -child_pid without looking first would
-     * then reach processes that were never part of this run, which matters
-     * most for the SIGKILL escalation.
-     *
-     * Verify leadership before using the group form; otherwise, and if the
-     * group form fails for any reason, address the process directly.
-     *
-     * The verification and the kill are two syscalls, so a window remains:
-     * the child can exit and the id can be handed to a new group in between,
-     * and the group form would then reach processes that were never part of
-     * this run. It cannot be closed portably -- POSIX offers no "signal this
-     * group if and only if it is still led by my child" -- so it is recorded
-     * here rather than papered over. What is left is microseconds, and only
-     * the SIGKILL escalation is dangerous if it does land elsewhere;
-     * collect_child_exit_status() issues that from the branch where
-     * waitpid(WNOHANG) has just reported the child still running, and the
-     * other call sites send SIGCONT, which a running process ignores.
-     * Narrowing it further would mean dropping the group form, which is what
-     * reaches descendants that the limiter cannot wait for.
-     */
+    /* Verify the child still leads its group before kill(-pid, ...). */
+    /* The check and the kill leave a race POSIX cannot close. */
     if (getpgid(child_pid) == child_pid && kill(-child_pid, sig) == 0) {
         return;
     }
     if (kill(child_pid, sig) != 0 && errno != ESRCH) {
         int err = errno;
-        /*
-         * A delivery that does not land is not fatal: the caller goes on to
-         * wait for the command or to escalate to SIGKILL, so the line is
-         * only of interest to a run that asked to be narrated.
-         */
         if (verbose) {
             fprintf(stderr, "kill(%ld, %d) failed: %s\n", (long)child_pid, sig,
                     strerror(err));
@@ -112,25 +65,13 @@ void signal_command(pid_t child_pid, int sig, int verbose) {
 }
 
 /**
- * @brief Forward the received quit signal to the child process group
+ * @brief Forward the received quit signal to the child process group.
  *
- * @param child_pid PID of the command; also the ID of its process group
- * @param verbose Non-zero to report a delivery that failed; without it the
- *                failure is silent, because a forwarded signal that does not
- *                land is not what ends the run
+ * @param child_pid PID of the command and of its process group.
+ * @param verbose Non-zero to report a failed delivery.
  *
- * The exact signal that caused cpulimit to quit is forwarded so the
- * command exits with the status a shell would report (128 + signal
- * number). Two special cases:
- * - get_quit_signal() == 0: theoretically unreachable once the quit
- *   flag is set, because a signal must have been recorded to set it;
- *   guarded defensively.
- * - SIGPIPE: an internal broken-pipe signal relevant only to the
- *   writing process; forwarding it could terminate children that write
- *   to unrelated pipes.
- * Both are mapped to SIGTERM so the child group is asked to exit
- * gracefully. The process group is targeted first, the command itself
- * as a fallback; see signal_command().
+ * The recorded signal is forwarded so the command exits with 128 + signal.
+ * A zero recorded signal and SIGPIPE are mapped to SIGTERM instead.
  */
 void forward_quit_signal(pid_t child_pid, int verbose) {
     int fwd_sig;

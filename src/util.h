@@ -36,61 +36,56 @@ extern "C" {
 #ifndef MAX
 /**
  * @def MAX(a, b)
- * @brief Evaluate to the maximum of two values
+ * @brief Evaluate to the greater of two values.
  *
- * @param a First value to compare
- * @param b Second value to compare
- * @return The greater of a and b
+ * @param a First value.
+ * @param b Second value.
+ * @return The greater value.
  *
- * @note Each argument is evaluated multiple times; avoid side effects
+ * @note Each argument is evaluated more than once.
  */
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif /* MAX */
+#endif
 
 #ifndef MIN
 /**
  * @def MIN(a, b)
- * @brief Evaluate to the minimum of two values
+ * @brief Evaluate to the lesser of two values.
  *
- * @param a First value to compare
- * @param b Second value to compare
- * @return The lesser of a and b
+ * @param a First value.
+ * @param b Second value.
+ * @return The lesser value.
  *
- * @note Each argument is evaluated multiple times; avoid side effects
+ * @note Each argument is evaluated more than once.
  */
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif /* MIN */
+#endif
 
 #ifndef CLAMP
 /**
  * @def CLAMP(x, low, high)
- * @brief Constrain a value to a specified range
+ * @brief Constrain a value to an inclusive range.
  *
- * @param x Value to constrain
- * @param low Minimum allowed value (inclusive)
- * @param high Maximum allowed value (inclusive)
- * @return low if x < low, high if x > high, otherwise x
+ * @param x Value to constrain.
+ * @param low Lower bound.
+ * @param high Upper bound.
+ * @return low, high or x as appropriate.
  *
- * @note Each argument is evaluated multiple times; avoid side effects
+ * @note Each argument is evaluated more than once.
  */
 #define CLAMP(x, low, high)                                                    \
     ((x) < (low) ? (low) : ((x) > (high) ? (high) : (x)))
-#endif /* CLAMP */
+#endif
 
 /**
- * @brief Raise the scheduling priority of the current process
+ * @brief Raise the scheduling priority of the current process.
  *
- * Best-effort real-time promotion first (see try_become_realtime()); then the
- * nice ladder is climbed one level at a time from the current priority down to
- * PRIO_MIN, retrying levels denied by permissions (EPERM/EACCES, e.g.
- * RLIMIT_NICE) and stopping only on a non-permission error.
+ * Tries a real-time policy first, then lowers the nice value one step at a
+ * time, retrying levels denied by EPERM or EACCES. Best effort throughout.
  */
 void increase_priority(void);
 
-/*
- * On uClibc/uClibc-ng versions below 1.0.42, getloadavg() is not available.
- * Provide a custom implementation using sysinfo() for these systems.
- */
+/* uClibc/uClibc-ng before 1.0.42 lacks getloadavg(); use sysinfo() there. */
 #if defined(__linux__) && defined(__UCLIBC__) && defined(__UCLIBC_MAJOR__) &&  \
     defined(__UCLIBC_MINOR__) && defined(__UCLIBC_SUBLEVEL__) &&               \
     ((__UCLIBC_MAJOR__ < 1) ||                                                 \
@@ -100,29 +95,23 @@ void increase_priority(void);
 #endif
 
 /**
- * @brief Get system load averages
+ * @brief Get system load averages.
  *
- * @param loadavg Array to receive load average values
- * @param nelem Number of load averages to retrieve (1-3: 1min, 5min, 15min)
- * @return Number of samples retrieved (nelem capped at 3), or -1 on a
- *         negative count or a system error; a count of 0 returns 0
+ * @param loadavg Array receiving the samples.
+ * @param nelem Number of samples requested (1-3: 1, 5 and 15 minutes).
+ * @return Number of samples written, capped at 3; 0 for nelem 0; -1 for a
+ *         negative count or a system error.
  *
- * Wraps the BSD/GNU getloadavg(). On uClibc/uClibc-ng versions < 1.0.42,
- * which lack it, the values come from sysinfo() instead. The project owns
- * the name so that no macro shadows a libc symbol. Both paths reject a
- * negative count and clamp a larger one to three, so a caller never sees
- * a count larger than the number of samples actually written.
+ * Wraps getloadavg(), or derives the values from sysinfo() on uClibc
+ * versions that lack it. Both paths validate nelem before writing.
  */
 int cpulimit_getloadavg(double *loadavg, int nelem);
 
 /**
- * @brief Safely convert long to pid_t with overflow detection
+ * @brief Convert a long to pid_t with overflow detection.
  *
- * @param long_pid Long value to convert to pid_t
- * @return The pid_t value on success, or -1 if long_pid < 0 or overflow occurs
- *
- * @note The cast is implementation-defined when out of pid_t range, but the
- *       round-trip check detects overflow on Linux, macOS and FreeBSD.
+ * @param long_pid Value to convert.
+ * @return The converted PID, or -1 for a negative value or overflow.
  */
 pid_t long_to_pid_t(long long_pid);
 
@@ -130,4 +119,4 @@ pid_t long_to_pid_t(long long_pid);
 }
 #endif
 
-#endif /* CPULIMIT_UTIL_H */
+#endif

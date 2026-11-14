@@ -32,32 +32,24 @@
 #include <unistd.h>
 
 /**
- * @brief Wait for the child process to complete exec setup
+ * @brief Wait for the child to finish its exec setup.
  *
- * @param child_pid PID of the forked child process
- * @param sync_read_fd Read end of the synchronization pipe
+ * @param child_pid PID of the forked child.
+ * @param sync_read_fd Read end of the exec synchronization pipe.
+ * @return 0 on success, -1 on error (the child is killed and reaped).
  *
- * Reads the readiness byte written by the child after setpgid() and signal
- * handler reset, then blocks until the pipe EOF that proves exec completed (or
- * the child exited on exec failure). Closes sync_read_fd on return.
+ * Reads the readiness byte written after setpgid() and handler reset, then
+ * drains the pipe to EOF: FD_CLOEXEC closes the write end on a successful
+ * exec, and _exit() closes it on failure. Closes sync_read_fd on return.
  *
- * The reads are not interruptible: the handlers run with SA_RESTART, so a
- * termination signal arriving while the child is still inside exec setup
- * restarts the read instead of ending this wait. That is deliberate -- the
- * alternative lets a signal reach the child mid-exec and kill it half-formed
- * -- but it does mean an exec that hangs (a script on a hung network mount,
- * say) hangs cpulimit with it, and only SIGKILL gets past this wait.
- *
- * @return 0 on success, -1 on error (the child is killed and reaped)
+ * @note The reads run with SA_RESTART, so a termination signal received
+ *       during exec setup does not end this wait.
  */
 int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
     char sync_byte;
     ssize_t n_read;
 
-    /*
-     * Block until child signals readiness by writing to pipe.
-     * This ensures child has completed setpgid() before parent continues.
-     */
+    /* Wait for the readiness byte written after setpgid() and handler reset. */
     do {
         n_read = read(sync_read_fd, &sync_byte, 1);
     } while (n_read < 0 && errno == EINTR);
@@ -71,20 +63,9 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
             fprintf(stderr, "Unexpected synchronization value from child\n");
         }
         close(sync_read_fd);
-        /*
-         * Kill child to prevent it from becoming an orphan, then reap
-         * it to prevent zombie. SIGKILL is used because the child may
-         * have failed in an unknown state and cannot be trusted to
-         * respond to SIGTERM. SIGKILL cannot be caught or ignored, so
-         * the subsequent blocking waitpid() will complete quickly.
-         */
+        /* Kill and reap the child so it is neither orphaned nor a zombie. */
         kill(child_pid, SIGKILL);
-        /*
-         * Robustly reap the child: retry waitpid() on EINTR so that
-         * a signal delivered to the parent during the wait does not
-         * leave the child as a zombie. For any other error, log it and
-         * proceed with the fatal exit.
-         */
+        /* Retry waitpid() on EINTR so the child is always reaped. */
         do {
             wait_result = waitpid(child_pid, NULL, 0);
         } while (wait_result == -1 && errno == EINTR);
@@ -93,21 +74,8 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
         }
         return -1;
     }
-    /*
-     * Drain the sync pipe until EOF, the only event that proves the child has
-     * closed its write end: a successful exec closes it through FD_CLOEXEC,
-     * and an exec failure closes it explicitly before _exit().
-     *
-     * Stopping after one byte would be unsafe. If the caller has closed fds
-     * 1 and 2, pipe() hands those numbers to the sync pipe, so the child's
-     * stderr aliases the write end; the writes perror() makes on the
-     * exec-failure path would then hit a pipe whose read end is already
-     * closed, raising SIGPIPE and killing the child with 141 instead of
-     * letting it report 127. Draining to EOF keeps the read end open for
-     * every write, and also removes the race where a signal arrives while the
-     * child is still inside exec setup -- which matters under tools such as
-     * valgrind that intercept execve.
-     */
+    /* Drain to EOF: an early close can raise SIGPIPE in the child. */
+    /* stderr may alias the write end when fds 1 and 2 were closed. */
     do {
         n_read = read(sync_read_fd, &sync_byte, 1);
     } while (n_read > 0 || (n_read < 0 && errno == EINTR));

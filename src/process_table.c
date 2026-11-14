@@ -33,29 +33,14 @@
 #include <string.h>
 
 /**
- * @brief Initialize a process table with specified hash size
+ * @brief Initialize a process hash table.
  *
- * @param proc_table Pointer to the process table structure to initialize
- * @param hash_size Number of buckets to allocate in the hash table
- * @return 0 on success, -1 on failure (proc_table is NULL, hash_size too
- *         large for the bucket array to be representable, or memory
- *         allocation failed); never calls exit()
+ * @param proc_table Table to initialize.
+ * @param hash_size Number of buckets.
+ * @return 0 on success, -1 on a NULL table, an overflowing bucket array or
+ *         an allocation failure; never calls exit().
  *
- * A hash_size whose bucket array size would overflow size_t is rejected
- * before calloc() is called at all: the product must never reach the
- * allocator, where it is undefined and aborts under AddressSanitizer
- * instead of returning NULL.
- *
- * @note On success the caller must call destroy_process_table() to free
- *       resources; after a -1 return there is nothing to destroy (buckets
- *       is NULL), and the caller owns the process_table structure itself
- *
- * @note This one reports its own failures: it is only ever called by
- *       init_process_set(), for which the group cannot be built and the run
- *       ends, so the line it prints is the run's diagnosis and no caller is
- *       left to decide. add_to_process_table() fails inside a scan that a
- *       watching run repeats, but it still reports the allocation that failed:
- *       out of memory is worth naming wherever it happens.
+ * @note The caller owns proc_table and must destroy it after success.
  */
 int init_process_table(struct process_table *proc_table, size_t hash_size) {
     size_t size_max = 0;
@@ -64,31 +49,16 @@ int init_process_table(struct process_table *proc_table, size_t hash_size) {
     }
     memset(proc_table, 0, sizeof(*proc_table));
     if (hash_size == 0) {
-        /*
-         * Avoid zero-sized tables because pid_hash() uses modulo hash_size.
-         * A single bucket still provides valid behavior for callers that
-         * accidentally request size 0.
-         */
+        /* A zero-sized table would make the modulo in pid_hash() invalid. */
         hash_size = 1;
     }
-    /*
-     * Reject overflowing bucket arrays up front. calloc(nmemb, size)
-     * multiplies internally, and an overflowing product is undefined for
-     * the standard library: ASan aborts the process and some hardened
-     * allocators do the same, so the "return -1, never die" contract this
-     * function promises would hold only on plain malloc.
-     *
-     * size_max is the largest size_t via unsigned wraparound, the form the
-     * rest of the project uses; (size_t)-1 would rely on C89 6.3.1.3's
-     * implementation-defined signed-to-unsigned conversion.
-     */
+    /* Reject an overflowing bucket array before calloc() sees it. */
     size_max--;
     if (hash_size > size_max / sizeof(struct list *)) {
         fprintf(stderr, "Memory allocation failed for the process table\n");
         return -1;
     }
     proc_table->hash_size = hash_size;
-    /* Allocate bucket array; calloc initializes all pointers to NULL */
     proc_table->buckets =
         (struct list **)calloc(proc_table->hash_size, sizeof(struct list *));
     if (proc_table->buckets == NULL) {
@@ -99,33 +69,22 @@ int init_process_table(struct process_table *proc_table, size_t hash_size) {
 }
 
 /**
- * @brief Compute hash bucket index for a given PID
+ * @brief Compute the bucket index for a PID.
  *
- * @param proc_table Pointer to the process table
- * @param pid Process ID to hash
- * @return Bucket index in range [0, hash_size-1]
- *
- * Uses simple modulo hashing. The PID is cast to size_t to ensure
- * positive values before taking the modulo.
- *
- * @pre proc_table->hash_size must be > 0 (callers must guard against destroyed
- * tables)
+ * @param proc_table Table providing the bucket count.
+ * @param pid PID to hash.
+ * @return Bucket index in [0, hash_size - 1].
  */
 static size_t pid_hash(const struct process_table *proc_table, pid_t pid) {
     return (size_t)pid % proc_table->hash_size;
 }
 
 /**
- * @brief Look up a process in the table by its PID
+ * @brief Look up a process by PID.
  *
- * @param proc_table Pointer to the process table to search
- * @param pid Process ID to search for
- * @return Pointer to the process structure if found, NULL otherwise
- *
- * Performs O(1) average-case lookup by hashing the PID to determine the
- * bucket, then searching the linked list in that bucket. Returns NULL if
- * the process table is NULL, the table has been destroyed (proc_table->buckets
- * is NULL), the bucket is empty, or the PID is not found.
+ * @param proc_table Table to search.
+ * @param pid PID to find.
+ * @return The stored process, or NULL when absent or the table is unusable.
  */
 
 struct process *find_in_process_table(const struct process_table *proc_table,
@@ -142,34 +101,15 @@ struct process *find_in_process_table(const struct process_table *proc_table,
 }
 
 /**
- * @brief Insert a process into the hash table
+ * @brief Insert a process into the hash table.
  *
- * @param proc_table Pointer to the process table
- * @param proc Pointer to the process structure to insert
- * @return 0 on success (including the no-op cases below), -1 on memory
- *         allocation failure (for a new bucket list or for the list node
- *         holding the record); never exits
+ * @param proc_table Table to modify.
+ * @param proc Process to insert.
+ * @return 0 on success or a no-op, -1 on an allocation failure.
  *
- * Adds the process to the appropriate bucket based on its PID hash.
- * If the bucket doesn't exist, creates a new linked list for it.
- *
- * An allocation failure is reported here, unconditionally: it is out of memory,
- * and no caller can scan again on a machine that has none to give.
- *
- * @note Ownership follows insertion, not the return value: the table takes
- *       over proc only when the record is actually added. On a duplicate
- *       PID, on a NULL or destroyed table, and on a -1 allocation failure
- *       the record is untouched and stays owned by the caller, which must
- *       free it. Treating a 0 return from one of those no-op paths as a
- *       hand-off would leak the record.
- * @note If a process with the same PID is already present in the table, the
- *       existing entry is left unchanged and the new process is not inserted
- *       (duplicate PIDs are ignored); the call still returns 0.
- * @note Safe to call when proc_table is NULL or the table has been destroyed
- *       (proc_table->buckets is NULL): the call is a no-op returning 0.
- * @note On memory allocation failure returns -1 instead of terminating the
- *       process, so the limiting loop can resume the group and clean up;
- *       the record is then still untouched and owned by the caller.
+ * @note Ownership passes to the table only when the record is inserted. A
+ *       duplicate PID, an unusable table or a -1 return leaves proc owned
+ *       by the caller, which must free it.
  */
 
 int add_to_process_table(struct process_table *proc_table,
@@ -191,14 +131,7 @@ int add_to_process_table(struct process_table *proc_table,
     if (find_process_in_list_by_pid(proc_table->buckets[bucket_idx],
                                     proc->pid) == NULL) {
         if (add_list_elem(proc_table->buckets[bucket_idx], proc) == NULL) {
-            /*
-             * The node for the record could not be allocated, so the
-             * record is in neither the bucket list nor (if the caller
-             * went on) proc_list -- breaking the "proc_list borrows
-             * table records" ownership contract and leaking it. Report
-             * the failure and leave the record to the caller, which
-             * frees it and aborts the scan cycle.
-             */
+            /* Leave the unlinked record to the caller, which frees it. */
             return -1;
         }
     }
@@ -206,17 +139,11 @@ int add_to_process_table(struct process_table *proc_table,
 }
 
 /**
- * @brief Remove a process from the hash table by PID
+ * @brief Remove a process and free its storage.
  *
- * @param proc_table Pointer to the process table
- * @param pid Process ID of the process to remove
- * @return 0 on successful deletion, 1 if process not found, table is NULL,
- *         or table has been destroyed
- *
- * Locates the process by PID, removes its node from the linked list, and
- * frees the node. If removing the last node from a bucket, also frees the
- * bucket's linked list structure. The process data itself is freed by this
- * operation.
+ * @param proc_table Table to modify.
+ * @param pid PID to remove.
+ * @return 0 when deleted, 1 when absent or the table is unusable.
  */
 int delete_from_process_table(struct process_table *proc_table, pid_t pid) {
     struct list_node *node;
@@ -247,20 +174,12 @@ int delete_from_process_table(struct process_table *proc_table, pid_t pid) {
 }
 
 /**
- * @brief Remove stale entries from the hash table
+ * @brief Drop table entries absent from the current active list.
  *
- * @param proc_table Pointer to the process table to clean up
- * @param active_list Pointer to the list of currently active processes
+ * @param proc_table Table to clean.
+ * @param active_list PIDs still present in this cycle.
  *
- * Iterates through all buckets in the hash table and removes any process
- * entries whose PIDs are not present in the active_list. Also removes any
- * NULL-data nodes encountered. This prevents unbounded growth of the hash
- * buckets when tracked processes terminate.
- * The process data for removed entries is freed.
- *
- * @note Safe to call with NULL pointer (does nothing)
- * @note Safe to call on a destroyed table (proc_table->buckets is NULL): does
- *       nothing
+ * @note A NULL or destroyed table is a no-op.
  */
 
 void remove_stale_from_process_table(struct process_table *proc_table,
@@ -295,15 +214,11 @@ void remove_stale_from_process_table(struct process_table *proc_table,
 }
 
 /**
- * @brief Destroy the hash table and free all associated memory
+ * @brief Free the table, its buckets and every stored process.
  *
- * @param proc_table Pointer to the process table to destroy
+ * @param proc_table Table to destroy.
  *
- * Iterates through all buckets, destroying each linked list and its
- * contents (including process data), then frees the bucket array itself.
- * After destruction, the buckets array pointer is set to NULL.
- *
- * @note Safe to call with NULL pointer (does nothing)
+ * @note A NULL table is a no-op. The bucket pointer is cleared.
  */
 void destroy_process_table(struct process_table *proc_table) {
     size_t bucket_idx;

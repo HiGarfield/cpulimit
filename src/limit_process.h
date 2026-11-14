@@ -34,95 +34,60 @@ extern "C" {
 
 /**
  * @def LIMIT_PROCESS_OK
- * @brief limit_process() completed: the target terminated or a quit signal
- *        was received, and every suspended process has been resumed
+ * @brief The run finished and every suspended member was resumed.
  */
 #define LIMIT_PROCESS_OK 0
 
 /**
  * @def LIMIT_PROCESS_ERROR
- * @brief limit_process() could not start: the process group was never built
- *
- * Allocation, clock or process-scan failure meant nothing was ever stopped,
- * so there is nothing a caller can repair. This is the only outcome that says
- * the limit was never applied.
+ * @brief The group could not be built, so nothing was ever suspended.
  */
 #define LIMIT_PROCESS_ERROR (-1)
 
 /**
  * @def LIMIT_PROCESS_SCAN_FAILED
- * @brief limit_process() stopped limiting because a per-cycle scan failed
+ * @brief Limiting stopped on a per-cycle scan failure; all are resumed.
  *
- * The group was built and limiting ran, but the control loop stopped and
- * resumed every member before returning, so nothing is stranded. Non-lazy
- * -p/-e callers may retry; command and lazy callers treat it as a final stop.
+ * @note A caller that re-resolves its target may retry; command and lazy
+ *       callers end the run.
  */
 #define LIMIT_PROCESS_SCAN_FAILED 1
 
 /**
  * @def LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED
- * @brief limit_process() stopped on a failed scan AND could not resume everyone
- *
- * The control loop stopped on a failed scan and at least one member is still
- * stopped, needing 'kill -CONT <pid>' by hand. The stranded PIDs are named on
- * stderr only by a run started with -v; the shutdown summary, which is what
- * names the remedy, is printed either way.
+ * @brief Limiting stopped on a scan failure and a member is still stopped.
  */
 #define LIMIT_PROCESS_SCAN_FAILED_AND_STRANDED 2
 
 /**
  * @def LIMIT_PROCESS_STRANDED
- * @brief limit_process() ran to its end but could not resume every member
- *
- * The limit was applied; what failed is the shutdown resume round, leaving at
- * least one member stopped. Those PIDs are named on stderr by a run started
- * with -v; its shutdown summary is printed either way, because this outcome
- * ends the run. Retrying cannot help: the member must be released by hand.
+ * @brief The run ended but at least one member could not be resumed.
  */
 #define LIMIT_PROCESS_STRANDED 3
 
 /**
  * @def LIMIT_PROCESS_NO_TARGET
- * @brief limit_process() found no limitable target for the PID it was given
+ * @brief The named PID was never limitable, so nothing was suspended.
  *
- * The group was built but stayed empty because the named PID was a zombie not
- * yet reaped, already gone, PID 1 (init), or cpulimit itself -- none of which
- * can be limited. This is distinct from LIMIT_PROCESS_OK: a run that actually
- * suspended a target which then exited had a non-empty group at least once, so
- * reporting it as a success would be a silent false success. Callers use it to
- * tell a target that was never present apart from a completed limit; command
- * mode ignores it and returns the command's own exit status, while -p/-e mode
- * reports failure.
+ * @note A zombie, a departed process, PID 1 or cpulimit itself leave the
+ *       group empty. This is not a completed limit.
  */
 #define LIMIT_PROCESS_NO_TARGET 4
 
 /**
- * @brief Enforce a CPU usage limit on a process or process set
+ * @brief Enforce a CPU usage limit on a process or process set.
  *
- * @param pid Process ID of the target process to limit
- * @param cpu_limit CPU limit in core equivalents, range (0, N_CPU]
- * @param include_children Non-zero to limit descendants too, zero for target
- * only
- * @param verbose Non-zero to print periodic statistics and the per-attempt
- *        diagnostics (a failed scan, a member that could not be resumed);
- *        without it the run stays silent about anything it recovers from and
- *        speaks only for an outcome that ends it
- * @param prior_scan_failures Consecutive scan failures the caller has already
- *        recorded, so the per-cycle diagnostic prints once per streak rather
- *        than per retry; it does not change the return value. That diagnostic
- *        is narration for -v: a scan failure ends only the attempt for a
- *        caller that re-resolves its target, so a silent run leaves it to the
- *        exit status and to whichever caller ends on it
- * @return One of the LIMIT_PROCESS_* codes: OK when finished with everything
- *         resumed; SCAN_FAILED (or _AND_STRANDED if not all resumed) on a
- *         failed scan; STRANDED when the run ended but a member could not be
- *         resumed; NO_TARGET when the named PID was never limitable (zombie,
- *         gone, PID 1, or self) so nothing was ever suspended; ERROR when the
- *         group could not be built. Every non-OK value means the target is no
- *         longer limited.
+ * @param pid PID of the target.
+ * @param cpu_limit Limit in core equivalents, in (0, N_CPU].
+ * @param include_children Non-zero to include descendants.
+ * @param verbose Non-zero to print statistics and per-attempt diagnostics.
+ * @param prior_scan_failures Consecutive scan failures already recorded, so
+ *        the scan diagnostic prints once per streak.
+ * @return One of the LIMIT_PROCESS_* codes; every non-OK value means the
+ *         target is no longer limited.
  *
- * @note Blocks until the target terminates or is_quit_flag_set() is true; every
- *       suspended process is resumed before returning.
+ * @note Blocks until the target terminates or is_quit_flag_set() is true,
+ *       and resumes suspended members before returning where possible.
  */
 int limit_process(pid_t pid, double cpu_limit, int include_children,
                   int verbose, unsigned int prior_scan_failures);
@@ -131,4 +96,4 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
 }
 #endif
 
-#endif /* CPULIMIT_LIMIT_PROCESS_H */
+#endif

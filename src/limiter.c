@@ -48,39 +48,28 @@
 #include <unistd.h>
 
 /**
- * @brief Execute and monitor a user-specified command with CPU limiting
+ * @brief Execute and monitor a command with CPU limiting.
  *
- * @param cfg Pointer to configuration with command and options
- * @return Exit status code; the caller is responsible for calling exit()
+ * @param cfg Configuration with the command and options.
+ * @return The process exit status.
  *
- * Forks a child into its own process group, applies the limit, and waits for
- * completion, sending SIGKILL after a termination-request timeout.
+ * Forks the child into its own process group, applies the limit and waits
+ * for completion, escalating to SIGKILL after a termination timeout.
  */
 int run_command_mode(const struct cpulimit_cfg *cfg) {
     pid_t child_pid;
     int sync_pipe[2];
     int fd_flags;
-    /* 1 when the quit flag is set and the signal must be forwarded */
     int forwarded_quit_signal;
     int limit_status = LIMIT_PROCESS_OK;
 
-    /*
-     * The write end is set FD_CLOEXEC so a successful execvp() in the child
-     * closes it and signals the parent; on exec failure the child closes it
-     * before _exit(). The parent's second read then blocks until exec is
-     * done, so it never signals the child mid-exec (matters under valgrind).
-     */
+    /* The parent's read waits for FD_CLOEXEC to close the write end. */
     if (pipe(sync_pipe) < 0) {
         perror("pipe");
         return EXIT_FAILURE;
     }
     fd_flags = fcntl(sync_pipe[1], F_GETFD);
-    /*
-     * Both operands go through unsigned int: the flags are a bit set, and
-     * OR-ing signed values is what bugprone-signed-bitwise reports. The
-     * result is narrowed back to the int fcntl() takes, and the value fits
-     * by construction -- FD_CLOEXEC is the only flag F_GETFD returns.
-     */
+    /* Unsigned operands avoid a signed bitwise OR. */
     if (fd_flags < 0 ||
         fcntl(sync_pipe[1], F_SETFD,
               (int)((unsigned int)fd_flags | (unsigned int)FD_CLOEXEC)) < 0) {
@@ -90,8 +79,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
         return EXIT_FAILURE;
     }
 
-    /* Flush before fork so buffered output is not duplicated at each process's
-     * exit. */
+    /* Flush before fork so buffered output is not duplicated. */
     fflush(stdout);
     fflush(stderr);
 
@@ -105,7 +93,7 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
 
     if (child_pid == 0) {
         exec_child_process(cfg, sync_pipe[0], sync_pipe[1]);
-        /* exec_child_process() never returns */
+        /* exec_child_process() never returns. */
     }
 
     close(sync_pipe[1]);
@@ -116,47 +104,24 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
     if (cfg->verbose) {
         printf("Limiting process %ld\n", (long)child_pid);
     }
-    /* Command mode runs once, so every scan failure is the first: pass 0. */
+    /* Command mode runs once, so no scan-failure streak precedes it. */
     limit_status = limit_process(child_pid, cfg->cpu_limit,
                                  cfg->include_children, cfg->verbose, 0);
 
-    /*
-     * Resume unconditionally: limit_process() may have left a stopped member
-     * invisible to the iterator (e.g. macOS 10.7), and an already-running or
-     * already-exited child ignores SIGCONT safely.
-     */
+    /* Resume unconditionally: a stopped member may be invisible. */
     signal_command(child_pid, SIGCONT, cfg->verbose);
 
-    /*
-     * Forward the exact received signal so the child exits with the status a
-     * shell would report (e.g. SIGINT -> 130, not SIGTERM's 143), exactly
-     * once: collect_child_exit_status() is told it was delivered. If the
-     * signal arrives after this check (a race when a stopped child is
-     * invisible to the iterator), that function forwards it from its loop.
-     */
+    /* Forward the received signal once so the child reports 128 + signal. */
     forwarded_quit_signal = is_quit_flag_set();
     if (forwarded_quit_signal) {
         forward_quit_signal(child_pid, cfg->verbose);
     }
 
-    /*
-     * Reap the child either way. When limiting failed to complete, discard
-     * the child's status: the run must not read as a successful limited one.
-     * A target that never arrived is the exception -- nothing was throttled
-     * because there was nothing to throttle, so the command ran to completion
-     * and its own status is what the run reports.
-     */
+    /* Reap the child either way; a limit failure must not read as success. */
+    /* NO_TARGET is the exception: the command's own status is reported. */
     if (limit_status != LIMIT_PROCESS_OK &&
         limit_status != LIMIT_PROCESS_NO_TARGET) {
-        /*
-         * Limit_process() did not limit to completion; surface the child's
-         * real exit status so the operator sees why, not just cpulimit's
-         * own EXIT_FAILURE. Distinguish the three outcomes -- a group that
-         * could not be built at all, a run that went unthrottled from a failed
-         * scan, and the stranded case, where the PIDs needing a manual
-         * 'kill -CONT' are named by -v only, so this summary has to name the
-         * remedy itself instead of pointing at lines above it.
-         */
+        /* On a failed limit, report the child's status and the remedy. */
         int child_exit_status =
             collect_child_exit_status(child_pid, cfg, forwarded_quit_signal);
         if (limit_status == LIMIT_PROCESS_SCAN_FAILED ||
@@ -183,57 +148,36 @@ int run_command_mode(const struct cpulimit_cfg *cfg) {
 
 /**
  * @def TARGET_NOT_FOUND
- * @brief resolve_target() result: nothing on the system matches the target
+ * @brief Nothing on the system matches the target.
  */
 #define TARGET_NOT_FOUND 0
 
 /**
  * @def TARGET_UNCONTROLLABLE
- * @brief resolve_target() result: the target exists but refuses to be
- *        signalled, so nothing can be limited right now
+ * @brief The target exists but refuses to be signalled.
  */
 #define TARGET_UNCONTROLLABLE 1
 
 /**
  * @def TARGET_RESOLVED
- * @brief resolve_target() result: a usable PID was written to the out
- *        parameter
+ * @brief A usable PID was written to the out parameter.
  */
 #define TARGET_RESOLVED 2
 
 /**
- * @brief Locate the target and classify what the lookup produced
+ * @brief Locate the target and classify what the lookup produced.
  *
- * @param cfg Pointer to the configuration naming the target
- * @param pid_mode Non-zero when cfg->target_pid selects the target, zero when
- *        cfg->exe_name does
- * @param lazy_mode Effective laziness of this run, as resolved by
- *        run_pid_or_exe_mode(): a PID always makes the run lazy
- * @param found_pid Out: the PID the finder reported (negated for
- *        TARGET_UNCONTROLLABLE)
- * @return TARGET_RESOLVED, TARGET_NOT_FOUND or TARGET_UNCONTROLLABLE
- *
- * Both "cannot be found" diagnostics are printed here because this is the only
- * layer that knows what a miss means for the run: lazy mode ends the run on
- * it, so that line is printed unconditionally and is the one diagnostic a
- * non-verbose run may emit; a non-lazy run ends only this attempt, so there
- * the miss is a progress note reserved for -v. find_process_by_name() itself
- * reports a miss through its return value alone and prints nothing. A name
- * that resolves only to PID 1 is refused once at argument-checking time
- * (cli.c) before the limiter starts, so it is never reported here.
+ * @param cfg Configuration naming the target.
+ * @param pid_mode Non-zero when cfg->target_pid selects the target.
+ * @param lazy_mode Effective laziness of this run.
+ * @param found_pid Out: the PID found, negated for TARGET_UNCONTROLLABLE.
+ * @return TARGET_RESOLVED, TARGET_NOT_FOUND or TARGET_UNCONTROLLABLE.
  */
 static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
                           int lazy_mode, pid_t *found_pid) {
     *found_pid = pid_mode ? find_process_by_pid(cfg->target_pid)
                           : find_process_by_name(cfg->exe_name);
     if (*found_pid == 0) {
-        /*
-         * find_process_by_pid() has nothing to print of its own and
-         * find_process_by_name() reports the miss through its return value,
-         * so both lines belong here. PID mode is always one attempt, so its
-         * line never has a retry behind it to advertise and the suffix would
-         * be dead text.
-         */
         if (pid_mode) {
             fprintf(stderr, "Process with PID %ld cannot be found\n",
                     (long)cfg->target_pid);
@@ -243,14 +187,6 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
         return TARGET_NOT_FOUND;
     }
     if (*found_pid < 0) {
-        /*
-         * The process exists but refuses to be signalled, so nothing can be
-         * attached to right now. What that means for the search is the
-         * caller's decision, not this function's: a refusal belongs to the
-         * process currently wearing that name or PID, and a later one may be
-         * controllable. A watching run therefore only says so when -v asked
-         * for it, while a lazy run ends on it and must say why.
-         */
         if (lazy_mode || cfg->verbose) {
             fprintf(stderr, "No permission to control process %ld%s\n",
                     -(long)*found_pid, lazy_mode ? "" : ", retrying...");
@@ -261,18 +197,12 @@ static int resolve_target(const struct cpulimit_cfg *cfg, int pid_mode,
 }
 
 /**
- * @brief Record that a resolved PID now runs a different program
+ * @brief Record that a resolved PID now runs a different program.
  *
- * @param cfg Pointer to the configuration naming the target
- * @param lazy_mode Effective laziness of this run, as resolved by
- *        run_pid_or_exe_mode(): a PID always makes the run lazy
- * @param found_pid The PID whose name no longer matches the target
- * @param exit_status In/out: the running exit status of the whole run
- *
- * The resolved process exited and its PID was reused, so this attempt leaves
- * it untouched. Lazy mode ends the run as a failure and therefore reports it;
- * non-lazy keeps looking, so there the line is only spoken when -v asked for
- * it.
+ * @param cfg Configuration naming the target.
+ * @param lazy_mode Effective laziness of this run.
+ * @param found_pid The PID whose name no longer matches the target.
+ * @param exit_status In/out: the run's exit status.
  */
 static void handle_stale_target(const struct cpulimit_cfg *cfg, int lazy_mode,
                                 pid_t found_pid, int *exit_status) {
@@ -286,24 +216,13 @@ static void handle_stale_target(const struct cpulimit_cfg *cfg, int lazy_mode,
 }
 
 /**
- * @brief Limit one resolved target and leave it running afterwards
+ * @brief Limit one resolved target and leave it running afterwards.
  *
- * @param cfg Pointer to the configuration naming the target
- * @param lazy_mode Effective laziness of this run, as resolved by
- *        run_pid_or_exe_mode(): a PID always makes the run lazy
- * @param found_pid PID that resolved and proved still to be the target
- * @param exit_status In/out: the running exit status of the whole run
- * @param scan_failures In/out: consecutive scan-failure streak
- *
- * Blocks inside limit_process(), then resumes the target unless its PID was
- * recycled, and sets *exit_status on the outcomes that end the whole run: a
- * group that could not be built, a stranded member needing a manual 'kill
- * -CONT', and -- in lazy mode, which makes one attempt and reports whatever
- * it produced -- a target that could not be limited at all. Of those it is
- * also the one that speaks: the lazy no-target outcome has no diagnostic of
- * its own inside limit_process(), so this function prints it. The two lines
- * about the closing SIGCONT are the opposite case -- neither ends the run --
- * and are therefore told to -v alone.
+ * @param cfg Configuration naming the target.
+ * @param lazy_mode Effective laziness of this run.
+ * @param found_pid PID that resolved and proved still to be the target.
+ * @param exit_status In/out: the run's exit status.
+ * @param scan_failures In/out: consecutive scan-failure streak.
  */
 static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
                                     int lazy_mode, pid_t found_pid,
@@ -318,45 +237,21 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
         printf("Process %ld found\n", (long)found_pid);
     }
 
-    /*
-     * Record the start time now so the closing SIGCONT can tell this process
-     * from whatever the PID was recycled into. Both modes use it as the
-     * authoritative identity: an exec() rewrites the name but not the
-     * process, so -e must not fall back to comparing names.
-     */
+    /* Record the start time so the closing SIGCONT can detect PID reuse. */
     target_start_time = get_process_start_time(found_pid);
 
-    /*
-     * Pass the streak so far: this caller retries, and without it every
-     * retry would repeat the same scan diagnostic every two seconds.
-     */
+    /* Pass the streak so a retry does not repeat the scan diagnostic. */
     limit_status =
         limit_process(found_pid, cfg->cpu_limit, cfg->include_children,
                       cfg->verbose, *scan_failures);
 
-    /*
-     * Resume unless the PID changed hands while limit_process() ran. The
-     * SIGCONT is usually redundant (limit_process() already sent one), but not
-     * guaranteed: on macOS 10.7 a stopped process is invisible to the
-     * iterator, so a failed scan leaves an empty list and no resume. It is
-     * conditional because the PID may have been recycled by now, and a blind
-     * SIGCONT would resume a process someone else is intentionally holding
-     * stopped. Only a differing start time proves the change -- a name is not
-     * identity. An unreadable start time means nobody can tell, so we send
-     * anyway and avoid stranding a stopped target. Both "unreadable" and
-     * "differing" are asked through start_time_matches(), the same comparison
-     * the process set uses before it resumes a member, so one definition of
-     * "still the same process" decides both.
-     */
+    /* Resume unless the PID was recycled while limit_process() ran. */
+    /* An unreadable start time still sends SIGCONT to avoid stranding it. */
     current_start = get_process_start_time(found_pid);
     pid_reused = (!start_time_matches(target_start_time, UNKNOWN_START_TIME) &&
                   !start_time_matches(current_start, UNKNOWN_START_TIME) &&
                   !start_time_matches(current_start, target_start_time));
     if (pid_reused) {
-        /*
-         * Not resuming is the safe choice either way, and it ends nothing, so
-         * only a run asked to narrate itself says so.
-         */
         if (cfg->verbose) {
             fprintf(stderr,
                     "Process %ld is no longer the target; not resuming it\n",
@@ -374,33 +269,13 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
         *scan_failures = 0;
     }
 
-    /*
-     * A bad scan ends the run in lazy mode (one attempt, then done) but only
-     * ends the attempt in non-lazy mode, which keeps re-resolving and
-     * re-attaching -- that is what the watch mode is for. An empty group
-     * (LIMIT_PROCESS_NO_TARGET) says nothing about the search either: it is
-     * what a target that turned into a zombie between the lookup and the
-     * first scan looks like, and such a target may be restarted as a process
-     * this run can limit, so non-lazy keeps watching and only lazy mode ends
-     * on it.
-     */
+    /* A failed scan ends a lazy run but only an attempt of a watching run. */
     if (limit_status == LIMIT_PROCESS_SCAN_FAILED && !lazy_mode) {
         (*scan_failures)++;
     } else if (limit_status != LIMIT_PROCESS_OK &&
                (limit_status != LIMIT_PROCESS_NO_TARGET || lazy_mode)) {
-        /*
-         * Everything here ends the run: a group that could not be built
-         * (LIMIT_PROCESS_ERROR, the one reason a non-lazy search gives up),
-         * or a stranded outcome needing a manual 'kill -CONT' to recover.
-         */
         if (limit_status == LIMIT_PROCESS_SCAN_FAILED) {
-            /*
-             * Only a lazy run reaches this branch with a failed scan, and it
-             * ends on it. limit_process() keeps its own scan diagnostic for -v
-             * because a watching run retries the same failure every two
-             * seconds, so a silent run that ends here has to speak for itself
-             * -- once, which is all the run has left to say.
-             */
+            /* A silent lazy run must report its own scan failure. */
             if (!cfg->verbose) {
                 fprintf(
                     stderr,
@@ -408,19 +283,7 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
                     (long)found_pid);
             }
         } else if (limit_status == LIMIT_PROCESS_NO_TARGET) {
-            /*
-             * This one outcome is spoken here and nowhere else. An empty
-             * group is silence limit_process() must be free to keep, because
-             * non-lazy mode arrives at this return on every poll while it
-             * waits for the target to come back. Lazy mode gets no second
-             * poll, so without this line the run reports its defeat through
-             * the exit status alone -- most visibly for -p, whose kill(pid,0)
-             * probe succeeds for a zombie every iterator backend then refuses
-             * to list, leaving the operator a bare 1 with nothing saying why.
-             * The other outcomes reaching here whose line belongs to -v are
-             * spoken above; a group that could not be built at all is the one
-             * limit_process() reports itself.
-             */
+            /* A lazy NO_TARGET run has no other diagnostic. */
             fprintf(stderr,
                     "Process %ld is no longer running; nothing was limited\n",
                     (long)found_pid);
@@ -430,61 +293,32 @@ static void limit_and_resume_target(const struct cpulimit_cfg *cfg,
 }
 
 /**
- * @brief Search for and limit an existing process by PID or executable name
+ * @brief Find and limit an existing process by PID or executable name.
  *
- * @param cfg Pointer to configuration with the target specification
- * @return Exit status code; the caller is responsible for calling exit()
+ * @param cfg Configuration naming the target.
+ * @return The process exit status.
  *
- * In lazy mode one attempt is made and the program exits on any non-target
- * exit. Otherwise it watches until a failure to build the process group or a
- * stranded member stops it; a scan that fails while the group is already
- * built is reported once and retried, and a target reappearing on a recycled
- * PID is re-limited. cpulimit itself is always refused as a target.
+ * Lazy mode makes one attempt. Otherwise the run keeps re-resolving and
+ * re-limiting until a group-building failure or a stranded member ends it;
+ * a scan failure after the group is built is reported once per streak and
+ * retried. cpulimit itself is never a target.
  *
- * @note A PID target always runs in lazy mode, whether or not the
- *       configuration asked for it: the number identifies a single process,
- *       so searching for it to come back would limit an unrelated one.
+ * @note A PID target always runs in lazy mode, even without -z.
  */
 int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
     const struct timespec wait_time = {2, 0};
     int pid_mode = cfg->target_pid > 0, exit_status = EXIT_SUCCESS;
-    /*
-     * A PID names one process, not a class of processes. Once that process is
-     * gone the number may be handed to an unrelated one, and a run that kept
-     * searching would go on to limit whoever picked it up -- the opposite of
-     * what -p asked for. So a PID makes the run a single attempt whatever the
-     * configuration says, and this is the one place that decides it: the
-     * option parser setting lazy_mode for -p is a helpful second line of
-     * defence, not the guarantee. Anything that reaches this function with a
-     * target_pid therefore ends up lazy by construction.
-     */
+    /* A PID names one process; waiting for its return could limit another. */
     int lazy_mode = cfg->lazy_mode || pid_mode;
-    /*
-     * Consecutive scan failures: limit_process() prints the diagnostic once
-     * per streak, so this keeps a retrying run from repeating the line every
-     * two seconds. Reset when a run limits to completion.
-     */
+    /* Consecutive scan failures keep the diagnostic to one line per streak. */
     unsigned int scan_failures = 0;
 
-    /*
-     * Non-lazy mode is a watch: it keeps resolving and re-attaching for as
-     * long as the run lasts, because the target can always come back (not
-     * started yet, exited, restarted on a recycled PID, or refusing signals).
-     * Only a scanning-machinery failure or a stranded member ends it. Lazy
-     * mode is the opposite: one attempt, whatever it produced. Reaching here
-     * with lazy_mode set is how a PID-target run behaves; the name-target run
-     * without -z is the watch.
-     */
+    /* Non-lazy mode keeps re-resolving the target for as long as it runs. */
     while (!is_quit_flag_set()) {
         pid_t found_pid;
         int resolved = resolve_target(cfg, pid_mode, lazy_mode, &found_pid);
 
         if (resolved == TARGET_UNCONTROLLABLE || resolved == TARGET_NOT_FOUND) {
-            /*
-             * Nothing to attach to right now. Lazy mode ends with a failure;
-             * non-lazy keeps looking, because the target may yet start or be
-             * restarted as a process this run can limit.
-             */
             if (lazy_mode) {
                 exit_status = EXIT_FAILURE;
             }
@@ -495,8 +329,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
             return EXIT_FAILURE;
         } else if (!pid_mode &&
                    process_has_other_name(found_pid, cfg->exe_name)) {
-            /* -e may have matched a recycled PID now running a different
-             * program. */
+            /* -e may have matched a recycled PID. */
             handle_stale_target(cfg, lazy_mode, found_pid, &exit_status);
         } else {
             limit_and_resume_target(cfg, lazy_mode, found_pid, &exit_status,
@@ -507,11 +340,7 @@ int run_pid_or_exe_mode(const struct cpulimit_cfg *cfg) {
             break;
         }
 
-        /*
-         * One sleep for the whole interval: sleep_timespec() returns early on a
-         * termination signal instead of resuming the remainder, so the quit
-         * flag is re-checked right away without slicing the wait.
-         */
+        /* One sleep for the whole interval; a signal ends it early. */
         sleep_timespec(&wait_time);
     }
     return exit_status;

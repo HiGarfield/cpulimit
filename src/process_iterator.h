@@ -48,12 +48,10 @@ extern "C" {
 
 /**
  * @def CMD_BUFF_SIZE
- * @brief Maximum size for command path buffer, platform-dependent
+ * @brief Size of the buffer holding a process's argv[0].
  *
- * On Linux: Uses PATH_MAX (4096 bytes default) to accommodate full paths
- *           via /proc filesystem
- * On FreeBSD: Uses MAXPATHLEN from system headers
- * On macOS: Uses PROC_PIDPATHINFO_MAXSIZE from libproc
+ * Linux uses PATH_MAX, FreeBSD MAXPATHLEN and macOS
+ * PROC_PIDPATHINFO_MAXSIZE.
  */
 #if defined(__linux__)
 #ifndef PATH_MAX
@@ -67,20 +65,17 @@ extern "C" {
 #endif
 
 /**
- * @brief Value of struct process::start_time when the platform could not
- *        provide one
+ * @def UNKNOWN_START_TIME
+ * @brief Sentinel for a start time the platform could not read.
  *
- * Real start times are never negative, so a caller can tell "unknown" from
- * "started at some point" with a single comparison and skip the check.
+ * @note Real start times are non-negative, so a single comparison detects
+ *       it. Only the Linux backend may report it.
  */
 #define UNKNOWN_START_TIME (-1.0)
 
 /**
  * @struct process
- * @brief Represents a snapshot of process information
- *
- * This structure contains essential information about a process,
- * including its identity, resource usage, and executable path.
+ * @brief Snapshot of one process.
  */
 struct process {
     /**
@@ -94,406 +89,275 @@ struct process {
     pid_t ppid;
 
     /**
-     * @brief Time at which this process started, in seconds.
+     * @brief Start time in seconds, or UNKNOWN_START_TIME.
      *
-     * Reference point is platform-specific (seconds since boot on Linux,
-     * since the epoch on macOS/FreeBSD); only same-platform equality is
-     * meaningful, which is all PID-reuse detection needs. -1.0 means unknown
-     * and must not be compared.
+     * Linux counts since boot, macOS and FreeBSD since the epoch; only
+     * same-platform equality is meaningful.
      */
     double start_time;
 
     /**
-     * @brief Cumulative CPU time consumed by the process in milliseconds.
-     * Includes both user and system time.
+     * @brief Total user and system CPU time in milliseconds.
      */
     double cpu_time;
 
     /**
-     * @brief Baseline moment cpu_time was recorded, same clock as a set's
-     *        last_update.
+     * @brief Clock reading at which cpu_time was recorded.
      *
-     * A sample divides a cpu_time delta by the interval from THIS timestamp,
-     * not last_update, so a member discovered mid-cycle is not under-measured.
-     * Meaningful only for proc_table records; iterator snapshots carry {0,0}.
+     * A sample uses this member's interval, not the set's last_update, so a
+     * member found mid-cycle keeps its own baseline. Snapshots carry {0,0}.
      */
     struct timespec cpu_time_ts;
 
     /**
-     * @brief Estimated CPU usage as a multiple of one core.
-     * 0.0 = idle, N = N cores busy; -1.0 means not yet measured.
+     * @brief Estimated CPU usage in core equivalents; -1.0 means unmeasured.
      */
     double cpu_usage;
 
     /**
-     * @brief Absolute path to the process executable or command.
-     * Size is platform-dependent (see CMD_BUFF_SIZE).
+     * @brief argv[0] as reported by the OS, truncated to CMD_BUFF_SIZE.
      */
     char command[CMD_BUFF_SIZE];
 
     /**
-     * @brief Per-member throttles for repeated signal-failure warnings.
-     *
-     * A member whose SIGSTOP/SIGCONT cannot be delivered is retried every
-     * cycle, so flagging the failure once per episode (cleared by a later
-     * success) avoids flooding the terminal. Per-member rather than global so
-     * concurrent members report independently. cont_warned gates the benign
-     * "never suspended" SIGCONT failure.
+     * @brief Gates for repeated SIGCONT and SIGSTOP failure warnings.
      */
     int cont_warned;
     int stop_warned;
 
     /**
-     * @brief Throttle for the severe "may remain stopped" SIGCONT failure.
-     *
-     * Separate from cont_warned: the severe episode depends on
-     * suspended_by_us and can co-occur with the benign one, so it needs its
-     * own flag (cleared by a successful SIGCONT).
+     * @brief Gate for the severe "may remain stopped" SIGCONT warning.
      */
     int resume_warned;
 
     /**
-     * @brief Non-zero while a successful SIGSTOP by this group is still
-     *        outstanding (not yet undone by SIGCONT).
+     * @brief Non-zero while a SIGSTOP by this group is still outstanding.
      *
-     * A failed shutdown SIGCONT reports "left suspended" only for members this
-     * flag marks; a member whose signals were never deliverable has been
-     * running and must not be reported as stranded. Meaningful only for
-     * proc_table records (snapshots carry 0).
+     * Meaningful only for proc_table records; snapshots carry 0.
      */
     int suspended_by_us;
 };
 
 /**
  * @struct process_filter
- * @brief Defines criteria for filtering processes during iteration
- *
- * This structure controls which processes are returned by the iterator
- * and what information is retrieved for each process.
+ * @brief Criteria for process iteration.
  */
 struct process_filter {
     /**
-     * @brief Target process ID to filter by, or 0 to iterate all processes.
-     * When non-zero, only this process (and optionally its descendants)
-     * will be returned.
+     * @brief PID to select, or 0 to iterate every process.
      */
     pid_t pid;
 
     /**
-     * @brief Whether to include child processes of the target PID.
-     * Only meaningful when pid is non-zero.
-     * 0: Return only the specified process
-     * 1: Return the process and all its descendants
+     * @brief Non-zero to include descendants of the filter PID.
      */
     int include_children;
 
     /**
-     * @brief Whether to read the command path for each process.
-     * 0: Skip reading command path (faster, process.command is empty)
-     * 1: Read full executable path (slower, populates process.command)
+     * @brief Non-zero to read argv[0] into process::command.
      */
     int read_cmd;
 };
 
 /**
  * @struct process_iterator
- * @brief Platform-specific iterator for enumerating processes
+ * @brief Platform-specific state for enumerating processes.
  *
- * This structure maintains the state needed to iterate over system
- * processes. The internal members vary by platform to leverage
- * platform-specific APIs efficiently.
- *
- * Platform implementations:
- * - Linux: Reads /proc filesystem entries sequentially
- * - FreeBSD: Uses kvm(3) interface with snapshot approach
- * - macOS: Uses libproc with snapshot approach
- *
- * Platform differences that a caller may observe, and why each one is
- * unavoidable:
- *
- * - Close result. close_process_iterator() reports a real failure on Linux
- *   (closedir) and on FreeBSD (kvm_close); on macOS there is nothing that can
- *   fail -- it only frees the PID list -- so an initialized iterator always
- *   returns 0. A caller that keys off the return value therefore never sees a
- *   close failure there.
- *
- * - An empty process table. Linux scans /proc entry by entry, so finding
- *   nothing there is a completed scan that simply yields no processes.
- *   macOS and FreeBSD take a snapshot first and treat an empty one as a
- *   failed initialisation: proc_listpids() reporting no PIDs, or
- *   kvm_getprocs() reporting none, makes init_process_iterator() return -1.
- *   A caller therefore reads "no processes" on Linux and "cannot scan" on
- *   the other two for the same situation.
- *
- * - System processes in the parent chain. read_process_info() skips system
- *   processes on FreeBSD (P_SYSTEM) and macOS (PROC_FLAG_SYSTEM) but not on
- *   Linux, where kernel threads are only distinguishable by their empty
- *   command line and so are already invisible to the read_cmd path.
- *   getppid_of() applies the same rule read_process_info() does, except on
- *   FreeBSD, where it only excludes zombies: excluding kernel threads there
- *   too would cost an extra flag test per hop in is_child_of(), and a kernel
- *   thread's parent is kthreadd (ppid 0), which already terminates the walk.
- *
- * - PID 1 in the scan. Linux's read_process_info() rejects a parent of 0 or
- *   below, and init reports one, so that iterator never yields PID 1 at all.
- *   macOS and FreeBSD do yield it. The layers that must never signal it --
- *   the name resolver and the process set -- skip it explicitly, and those
- *   guards are what makes the rule hold on every platform; the Linux
- *   behaviour is a side effect of the parent check and must not be relied on
- *   in their place.
- *
- * - Start times. All three report seconds, but from different epochs: since
- *   boot on Linux, since the epoch on macOS and FreeBSD. Only same-platform
- *   equality is meaningful, which is all PID-reuse detection needs; see
- *   UNKNOWN_START_TIME for how "no reading" is spelled on each.
+ * Linux walks /proc entry by entry; FreeBSD uses a kvm(3) snapshot and
+ * macOS a proc_listpids() PID list. Observable differences:
+ * - close_process_iterator() can fail on Linux and FreeBSD, never on macOS;
+ * - an empty table is a completed scan on Linux but an init failure on the
+ *   snapshot platforms;
+ * - macOS and FreeBSD skip system processes and may yield PID 1; Linux
+ *   rejects a parent <= 0, so it never yields it. Callers must skip PID 1;
+ * - start_time uses different epochs, so only same-platform equality is
+ *   meaningful for PID-reuse detection.
  */
 struct process_iterator {
 #if defined(__linux__)
     /**
-     * @brief Directory stream for /proc filesystem.
-     * Each entry corresponds to a process directory (e.g., /proc/1234).
+     * @brief /proc directory stream (Linux).
      */
     DIR *proc_dir;
 
     /**
-     * @brief Flag indicating iteration is complete.
-     * Set to 1 when readdir() returns NULL or single-process mode completes.
+     * @brief Non-zero once /proc iteration is complete (Linux).
      */
     int end_of_processes;
 #elif defined(__FreeBSD__)
     /**
-     * @brief Kernel virtual memory descriptor for accessing process
-     * information. Opened via kvm_openfiles() and used for all process queries.
+     * @brief kvm(3) descriptor (FreeBSD).
      */
     kvm_t *kvm_descriptor;
 
     /**
-     * @brief Snapshot of all process information structures.
-     * Populated by kvm_getprocs() at initialization.
+     * @brief Snapshot of kinfo_proc entries (FreeBSD).
      */
     struct kinfo_proc *kinfo_procs;
 
     /**
-     * @brief Total number of processes in the snapshot.
+     * @brief Number of entries in the snapshot (FreeBSD).
      */
     int proc_count;
 
     /**
-     * @brief Current iteration index into the kinfo_procs array.
+     * @brief Current snapshot index (FreeBSD).
      */
     int current_index;
 #elif defined(__APPLE__)
     /**
-     * @brief Current iteration index into the pid_list array.
+     * @brief Current PID-list index (macOS).
      */
     int current_index;
 
     /**
-     * @brief Total number of process IDs in the list.
+     * @brief Number of PIDs in the list (macOS).
      */
     int proc_count;
 
     /**
-     * @brief Snapshot of all process IDs in the system.
-     * Populated by proc_listpids() at initialization.
+     * @brief Snapshot of PIDs from proc_listpids() (macOS).
      */
     pid_t *pid_list;
 #endif
 
     /**
-     * @brief Filter criteria to apply during iteration.
-     * Determines which processes to return and what information to retrieve.
+     * @brief Filter criteria applied during iteration.
      */
     const struct process_filter *filter;
 };
 
 /**
- * @brief Initialize a process iterator with the given filter
+ * @brief Initialize a process iterator with the given filter.
  *
- * @param iter Pointer to the process_iterator structure to initialize
- * @param filter Pointer to filter criteria, must remain valid during iteration
- * @return 0 on success, -1 on failure (including NULL iter/filter or OOM);
- *         this function does not call exit()
+ * @param iter Iterator to initialize.
+ * @param filter Filter criteria, which must stay valid during iteration.
+ * @return 0 on success, -1 on a NULL argument, an allocation failure or a
+ *         backend-specific initialization error; never calls exit().
  *
- * @note The filter pointer is stored and must remain valid until
- *       close_process_iterator() is called.
+ * @note The filter pointer is stored until close_process_iterator().
  */
 int init_process_iterator(struct process_iterator *iter,
                           const struct process_filter *filter);
 
 /**
  * @def PROCESS_ITER_ERROR
- * @brief get_next_process() return code for a scan that stopped on an error
+ * @brief get_next_process() code for a scan that stopped on an error.
  *
- * Distinct from the -1 that only means the iteration ran out of processes.
- * A caller that read the two alike would take a partial scan for the whole
- * process table and conclude that the members it never reached are gone.
+ * @note Distinct from the -1 that means the table was read to its end.
  */
 #define PROCESS_ITER_ERROR (-2)
 
 /**
- * @brief Retrieve the next process matching the filter criteria
+ * @brief Retrieve the next process matching the filter.
  *
- * @param iter Pointer to the process_iterator structure
- * @param proc Pointer to process structure to populate with process information
- * @return 0 on success with process data in proc, -1 if no more processes or
- *         if iter, proc, or iter->filter is NULL, PROCESS_ITER_ERROR if the
- *         scan stopped on an error before reaching the end of the table
+ * @param iter Iterator to advance.
+ * @param proc Structure to populate.
+ * @return 0 with data in proc, -1 when the scan ends or an argument is
+ *         NULL; the Linux backend also returns PROCESS_ITER_ERROR when a
+ *         scan stops early on an error.
  *
- * Advances the iterator to the next process that satisfies the filter
- * criteria. The process structure is populated with information based on
- * the filter's read_cmd flag:
- * - Always populated: pid, ppid, cpu_time, start_time
- * - Conditionally populated: command (only if filter->read_cmd is set)
- *
- * This function skips zombie processes, system processes (on FreeBSD/macOS),
- * and processes not matching the PID filter criteria.
+ * Always populates pid, ppid, cpu_time and start_time; command is filled
+ * only when filter->read_cmd is set. Zombies and system processes are
+ * skipped where the platform can identify them.
  */
 int get_next_process(struct process_iterator *iter, struct process *proc);
 
 /**
- * @brief Close the process iterator and release allocated resources
+ * @brief Release the iterator's platform-specific resources.
  *
- * @param iter Pointer to the process_iterator structure to close
- * @return 0 on success, -1 on failure
+ * @param iter Iterator to close.
+ * @return 0 on success, -1 on a close failure; macOS has none to fail.
  *
- * Releases platform-specific resources allocated during initialization:
- * - Linux: Closes /proc directory stream
- * - FreeBSD: Frees process array and closes kvm descriptor
- * - macOS: Frees process ID list
- *
- * After this call, the iterator must not be used until re-initialized.
+ * @note Re-initialize the iterator before using it again.
  */
 int close_process_iterator(struct process_iterator *iter);
 
 /**
  * @def IS_CHILD_MAX_DEPTH
- * @brief Maximum parent-chain traversal steps in is_child_of()
+ * @brief Maximum parent-chain steps in is_child_of_via().
  *
- * Bounds the while loop that walks parent PIDs to prevent an infinite loop
- * when PID reuse creates a cycle of length >= 2 in the parent chain (e.g.,
- * process A has ppid B and process B has ppid A). No legitimate process tree
- * exceeds a few hundred levels, so 1024 provides ample headroom while
- * guaranteeing termination in all adversarial cases.
+ * @note Bounds the walk against cycles created by PID reuse.
  */
 #define IS_CHILD_MAX_DEPTH 1024
 
 /**
- * @brief Determine if one process is a descendant of another
+ * @brief Determine whether one process descends from another.
  *
- * @param child_pid Process ID to check for descendant relationship
- * @param parent_pid Process ID of the potential ancestor
- * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ * @param child_pid PID to test.
+ * @param parent_pid PID of the potential ancestor.
+ * @return 1 when parent_pid is in the ancestry chain, 0 otherwise.
  *
- * Traverses the parent chain from child_pid up to the init process (PID 1),
- * checking if parent_pid is encountered. Returns 1 if parent_pid is found
- * in the ancestry chain, indicating child_pid is a descendant (child,
- * grandchild, etc.) of parent_pid.
- *
- * Special cases:
- * - Returns 0 if child_pid <= 1, parent_pid <= 0, or child_pid == parent_pid
- * - Returns 0 if the parent chain exceeds IS_CHILD_MAX_DEPTH steps (guards
- *   against infinite loops caused by PID reuse cycles)
- * - Returns 0 if getppid_of() fails twice in a row while walking up: the
- *   chain is then either gone or unreadable, and neither says parent_pid was
- *   reached. The retry is one step -- a process that vanishes mid-walk is
- *   enough to end the walk either way.
- * - getppid_of(1) does not agree across platforms: Linux returns -1, because
- *   init's recorded parent is 0 and the lookup rejects it; FreeBSD returns 0;
- *   macOS returns 0 or -1 according to the process's system flag. is_child_of()
- *   treats all three the same -- any value at or below 0 ends the walk.
- *
- * The walk is the same on every platform and lives in is_child_of_via();
- * each backend supplies only how to read one parent.
+ * Walks the shared parent chain with the platform's lookup. Returns 0 for
+ * an invalid or self pair, a chain longer than IS_CHILD_MAX_DEPTH, or two
+ * consecutive lookup failures.
  */
 int is_child_of(pid_t child_pid, pid_t parent_pid);
 
 /**
- * @brief How to read the parent of one process
+ * @brief Reads the parent of one process.
  *
- * @param context Handle the caller passed to is_child_of_via()
- * @param pid Process whose parent is wanted
- * @return Parent PID, or a value at or below 0 when the lookup failed or the
- *         process has none
+ * @param context Handle supplied by the caller.
+ * @param pid PID whose parent is wanted.
+ * @return The parent PID, or a value at or below 0 on failure.
  */
 typedef pid_t (*process_get_parent_fn)(void *context, pid_t pid);
 
 /**
- * @brief Determine if one process is a descendant of another
+ * @brief Walk a parent chain using a platform-specific lookup.
  *
- * @param get_parent How to read one process's parent, platform specific
- * @param context Handle handed back to get_parent on every step
- * @param child_pid Process ID to check for descendant relationship
- * @param parent_pid Process ID of the potential ancestor
- * @return 1 if child_pid is a descendant of parent_pid, 0 otherwise
+ * @param get_parent Reads one process's parent.
+ * @param context Handle passed back to get_parent.
+ * @param child_pid PID to test.
+ * @param parent_pid PID of the potential ancestor.
+ * @return 1 when parent_pid is in the ancestry chain, 0 otherwise.
  *
- * The whole walk, with the special cases is_child_of() documents. Every
- * backend is_child_of() is this with its own lookup, so a fix to the walk
- * applies to all of them at once.
+ * @note Shared by every backend; see is_child_of().
  */
 int is_child_of_via(process_get_parent_fn get_parent, void *context,
                     pid_t child_pid, pid_t parent_pid);
 
 /**
- * @brief Retrieve the parent process ID for a given process
+ * @brief Read the parent PID of a process.
  *
- * @param pid Process ID to query
- * @return Parent process ID on success, -1 on error
+ * @param pid PID to query.
+ * @return The parent PID, or -1 when the process is gone, a zombie, or the
+ *         platform lookup fails.
  *
- * @note Returns -1 if the process does not exist, is a zombie, or the lookup
- *       fails (per-platform backend: /proc, kvm, or libproc).
+ * @note getppid_of(1) differs: Linux returns -1, FreeBSD 0, macOS 0 or -1.
  */
 pid_t getppid_of(pid_t pid);
 
 /**
- * @brief Determine whether a process ID satisfies the iterator filter
+ * @brief Determine whether a PID satisfies the iterator filter.
  *
- * @param pid Process ID to evaluate
- * @param filter Filter criteria to apply
- * @return 1 if the process matches the filter, 0 otherwise
+ * @param pid PID to evaluate.
+ * @param filter Filter criteria.
+ * @return 1 when the PID matches, 0 otherwise or when filter is NULL.
  *
- * A process matches when:
- * - no PID filter is set (filter->pid == 0), or
- * - its PID equals the filter PID, or
- * - include_children is enabled and it is a descendant of the filter PID.
- *
- * Returns 0 when filter is NULL.
+ * A match is the filter PID itself, or a descendant when include_children
+ * is set; a zero filter PID matches every process.
  */
 int process_matches_filter(pid_t pid, const struct process_filter *filter);
 
 /**
- * @brief Get the start time of a single process, if available
+ * @brief Read the start time of one process.
  *
- * @param pid Process ID to query
- * @return The process start time in seconds, or UNKNOWN_START_TIME when the
- *         process does not exist or the platform could not provide a value.
+ * @param pid PID to query.
+ * @return Start time in seconds, or UNKNOWN_START_TIME when unavailable.
  *
- * A thin wrapper over the process iterator that returns just the start_time
- * field for one PID. Used to confirm a PID still belongs to the same process
- * before acting on it (e.g. sending a deferred signal to a PID that may have
- * been recycled). Callers must treat UNKNOWN_START_TIME as "cannot compare"
- * and fall back to acting on the PID.
+ * @note Used to confirm a PID still names the same process. A failed
+ *       iterator close is reported but does not change the reading.
  */
 double get_process_start_time(pid_t pid);
 
 /**
- * @brief Report whether a process is currently in the stopped state
+ * @brief Report whether a process is currently stopped.
  *
- * @param pid Process ID to query
- * @return 1 when pid exists and is stopped, 0 when it is running, is gone,
- *         or when its state could not be read
+ * @param pid PID to query.
+ * @return 1 when stopped, 0 when running, gone or unreadable.
  *
- * Answers the one question a PID-reuse check cannot. A start time that moved
- * on says the PID now holds a different process, but not whether that process
- * is the one a suspension was delivered to: a SIGSTOP sent after the PID was
- * reused stops the new owner while the record still names the old one. Only
- * the state of the PID right now settles it, so a caller holding a suspension
- * record it can no longer match consults this before deciding to skip the
- * undoing SIGCONT.
- *
- * Read-only: signals nothing, starts no scan, prints nothing. A state that
- * cannot be read is reported as "not stopped", the conservative answer that
- * leaves every existing decision unchanged.
+ * @note Read-only: sends no signal and starts no scan.
  */
 int process_is_stopped(pid_t pid);
 
@@ -501,4 +365,4 @@ int process_is_stopped(pid_t pid);
 }
 #endif
 
-#endif /* CPULIMIT_PROCESS_ITERATOR_H */
+#endif

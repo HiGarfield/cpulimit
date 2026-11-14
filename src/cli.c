@@ -41,13 +41,10 @@
 #include <unistd.h>
 
 /**
- * @brief Display usage information
+ * @brief Print the usage message.
  *
- * @param stream Output stream (stdout for normal help, stderr for errors)
- * @param cfg Pointer to configuration structure (used for program_name display)
- *
- * Prints the usage message with all available options and targets; deciding
- * on an exit status is left to the caller.
+ * @param stream Output stream.
+ * @param cfg Configuration supplying the program name.
  */
 static void print_usage(FILE *stream, const struct cpulimit_cfg *cfg) {
     int ncpu = get_ncpu();
@@ -83,23 +80,18 @@ static void print_usage(FILE *stream, const struct cpulimit_cfg *cfg) {
 }
 
 /**
- * @brief Parse and validate the PID option from command-line argument
+ * @brief Parse and validate the -p argument.
  *
- * @param pid_str String representation of the process ID
- * @param cfg Pointer to configuration structure to update
- * @return 0 on success, EXIT_FAILURE on error
+ * @param pid_str PID string.
+ * @param cfg Configuration to update.
+ * @return 0 on success, EXIT_FAILURE on error.
  */
 static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     char *endptr;
     long pid;
     pid_t pid_result;
-    /*
-     * Reject a leading whitespace before conversion. strtol() skips leading
-     * whitespace, so "-p ' 5'" would otherwise be accepted as PID 5, which is
-     * inconsistent with the strict trailing-character rejection.
-     */
+    /* Reject leading whitespace: strtol() would otherwise skip it. */
     if (pid_str == NULL || isspace((unsigned char)pid_str[0])) {
-        /* above must not fall through to printing the pointer itself. */
         fprintf(stderr, "Error: invalid PID: %s\n\n",
                 pid_str != NULL ? pid_str : "(null)");
         print_usage(stderr, cfg);
@@ -107,28 +99,19 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
     }
     errno = 0;
     pid = strtol(pid_str, &endptr, 10);
-    /*
-     * Validate conversion: check for errors, empty strings, and trailing
-     * characters. PID 0 and negative values are invalid.
-     */
     if (errno != 0 || endptr == pid_str || *endptr != '\0' || pid < 1) {
         fprintf(stderr, "Error: invalid PID: %s\n\n", pid_str);
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
-    /*
-     * PID 1 (init/systemd) is never a valid target on any platform. No kill
-     * -- not even the kill(pid,0) existence probe used elsewhere -- may be
-     * sent to it, because suspending or interfering with init would freeze
-     * or crash the whole system. There is no container or OS exception, so
-     * it is rejected at input exactly like an out-of-range PID.
-     */
+    /* Never target PID 1 on any platform. */
+    /* Even the kill(pid, 0) probe is skipped for it. */
     if (pid == 1) {
         fprintf(stderr, "Error: PID 1 (init) is not allowed as a target\n\n");
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
-    /* Verify PID fits within pid_t range (catch overflow on 32-bit systems) */
+    /* Verify the PID fits in pid_t on 32-bit systems. */
     pid_result = long_to_pid_t(pid);
     if (pid_result < 0) {
         fprintf(stderr, "Error: PID out of range: %s\n\n", pid_str);
@@ -141,67 +124,44 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
 }
 
 /**
- * @brief Parse and validate the CPU limit percentage from command-line argument
+ * @brief Parse and validate the -l argument.
  *
- * @param limit_str String representation of the CPU limit percentage
- * @param cfg Pointer to configuration structure to update
- * @param ncpu Number of CPU cores in the system
- * @return 0 on success, EXIT_FAILURE on error
+ * @param limit_str CPU percentage string.
+ * @param cfg Configuration to update.
+ * @param ncpu Number of online CPUs.
+ * @return 0 on success, EXIT_FAILURE on error.
  */
 static int parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
                               int ncpu) {
     char *endptr;
     double percent_limit;
     double max_limit;
-    /*
-     * Reject a leading whitespace before conversion. strtod() skips leading
-     * whitespace, so "-l ' 50'" would otherwise be accepted as 50%, which is
-     * inconsistent with the strict trailing-character rejection.
-     */
+    /* Reject leading whitespace: strtod() would otherwise skip it. */
     if (limit_str == NULL || isspace((unsigned char)limit_str[0])) {
-        /* above must not fall through to printing the pointer itself. */
         fprintf(stderr, "Error: invalid limit value: %s\n\n",
                 limit_str != NULL ? limit_str : "(null)");
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
-    /*
-     * Do not treat ERANGE as a conversion error: strtod() also sets it when
-     * a small but valid value underflows into a subnormal, and such a value
-     * belongs to the documented (0, ncpu*100] range. The range check below
-     * rejects overflow (HUGE_VAL) and underflow all the way to zero on its
-     * own, so a positive in-range result must be accepted whatever errno
-     * says.
-     */
+    /* Ignore ERANGE: strtod() also sets it for valid subnormal values. */
     percent_limit = strtod(limit_str, &endptr);
-    /*
-     * Compute the upper bound as double to avoid int overflow on systems
-     * with large CPU counts (100 * ncpu overflows if ncpu > INT_MAX/100).
-     */
     max_limit = (double)ncpu * 100.0;
-    /*
-     * Validate the conversion and value:
-     * - String was not empty
-     * - No trailing characters
-     * - Not NaN
-     * - Within valid range: (0, ncpu * 100]
-     */
     if (endptr == limit_str || *endptr != '\0' ||
         !(percent_limit > 0 && percent_limit <= max_limit)) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
-    /* Store as CPU cores (0.0 to ncpu) for internal calculations */
+    /* Store the limit in core equivalents. */
     cfg->cpu_limit = percent_limit / 100.0;
     return 0;
 }
 
 /**
- * @brief Ensure exactly one target specification method is provided
+ * @brief Ensure exactly one target specification is provided.
  *
- * @param cfg Pointer to configuration structure to validate
- * @return 0 on success, EXIT_FAILURE on error
+ * @param cfg Configuration to validate.
+ * @return 0 on success, EXIT_FAILURE on error.
  */
 static int validate_target_options(const struct cpulimit_cfg *cfg) {
     int pid_mode = cfg->target_pid > 0, exe_mode = cfg->exe_name != NULL,
@@ -217,14 +177,12 @@ static int validate_target_options(const struct cpulimit_cfg *cfg) {
 }
 
 /**
- * @brief Whether the option getopt_long() stopped on was spelled short
+ * @brief Tell whether the rejected option was spelled short.
  *
- * @param arg The argv element getopt_long() left optind pointing at
- * @return Non-zero for a single-dash option, zero for a long option or "-"
+ * @param arg The argv element getopt_long() left optind pointing at.
+ * @return Non-zero for a single-dash option, zero otherwise.
  *
- * A long option carries a short equivalent in optopt ('p' for --pid), so a
- * diagnostic built from optopt alone names an option the operator never
- * typed. Only a single-dash spelling may be reported through optopt.
+ * @note optopt holds a short equivalent even for a typed long option.
  */
 static int is_short_option_spelling(const char *arg) {
     if (arg[0] != '-' || arg[1] == '-') {
@@ -234,23 +192,17 @@ static int is_short_option_spelling(const char *arg) {
 }
 
 /**
- * @brief Name a rejected option without trusting getopt_long()'s optind
+ * @brief Name a rejected option without trusting optind.
  *
- * @param buf Destination buffer, always NUL-terminated
- * @param buf_size Size of buf
- * @param argc Number of arguments
- * @param argv Argument vector
- * @param long_index Index getopt_long() reported for a matched long option,
- *                   or -1
- * @param long_options Long option table
+ * @param buf Destination buffer, always NUL-terminated.
+ * @param buf_size Size of buf.
+ * @param argc Number of arguments.
+ * @param argv Argument vector.
+ * @param long_index Index of the matched long option, or -1.
+ * @param long_options Long option table.
  *
- * Where optind points after an unknown option or a missing argument is not
- * portable: BSD libc leaves it on the element just read, while glibc and
- * musl can advance it past argc, so argv[optind - 1] may be the NULL
- * terminator or out of bounds. Reading it unconditionally made the process
- * die of SIGSEGV on those platforms. Prefer the spelling actually typed
- * when the index is safe, then the canonical --name of the matched long
- * option, then -optopt for a short option, and finally a neutral name.
+ * @note After an unknown option, optind differs between BSD libc, glibc and
+ *       musl, so argv[optind - 1] is not always safe to read.
  */
 static void format_rejected_option(char *buf, size_t buf_size, int argc,
                                    char **argv, int long_index,
@@ -275,31 +227,17 @@ static void format_rejected_option(char *buf, size_t buf_size, int argc,
 
 #if defined(__linux__)
 /**
- * @brief Refuse a name target that leads nowhere but PID 1 (init)
+ * @brief Refuse an -e name that leads nowhere but PID 1.
  *
- * @param cfg Pointer to the configuration naming the target
- * @return 0 when the target may still lead somewhere, EXIT_FAILURE when -e
- *         named init and nothing else carries the name
+ * @param cfg Configuration naming the target.
+ * @return 0 when the name may still lead somewhere, EXIT_FAILURE otherwise.
  *
- * PID 1 is never a valid target on any platform, and that rejection must
- * happen here -- before the limiter starts -- not deep in
- * find_process_by_name() where it would run on every watch-loop scan. We read
- * init's argv[0] once from /proc/1/cmdline and compare it the same way
- * find_process_by_name() compares every process, through
- * process_name_matches_cmd().
+ * Reads init's argv[0] from /proc/1/cmdline and compares it through
+ * process_name_matches_cmd(). A name init wears can still belong to ordinary
+ * processes, so only a completed scan proving no other match may refuse it.
  *
- * Sharing the name is enough to be refused -- but not enough to refuse: the
- * lookup skips PID 1 on every platform, so a name init wears can still have
- * ordinary processes behind it, and those are limitable targets like any
- * other. Only when nothing else wears it does the name have nowhere left to
- * go, and only then is a refusal worth more than the "cannot be found" line
- * the first attempt would print anyway. Only a completed scan proves that:
- * process_name_has_non_init_match() answers -1 when it could not establish
- * the absence of another match, and a refusal on an inconclusive answer would
- * end a run that the limiter could have started. macOS and FreeBSD have no
- * /proc/1/cmdline, so the finder's silent exclusion is their only guard and
- * this check is compiled out there; they never refuse the name, and simply
- * find whatever else is wearing it.
+ * @note Linux only: macOS and FreeBSD have no /proc/1/cmdline and rely on
+ *       the finder's silent exclusion of PID 1.
  */
 static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
     char *cmdline;
@@ -311,10 +249,7 @@ static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
     if (cmdline == NULL) {
         return 0;
     }
-    /*
-     * /proc/1/cmdline is argv[0]\0argv[1]\0...; cmdline points at argv[0] and
-     * stops at the first NUL, which is all the comparison may read.
-     */
+    /* /proc/1/cmdline is NUL-separated; compare only its argv[0] field. */
     if (process_name_matches_cmd(cfg->exe_name, cmdline) &&
         process_name_has_non_init_match(cfg->exe_name) == 0) {
         fprintf(
@@ -331,12 +266,15 @@ static int reject_init_name_target(const struct cpulimit_cfg *cfg) {
 #endif
 
 /**
- * @brief Parse command line arguments and populate configuration structure
+ * @brief Parse command-line arguments into a configuration structure.
  *
- * @param argc Number of command-line arguments (from main)
- * @param argv Array of command-line argument strings (from main)
- * @param cfg Pointer to configuration structure to be filled with parsed values
- * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested
+ * @param argc Number of arguments.
+ * @param argv Argument vector.
+ * @param cfg Structure to fill.
+ * @return 0 on success, EXIT_FAILURE on error, -1 when help was requested.
+ *
+ * @note Rejects a NULL cfg or argv, a non-positive argc, and any NULL
+ *       element in argv[0..argc-1].
  */
 int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     int option_char, ncpu, i, long_index;
@@ -352,11 +290,6 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}};
 
-    /*
-     * Reject invalid API usage defensively to avoid crashes when called
-     * from tests or embedded integrations with malformed inputs.
-     * Checked first, before any other processing.
-     */
     if (cfg == NULL) {
         fprintf(stderr, "Error: parse_arguments: cfg is NULL\n");
         return EXIT_FAILURE;
@@ -373,12 +306,6 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         fprintf(stderr, "Error: parse_arguments: argv[0] is NULL\n");
         return EXIT_FAILURE;
     }
-    /*
-     * getopt_long() and the command-mode checks read argv[1..argc-1];
-     * argv[argc] is the NULL terminator, not an argument. Checking argv[0]
-     * alone leaves a malformed vector with a NULL inside that range to be
-     * dereferenced before any later check can reject it.
-     */
     for (i = 1; i < argc; i++) {
         if (argv[i] == NULL) {
             fprintf(stderr, "Error: parse_arguments: argv[%d] is NULL\n", i);
@@ -391,40 +318,22 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
     memset(cfg, 0, sizeof(struct cpulimit_cfg));
     cfg->program_name = get_file_basename(argv[0]);
     cfg->cpu_limit =
-        -1.0; /* Negative value indicates limit not yet specified */
+        -1.0; /* Negative while the limit has not been specified yet. */
 
-    /*
-     * Reset getopt() global state so parse_arguments() remains re-entrant
-     * across multiple invocations in the same process (e.g. unit tests).
-     */
+    /* Reset getopt() state so repeated parses in one process work. */
 #if defined(__APPLE__) || defined(__FreeBSD__)
     optreset = 1;
 #endif
 #if defined(__linux__)
-    /*
-     * Every Linux libc that provides getopt_long() (glibc, musl, uClibc)
-     * clears its private position inside a clustered short option only
-     * when optind is set to 0. Setting it to 1 leaves that position from
-     * a previous call, so a parse that stopped in the middle of "-vQ"
-     * makes the next invocation resume at the same offset of a different
-     * cluster. BSD libcs reset through optreset above instead.
-     */
+    /* Linux libcs clear clustered short-option state only when optind is 0. */
     optind = 0;
 #else
     optind = 1;
 #endif
-    opterr = 0; /* Suppress getopt's built-in error messages */
-    /*
-     * optopt names the last unknown or argument-less option and the '?'
-     * and ':' branches below read it. Not every getopt_long() rewrites it
-     * for a long option, so a value left by an earlier invocation would
-     * make the diagnostic name an option this call never saw.
-     */
+    opterr = 0;
+    /* Clear optopt so a stale value cannot name the wrong option. */
     optopt = 0;
-    /*
-     * Process all options using getopt_long.
-     * Leading '+' stops parsing at first non-option (for COMMAND mode).
-     */
+    /* A leading '+' stops parsing at the first non-option for command mode. */
     while (1) {
         long_index = -1;
         option_char =
@@ -433,7 +342,7 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
             break;
         }
         switch (option_char) {
-        case 'p': /* Process ID target */
+        case 'p':
             if (pid_option_seen) {
                 fprintf(
                     stderr,
@@ -447,7 +356,7 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
             }
             break;
 
-        case 'e': /* Executable name target */
+        case 'e':
             if (exe_option_seen) {
                 fprintf(
                     stderr,
@@ -461,31 +370,13 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
                 print_usage(stderr, cfg);
                 return EXIT_FAILURE;
             }
-            /*
-             * Reject match names that can never select a process:
-             * find_process_by_name() compares against the basename for
-             * relative names and returns 0 immediately when that basename is
-             * empty, so "bin/", "a/b/", "//" and "/tmp/" are all
-             * structurally unmatchable. A bare "/" is the same case (its
-             * basename is empty). Handing any of them on would mean thirty
-             * seconds of "cannot be found, retrying..." in non-lazy mode and
-             * a misleading "cannot be found" in lazy mode; reject them up
-             * front with one clear error.
-             */
+            /* An empty basename can never match argv[0]. */
             if (get_file_basename(optarg)[0] == '\0') {
                 fprintf(stderr, "Error: invalid match name '%s'\n\n", optarg);
                 print_usage(stderr, cfg);
                 return EXIT_FAILURE;
             }
-            /*
-             * Every iterator stores argv[0] in a CMD_BUFF_SIZE buffer and
-             * truncates it to CMD_BUFF_SIZE-1 characters, so a comparison
-             * name that long can never equal anything the scan reports.
-             * Relative names are compared by basename, so only that part
-             * has to fit; an absolute name is compared in full. Rejecting
-             * it here keeps a name that can never match from sending a
-             * watching run into an endless "cannot be found" loop.
-             */
+            /* Reject names longer than the iterator's command buffer. */
             if (strlen(optarg[0] == '/' ? optarg : get_file_basename(optarg)) >=
                 (size_t)CMD_BUFF_SIZE) {
                 fprintf(
@@ -498,7 +389,7 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
             cfg->exe_name = optarg;
             break;
 
-        case 'l': /* CPU percentage limit */
+        case 'l':
             if (limit_option_seen) {
                 fprintf(
                     stderr,
@@ -512,30 +403,30 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
             }
             break;
 
-        case 'v': /* Verbose statistics output */
+        case 'v':
             cfg->verbose = 1;
             break;
 
-        case 'z': /* Lazy mode (exit when target stops) */
+        case 'z':
             cfg->lazy_mode = 1;
             break;
 
-        case 'i': /* Include child processes in limiting */
+        case 'i':
             cfg->include_children = 1;
             break;
 
-        case 'h': /* Display help and exit successfully */
+        case 'h':
             print_usage(stdout, cfg);
             return -1;
 
-        case '?': /* Unknown option */
+        case '?':
             format_rejected_option(rejected_option, sizeof(rejected_option),
                                    argc, argv, long_index, long_options);
             fprintf(stderr, "Error: invalid option '%s'\n\n", rejected_option);
             print_usage(stderr, cfg);
             return EXIT_FAILURE;
 
-        case ':': /* Missing required argument for an option */
+        case ':':
             format_rejected_option(rejected_option, sizeof(rejected_option),
                                    argc, argv, long_index, long_options);
             fprintf(stderr, "Error: option '%s' requires an argument\n\n",
@@ -550,19 +441,12 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         }
     }
 
-    /*
-     * Process any remaining non-option arguments as command to execute.
-     * Command mode automatically enables lazy behavior.
-     */
+    /* Remaining arguments form the command to execute. */
     if (optind < argc) {
         cfg->command_mode = 1;
         cfg->command_args = argv + optind;
         cfg->lazy_mode = 1;
-        /*
-         * An empty command name ("cpulimit -l 50 ''") would otherwise fall
-         * through to execvp(""), which fails with a confusing 126/127. Reject
-         * it up front so the user gets a clear error and exit code 1.
-         */
+        /* An empty command name yields a confusing 126/127. */
         if (argv[optind][0] == '\0') {
             fprintf(stderr, "Error: empty command name\n\n");
             print_usage(stderr, cfg);
@@ -580,10 +464,7 @@ int parse_arguments(int argc, char **argv, struct cpulimit_cfg *cfg) {
         return EXIT_FAILURE;
     }
 
-    /*
-     * Reject a name target that resolves to PID 1 (init) here, before the
-     * limiter ever starts, rather than discovering it deep in the watch loop.
-     */
+    /* Refuse an -e name that resolves only to PID 1. */
 #if defined(__linux__)
     if (reject_init_name_target(cfg) != 0) {
         return EXIT_FAILURE;
