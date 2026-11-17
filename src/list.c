@@ -40,10 +40,9 @@
  * @note A NULL lst is a no-op.
  */
 void init_list(struct list *lst) {
-    if (lst == NULL) {
-        return;
+    if (lst != NULL) {
+        memset(lst, 0, sizeof(*lst));
     }
-    memset(lst, 0, sizeof(*lst));
 }
 
 /**
@@ -173,13 +172,15 @@ struct process *find_process_in_list_by_pid(const struct list *lst, pid_t pid) {
 }
 
 /**
- * @brief Remove all nodes without freeing their data.
+ * @brief Unlink and free every node, optionally freeing each node's data.
  *
- * @param lst List to clear.
+ * @param lst List to empty.
+ * @param free_data When nonzero, free each node's data before the node.
  *
- * @note Ownership of the data stays with the caller. A NULL lst is a no-op.
+ * @note A NULL lst or an empty list is a no-op. The list is reinitialized
+ *       after all nodes are removed.
  */
-void clear_list(struct list *lst) {
+static void free_all_nodes(struct list *lst, int free_data) {
     struct list_node *current_node, *next_node;
     if (lst == NULL || lst->count == 0) {
         return;
@@ -187,9 +188,23 @@ void clear_list(struct list *lst) {
     for (current_node = lst->first; current_node != NULL;
          current_node = next_node) {
         next_node = current_node->next;
+        if (free_data) {
+            free(current_node->data);
+        }
         free(current_node);
     }
     init_list(lst);
+}
+
+/**
+ * @brief Remove all nodes without freeing their data.
+ *
+ * @param lst List to clear.
+ *
+ * @note Ownership of the data stays with the caller. A NULL lst is a no-op.
+ */
+void clear_list(struct list *lst) {
+    free_all_nodes(lst, 0);
 }
 
 /**
@@ -201,15 +216,5 @@ void clear_list(struct list *lst) {
  *       other owner. A NULL lst is a no-op.
  */
 void destroy_list(struct list *lst) {
-    struct list_node *current_node, *next_node;
-    if (lst == NULL || lst->count == 0) {
-        return;
-    }
-    for (current_node = lst->first; current_node != NULL;
-         current_node = next_node) {
-        next_node = current_node->next;
-        free(current_node->data);
-        free(current_node);
-    }
-    init_list(lst);
+    free_all_nodes(lst, 1);
 }
