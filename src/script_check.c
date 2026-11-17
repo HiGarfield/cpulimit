@@ -27,6 +27,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
 #include <unistd.h>
 
 /**
@@ -87,15 +88,9 @@ int is_script_inaccessible_interpreter(const char *path) {
     buf[n] = '\0';
 
     p = buf + 2;
-    while (*p == ' ' || *p == '\t') {
-        p++;
-    }
+    p += strspn(p, " \t");
 
-    end = p;
-    while (*end != '\0' && *end != '\n' && *end != '\r' && *end != ' ' &&
-           *end != '\t') {
-        end++;
-    }
+    end = p + strcspn(p, "\n\r \t");
     if (*end == '\0' && (n == (ssize_t)(sizeof(buf) - 1) || !at_eof)) {
         return 0;
     }
