@@ -32,6 +32,25 @@
 #include <unistd.h>
 
 /**
+ * @brief Kill a child and reap it so it is neither orphaned nor a zombie.
+ *
+ * @param child_pid PID of the child to kill and reap.
+ *
+ * waitpid() is retried on EINTR so the child is always reaped.
+ */
+static void kill_and_reap_child(pid_t child_pid) {
+    pid_t wait_result;
+
+    kill(child_pid, SIGKILL);
+    do {
+        wait_result = waitpid(child_pid, NULL, 0);
+    } while (wait_result == -1 && errno == EINTR);
+    if (wait_result == -1) {
+        perror("waitpid");
+    }
+}
+
+/**
  * @brief Wait for the child to finish its exec setup.
  *
  * @param child_pid PID of the forked child.
@@ -54,7 +73,6 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
         n_read = read(sync_read_fd, &sync_byte, 1);
     } while (n_read < 0 && errno == EINTR);
     if (n_read != 1 || sync_byte != 'A') {
-        pid_t wait_result;
         if (n_read < 0) {
             perror("read sync");
         } else if (n_read == 0) {
@@ -63,15 +81,7 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
             fprintf(stderr, "Unexpected synchronization value from child\n");
         }
         close(sync_read_fd);
-        /* Kill and reap the child so it is neither orphaned nor a zombie. */
-        kill(child_pid, SIGKILL);
-        /* Retry waitpid() on EINTR so the child is always reaped. */
-        do {
-            wait_result = waitpid(child_pid, NULL, 0);
-        } while (wait_result == -1 && errno == EINTR);
-        if (wait_result == -1) {
-            perror("waitpid");
-        }
+        kill_and_reap_child(child_pid);
         return -1;
     }
     /* Drain to EOF: an early close can raise SIGPIPE in the child. */
@@ -81,15 +91,8 @@ int wait_for_child_exec(pid_t child_pid, int sync_read_fd) {
     } while (n_read > 0 || (n_read < 0 && errno == EINTR));
     close(sync_read_fd);
     if (n_read < 0) {
-        pid_t wait_result;
         perror("read exec-sync");
-        kill(child_pid, SIGKILL);
-        do {
-            wait_result = waitpid(child_pid, NULL, 0);
-        } while (wait_result == -1 && errno == EINTR);
-        if (wait_result == -1) {
-            perror("waitpid");
-        }
+        kill_and_reap_child(child_pid);
         return -1;
     }
     return 0;
