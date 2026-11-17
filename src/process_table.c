@@ -94,9 +94,6 @@ struct process *find_in_process_table(const struct process_table *proc_table,
         return NULL;
     }
     bucket_idx = pid_hash(proc_table, pid);
-    if (proc_table->buckets[bucket_idx] == NULL) {
-        return NULL;
-    }
     return find_process_in_list_by_pid(proc_table->buckets[bucket_idx], pid);
 }
 
@@ -197,13 +194,11 @@ void remove_stale_from_process_table(struct process_table *proc_table,
         for (node = first_list_node(proc_table->buckets[bucket_idx]);
              node != NULL; node = next_node) {
             next_node = node->next;
-            if (node->data == NULL) {
+            if (node->data == NULL ||
+                find_process_in_list_by_pid(
+                    active_list, ((const struct process *)node->data)->pid) ==
+                    NULL) {
                 destroy_list_node(proc_table->buckets[bucket_idx], node);
-            } else {
-                pid_t pid = ((const struct process *)node->data)->pid;
-                if (find_process_in_list_by_pid(active_list, pid) == NULL) {
-                    destroy_list_node(proc_table->buckets[bucket_idx], node);
-                }
             }
         }
         if (is_empty_list(proc_table->buckets[bucket_idx])) {
