@@ -16271,6 +16271,70 @@ static void test_child_wait_sigkill_escalation(void) {
 }
 
 /**
+ * @brief A clock error after forwarding termination must still reap the child
+ *
+ * @note Once termination has been forwarded, an immediate clock failure may
+ *       not leave a child that ignores SIGTERM running and unreaped. The
+ *       error path must escalate and wait for the direct child.
+ */
+static void test_child_wait_clock_failure_after_forward(void) {
+    pid_t child_pid, probe, waited;
+    struct cpulimit_cfg cfg;
+    int ready_pipe[2], status, result, saved_errno, ret;
+    char ready_byte;
+    ssize_t n_read, written;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.cpu_limit = 0.5;
+    ret = pipe(ready_pipe);
+    assert(ret == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    child_pid = fork();
+    assert(child_pid >= 0);
+    if (child_pid == 0) {
+        close(ready_pipe[0]);
+        ret = setpgid(0, 0);
+        assert(ret == 0);
+        ret = signal(SIGTERM, SIG_IGN) != SIG_ERR;
+        assert(ret);
+        alarm(60);
+        written = write(ready_pipe[1], "R", 1);
+        assert(written == 1);
+        close(ready_pipe[1]);
+        for (;;) {
+            pause();
+        }
+    }
+    close(ready_pipe[1]);
+    do {
+        n_read = read(ready_pipe[0], &ready_byte, 1);
+    } while (n_read < 0 && errno == EINTR);
+    assert(n_read == 1 && ready_byte == 'R');
+    close(ready_pipe[0]);
+
+    seam_reset();
+    seam_clock_fails = 1;
+    test_mute_output();
+    result = collect_child_exit_status(child_pid, &cfg, 1);
+    test_unmute_output();
+    seam_clock_fails = 0;
+    seam_reset();
+
+    probe = waitpid(child_pid, &status, WNOHANG);
+    saved_errno = errno;
+    /* Always clean up before asserting, including on a regression. */
+    kill(child_pid, SIGKILL);
+    do {
+        waited = waitpid(child_pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    assert(result == EXIT_FAILURE);
+    assert(probe < 0 && saved_errno == ECHILD);
+}
+
+/**
  * @brief Test that collect_child_exit_status() resumes the child before
  *        bailing out on a get_current_time() failure
  *
@@ -20215,6 +20279,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
     RUN_TEST(test_child_wait_sigkill_escalation);
+    RUN_TEST(test_child_wait_clock_failure_after_forward);
     RUN_TEST(test_child_wait_resumes_on_clock_failure);
     RUN_TEST(test_child_wait_reaps_child_on_clock_failure);
     RUN_TEST(test_child_wait_reap_does_not_block_before_quit);

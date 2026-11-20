@@ -56,7 +56,8 @@ void reap_child_before_error_return(pid_t child_pid);
  * Polls with WNOHANG and maps death by signal to 128 + signal. After a quit
  * signal is forwarded, SIGKILL escalation is requested once, after
  * CHILD_KILL_TIMEOUT_MS. A clock failure resumes and reaps the child before
- * returning EXIT_FAILURE.
+ * returning EXIT_FAILURE. If termination was already forwarded, the error
+ * path escalates to SIGKILL and waits for the direct child.
  */
 int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                               int signal_forwarded);

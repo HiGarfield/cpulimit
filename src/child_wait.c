@@ -69,6 +69,35 @@ void reap_child_before_error_return(pid_t child_pid) {
 }
 
 /**
+ * @brief Recover the command child after a clock failure.
+ *
+ * @param child_pid PID of the command child.
+ * @param cfg Configuration, used for verbose output.
+ * @param signal_forwarded Non-zero when termination was already requested.
+ *
+ * @note A forwarded termination cannot be left waiting for the grace timer
+ *       that the failed clock was supposed to drive, so the error path
+ *       escalates immediately and reaps the direct child.
+ */
+static void recover_child_on_clock_error(pid_t child_pid,
+                                         const struct cpulimit_cfg *cfg,
+                                         int signal_forwarded) {
+    pid_t waited;
+    kill(child_pid, SIGCONT);
+    if (!signal_forwarded) {
+        reap_child_before_error_return(child_pid);
+        return;
+    }
+    signal_command(child_pid, SIGKILL, cfg->verbose);
+    do {
+        waited = waitpid(child_pid, NULL, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0) {
+        perror("waitpid");
+    }
+}
+
+/**
  * @def CHILD_POLL_INTERVAL_NS
  * @brief Nanoseconds between waitpid() polls during child cleanup.
  */
@@ -86,7 +115,8 @@ void reap_child_before_error_return(pid_t child_pid) {
  * Polls with WNOHANG and maps death by signal to 128 + signal. After a quit
  * signal is forwarded, SIGKILL escalation is requested once, after
  * CHILD_KILL_TIMEOUT_MS. A clock failure resumes and reaps the child before
- * returning EXIT_FAILURE.
+ * returning EXIT_FAILURE. If termination was already forwarded, the error
+ * path escalates to SIGKILL and waits for the direct child.
  */
 int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                               int signal_forwarded) {
@@ -97,9 +127,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
 
     if (get_current_time(&start_time) != 0) {
         perror("get_current_time");
-        /* Resume and reap the child before leaving an error path. */
-        kill(child_pid, SIGCONT);
-        reap_child_before_error_return(child_pid);
+        recover_child_on_clock_error(child_pid, cfg, signal_forwarded);
         return EXIT_FAILURE;
     }
 
@@ -138,8 +166,7 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
             struct timespec current_time;
             if (get_current_time(&current_time) != 0) {
                 perror("get_current_time");
-                kill(child_pid, SIGCONT);
-                reap_child_before_error_return(child_pid);
+                recover_child_on_clock_error(child_pid, cfg, signal_forwarded);
                 return EXIT_FAILURE;
             }
 
@@ -150,8 +177,8 @@ int collect_child_exit_status(pid_t child_pid, const struct cpulimit_cfg *cfg,
                 signal_forwarded = 1;
                 if (get_current_time(&start_time) != 0) {
                     perror("get_current_time");
-                    kill(child_pid, SIGCONT);
-                    reap_child_before_error_return(child_pid);
+                    recover_child_on_clock_error(child_pid, cfg,
+                                                 signal_forwarded);
                     return EXIT_FAILURE;
                 }
             } else if (signal_forwarded) {
