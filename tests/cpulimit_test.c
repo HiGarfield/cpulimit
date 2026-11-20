@@ -9308,6 +9308,50 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     free((void *)owned.blocks);
 }
 
+#if defined(__linux__)
+/**
+ * @brief Linux must keep a carriage return in a shebang interpreter path
+ *
+ * @note Linux terminates the interpreter at a blank or newline, not at a
+ *       carriage return. Trimming the return rejects a valid interpreter
+ *       whose filename contains that byte and prevents the script running.
+ */
+static void test_limiter_command_mode_shebang_carriage_return(void) {
+    char dir[40], interp_path[64], shebang[80];
+    char name[] = "pathcr_cpulimit_xyz";
+    struct cpulimit_cfg cfg;
+    char *args[2];
+    int len, ret, exit_code;
+
+    make_test_dir(dir, sizeof(dir), "sh_cr");
+    len = snprintf(interp_path, sizeof(interp_path), "%s/sh\r", dir);
+    assert(len > 0 && (size_t)len < sizeof(interp_path));
+    ret = symlink("/bin/sh", interp_path);
+    assert(ret == 0);
+    len = snprintf(shebang, sizeof(shebang), "#!%s\nexit 17\n", interp_path);
+    assert(len > 0 && (size_t)len < sizeof(shebang));
+    write_test_script(dir, name, shebang, 0755);
+
+    args[0] = name;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    exit_code = run_command_mode_with_path(&cfg, dir, NULL, NULL);
+    assert(exit_code == 17);
+
+    remove_test_script(dir, name);
+    ret = unlink(interp_path);
+    assert(ret == 0);
+    ret = rmdir(dir);
+    assert(ret == 0);
+}
+#endif
+
 /**
  * @brief Detect whether the test binary is running under valgrind
  *
@@ -19825,6 +19869,9 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_command_mode_skips_unusable_path_entry);
     RUN_TEST(test_limiter_command_mode_skips_bad_shebang_path_entry);
     RUN_TEST(test_limiter_command_mode_skips_non_regular_path_entry);
+#if defined(__linux__)
+    RUN_TEST(test_limiter_command_mode_shebang_carriage_return);
+#endif
     RUN_TEST(test_limiter_run_command_mode_fifo);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_once);
     RUN_TEST(test_limiter_run_command_mode_forwards_signal_without_group);

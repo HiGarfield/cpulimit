@@ -92,7 +92,13 @@ int is_script_inaccessible_interpreter(const char *path) {
     p = buf + 2;
     p += strspn(p, " \t");
 
+#if defined(__linux__)
+    /* Linux keeps carriage returns in interpreter filenames; other kernels
+     * retain their existing delimiter rules. */
+    end = p + strcspn(p, "\n \t");
+#else
     end = p + strcspn(p, "\n\r \t");
+#endif
     if (*end == '\0' && (n == (ssize_t)(sizeof(buf) - 1) || !at_eof)) {
         return 0;
     }
