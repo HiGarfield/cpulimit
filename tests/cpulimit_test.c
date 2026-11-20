@@ -18719,6 +18719,74 @@ static void test_process_set_stop_skips_recycled_pid(void) {
 }
 
 /**
+ * @brief A recycled descendant must not inherit another process's resume
+ *
+ * @note A stopped descendant's PID can be reused by a new descendant before
+ *       the next scan. The scan then updates the member to the replacement
+ *       while its suspension record still names the original process. The
+ *       active SIGCONT check must compare against that record, not the
+ *       replacement's newly recorded start time.
+ */
+static void test_process_set_cont_skips_recycled_descendant(void) {
+    struct process_set proc_set;
+    struct seam_proc *frames =
+        (struct seam_proc *)malloc(2 * sizeof(struct seam_proc));
+    const double base = 1000.0, recycled = 2000.0;
+    int ret, cont_before, cont_after, child_stops;
+
+    assert(frames != NULL);
+    memset(frames, 0, 2 * sizeof(*frames));
+    frames[0].pid = (pid_t)SEAM_TARGET_PID;
+    frames[0].ppid = (pid_t)1;
+    frames[0].cpu_time = 100.0;
+    frames[0].start_time = base;
+    frames[1].pid = (pid_t)SEAM_CHILD_PID;
+    frames[1].ppid = (pid_t)SEAM_TARGET_PID;
+    frames[1].cpu_time = 50.0;
+    frames[1].start_time = base;
+
+    seam_reset();
+    seam_push_frame(frames, 2);
+    seam_active = 1;
+    ret = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
+    assert(ret == 0);
+    assert(process_set_member_count(&proc_set) == 2);
+
+    seam_start_time_idx = 0;
+    seam_start_time_count = 2;
+    seam_start_time_queue[0] = base;
+    seam_start_time_queue[1] = base;
+    process_set_send_signal(&proc_set, SIGSTOP, 0);
+    child_stops = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     (pid_t)SEAM_CHILD_PID, SIGSTOP);
+    assert(child_stops == 1);
+
+    /* The descendant's PID now belongs to another process in the same tree. */
+    frames[1].cpu_time = 60.0;
+    frames[1].start_time = recycled;
+    seam_push_frame(frames, 2);
+    ret = update_process_set(&proc_set);
+    assert(ret == 0);
+
+    cont_before = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     (pid_t)SEAM_CHILD_PID, SIGCONT);
+    seam_start_time_idx = 0;
+    seam_start_time_count = 2;
+    seam_start_time_queue[0] = base;
+    seam_start_time_queue[1] = recycled;
+    process_set_send_signal(&proc_set, SIGCONT, 0);
+    cont_after = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                    (pid_t)SEAM_CHILD_PID, SIGCONT);
+
+    seam_active = 0;
+    seam_reset();
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+    free(frames);
+    assert(cont_after == cont_before);
+}
+
+/**
  * @brief a replaced target must be reported, not just emptied
  *
  * @note update_process_set() empties the group when the target PID turns out
@@ -19259,6 +19327,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
     RUN_TEST(test_process_set_resume_skips_stopped_recycled_pid);
     RUN_TEST(test_process_set_stop_skips_recycled_pid);
+    RUN_TEST(test_process_set_cont_skips_recycled_descendant);
     RUN_TEST(test_process_set_reports_replaced_target);
     RUN_TEST(test_limit_process_prefers_replacement_over_scan_failure);
     RUN_TEST(test_process_set_start_time_matches_scales_tolerance);

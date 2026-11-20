@@ -373,6 +373,30 @@ void forget_stopped_pid(struct process_set *proc_set, pid_t pid) {
 }
 
 /**
+ * @brief Find the suspension record for one PID.
+ *
+ * @param proc_set Set owning the records.
+ * @param pid PID to find.
+ * @return The record, or NULL when none exists.
+ */
+static const struct stopped_pid_record *
+find_stopped_pid_record(const struct process_set *proc_set, pid_t pid) {
+    const struct list_node *node;
+    if (proc_set == NULL || proc_set->stopped_pids == NULL) {
+        return NULL;
+    }
+    for (node = first_list_node(proc_set->stopped_pids); node != NULL;
+         node = node->next) {
+        const struct stopped_pid_record *rec =
+            (const struct stopped_pid_record *)node->data;
+        if (rec != NULL && rec->pid == pid) {
+            return rec;
+        }
+    }
+    return NULL;
+}
+
+/**
  * @def CPU_EMA_ALPHA
  * @brief Smoothing factor for the CPU-usage EMA.
  */
@@ -760,16 +784,30 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
         }
         /* Confirm the PID identity before sending SIGSTOP or SIGCONT. */
         if (sig == SIGSTOP || sig == SIGCONT) {
-            double signal_start = get_process_start_time(pid);
+            double signal_start, expected_start;
+            const struct stopped_pid_record *record = NULL;
+            signal_start = get_process_start_time(pid);
+            expected_start = proc->start_time;
+            /* A current member's record still names the suspended process. */
+            if (sig == SIGCONT) {
+                record = find_stopped_pid_record(proc_set, pid);
+                if (record != NULL && !start_time_matches(record->start_time,
+                                                          UNKNOWN_START_TIME)) {
+                    expected_start = record->start_time;
+                }
+            }
             /* SIGSTOP fails closed when a known identity cannot be read. */
-            if (!start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
+            if (!start_time_matches(expected_start, UNKNOWN_START_TIME) &&
                 ((sig == SIGSTOP &&
                   start_time_matches(signal_start, UNKNOWN_START_TIME)) ||
                  (!start_time_matches(signal_start, UNKNOWN_START_TIME) &&
-                  !start_time_matches(signal_start, proc->start_time)))) {
+                  !start_time_matches(signal_start, expected_start)))) {
                 /* The process suspended by us no longer owns this PID. */
                 if (sig == SIGCONT) {
                     proc->suspended_by_us = 0;
+                    if (record != NULL) {
+                        forget_stopped_pid(proc_set, pid);
+                    }
                 }
                 node = next_node;
                 continue;
