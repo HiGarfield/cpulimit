@@ -10019,12 +10019,8 @@ static void test_limiter_run_command_mode_exec_symlink_loop(void) {
     cfg.lazy_mode = 1;
 
     exit_code = run_command_mode_with_path(&cfg, "", NULL, NULL);
-    /* glibc reports ELOOP as non-executable; BSD resolves it as not found. */
-#if defined(__linux__)
+    /* Both Linux and FreeBSD classify this explicit path as not executable. */
     loop_exit_code = 126;
-#else
-    loop_exit_code = 127;
-#endif
     if (exit_code != loop_exit_code) {
         fprintf(stderr, "(explicit ELOOP: got %d, expected %d)\n", exit_code,
                 loop_exit_code);
