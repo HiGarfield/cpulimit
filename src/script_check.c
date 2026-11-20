@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /**
@@ -48,6 +49,7 @@ int is_script_inaccessible_interpreter(const char *path) {
     ssize_t n = 0;
     char *p;
     char *end;
+    struct stat interpreter_stat;
 
     fd = open(path, O_RDONLY | O_NONBLOCK);
     if (fd < 0) {
@@ -100,6 +102,12 @@ int is_script_inaccessible_interpreter(const char *path) {
         return 0;
     }
 
-    /* Check X_OK: execve() needs the interpreter to be executable. */
-    return access(p, X_OK) != 0;
+    /* X_OK also accepts directories, which execve() cannot interpret. */
+    if (access(p, X_OK) != 0) {
+        return 1;
+    }
+    if (stat(p, &interpreter_stat) != 0) {
+        return 0;
+    }
+    return !S_ISREG(interpreter_stat.st_mode);
 }

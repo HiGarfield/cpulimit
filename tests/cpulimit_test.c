@@ -8709,6 +8709,33 @@ static void test_script_check_requires_executable_interpreter(void) {
 }
 
 /**
+ * @brief A directory must not pass as an executable shebang interpreter
+ *
+ * @note access(X_OK) accepts a searchable directory, but execve() cannot use
+ *       one as an interpreter. Treating it as usable can select this PATH
+ *       candidate directly and hide a later healthy command.
+ */
+static void test_script_check_rejects_directory_interpreter(void) {
+    char script_path[] = "/tmp/cpulimit_test_dir_interp_XXXXXX";
+    static const char script[] = "#!/\nexit 0\n";
+    int script_fd, ret;
+    ssize_t nwritten;
+
+    script_fd = mkstemp(script_path);
+    assert(script_fd >= 0);
+    nwritten = write(script_fd, script, sizeof(script) - 1);
+    assert(nwritten == (ssize_t)(sizeof(script) - 1));
+    ret = close(script_fd);
+    assert(ret == 0);
+
+    ret = is_script_inaccessible_interpreter(script_path);
+    assert(ret == 1);
+
+    ret = unlink(script_path);
+    assert(ret == 0);
+}
+
+/**
  * @brief Write a shebang into a FIFO and ask the pre-check about it
  *
  * Holds a read end open so the write end can be opened without blocking,
@@ -19748,6 +19775,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_command_mode_bad_shebang);
     RUN_TEST(test_script_check_defers_on_truncated_shebang);
     RUN_TEST(test_script_check_requires_executable_interpreter);
+    RUN_TEST(test_script_check_rejects_directory_interpreter);
     RUN_TEST(test_script_check_defers_on_partial_fifo_read);
     RUN_TEST(test_limiter_run_command_mode_bad_shebang_via_path);
     RUN_TEST(test_limiter_command_mode_skips_unusable_path_entry);
