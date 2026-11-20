@@ -9336,7 +9336,7 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     struct cpulimit_cfg cfg;
     char *args[2];
     size_t dir_size = 48, path_size = 48 * 3 + 3, entry_size = 48 + 32;
-    int len, exit_code, rc;
+    int len, exit_code, rc, loop_exit_code;
 
     dir_a = (char *)malloc(dir_size);
     dir_b = (char *)malloc(dir_size);
@@ -9386,12 +9386,25 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     exit_code = run_command_mode_with_path(&cfg, path_value, NULL, &owned);
     assert(exit_code == 9);
 
-    /* ELOOP stops execvp()'s search instead of selecting the third entry. */
+    /*
+     * glibc stops its PATH search on ELOOP; BSD execvp() treats it as an
+     * ambiguous error and continues after the looping candidate fails its
+     * stat() check. Keep both documented libc behaviors under test.
+     */
     assert(rmdir(entry) == 0);
     rc = symlink(entry, entry);
     assert(rc == 0);
     exit_code = run_command_mode_with_path(&cfg, path_value, NULL, &owned);
-    assert(exit_code == 126);
+#if defined(__linux__)
+    loop_exit_code = 126;
+#else
+    loop_exit_code = 9;
+#endif
+    if (exit_code != loop_exit_code) {
+        fprintf(stderr, "(PATH ELOOP: got %d, expected %d)\n", exit_code,
+                loop_exit_code);
+    }
+    assert(exit_code == loop_exit_code);
 
     remove_test_script(dir_a, name);
     assert(unlink(entry) == 0);

@@ -95,11 +95,14 @@ static int resolve_command_path(const char *name, char *out, size_t out_size,
         /* X_OK also passes for directories and FIFOs, which execvp() skips. */
         if (len > 0 && (size_t)len < out_size) {
             if (access(out, X_OK) != 0) {
-                /* Unlike ENOENT or EACCES, ELOOP ends execvp()'s search. */
+#if defined(__linux__)
+                /* glibc ends the search; BSD execvp() treats ELOOP as an
+                 * ambiguous error and continues after a failed stat(). */
                 if (errno == ELOOP) {
                     found = 1;
                     break;
                 }
+#endif
             } else if (stat(out, &candidate_stat) == 0 &&
                        S_ISREG(candidate_stat.st_mode)) {
                 if (is_script_inaccessible_interpreter(out)) {
