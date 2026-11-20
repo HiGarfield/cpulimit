@@ -12828,6 +12828,8 @@ static void test_process_set_send_signal_reports_sigcont_failure(void) {
          * stopped.
          */
         seam_reset();
+        seam_start_time_count = 1;
+        seam_start_time_queue[0] = get_process_start_time(target);
         seam_active = 1;
         process_set_send_signal(&proc_set, SIGSTOP, 0);
         /* Make the resume signal fail so warn_signal_failure() is exercised. */
@@ -13132,6 +13134,8 @@ static void test_drive_limit_process_left_group(int inject_errno,
         seam_push_frame(frames + 1, 1); /* first control cycle */
         seam_push_frame(NULL, 0);       /* second cycle: group empty */
         seam_active = 1;
+        seam_start_time_count = 1;
+        seam_start_time_queue[0] = frames[0].start_time;
         seam_kill_calls = 0;
         seam_fail_call = 2; /* the SIGSTOP lands, the SIGCONT fails */
         seam_fail_span = 100;
@@ -13703,6 +13707,8 @@ static void test_process_set_throttles_repeated_sigcont_failure(void) {
          * without really being stopped.
          */
         seam_reset();
+        seam_start_time_count = 1;
+        seam_start_time_queue[0] = get_process_start_time(target);
         seam_active = 1;
         process_set_send_signal(&proc_set, SIGSTOP, 0);
         /* Make every SIGCONT to the target fail with EPERM. */
@@ -13817,6 +13823,10 @@ static void test_process_set_reports_stop_failure_after_recovery(void) {
             _exit(EXIT_FAILURE);
         }
         seam_reset();
+        seam_start_time_count = 3;
+        seam_start_time_queue[0] = get_process_start_time(target);
+        seam_start_time_queue[1] = seam_start_time_queue[0];
+        seam_start_time_queue[2] = seam_start_time_queue[0];
         seam_active = 1;
         /* Delivery 1: fails with EPERM and reports once. */
         seam_kill_calls = 0;
@@ -13941,6 +13951,11 @@ static void test_process_set_reports_each_member_stop_failure(void) {
         seam_active = 1;
         assert_rc3 = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 1);
         assert(assert_rc3 == 0);
+        seam_start_time_count = 4;
+        seam_start_time_queue[0] = frame[0].start_time;
+        seam_start_time_queue[1] = frame[1].start_time;
+        seam_start_time_queue[2] = frame[0].start_time;
+        seam_start_time_queue[3] = frame[1].start_time;
         /* Every SIGSTOP delivery fails with EPERM, for both members. */
         seam_kill_calls = 0;
         seam_fail_call = 1;
@@ -14047,6 +14062,8 @@ static void test_process_set_unrecorded_suspend_not_flagged(void) {
     seam_kill_calls = 0;
     seam_fail_call = 0;
     seam_fail_errno = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = frame[0].start_time;
     process_set_send_signal(&proc_set, SIGSTOP, 0);
 
     /*
@@ -14108,6 +14125,8 @@ static void test_process_set_clears_stale_suspend_flag_on_undo(void) {
     seam_fail_call = 0;
     seam_fail_errno = 0;
     seam_list_elem_fails_next = 1;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = frame[0].start_time;
     process_set_send_signal(&proc_set, SIGSTOP, 0);
 
     /* The undo left nothing suspended, so nothing may claim there is. */
@@ -15151,6 +15170,7 @@ static int seam_run_smoke_limit(void) {
      * hands to the code under test, so they must not be indeterminate.
      */
     memset(visible, 0, sizeof(struct seam_proc));
+    visible[0].start_time = UNKNOWN_START_TIME;
 
     seam_reset();
     for (cycle = 0; cycle < SEAM_SMOKE_CYCLES; cycle++) {
@@ -15230,6 +15250,9 @@ static int seam_run_group_limit(int reuse_cycle, int fail_call) {
     /* are copied out by the iterator and must not be indeterminate. */
     memset(both, 0, sizeof(struct seam_proc) * 2);
     memset(target_only, 0, sizeof(struct seam_proc) * 1);
+    both[0].start_time = UNKNOWN_START_TIME;
+    both[1].start_time = UNKNOWN_START_TIME;
+    target_only[0].start_time = UNKNOWN_START_TIME;
     seam_reset();
     seam_fail_call = fail_call;
     seam_fail_errno = ESRCH;
@@ -15839,6 +15862,7 @@ static pid_t seam_fork_scripted_limiter(int sleep_call, int announce_fd,
     assert(frame != NULL);
     /* are copied out by the iterator and must not be indeterminate. */
     memset(frame, 0, sizeof(struct seam_proc));
+    frame[0].start_time = UNKNOWN_START_TIME;
 
     seam_reset();
     for (cycle = 0; cycle < SEAM_SMOKE_CYCLES; cycle++) {
@@ -17646,6 +17670,8 @@ static void test_send_signal_does_not_count_resumed_member(void) {
     assert(tracked != NULL);
 
     /* One SIGSTOP, so this group really does owe the member a resume. */
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = tracked->start_time;
     failed = process_set_send_signal(&proc_set, SIGSTOP, 0);
     assert(failed == 0);
     assert(tracked->suspended_by_us == 1);
@@ -18275,6 +18301,9 @@ static void test_process_set_retries_failed_deferred_resume(void) {
     assert_rc = init_process_set(&proc_set, (pid_t)SEAM_TARGET_PID, 0);
     assert(assert_rc == 0);
 
+    /* Confirm the known identity so the scripted suspension is delivered. */
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = frame[0].start_time;
     /* A successful stop puts the member's suspension on the books. */
     assert_rc = process_set_send_signal(&proc_set, SIGSTOP, 0);
     assert(assert_rc == 0);
@@ -18340,6 +18369,9 @@ static void test_process_set_rerecords_member_failed_resume(void) {
     assert_rc = init_process_set(&ps, (pid_t)SEAM_TARGET_PID, 0);
     assert(assert_rc == 0);
 
+    /* Confirm the known identity so the scripted suspension is delivered. */
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = scan[0].start_time;
     /* One successful stop round: the suspension is on the books. */
     stop_failed = process_set_send_signal(&ps, SIGSTOP, 0);
     assert(stop_failed == 0);
@@ -18533,7 +18565,7 @@ static void test_process_set_stop_skips_recycled_pid(void) {
     const double base = 1000.0;     /* start time the scan recorded */
     const double recycled = 2000.0; /* start time now wearing the PID */
     int members;
-    int stop_before, stop_recycled, stop_intact;
+    int stop_before, stop_recycled, stop_unknown, stop_intact;
     int cont_before, cont_recycled, cont_intact;
     assert(frame != NULL);
 
@@ -18565,6 +18597,15 @@ static void test_process_set_stop_skips_recycled_pid(void) {
     stop_recycled = seam_count_signals(seam_signals, (int)seam_signal_count,
                                        child, SIGSTOP);
     assert(stop_recycled == stop_before);
+
+    /* An unreadable identity must not authorize SIGSTOP either. */
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = UNKNOWN_START_TIME;
+    process_set_send_signal(&proc_set, SIGSTOP, 0);
+    stop_unknown = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                      child, SIGSTOP);
+    assert(stop_unknown == stop_before);
 
     /* Identity intact: the suspension goes out exactly as before. */
     seam_start_time_idx = 0;
@@ -19210,6 +19251,9 @@ static void resume_gate_driver_child(int write_fd, int verbose) {
         /* Work phase, members not yet suspended: benign failures. */
         process_set_send_signal(&proc_set, SIGCONT, verbose);
         /* Sleep phase: suspends them, so SIGSTOP must succeed. */
+        seam_start_time_count = 2;
+        seam_start_time_queue[0] = frame[0].start_time;
+        seam_start_time_queue[1] = frame[1].start_time;
         process_set_send_signal(&proc_set, SIGSTOP, verbose);
         /* Work phase again, now suspended: severe failures, reported once. */
         process_set_send_signal(&proc_set, SIGCONT, verbose);
@@ -19556,6 +19600,8 @@ static void test_send_signal_clears_state_only_for_sigcont(void) {
     seam_reset();
     /* The seam answers every kill() with a success and delivers nothing. */
     seam_active = 1;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = member->start_time;
 
     /*
      * Suspended as far as the group's bookkeeping goes: SIGSTOP was delivered

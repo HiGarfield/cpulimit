@@ -747,9 +747,12 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
         /* Confirm the PID identity before sending SIGSTOP or SIGCONT. */
         if (sig == SIGSTOP || sig == SIGCONT) {
             double signal_start = get_process_start_time(pid);
+            /* SIGSTOP fails closed when a known identity cannot be read. */
             if (!start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
-                !start_time_matches(signal_start, UNKNOWN_START_TIME) &&
-                !start_time_matches(signal_start, proc->start_time)) {
+                ((sig == SIGSTOP &&
+                  start_time_matches(signal_start, UNKNOWN_START_TIME)) ||
+                 (!start_time_matches(signal_start, UNKNOWN_START_TIME) &&
+                  !start_time_matches(signal_start, proc->start_time)))) {
                 /* The process suspended by us no longer owns this PID. */
                 if (sig == SIGCONT) {
                     proc->suspended_by_us = 0;
