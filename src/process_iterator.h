@@ -249,13 +249,26 @@ int init_process_iterator(struct process_iterator *iter,
 #define PROCESS_ITER_ERROR (-2)
 
 /**
+ * @brief Classify a failed errno-backed process-table read on all platforms.
+ *
+ * @return -1 for a process that is gone or normally inaccessible, or
+ *         PROCESS_ITER_ERROR for a resource or I/O failure.
+ *
+ * @note Call immediately after the failing read while errno still describes
+ *       it. Expected process-lifetime races may skip an entry; an unreadable
+ *       process table must never look like a complete scan. Local allocation
+ *       and path failures return PROCESS_ITER_ERROR directly.
+ */
+int classify_process_read_error(void);
+
+/**
  * @brief Retrieve the next process matching the filter.
  *
  * @param iter Iterator to advance.
  * @param proc Structure to populate.
  * @return 0 with data in proc, -1 when the scan ends or an argument is
- *         NULL; the Linux backend also returns PROCESS_ITER_ERROR when a
- *         scan stops early on an error.
+ *         NULL; all backends return PROCESS_ITER_ERROR when a scan stops
+ *         early on a hard read error.
  *
  * Always populates pid, ppid, cpu_time and start_time; command is filled
  * only when filter->read_cmd is set. Zombies and system processes are

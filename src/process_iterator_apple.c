@@ -137,7 +137,8 @@ static double platform_time_to_ms(double platform_time) {
  * @param pid PID to query.
  * @param buf Destination buffer.
  * @param bufsize Size of buf, must be positive.
- * @return 0 on success, -1 when the payload cannot be parsed.
+ * @return 0 on success, -1 when the process should be skipped, or
+ *         PROCESS_ITER_ERROR for a resource or I/O failure.
  *
  * @note A long argv[0] is truncated rather than rejected.
  */
@@ -147,6 +148,7 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     size_t size, payload_size, argv0_len;
     char *procargs;
     const char *sp, *end, *nul;
+    int read_result;
 
     if (buf == NULL || bufsize == 0) {
         return -1;
@@ -156,8 +158,10 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 
     size = sizeof(argmax);
     /* sysctl() reports the bytes written; guard against a short read. */
-    if (sysctl(mib_argmax, 2, &argmax, &size, NULL, 0) != 0 ||
-        size != sizeof(argmax) || argmax <= 0) {
+    if (sysctl(mib_argmax, 2, &argmax, &size, NULL, 0) != 0) {
+        return classify_process_read_error();
+    }
+    if (size != sizeof(argmax) || argmax <= 0) {
         return -1;
     }
 
@@ -165,13 +169,14 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     payload_size = (size_t)argmax + sizeof(int);
     procargs = (char *)malloc(payload_size);
     if (procargs == NULL) {
-        return -1;
+        return PROCESS_ITER_ERROR;
     }
 
     size = payload_size;
     if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
+        read_result = classify_process_read_error();
         free(procargs);
-        return -1;
+        return read_result;
     }
     /* Never scan past the bytes sysctl() reported. */
     if (size > payload_size) {
@@ -222,7 +227,8 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
  * @param task_info Source structure.
  * @param proc Destination structure.
  * @param read_cmd Non-zero to read argv[0].
- * @return 0 on success, -1 on failure.
+ * @return 0 on success, -1 when the process should be skipped, or
+ *         PROCESS_ITER_ERROR for a resource or I/O failure.
  */
 static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
                                  struct process *proc, int read_cmd) {
@@ -234,11 +240,7 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
     if (!read_cmd) {
         return 0;
     }
-
-    if (get_proc_argv0(proc->pid, proc->command, sizeof(proc->command)) != 0) {
-        return -1;
-    }
-    return 0;
+    return get_proc_argv0(proc->pid, proc->command, sizeof(proc->command));
 }
 
 /**
@@ -246,18 +248,32 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
  *
  * @param pid PID to query.
  * @param task_info Structure to populate.
- * @return 0 on success, -1 when the process must be skipped.
+ * @return 0 on success, -1 when the process must be skipped, or
+ *         PROCESS_ITER_ERROR for a resource or I/O failure.
+ *
+ * @note A positive short proc_pidinfo() read is a process-lifetime race; a
+ *       non-positive return with no errno is treated as a hard lookup error.
  */
 static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
+    int read_result, info_size, bytes;
+    info_size = (int)sizeof(*task_info);
     /* Clear errno: proc_pidinfo() need not set it on a short read. */
     errno = 0;
-    if (proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info,
-                     sizeof(*task_info)) != (int)sizeof(*task_info)) {
-        /* Only unexpected errors are worth printing during a full scan. */
-        if (errno != 0 && errno != ESRCH && errno != EPERM) {
+    bytes = proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info, info_size);
+    if (bytes != info_size) {
+        /* A positive short read is a process that changed or disappeared. */
+        if (bytes > 0) {
+            return -1;
+        }
+        read_result = classify_process_read_error();
+        /* A non-positive return without errno is a real lookup failure. */
+        if (errno == 0) {
+            read_result = PROCESS_ITER_ERROR;
+            fprintf(stderr, "proc_pidinfo returned %d\n", bytes);
+        } else if (errno != ESRCH && errno != EPERM) {
             perror("proc_pidinfo");
         }
-        return -1;
+        return read_result;
     }
     if (task_info->pbsd.pbi_status == SZOMB) {
         return -1;
@@ -348,7 +364,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * @param pid PID to query.
  * @param proc Structure to populate.
  * @param read_cmd Non-zero to read argv[0].
- * @return 0 on success, -1 on failure.
+ * @return 0 on success, -1 when the process should be skipped, or
+ *         PROCESS_ITER_ERROR when the process table could not be read.
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     struct proc_taskallinfo *task_info;
@@ -356,11 +373,12 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     memset(proc, 0, sizeof(struct process));
     task_info = (struct proc_taskallinfo *)malloc(sizeof(*task_info));
     if (task_info == NULL) {
-        return -1;
+        return PROCESS_ITER_ERROR;
     }
-    if (get_proc_taskinfo(pid, task_info) != 0) {
+    ret = get_proc_taskinfo(pid, task_info);
+    if (ret != 0) {
         free(task_info);
-        return -1;
+        return ret;
     }
     ret = proc_taskinfo_to_proc(task_info, proc, read_cmd);
     if (ret == 0) {
@@ -378,8 +396,8 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
  * @param iter Iterator to advance.
  * @param proc Structure to populate.
  * @return 0 with data in proc, -1 when the scan ends or an argument is
- *         NULL; the Linux backend also returns PROCESS_ITER_ERROR when a
- *         scan stops early on an error.
+ *         NULL; all backends return PROCESS_ITER_ERROR when a scan stops
+ *         early on a hard read error.
  *
  * Always populates pid, ppid, cpu_time and start_time; command is filled
  * only when filter->read_cmd is set. Zombies and system processes are
@@ -393,23 +411,34 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         return -1;
     }
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
-        if (read_process_info(iter->filter->pid, proc,
-                              iter->filter->read_cmd) != 0) {
-            iter->current_index = iter->proc_count = 0;
+        int read_result;
+        read_result =
+            read_process_info(iter->filter->pid, proc, iter->filter->read_cmd);
+        iter->current_index = iter->proc_count = 0;
+        if (read_result == PROCESS_ITER_ERROR) {
+            return PROCESS_ITER_ERROR;
+        }
+        if (read_result != 0) {
             return -1;
         }
         iter->current_index = iter->proc_count = 1;
         return 0;
     }
     while (iter->current_index < iter->proc_count) {
-        pid_t pid = iter->pid_list[iter->current_index];
+        int read_result;
+        pid_t pid = iter->pid_list[iter->current_index++];
         /* Filter before reading: argv[0] lookup is the costly part. */
-        if (process_matches_filter(pid, iter->filter) &&
-            read_process_info(pid, proc, iter->filter->read_cmd) == 0) {
-            iter->current_index++;
+        if (!process_matches_filter(pid, iter->filter)) {
+            continue;
+        }
+        read_result = read_process_info(pid, proc, iter->filter->read_cmd);
+        if (read_result == PROCESS_ITER_ERROR) {
+            iter->current_index = iter->proc_count;
+            return PROCESS_ITER_ERROR;
+        }
+        if (read_result == 0) {
             return 0;
         }
-        iter->current_index++;
     }
     return -1;
 }

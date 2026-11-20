@@ -80,7 +80,8 @@ int init_process_iterator(struct process_iterator *iter,
  * @param pid PID to query.
  * @param proc Structure to populate.
  * @param read_cmd Non-zero to read argv[0].
- * @return 0 on success, -1 on failure.
+ * @return 0 on success, -1 when the process should be skipped, or
+ *         PROCESS_ITER_ERROR when the process table could not be read.
  */
 static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     char statfile[64], cmdline_path[64];
@@ -100,11 +101,11 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
 
     if (snprintf(statfile, sizeof(statfile), "/proc/%ld/stat", (long)pid) >=
         (int)sizeof(statfile)) {
-        return -1;
+        return PROCESS_ITER_ERROR;
     }
     buffer = read_file_contents(statfile);
     if (buffer == NULL) {
-        return -1;
+        return classify_process_read_error();
     }
     /* The last ')' ends comm, which may contain parentheses or newlines. */
     p = strrchr(buffer, ')');
@@ -131,7 +132,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     if (sc_clk_tck < 0) {
         /* Latch a failed clock lookup to avoid retrying it per process. */
         if (sc_clk_tck == -2) {
-            return -1;
+            return PROCESS_ITER_ERROR;
         }
         errno = 0;
         sc_clk_tck = sysconf(_SC_CLK_TCK);
@@ -144,7 +145,7 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
                         sc_clk_tck);
             }
             sc_clk_tck = -2;
-            return -1;
+            return PROCESS_ITER_ERROR;
         }
     }
     proc->cpu_time = (user_time + sys_time) * 1000.0 / (double)sc_clk_tck;
@@ -157,11 +158,11 @@ static int read_process_info(pid_t pid, struct process *proc, int read_cmd) {
     /* /proc/[pid]/cmdline is NUL-separated; copy only argv[0]. */
     if (snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%ld/cmdline",
                  (long)pid) >= (int)sizeof(cmdline_path)) {
-        return -1;
+        return PROCESS_ITER_ERROR;
     }
     buffer = read_file_contents(cmdline_path);
     if (buffer == NULL) {
-        return -1;
+        return classify_process_read_error();
     }
     /* Copy only the bytes present; proc was zeroed at entry. */
     cmd_len = strlen(buffer);
@@ -286,8 +287,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * @param iter Iterator to advance.
  * @param proc Structure to populate.
  * @return 0 with data in proc, -1 when the scan ends or an argument is
- *         NULL; the Linux backend also returns PROCESS_ITER_ERROR when a
- *         scan stops early on an error.
+ *         NULL; all backends return PROCESS_ITER_ERROR when a scan stops
+ *         early on a hard read error.
  *
  * Always populates pid, ppid, cpu_time and start_time; command is filled
  * only when filter->read_cmd is set. Zombies and system processes are
@@ -307,6 +308,9 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         int ret =
             read_process_info(iter->filter->pid, proc, iter->filter->read_cmd);
         iter->end_of_processes = 1;
+        if (ret == PROCESS_ITER_ERROR) {
+            return PROCESS_ITER_ERROR;
+        }
         return ret == 0 ? 0 : -1;
     }
 
@@ -319,6 +323,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         pid_t pid;
         char *endptr;
         long long_pid;
+        int read_ret;
         /* readdir() reports EOF and failure alike; clear errno first. */
         errno = 0;
         dir_entry = readdir(iter->proc_dir);
@@ -326,7 +331,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
             if (errno != 0) {
                 /* errno still carries the readdir() failure. */
                 iter->end_of_processes = 1;
-                return PROCESS_ITER_ERROR;
+                return classify_process_read_error();
             }
             break;
         }
@@ -348,7 +353,12 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
         if (!process_matches_filter(pid, iter->filter)) {
             continue;
         }
-        if (read_process_info(pid, proc, iter->filter->read_cmd) != 0) {
+        read_ret = read_process_info(pid, proc, iter->filter->read_cmd);
+        if (read_ret == PROCESS_ITER_ERROR) {
+            iter->end_of_processes = 1;
+            return PROCESS_ITER_ERROR;
+        }
+        if (read_ret != 0) {
             continue;
         }
         return 0;

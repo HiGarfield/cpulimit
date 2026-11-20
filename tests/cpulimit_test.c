@@ -3461,6 +3461,97 @@ static void test_process_iterator_process_is_stopped(void) {
     assert(stopped_gone == 0);
 }
 
+#if defined(__linux__)
+/**
+ * @brief A hard /proc read error must not look like the target exited
+ *
+ * @note The child exhausts its file descriptors so reading /proc/[pid]/stat
+ *       fails with EMFILE while the target is still alive. A normal skip
+ *       would empty the process set and end limiting as a successful scan.
+ */
+static void test_process_iterator_hard_read_error(void) {
+    pid_t wrapper_pid, waited;
+    int status, exited, exit_code;
+
+    fflush(stdout);
+    fflush(stderr);
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        struct rlimit limits;
+        struct process_iterator iter;
+        struct process_filter filter;
+        struct process *proc;
+        int fd, i, ret;
+        if (getrlimit(RLIMIT_NOFILE, &limits) != 0) {
+            _exit(2);
+        }
+        if (limits.rlim_max < 16) {
+            _exit(0);
+        }
+        limits.rlim_cur = 16;
+        if (setrlimit(RLIMIT_NOFILE, &limits) != 0) {
+            _exit(3);
+        }
+        for (fd = 3; fd < 16; fd++) {
+            close(fd);
+        }
+        for (i = 0; i < 32; i++) {
+            fd = open("/dev/null", O_RDONLY);
+            if (fd < 0) {
+                break;
+            }
+        }
+        if (i == 32 || errno != EMFILE) {
+            _exit(4);
+        }
+        proc = (struct process *)malloc(sizeof(*proc));
+        if (proc == NULL) {
+            _exit(5);
+        }
+        memset(&filter, 0, sizeof(filter));
+        filter.pid = getpid();
+        ret = init_process_iterator(&iter, &filter);
+        if (ret != 0) {
+            free(proc);
+            _exit(6);
+        }
+        ret = get_next_process(&iter, proc);
+        free(proc);
+        _exit(ret == PROCESS_ITER_ERROR ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    waited = waitpid(wrapper_pid, &status, 0);
+    assert(waited == wrapper_pid);
+    exited = WIFEXITED(status);
+    assert(exited);
+    exit_code = WEXITSTATUS(status);
+    assert(exit_code == EXIT_SUCCESS);
+}
+#endif
+
+/**
+ * @brief The shared read-error classifier must use the same contract
+ *
+ * @note All platform iterators call this helper. Expected process-lifetime
+ *       races remain skippable entries, while resource failures end a scan
+ *       with PROCESS_ITER_ERROR instead of an apparently complete result.
+ */
+static void test_process_iterator_classifies_read_errors(void) {
+    int result;
+    errno = 0;
+    result = classify_process_read_error();
+    assert(result == -1);
+    errno = ENOENT;
+    result = classify_process_read_error();
+    assert(result == -1);
+    errno = EINVAL;
+    result = classify_process_read_error();
+    assert(result == -1);
+    errno = EMFILE;
+    result = classify_process_read_error();
+    assert(result == PROCESS_ITER_ERROR);
+}
+
 /**
  * @brief Test init_process_iterator and get_next_process with NULL inputs
  *
@@ -20236,6 +20327,10 @@ static void run_process_iterator_module_tests(void) {
     RUN_TEST(test_process_iterator_read_command);
     RUN_TEST(test_process_iterator_getppid_of);
     RUN_TEST(test_process_iterator_process_is_stopped);
+#if defined(__linux__)
+    RUN_TEST(test_process_iterator_hard_read_error);
+#endif
+    RUN_TEST(test_process_iterator_classifies_read_errors);
     RUN_TEST(test_process_iterator_null_inputs);
     RUN_TEST(test_process_iterator_close_null);
     RUN_TEST(test_process_iterator_getppid_of_edges);

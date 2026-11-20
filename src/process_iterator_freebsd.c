@@ -35,6 +35,7 @@
 
 #include "process_iterator.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <kvm.h>
 #include <limits.h>
@@ -69,6 +70,26 @@ static kvm_t *open_kvm(void) {
     }
     free(errbuf);
     return kvm_descriptor;
+}
+
+/**
+ * @brief Classify a failed kvm(3) process read.
+ *
+ * @param kvm_descriptor Open kvm descriptor.
+ * @return -1 when the process is gone or has no readable argv, or
+ *         PROCESS_ITER_ERROR for a kvm resource or I/O failure.
+ *
+ * @note FreeBSD also reports kvm errors through kvm_geterr(). Keep a real
+ *       errno when one is set; use EIO only when kvm supplies an error and
+ *       errno does not. The shared classifier then decides whether to skip.
+ */
+static int classify_kvm_read_error(kvm_t *kvm_descriptor) {
+    int saved_errno = errno;
+    const char *message = kvm_geterr(kvm_descriptor);
+    if (message != NULL && message[0] != '\0' && saved_errno == 0) {
+        errno = EIO;
+    }
+    return classify_process_read_error();
 }
 
 /**
@@ -146,7 +167,8 @@ int init_process_iterator(struct process_iterator *iter,
  * @param kproc Source structure.
  * @param proc Destination structure.
  * @param read_cmd Non-zero to read argv[0].
- * @return 0 on success, -1 on failure.
+ * @return 0 on success, -1 when the process should be skipped, or
+ *         PROCESS_ITER_ERROR for a resource or I/O failure.
  */
 static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
                               struct process *proc, int read_cmd) {
@@ -165,9 +187,10 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
         return 0;
     }
     len_max = (int)(sizeof(proc->command) - 1);
+    errno = 0;
     args = kvm_getargv(kvm_descriptor, kproc, len_max);
     if (args == NULL || args[0] == NULL) {
-        return -1;
+        return classify_kvm_read_error(kvm_descriptor);
     }
     strncpy(proc->command, args[0], (size_t)len_max);
     proc->command[len_max] = '\0';
@@ -184,20 +207,23 @@ static int kinfo_proc_to_proc(kvm_t *kvm_descriptor, struct kinfo_proc *kproc,
  * @param pid PID to query.
  * @param proc Structure to populate.
  * @param read_cmd Non-zero to read argv[0].
- * @return 0 on success, -1 on failure.
+ * @return 0 on success, -1 when the process should be skipped, or
+ *         PROCESS_ITER_ERROR when the process table could not be read.
  */
 static int read_process_info(kvm_t *kvm_descriptor, pid_t pid,
                              struct process *proc, int read_cmd) {
     /* kvm_getprocs() leaves count untouched on failure. */
     int count = 0;
-    struct kinfo_proc *kproc =
-        kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
-    if (count == 0 || kproc == NULL || (kproc->ki_flag & P_SYSTEM) ||
-        (kproc->ki_stat == SZOMB) ||
-        kinfo_proc_to_proc(kvm_descriptor, kproc, proc, read_cmd) != 0) {
+    struct kinfo_proc *kproc;
+    errno = 0;
+    kproc = kvm_getprocs(kvm_descriptor, KERN_PROC_PID, pid, &count);
+    if (count == 0 || kproc == NULL) {
+        return classify_kvm_read_error(kvm_descriptor);
+    }
+    if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
         return -1;
     }
-    return 0;
+    return kinfo_proc_to_proc(kvm_descriptor, kproc, proc, read_cmd);
 }
 
 /**
@@ -321,8 +347,8 @@ int is_child_of(pid_t child_pid, pid_t parent_pid) {
  * @param iter Iterator to advance.
  * @param proc Structure to populate.
  * @return 0 with data in proc, -1 when the scan ends or an argument is
- *         NULL; the Linux backend also returns PROCESS_ITER_ERROR when a
- *         scan stops early on an error.
+ *         NULL; all backends return PROCESS_ITER_ERROR when a scan stops
+ *         early on a hard read error.
  *
  * Always populates pid, ppid, cpu_time and start_time; command is filled
  * only when filter->read_cmd is set. Zombies and system processes are
@@ -338,9 +364,14 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     }
 
     if (iter->filter->pid != 0 && !iter->filter->include_children) {
-        if (read_process_info(iter->kvm_descriptor, iter->filter->pid, proc,
-                              iter->filter->read_cmd) != 0) {
-            iter->current_index = iter->proc_count = 0;
+        int read_result;
+        read_result = read_process_info(iter->kvm_descriptor, iter->filter->pid,
+                                        proc, iter->filter->read_cmd);
+        iter->current_index = iter->proc_count = 0;
+        if (read_result == PROCESS_ITER_ERROR) {
+            return PROCESS_ITER_ERROR;
+        }
+        if (read_result != 0) {
             return -1;
         }
         iter->current_index = iter->proc_count = 1;
@@ -348,6 +379,7 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
     }
 
     while (iter->current_index < iter->proc_count) {
+        int read_result;
         struct kinfo_proc *kproc = &iter->kinfo_procs[iter->current_index++];
         if ((kproc->ki_flag & P_SYSTEM) || (kproc->ki_stat == SZOMB)) {
             continue;
@@ -357,12 +389,15 @@ int get_next_process(struct process_iterator *iter, struct process *proc) {
             continue;
         }
 
-        if (kinfo_proc_to_proc(iter->kvm_descriptor, kproc, proc,
-                               iter->filter->read_cmd) != 0) {
-            continue;
+        read_result = kinfo_proc_to_proc(iter->kvm_descriptor, kproc, proc,
+                                         iter->filter->read_cmd);
+        if (read_result == PROCESS_ITER_ERROR) {
+            iter->current_index = iter->proc_count;
+            return PROCESS_ITER_ERROR;
         }
-
-        return 0;
+        if (read_result == 0) {
+            return 0;
+        }
     }
 
     return -1;

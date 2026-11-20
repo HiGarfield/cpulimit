@@ -25,11 +25,38 @@
 
 #include "process_iterator.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+
+/**
+ * @brief Classify a failed errno-backed process-table read on all platforms.
+ *
+ * @return -1 for a process that is gone or normally inaccessible, or
+ *         PROCESS_ITER_ERROR for a resource or I/O failure.
+ *
+ * @note Backends call this immediately after a failed query, while errno
+ *       still describes it. Empty and short platform payloads are normal
+ *       process-lifetime races; other errors such as ENOMEM, EMFILE and EIO
+ *       end the scan. Local allocation and path failures return
+ *       PROCESS_ITER_ERROR directly.
+ */
+int classify_process_read_error(void) {
+    switch (errno) {
+    case 0:
+    case ENOENT:
+    case ESRCH:
+    case EACCES:
+    case EPERM:
+    case EINVAL:
+        return -1;
+    default:
+        return PROCESS_ITER_ERROR;
+    }
+}
 
 /**
  * @brief Determine whether a PID satisfies the iterator filter.
