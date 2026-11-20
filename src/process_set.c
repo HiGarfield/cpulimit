@@ -305,10 +305,9 @@ int resume_stopped_pids(struct process_set *proc_set, int verbose) {
             /* Recheck the start time so a recycled PID is not resumed. */
             if (!start_time_matches(rec->start_time, UNKNOWN_START_TIME)) {
                 double current = get_process_start_time(pid);
-                /* A changed start time does not rule out a stopped owner. */
+                /* A changed start time proves the PID owner was replaced. */
                 if (!start_time_matches(current, UNKNOWN_START_TIME) &&
-                    !start_time_matches(current, rec->start_time) &&
-                    !process_is_stopped(pid)) {
+                    !start_time_matches(current, rec->start_time)) {
                     resumed = 0;
                 }
             }

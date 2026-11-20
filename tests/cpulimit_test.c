@@ -18461,6 +18461,60 @@ static void test_process_set_resume_skips_recycled_pid(void) {
 }
 
 /**
+ * @brief A stopped replacement must not receive a deferred SIGCONT either
+ *
+ * @note A different start time proves that the original PID owner is gone.
+ *       The replacement's stopped state cannot undo that proof, so it must
+ *       not make resume_stopped_pids() signal an unrelated process.
+ */
+static void test_process_set_resume_skips_stopped_recycled_pid(void) {
+    struct process_set proc_set;
+    const double base = 1000.0, recycled = 2000.0;
+    pid_t child, waited;
+    int status, assert_rc, cont_before, cont_after;
+
+    seam_reset();
+    assert_rc = init_process_set(&proc_set, 4242, 0);
+    assert(assert_rc == 0);
+
+    fflush(stdout);
+    fflush(stderr);
+    child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        raise(SIGSTOP);
+        _exit(0);
+    }
+    waited = waitpid(child, &status, WUNTRACED);
+    assert(waited == child);
+    assert_rc = WIFSTOPPED(status);
+    assert(assert_rc);
+
+    assert_rc = record_stopped_pid(&proc_set, child, base);
+    assert(assert_rc == 0);
+    seam_active = 1;
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = recycled;
+    cont_before = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     child, SIGCONT);
+    resume_stopped_pids(&proc_set, 0);
+    cont_after = seam_count_signals(seam_signals, (int)seam_signal_count, child,
+                                    SIGCONT);
+
+    /* Reap the real child before asserting, including on a regression. */
+    seam_active = 0;
+    seam_reset();
+    assert_rc = close_process_set(&proc_set);
+    assert(assert_rc == 0);
+    assert_rc = kill(child, SIGKILL);
+    assert(assert_rc == 0);
+    waited = waitpid(child, &status, 0);
+    assert(waited == child);
+    assert(cont_after == cont_before);
+}
+
+/**
  * @brief a PID recycled between the scan and the SIGSTOP must not be stopped
  *
  * @note The scan that puts a member in the group runs a work quantum before
@@ -19067,6 +19121,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_new_member_uses_own_interval);
 
     RUN_TEST(test_process_set_resume_skips_recycled_pid);
+    RUN_TEST(test_process_set_resume_skips_stopped_recycled_pid);
     RUN_TEST(test_process_set_stop_skips_recycled_pid);
     RUN_TEST(test_process_set_reports_replaced_target);
     RUN_TEST(test_limit_process_prefers_replacement_over_scan_failure);
