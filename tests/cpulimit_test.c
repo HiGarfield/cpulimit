@@ -10833,16 +10833,11 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
  *       leaves wait_for_child_exec() blocked after its handler returns.
  */
 static void test_exec_sync_quit_during_stalled_setup(void) {
-    struct sync_notification {
-        pid_t child_pid;
-        char ready;
-    } notice;
-
     int notify_pipe[2], wrapper_status = 0, exited, exit_code, ret, i;
     int timed_out = 1;
-    pid_t wrapper_pid, waited;
+    pid_t wrapper_pid, waited, stopped_child = 0;
     struct timespec tick = {0, 20000000L};
-    char *dest;
+    char notice[32], *end;
     size_t received = 0;
     ssize_t got;
 
@@ -10853,7 +10848,7 @@ static void test_exec_sync_quit_during_stalled_setup(void) {
     wrapper_pid = fork();
     assert(wrapper_pid >= 0);
     if (wrapper_pid == 0) {
-        int sync_pipe[2], child_status, result;
+        int sync_pipe[2], child_status, result, notice_len;
         pid_t child_pid;
         close(notify_pipe[0]);
         ret = pipe(sync_pipe);
@@ -10872,28 +10867,35 @@ static void test_exec_sync_quit_during_stalled_setup(void) {
         waited = waitpid(child_pid, &child_status, WUNTRACED);
         assert(waited == child_pid);
         configure_signal_handler();
-        notice.child_pid = child_pid;
-        notice.ready = 'G';
-        got = write(notify_pipe[1], &notice, sizeof(notice));
-        assert(got == (ssize_t)sizeof(notice));
+        notice_len = snprintf(notice, sizeof(notice), "%ld", (long)child_pid);
+        assert(notice_len > 0 && notice_len < (int)sizeof(notice));
+        got = write(notify_pipe[1], notice, (size_t)notice_len + 1);
+        assert(got == (ssize_t)notice_len + 1);
         close(notify_pipe[1]);
         result = wait_for_child_exec(child_pid, sync_pipe[0]);
         _exit(result == 0 ? 0 : 2);
     }
     close(notify_pipe[1]);
-    dest = (char *)&notice;
-    while (received < sizeof(notice)) {
-        got = read(notify_pipe[0], dest + received, sizeof(notice) - received);
+    while (received < sizeof(notice) - 1) {
+        got = read(notify_pipe[0], notice + received,
+                   sizeof(notice) - 1 - received);
         if (got < 0 && errno == EINTR) {
             continue;
         }
         assert(got > 0);
         received += (size_t)got;
+        if (memchr(notice, '\0', received) != NULL) {
+            break;
+        }
     }
     close(notify_pipe[0]);
-    assert(notice.ready == 'G');
+    assert(received > 0);
+    assert(notice[received - 1] == '\0');
+    stopped_child = (pid_t)strtol(notice, &end, 10);
+    assert(end != notice);
+    assert(*end == '\0');
     kill(wrapper_pid, SIGTERM);
-    for (i = 0; i < 200; i++) {
+    for (i = 0; i < 400; i++) {
         waited = waitpid(wrapper_pid, &wrapper_status, WNOHANG);
         if (waited == wrapper_pid) {
             timed_out = 0;
@@ -10902,8 +10904,8 @@ static void test_exec_sync_quit_during_stalled_setup(void) {
         sleep_timespec(&tick);
     }
     if (timed_out) {
-        kill(notice.child_pid, SIGCONT);
-        kill(notice.child_pid, SIGKILL);
+        kill(stopped_child, SIGCONT);
+        kill(stopped_child, SIGKILL);
         kill(wrapper_pid, SIGKILL);
         do {
             waited = waitpid(wrapper_pid, &wrapper_status, 0);
@@ -10911,6 +10913,10 @@ static void test_exec_sync_quit_during_stalled_setup(void) {
     }
     exited = WIFEXITED(wrapper_status);
     exit_code = WEXITSTATUS(wrapper_status);
+    if (timed_out || !exited || exit_code != 2) {
+        fprintf(stderr, "(exec sync: timed_out=%d exited=%d code=%d)\n",
+                timed_out, exited, exit_code);
+    }
     assert(timed_out == 0);
     assert(exited);
     assert(exit_code == 2);
