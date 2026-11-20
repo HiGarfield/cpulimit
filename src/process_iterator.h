@@ -69,7 +69,8 @@ extern "C" {
  * @brief Sentinel for a start time the platform could not read.
  *
  * @note Real start times are non-negative, so a single comparison detects
- *       it. Only the Linux backend may report it.
+ *       it. Every backend may report it through get_process_start_time();
+ *       as a struct process start_time field only Linux may report it.
  */
 #define UNKNOWN_START_TIME (-1.0)
 
