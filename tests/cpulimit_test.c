@@ -19185,6 +19185,7 @@ static void test_record_stopped_pid_reports_undo_failure(void);
 
 /* test, which is defined later (next to the other record tests). */
 static void test_record_stopped_pid_undo_failure_is_silent(void);
+static void test_record_stopped_pid_undo_skips_recycled_pid(void);
 
 static void run_process_set_module_tests(void) {
     printf("\n=== PROCESS_SET MODULE TESTS ===\n");
@@ -19233,6 +19234,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_reap_before_error_return_does_not_block);
     RUN_TEST(test_stopped_pids_record_does_not_duplicate);
     RUN_TEST(test_record_stopped_pid_reports_undo_failure);
+    RUN_TEST(test_record_stopped_pid_undo_skips_recycled_pid);
     RUN_TEST(test_record_stopped_pid_undo_failure_is_silent);
     RUN_TEST(test_send_signal_clears_state_only_for_sigcont);
     RUN_TEST(test_limit_process_scan_failed_and_stranded);
@@ -19492,6 +19494,51 @@ static void test_record_stopped_pid_reports_undo_failure(void) {
 
     ret = close_process_set(&proc_set);
     assert(ret == 0);
+}
+
+/**
+ * @brief An undo must not resume an unrelated owner of a recycled PID
+ *
+ * @note The compensating SIGCONT after a failed record allocation used only
+ *       the PID. A changed start time proves that the suspended process is
+ *       gone, so no signal is owed; a matching identity is still resumed.
+ */
+static void test_record_stopped_pid_undo_skips_recycled_pid(void) {
+    struct process_set proc_set;
+    int ret, recycled_result, intact_result;
+    int cont_before, cont_recycled, cont_intact;
+
+    seam_reset();
+    ret = init_process_set(&proc_set, (pid_t)4242, 0);
+    assert(ret == 0);
+    seam_active = 1;
+
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = 2000.0;
+    seam_list_elem_fails_next = 1;
+    cont_before = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     (pid_t)4242, SIGCONT);
+    recycled_result = record_stopped_pid(&proc_set, (pid_t)4242, 1000.0);
+    cont_recycled = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                       (pid_t)4242, SIGCONT);
+
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = 1000.0;
+    seam_list_elem_fails_next = 1;
+    intact_result = record_stopped_pid(&proc_set, (pid_t)4242, 1000.0);
+    cont_intact = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     (pid_t)4242, SIGCONT);
+
+    seam_active = 0;
+    seam_reset();
+    ret = close_process_set(&proc_set);
+    assert(ret == 0);
+    assert(recycled_result == RECORD_STOPPED_RESUMED);
+    assert(intact_result == RECORD_STOPPED_RESUMED);
+    assert(cont_recycled == cont_before);
+    assert(cont_intact == cont_before + 1);
 }
 
 /**

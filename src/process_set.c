@@ -209,14 +209,25 @@ struct stopped_pid_record {
  * @brief Undo a suspension that could not be recorded.
  *
  * @param pid PID that received SIGSTOP.
+ * @param start_time Start time of the suspended process, or
+ *        UNKNOWN_START_TIME.
  * @return RECORD_STOPPED_RESUMED or RECORD_STOPPED_STILL_STOPPED.
  *
  * @note PID 1 is dropped without a signal instead.
  */
-static int undo_unrecorded_suspension(pid_t pid) {
+static int undo_unrecorded_suspension(pid_t pid, double start_time) {
+    double current;
     /* Never signal PID 1, even to undo a suspension. */
     if (pid == 1) {
         return RECORD_STOPPED_RESUMED;
+    }
+    if (!start_time_matches(start_time, UNKNOWN_START_TIME)) {
+        current = get_process_start_time(pid);
+        /* A different known owner means the suspended process is gone. */
+        if (!start_time_matches(current, UNKNOWN_START_TIME) &&
+            !start_time_matches(current, start_time)) {
+            return RECORD_STOPPED_RESUMED;
+        }
     }
     if (kill(pid, SIGCONT) != 0 && errno != ESRCH) {
         return RECORD_STOPPED_STILL_STOPPED;
@@ -242,7 +253,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
     struct list_node *node;
 
     if (proc_set == NULL || proc_set->stopped_pids == NULL) {
-        return undo_unrecorded_suspension(pid);
+        return undo_unrecorded_suspension(pid, start_time);
     }
 
     for (node = first_list_node(proc_set->stopped_pids); node != NULL;
@@ -264,7 +275,7 @@ int record_stopped_pid(struct process_set *proc_set, pid_t pid,
         free(rec);
     }
     /* Undo an unrecordable suspension at once so the member is not stranded. */
-    return undo_unrecorded_suspension(pid);
+    return undo_unrecorded_suspension(pid, start_time);
 }
 
 static void warn_signal_failure(int sig, pid_t pid, int err, int verbose,
