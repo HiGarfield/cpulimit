@@ -17677,11 +17677,11 @@ static void test_send_signal_does_not_count_resumed_member(void) {
     assert(tracked->suspended_by_us == 1);
 
     /*
-     * The second kill() is the group's SIGCONT and fails; the third is
-     * record_stopped_pid()'s undo after its list node is refused, and it
-     * succeeds. The member is running again by the time this round has to
-     * report its failures.
+     * Drop the record to exercise the re-record path independently. The
+     * second kill() is the group's SIGCONT and fails; the third is the undo
+     * after its replacement list node is refused, and it succeeds.
      */
+    forget_stopped_pid(&proc_set, tracked->pid);
     seam_fail_call = 2;
     seam_fail_errno = EPERM;
     seam_fail_sig = SIGCONT;
@@ -18346,7 +18346,7 @@ static void test_process_set_retries_failed_deferred_resume(void) {
     assert(resumed == 1);
 }
 
-static void test_process_set_rerecords_member_failed_resume(void) {
+static void test_process_set_preserves_record_when_undo_fails(void) {
     struct process_set ps;
     int assert_rc;
     struct seam_proc *scan =
@@ -18377,18 +18377,22 @@ static void test_process_set_rerecords_member_failed_resume(void) {
     assert(stop_failed == 0);
 
     /*
-     * Only the second kill() is made to fail: the first was the SIGSTOP,
-     * the second is the member's own SIGCONT in the following round.
+     * Fail the member's SIGCONT and the immediate undo after the replacement
+     * record is refused. The original record must survive both failures.
      */
     seam_fail_call = 2;
-    seam_fail_span = 1;
+    seam_fail_span = 2;
     seam_fail_errno = EPERM;
+    seam_fail_sig = SIGCONT;
+    seam_list_elem_fails_next = 1;
     /* The refused resume is what the test drives; its warning is not. */
     test_mute_output();
     cont_failed = process_set_send_signal(&ps, SIGCONT, 0);
     test_unmute_output();
     seam_fail_call = 0;
     seam_fail_errno = 0;
+    seam_fail_sig = 0;
+    seam_list_elem_fails_next = 0;
     assert(cont_failed != 0);
 
     /* The member leaves the group while it is still stopped. */
@@ -19166,7 +19170,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_process_set_resumes_without_proc_list);
     RUN_TEST(test_process_set_reports_failed_resume);
     RUN_TEST(test_process_set_retries_failed_deferred_resume);
-    RUN_TEST(test_process_set_rerecords_member_failed_resume);
+    RUN_TEST(test_process_set_preserves_record_when_undo_fails);
     RUN_TEST(test_process_set_send_signal_reports_sigcont_failure);
     RUN_TEST(test_process_set_throttles_repeated_sigcont_failure);
     RUN_TEST(test_process_set_reports_stop_failure_after_recovery);

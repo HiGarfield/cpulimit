@@ -323,6 +323,9 @@ int resume_stopped_pids(struct process_set *proc_set, int verbose) {
                     keep_record = 1;
                 }
             }
+        } else {
+            /* The regular round owns this record until its SIGCONT succeeds. */
+            keep_record = 1;
         }
         if (!keep_record) {
             destroy_list_node(proc_set->stopped_pids, node);
@@ -813,6 +816,7 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
             proc->stop_warned = 0;
         } else if (sig == SIGCONT) {
             /* Only SIGCONT undoes a suspension and clears the warning flags. */
+            forget_stopped_pid(proc_set, pid);
             proc->cont_warned = 0;
             proc->resume_warned = 0;
             proc->suspended_by_us = 0;
