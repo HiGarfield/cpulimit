@@ -18515,16 +18515,14 @@ static void test_process_set_resume_skips_stopped_recycled_pid(void) {
 }
 
 /**
- * @brief a PID recycled between the scan and the SIGSTOP must not be stopped
+ * @brief a recycled current member must not receive SIGSTOP or SIGCONT
  *
  * @note The scan that puts a member in the group runs a work quantum before
- *       the SIGSTOP that suspends it. A PID recycled inside that window now
- *       belongs to another process, and stopping it would freeze an unrelated
- *       process for the rest of the slot: not a limit, just damage.
- *       process_set_send_signal() re-reads the start time before suspending
- *       and leaves a member whose identity moved on alone for that cycle.
- *       Verified by mutation: dropping the recheck sends a SIGSTOP to the
- *       replacement and the first assertion fails.
+ *       the next signal. A PID recycled inside that window now belongs to
+ *       another process, and stopping or resuming it would affect an unrelated
+ *       process: not a limit, just damage. process_set_send_signal() re-reads
+ *       the start time and leaves a member whose identity moved on alone for
+ *       that cycle. Matching identities still receive both signals normally.
  */
 static void test_process_set_stop_skips_recycled_pid(void) {
     struct process_set proc_set;
@@ -18536,6 +18534,7 @@ static void test_process_set_stop_skips_recycled_pid(void) {
     const double recycled = 2000.0; /* start time now wearing the PID */
     int members;
     int stop_before, stop_recycled, stop_intact;
+    int cont_before, cont_recycled, cont_intact;
     assert(frame != NULL);
 
     seam_reset();
@@ -18575,6 +18574,26 @@ static void test_process_set_stop_skips_recycled_pid(void) {
     stop_intact = seam_count_signals(seam_signals, (int)seam_signal_count,
                                      child, SIGSTOP);
     assert(stop_intact == stop_before + 1);
+
+    /* A current member needs the same identity check before SIGCONT. */
+    cont_before = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     child, SIGCONT);
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = recycled;
+    process_set_send_signal(&proc_set, SIGCONT, 0);
+    cont_recycled = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                       child, SIGCONT);
+    assert(cont_recycled == cont_before);
+
+    /* The original identity must still be resumed normally. */
+    seam_start_time_idx = 0;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = base;
+    process_set_send_signal(&proc_set, SIGCONT, 0);
+    cont_intact = seam_count_signals(seam_signals, (int)seam_signal_count,
+                                     child, SIGCONT);
+    assert(cont_intact == cont_before + 1);
 
     seam_active = 0;
     seam_repeat_last = 0;

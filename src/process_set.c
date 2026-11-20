@@ -744,12 +744,16 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
             node = next_node;
             continue;
         }
-        /* Confirm the PID identity before sending SIGSTOP. */
-        if (sig == SIGSTOP) {
-            double stop_start = get_process_start_time(pid);
+        /* Confirm the PID identity before sending SIGSTOP or SIGCONT. */
+        if (sig == SIGSTOP || sig == SIGCONT) {
+            double signal_start = get_process_start_time(pid);
             if (!start_time_matches(proc->start_time, UNKNOWN_START_TIME) &&
-                !start_time_matches(stop_start, UNKNOWN_START_TIME) &&
-                !start_time_matches(stop_start, proc->start_time)) {
+                !start_time_matches(signal_start, UNKNOWN_START_TIME) &&
+                !start_time_matches(signal_start, proc->start_time)) {
+                /* The process suspended by us no longer owns this PID. */
+                if (sig == SIGCONT) {
+                    proc->suspended_by_us = 0;
+                }
                 node = next_node;
                 continue;
             }
