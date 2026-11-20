@@ -11428,6 +11428,8 @@ struct list_node *cpulimit_test_add_list_elem(struct list *lst, void *elem);
  * other allocation stays real.
  */
 static int seam_list_elem_fails_next = 0;
+static int seam_list_elem_call_count = 0;
+static int seam_list_elem_fail_call = 0;
 
 static void seam_reset(void) {
     seam_active = 0;
@@ -11452,6 +11454,8 @@ static void seam_reset(void) {
     seam_close_fails_after = 0;
     seam_close_call_count = 0;
     seam_list_elem_fails_next = 0;
+    seam_list_elem_call_count = 0;
+    seam_list_elem_fail_call = 0;
     seam_next_process_fails = 0;
     seam_next_process_error_after = 0;
     seam_next_process_served = 0;
@@ -13238,6 +13242,47 @@ static void test_limit_process_deferred_resume_esrch_is_ok(void) {
 }
 
 /**
+ * @brief An unrecorded stop whose undo fails must be reported as stranded
+ *
+ * @note The stop itself succeeds, but recording it fails and the compensating
+ *       SIGCONT is refused. The loop must stop before another scan erases the
+ *       member, and a further refused cleanup SIGCONT must produce STRANDED.
+ */
+static void test_limit_process_unrecorded_stop_undo_failure(void) {
+    struct seam_proc *frame =
+        (struct seam_proc *)malloc(sizeof(struct seam_proc));
+    int status;
+
+    assert(frame != NULL);
+    memset(frame, 0, sizeof(*frame));
+    frame[0].pid = (pid_t)SEAM_TARGET_PID;
+    frame[0].ppid = (pid_t)1;
+    frame[0].start_time = 10.0;
+
+    seam_reset();
+    seam_push_frame(frame, 1);
+    seam_push_frame(frame, 1);
+    seam_push_frame(NULL, 0);
+    seam_active = 1;
+    seam_start_time_count = 1;
+    seam_start_time_queue[0] = frame[0].start_time;
+    seam_list_elem_fail_call = 3;
+    seam_fail_call = 2;
+    seam_fail_span = 100;
+    seam_fail_errno = EPERM;
+    seam_fail_sig = SIGCONT;
+
+    test_mute_output();
+    status = limit_process((pid_t)SEAM_TARGET_PID, 0.5, 0, 0, 0);
+    test_unmute_output();
+
+    seam_active = 0;
+    seam_reset();
+    free(frame);
+    assert(status == LIMIT_PROCESS_STRANDED);
+}
+
+/**
  * @brief CLI must reject "-p 1" (PID 1 / init is never a target)
  *
  * @note cpulimit must never send a kill to PID 1 on any platform, so the input
@@ -14771,7 +14816,13 @@ double cpulimit_test_get_process_start_time(pid_t pid) {
  */
 /* cppcheck-suppress unusedFunction */
 struct list_node *cpulimit_test_add_list_elem(struct list *lst, void *elem) {
-    if (seam_list_elem_fails_next) {
+    int fail = seam_list_elem_fails_next;
+    seam_list_elem_call_count++;
+    if (seam_list_elem_fail_call > 0 &&
+        seam_list_elem_call_count == seam_list_elem_fail_call) {
+        fail = 1;
+    }
+    if (fail) {
         seam_list_elem_fails_next = 0;
         return NULL;
     }
@@ -19218,6 +19269,7 @@ static void run_process_set_module_tests(void) {
     RUN_TEST(test_limit_process_all_signals_fail_returns_ok);
     RUN_TEST(test_limit_process_deferred_resume_failure);
     RUN_TEST(test_limit_process_deferred_resume_esrch_is_ok);
+    RUN_TEST(test_limit_process_unrecorded_stop_undo_failure);
 }
 
 /**

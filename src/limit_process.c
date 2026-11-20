@@ -290,8 +290,14 @@ int limit_process(pid_t pid, double cpu_limit, int include_children,
         /* SLEEP PHASE: suspend the group. */
         if (sleep_time.tv_sec > 0 || sleep_time.tv_nsec > 0) {
             if (!is_stopped) {
-                process_set_send_signal(&proc_set, SIGSTOP, verbose);
+                int stop_failed;
+                stop_failed =
+                    process_set_send_signal(&proc_set, SIGSTOP, verbose);
                 is_stopped = 1;
+                /* Do not let a later scan erase an unrecorded suspension. */
+                if (stop_failed > 0) {
+                    break;
+                }
                 /* An empty group ends this attempt. */
                 if (process_set_is_empty(&proc_set)) {
                     break;

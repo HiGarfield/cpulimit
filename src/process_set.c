@@ -805,10 +805,14 @@ int process_set_send_signal(struct process_set *proc_set, int sig,
                 }
             }
         } else if (sig == SIGSTOP) {
+            int record_result;
             /* Record the suspension only while the member is still stopped. */
-            if (record_stopped_pid(proc_set, pid, proc->start_time) !=
-                RECORD_STOPPED_RESUMED) {
+            record_result = record_stopped_pid(proc_set, pid, proc->start_time);
+            if (record_result != RECORD_STOPPED_RESUMED) {
                 proc->suspended_by_us = 1;
+                if (record_result == RECORD_STOPPED_STILL_STOPPED) {
+                    failed++;
+                }
             } else {
                 proc->suspended_by_us = 0;
             }
