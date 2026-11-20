@@ -227,6 +227,7 @@ pid_t getppid_of(pid_t pid) {
  *
  * @note Read-only: sends no signal and starts no scan.
  */
+/* cppcheck-suppress unusedFunction */
 int process_is_stopped(pid_t pid) {
     char statfile[64];
     char *buffer;

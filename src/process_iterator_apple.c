@@ -148,7 +148,6 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
     size_t size, payload_size, argv0_len;
     char *procargs;
     const char *sp, *end, *nul;
-    int read_result;
 
     if (buf == NULL || bufsize == 0) {
         return -1;
@@ -174,6 +173,7 @@ static int get_proc_argv0(pid_t pid, char *buf, size_t bufsize) {
 
     size = payload_size;
     if (sysctl(mib, 3, procargs, &size, NULL, 0) != 0) {
+        int read_result;
         read_result = classify_process_read_error();
         free(procargs);
         return read_result;
@@ -255,12 +255,13 @@ static int proc_taskinfo_to_proc(struct proc_taskallinfo *task_info,
  *       non-positive return with no errno is treated as a hard lookup error.
  */
 static int get_proc_taskinfo(pid_t pid, struct proc_taskallinfo *task_info) {
-    int read_result, info_size, bytes;
+    int info_size, bytes;
     info_size = (int)sizeof(*task_info);
     /* Clear errno: proc_pidinfo() need not set it on a short read. */
     errno = 0;
     bytes = proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, task_info, info_size);
     if (bytes != info_size) {
+        int read_result;
         /* A positive short read is a process that changed or disappeared. */
         if (bytes > 0) {
             return -1;
@@ -316,6 +317,7 @@ pid_t getppid_of(pid_t pid) {
  *
  * @note Read-only: sends no signal and starts no scan.
  */
+/* cppcheck-suppress unusedFunction */
 int process_is_stopped(pid_t pid) {
     struct proc_taskallinfo *task_info;
     int stopped = 0;

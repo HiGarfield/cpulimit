@@ -10863,7 +10863,7 @@ static void test_exec_sync_quit_during_stalled_setup(void) {
         if (child_pid == 0) {
             close(sync_pipe[0]);
             close(notify_pipe[1]);
-            raise(SIGSTOP);
+            kill(getpid(), SIGSTOP);
             for (;;) {
                 pause();
             }
@@ -16465,7 +16465,7 @@ static void test_child_wait_clock_failure_after_forward(void) {
     struct cpulimit_cfg cfg;
     int ready_pipe[2], status, result, saved_errno, ret;
     char ready_byte;
-    ssize_t n_read, written;
+    ssize_t n_read;
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.program_name = "test";
@@ -16478,6 +16478,7 @@ static void test_child_wait_clock_failure_after_forward(void) {
     child_pid = fork();
     assert(child_pid >= 0);
     if (child_pid == 0) {
+        ssize_t written;
         close(ready_pipe[0]);
         ret = setpgid(0, 0);
         assert(ret == 0);
@@ -18835,7 +18836,7 @@ static void test_process_set_resume_skips_stopped_recycled_pid(void) {
     child = fork();
     assert(child >= 0);
     if (child == 0) {
-        raise(SIGSTOP);
+        kill(getpid(), SIGSTOP);
         _exit(0);
     }
     waited = waitpid(child, &status, WUNTRACED);

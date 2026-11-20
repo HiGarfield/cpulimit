@@ -216,12 +216,12 @@ struct stopped_pid_record {
  * @note PID 1 is dropped without a signal instead.
  */
 static int undo_unrecorded_suspension(pid_t pid, double start_time) {
-    double current;
     /* Never signal PID 1, even to undo a suspension. */
     if (pid == 1) {
         return RECORD_STOPPED_RESUMED;
     }
     if (!start_time_matches(start_time, UNKNOWN_START_TIME)) {
+        double current;
         current = get_process_start_time(pid);
         /* A different known owner means the suspended process is gone. */
         if (!start_time_matches(current, UNKNOWN_START_TIME) &&

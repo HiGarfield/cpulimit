@@ -80,11 +80,12 @@ static void kill_and_reap_child(pid_t child_pid) {
  */
 static int wait_for_sync_data(int sync_read_fd) {
     struct pollfd descriptor;
-    int ret, idle_polls = 0;
+    int idle_polls = 0;
     descriptor.fd = sync_read_fd;
     descriptor.events = POLLIN;
     descriptor.revents = 0;
     for (;;) {
+        int ret;
         ret = poll(&descriptor, 1, EXEC_SYNC_POLL_MS);
         if (ret > 0) {
             return 0;
