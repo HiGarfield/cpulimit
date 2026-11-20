@@ -9998,7 +9998,7 @@ static void test_limiter_run_command_mode_exec_symlink_loop(void) {
     struct cpulimit_cfg cfg;
     char path[] = "/tmp/cpulimit_test_exec_loop_XXXXXX";
     char *args[2];
-    int fd, ret, exit_code;
+    int fd, ret, exit_code, loop_exit_code;
 
     fd = mkstemp(path);
     assert(fd >= 0);
@@ -10019,7 +10019,17 @@ static void test_limiter_run_command_mode_exec_symlink_loop(void) {
     cfg.lazy_mode = 1;
 
     exit_code = run_command_mode_with_path(&cfg, "", NULL, NULL);
-    assert(exit_code == 126);
+    /* glibc reports ELOOP as non-executable; BSD resolves it as not found. */
+#if defined(__linux__)
+    loop_exit_code = 126;
+#else
+    loop_exit_code = 127;
+#endif
+    if (exit_code != loop_exit_code) {
+        fprintf(stderr, "(explicit ELOOP: got %d, expected %d)\n", exit_code,
+                loop_exit_code);
+    }
+    assert(exit_code == loop_exit_code);
 
     ret = unlink(path);
     assert(ret == 0);
