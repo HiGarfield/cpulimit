@@ -43,8 +43,10 @@ extern "C" {
  * drains the pipe to EOF: FD_CLOEXEC closes the write end on a successful
  * exec, and _exit() closes it on failure. Closes sync_read_fd on return.
  *
- * @note The reads run with SA_RESTART, so a termination signal received
- *       during exec setup does not end this wait.
+ * @note Bounded polls recheck the quit flag even though the handlers use
+ *       SA_RESTART. A child that finishes setup still follows the normal
+ *       signal-forwarding path; a stalled one is killed and reaped after
+ *       a short grace period.
  */
 int wait_for_child_exec(pid_t child_pid, int sync_read_fd);
 

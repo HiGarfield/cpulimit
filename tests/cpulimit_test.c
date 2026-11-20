@@ -28,6 +28,7 @@
 #include "../src/child_wait.h"
 #include "../src/cli.h"
 #include "../src/cpu_count.h"
+#include "../src/exec_sync.h"
 #include "../src/file_io.h"
 #include "../src/limit_process.h"
 #include "../src/limiter.h"
@@ -10733,6 +10734,97 @@ static void test_limiter_race_signal_during_sync_pipe_read(void) {
     assert(w_exit_code == 128 + SIGTERM);
 }
 
+/**
+ * @brief Quit during a stalled exec setup must not wait forever
+ *
+ * @note SA_RESTART restarts the synchronization read. With the write end
+ *       still open and the child stopped, a termination signal otherwise
+ *       leaves wait_for_child_exec() blocked after its handler returns.
+ */
+static void test_exec_sync_quit_during_stalled_setup(void) {
+    struct sync_notification {
+        pid_t child_pid;
+        char ready;
+    } notice;
+
+    int notify_pipe[2], wrapper_status = 0, exited, exit_code, ret, i;
+    int timed_out = 1;
+    pid_t wrapper_pid, waited;
+    struct timespec tick = {0, 20000000L};
+    char *dest;
+    size_t received = 0;
+    ssize_t got;
+
+    ret = pipe(notify_pipe);
+    assert(ret == 0);
+    fflush(stdout);
+    fflush(stderr);
+    wrapper_pid = fork();
+    assert(wrapper_pid >= 0);
+    if (wrapper_pid == 0) {
+        int sync_pipe[2], child_status, result;
+        pid_t child_pid;
+        close(notify_pipe[0]);
+        ret = pipe(sync_pipe);
+        assert(ret == 0);
+        child_pid = fork();
+        assert(child_pid >= 0);
+        if (child_pid == 0) {
+            close(sync_pipe[0]);
+            close(notify_pipe[1]);
+            raise(SIGSTOP);
+            for (;;) {
+                pause();
+            }
+        }
+        close(sync_pipe[1]);
+        waited = waitpid(child_pid, &child_status, WUNTRACED);
+        assert(waited == child_pid);
+        configure_signal_handler();
+        notice.child_pid = child_pid;
+        notice.ready = 'G';
+        got = write(notify_pipe[1], &notice, sizeof(notice));
+        assert(got == (ssize_t)sizeof(notice));
+        close(notify_pipe[1]);
+        result = wait_for_child_exec(child_pid, sync_pipe[0]);
+        _exit(result == 0 ? 0 : 2);
+    }
+    close(notify_pipe[1]);
+    dest = (char *)&notice;
+    while (received < sizeof(notice)) {
+        got = read(notify_pipe[0], dest + received, sizeof(notice) - received);
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+        assert(got > 0);
+        received += (size_t)got;
+    }
+    close(notify_pipe[0]);
+    assert(notice.ready == 'G');
+    kill(wrapper_pid, SIGTERM);
+    for (i = 0; i < 200; i++) {
+        waited = waitpid(wrapper_pid, &wrapper_status, WNOHANG);
+        if (waited == wrapper_pid) {
+            timed_out = 0;
+            break;
+        }
+        sleep_timespec(&tick);
+    }
+    if (timed_out) {
+        kill(notice.child_pid, SIGCONT);
+        kill(notice.child_pid, SIGKILL);
+        kill(wrapper_pid, SIGKILL);
+        do {
+            waited = waitpid(wrapper_pid, &wrapper_status, 0);
+        } while (waited < 0 && errno == EINTR);
+    }
+    exited = WIFEXITED(wrapper_status);
+    exit_code = WEXITSTATUS(wrapper_status);
+    assert(timed_out == 0);
+    assert(exited);
+    assert(exit_code == 2);
+}
+
 #if defined(__clang__)
 /* Clang: fully supported */
 #define NOINLINE_USED __attribute__((noinline, used))
@@ -20277,6 +20369,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_pid_or_exe_mode_verbose);
     RUN_TEST(test_limiter_race_quit_flag_preset_before_limit);
     RUN_TEST(test_limiter_race_signal_during_sync_pipe_read);
+    RUN_TEST(test_exec_sync_quit_during_stalled_setup);
     RUN_TEST(test_limiter_run_pid_or_exe_mode_resumes_target);
     RUN_TEST(test_child_wait_sigkill_escalation);
     RUN_TEST(test_child_wait_clock_failure_after_forward);
