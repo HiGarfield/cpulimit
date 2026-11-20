@@ -240,7 +240,9 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
         _exit(access(cfg->command_args[0], F_OK) == 0 ? EXIT_CMD_NOT_EXECUTABLE
                                                       : EXIT_CMD_NOT_FOUND);
     }
-    _exit(saved_errno == ENOENT ? EXIT_CMD_NOT_FOUND : EXIT_CMD_NOT_EXECUTABLE);
+    _exit(saved_errno == ENOENT || saved_errno == ENOTDIR
+              ? EXIT_CMD_NOT_FOUND
+              : EXIT_CMD_NOT_EXECUTABLE);
 
 error_out:
     _exit(EXIT_FAILURE);

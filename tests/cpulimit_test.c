@@ -9933,7 +9933,9 @@ static void test_limiter_run_command_mode_path_name_not_found(void) {
     int status, exited, exit_code;
     struct cpulimit_cfg cfg;
     char cmd[] = "cpulimit_test_no_such_command_xyz";
+    char notdir[] = "/tmp/cpulimit_test_notdir_XXXXXX";
     char *args[2];
+    int fd, ret;
 
     args[0] = cmd;
     args[1] = NULL;
@@ -9963,6 +9965,16 @@ static void test_limiter_run_command_mode_path_name_not_found(void) {
     /* Not found through PATH -> 127 */
     exit_code = WEXITSTATUS(status);
     assert(exit_code == 127);
+
+    /* ENOTDIR also means that no PATH candidate was found. */
+    fd = mkstemp(notdir);
+    assert(fd >= 0);
+    ret = close(fd);
+    assert(ret == 0);
+    exit_code = run_command_mode_with_path(&cfg, notdir, NULL, NULL);
+    assert(exit_code == 127);
+    ret = unlink(notdir);
+    assert(ret == 0);
 }
 
 /**
