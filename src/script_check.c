@@ -27,9 +27,16 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+/**
+ * @def SHEBANG_BUFFER_SIZE
+ * @brief Maximum bytes read from a shebang line.
+ */
+#define SHEBANG_BUFFER_SIZE 256
 
 /**
  * @brief Check whether a script shebang names an inaccessible interpreter.
@@ -44,8 +51,8 @@
  * unrecoverable.
  */
 int is_script_inaccessible_interpreter(const char *path) {
-    int fd, read_failed = 0, at_eof = 0;
-    char buf[256];
+    int fd, read_failed = 0, at_eof = 0, inaccessible;
+    char *buf;
     ssize_t n = 0;
     char *p;
     char *end;
@@ -55,10 +62,15 @@ int is_script_inaccessible_interpreter(const char *path) {
     if (fd < 0) {
         return 0;
     }
+    buf = (char *)malloc(SHEBANG_BUFFER_SIZE);
+    if (buf == NULL) {
+        close(fd);
+        return 0;
+    }
     /* Read to EOF or a full buffer; never judge a truncated path. */
-    while ((size_t)n < sizeof(buf) - 1) {
+    while ((size_t)n < SHEBANG_BUFFER_SIZE - 1) {
         ssize_t got;
-        got = read(fd, buf + n, sizeof(buf) - 1 - (size_t)n);
+        got = read(fd, buf + n, SHEBANG_BUFFER_SIZE - 1 - (size_t)n);
         if (got > 0) {
             n += got;
             continue;
@@ -75,16 +87,18 @@ int is_script_inaccessible_interpreter(const char *path) {
         }
         break;
     }
-    /* Preserve the read error's errno across close(). */
+    /* Preserve the read error's errno across close() and free(). */
     if (read_failed) {
         int saved_errno = errno;
         close(fd);
+        free(buf);
         errno = saved_errno;
         return 0;
     }
     close(fd);
 
     if (n < 2 || buf[0] != '#' || buf[1] != '!') {
+        free(buf);
         return 0;
     }
     buf[n] = '\0';
@@ -99,21 +113,27 @@ int is_script_inaccessible_interpreter(const char *path) {
 #else
     end = p + strcspn(p, "\n\r \t");
 #endif
-    if (*end == '\0' && (n == (ssize_t)(sizeof(buf) - 1) || !at_eof)) {
+    if (*end == '\0' && (n == (ssize_t)(SHEBANG_BUFFER_SIZE - 1) || !at_eof)) {
+        free(buf);
         return 0;
     }
     *end = '\0';
 
     if (*p == '\0') {
+        free(buf);
         return 0;
     }
 
     /* X_OK also accepts directories, which execve() cannot interpret. */
     if (access(p, X_OK) != 0) {
+        free(buf);
         return 1;
     }
     if (stat(p, &interpreter_stat) != 0) {
+        free(buf);
         return 0;
     }
-    return !S_ISREG(interpreter_stat.st_mode);
+    inaccessible = !S_ISREG(interpreter_stat.st_mode);
+    free(buf);
+    return inaccessible;
 }
