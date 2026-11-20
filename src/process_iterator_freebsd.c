@@ -28,9 +28,15 @@
 #define _GNU_SOURCE
 #endif
 
-#if defined(__STRICT_ANSI__) || !defined(__STDC_VERSION__) ||                  \
-    (__STDC_VERSION__ < 199901L)
+/* FreeBSD headers use inline before C99; C99+ and C++ already define it. */
+#if !defined(__cplusplus) &&                                                   \
+    (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 199901L) &&              \
+    !defined(inline)
+#if defined(__GNUC__)
+#define inline __inline__
+#else
 #define inline
+#endif
 #endif
 
 #include "process_iterator.h"
