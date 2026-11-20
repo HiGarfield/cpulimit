@@ -134,7 +134,7 @@ static int parse_pid_option(const char *pid_str, struct cpulimit_cfg *cfg) {
 static int parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
                               int ncpu) {
     char *endptr;
-    double percent_limit;
+    double percent_limit, ratio_limit;
     double max_limit;
     /* Reject leading whitespace: strtod() would otherwise skip it. */
     if (limit_str == NULL || isspace((unsigned char)limit_str[0])) {
@@ -146,14 +146,16 @@ static int parse_limit_option(const char *limit_str, struct cpulimit_cfg *cfg,
     /* Ignore ERANGE: strtod() also sets it for valid subnormal values. */
     percent_limit = strtod(limit_str, &endptr);
     max_limit = (double)ncpu * 100.0;
+    ratio_limit = percent_limit / 100.0;
     if (endptr == limit_str || *endptr != '\0' ||
-        !(percent_limit > 0 && percent_limit <= max_limit)) {
+        !(percent_limit > 0 && percent_limit <= max_limit) ||
+        !(ratio_limit > 0.0)) {
         fprintf(stderr, "Error: invalid limit value: %s\n\n", limit_str);
         print_usage(stderr, cfg);
         return EXIT_FAILURE;
     }
     /* Store the limit in core equivalents. */
-    cfg->cpu_limit = percent_limit / 100.0;
+    cfg->cpu_limit = ratio_limit;
     return 0;
 }
 

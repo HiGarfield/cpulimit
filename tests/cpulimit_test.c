@@ -4140,6 +4140,7 @@ static void test_cli_accepts_subnormal_limit(void) {
     char arg_tiny[] = "1e-308";
     char arg_overflow[] = "1e309";
     char arg_zero[] = "1e-400";
+    char arg_ratio_zero[] = "5e-324";
     char arg_e[] = "-e";
     char arg_exe[] = "foo";
     char *test_argv[6];
@@ -4162,6 +4163,11 @@ static void test_cli_accepts_subnormal_limit(void) {
     assert(parse_ret == EXIT_FAILURE);
 
     test_argv[2] = arg_zero;
+    parse_ret = run_parse_in_child(5, test_argv);
+    assert(parse_ret == EXIT_FAILURE);
+
+    /* A positive percentage must not become zero when stored as a ratio. */
+    test_argv[2] = arg_ratio_zero;
     parse_ret = run_parse_in_child(5, test_argv);
     assert(parse_ret == EXIT_FAILURE);
 }
