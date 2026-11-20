@@ -216,7 +216,7 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     execvp(exec_path, cfg->command_args);
 
     /* Map an exec failure to the shell-compatible 126/127 status. */
-    /* Explicit paths use access(F_OK), not errno, for classification. */
+    /* Explicit paths need access(F_OK) only for missing-path errors. */
     saved_errno = errno;
     ignore_sigpipe_for_diagnostics();
     /* perror() reads errno, which signal() may have changed. */
@@ -225,6 +225,11 @@ void exec_child_process(const struct cpulimit_cfg *cfg, int sync_read_fd,
     free(resolved);
     close(sync_write_fd);
     if (strchr(cfg->command_args[0], '/') != NULL) {
+        /* Other exec errors already prove the path is not executable. */
+        if (saved_errno != ENOENT && saved_errno != ENOTDIR) {
+            _exit(EXIT_CMD_NOT_EXECUTABLE);
+        }
+        /* ENOENT may instead name a missing shebang interpreter. */
         _exit(access(cfg->command_args[0], F_OK) == 0 ? EXIT_CMD_NOT_EXECUTABLE
                                                       : EXIT_CMD_NOT_FOUND);
     }

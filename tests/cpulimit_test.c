@@ -9832,6 +9832,44 @@ static void test_limiter_run_command_mode_not_executable(void) {
 }
 
 /**
+ * @brief An explicit path with a non-ENOENT exec error must return 126
+ *
+ * @note A self-referential symlink makes both execvp() and access(F_OK) fail
+ *       with ELOOP. The failed access() does not mean the command is absent;
+ *       the original exec error already classifies it as not executable.
+ */
+static void test_limiter_run_command_mode_exec_symlink_loop(void) {
+    struct cpulimit_cfg cfg;
+    char path[] = "/tmp/cpulimit_test_exec_loop_XXXXXX";
+    char *args[2];
+    int fd, ret, exit_code;
+
+    fd = mkstemp(path);
+    assert(fd >= 0);
+    ret = close(fd);
+    assert(ret == 0);
+    ret = unlink(path);
+    assert(ret == 0);
+    ret = symlink(path, path);
+    assert(ret == 0);
+
+    args[0] = path;
+    args[1] = NULL;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.program_name = "test";
+    cfg.command_mode = 1;
+    cfg.command_args = args;
+    cfg.cpu_limit = 0.5;
+    cfg.lazy_mode = 1;
+
+    exit_code = run_command_mode_with_path(&cfg, "", NULL, NULL);
+    assert(exit_code == 126);
+
+    ret = unlink(path);
+    assert(ret == 0);
+}
+
+/**
  * @brief Test run_command_mode exit code 127 for a bare PATH-resolved name
  *
  * @note argv[0] contains no '/', so execvp() performs a PATH search and the
@@ -19805,6 +19843,7 @@ static void run_limiter_module_tests(void) {
     RUN_TEST(test_limiter_run_command_mode_signal_kill);
     RUN_TEST(test_limiter_run_command_mode_signal_segv);
     RUN_TEST(test_limiter_run_command_mode_not_executable);
+    RUN_TEST(test_limiter_run_command_mode_exec_symlink_loop);
     RUN_TEST(test_limiter_run_command_mode_path_name_not_found);
     RUN_TEST(test_limiter_run_command_mode_with_fork);
     RUN_TEST(test_limiter_run_command_mode_quit_signal);
