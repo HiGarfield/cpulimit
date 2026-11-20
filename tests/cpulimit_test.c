@@ -9294,8 +9294,15 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     exit_code = run_command_mode_with_path(&cfg, path_value, NULL, &owned);
     assert(exit_code == 9);
 
-    remove_test_script(dir_a, name);
+    /* ELOOP stops execvp()'s search instead of selecting the third entry. */
     assert(rmdir(entry) == 0);
+    rc = symlink(entry, entry);
+    assert(rc == 0);
+    exit_code = run_command_mode_with_path(&cfg, path_value, NULL, &owned);
+    assert(exit_code == 126);
+
+    remove_test_script(dir_a, name);
+    assert(unlink(entry) == 0);
     remove_test_script(dir_c, name);
     assert(rmdir(dir_a) == 0);
     assert(rmdir(dir_b) == 0);

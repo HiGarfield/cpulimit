@@ -93,18 +93,25 @@ static int resolve_command_path(const char *name, char *out, size_t out_size,
             len = -1;
         }
         /* X_OK also passes for directories and FIFOs, which execvp() skips. */
-        if (len > 0 && (size_t)len < out_size && access(out, X_OK) == 0 &&
-            stat(out, &candidate_stat) == 0 &&
-            S_ISREG(candidate_stat.st_mode)) {
-            if (is_script_inaccessible_interpreter(out)) {
-                if (bad_dir == NULL) {
-                    bad_dir = path_env;
-                    bad_dir_len = dir_len;
+        if (len > 0 && (size_t)len < out_size) {
+            if (access(out, X_OK) != 0) {
+                /* Unlike ENOENT or EACCES, ELOOP ends execvp()'s search. */
+                if (errno == ELOOP) {
+                    found = 1;
+                    break;
                 }
-                *skipped_bad = 1;
-            } else {
-                found = 1;
-                break;
+            } else if (stat(out, &candidate_stat) == 0 &&
+                       S_ISREG(candidate_stat.st_mode)) {
+                if (is_script_inaccessible_interpreter(out)) {
+                    if (bad_dir == NULL) {
+                        bad_dir = path_env;
+                        bad_dir_len = dir_len;
+                    }
+                    *skipped_bad = 1;
+                } else {
+                    found = 1;
+                    break;
+                }
             }
         }
         if (sep == NULL) {
