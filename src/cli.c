@@ -216,10 +216,10 @@ static void format_rejected_option(char *buf, size_t buf_size, int argc,
      * either comparison relies on signed overflow not occurring.
      */
     if (optind > 0 && optind <= argc) {
-        int index = optind - 1;
+        int arg_index = optind - 1;
 
-        if (argv[index] != NULL && argv[index][0] == '-') {
-            typed = argv[index];
+        if (argv[arg_index] != NULL && argv[arg_index][0] == '-') {
+            typed = argv[arg_index];
         }
     }
     if (typed != NULL && !is_short_option_spelling(typed)) {
