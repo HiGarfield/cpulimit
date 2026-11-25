@@ -209,12 +209,18 @@ static int is_short_option_spelling(const char *arg) {
 static void format_rejected_option(char *buf, size_t buf_size, int argc,
                                    char **argv, int long_index,
                                    const struct option *long_options) {
-    int index = optind - 1;
     const char *typed = NULL;
 
-    if (index >= 0 && index < argc && argv[index] != NULL &&
-        argv[index][0] == '-') {
-        typed = argv[index];
+    /*
+     * Check optind before subtracting one: folding the subtraction into
+     * either comparison relies on signed overflow not occurring.
+     */
+    if (optind > 0 && optind <= argc) {
+        int index = optind - 1;
+
+        if (argv[index] != NULL && argv[index][0] == '-') {
+            typed = argv[index];
+        }
     }
     if (typed != NULL && !is_short_option_spelling(typed)) {
         (void)snprintf(buf, buf_size, "%s", typed);
