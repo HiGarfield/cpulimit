@@ -18961,7 +18961,7 @@ static void test_process_set_stop_skips_recycled_pid(void) {
     process_set_send_signal(&proc_set, SIGSTOP, 0);
     stop_intact = seam_count_signals(seam_signals, (int)seam_signal_count,
                                      child, SIGSTOP);
-    assert(stop_intact == stop_before + 1);
+    assert((unsigned int)stop_intact == (unsigned int)stop_before + 1U);
 
     /* A current member needs the same identity check before SIGCONT. */
     cont_before = seam_count_signals(seam_signals, (int)seam_signal_count,
@@ -18981,7 +18981,7 @@ static void test_process_set_stop_skips_recycled_pid(void) {
     process_set_send_signal(&proc_set, SIGCONT, 0);
     cont_intact = seam_count_signals(seam_signals, (int)seam_signal_count,
                                      child, SIGCONT);
-    assert(cont_intact == cont_before + 1);
+    assert((unsigned int)cont_intact == (unsigned int)cont_before + 1U);
 
     seam_active = 0;
     seam_repeat_last = 0;
