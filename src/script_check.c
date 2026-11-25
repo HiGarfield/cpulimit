@@ -104,7 +104,9 @@ int is_script_inaccessible_interpreter(const char *path) {
     buf[n] = '\0';
 
     p = buf + 2;
-    p += strspn(p, " \t");
+    while (*p == ' ' || *p == '\t') {
+        ++p;
+    }
 
 #if defined(__linux__)
     /* Linux keeps carriage returns in interpreter filenames; other kernels
