@@ -14535,8 +14535,8 @@ static void test_process_set_keeps_table_after_alloc_failure(void) {
     frames[0][1].pid = (pid_t)(SEAM_TARGET_PID + 1);
     frames[0][1].ppid = (pid_t)SEAM_TARGET_PID;
     frames[0][1].start_time = 11.0;
-    frames[1][0] = frames[0][0];
-    frames[1][1] = frames[0][1];
+    memcpy(&frames[1][0], &frames[0][0], sizeof(frames[0][0]));
+    memcpy(&frames[1][1], &frames[0][1], sizeof(frames[0][1]));
     seam_push_frame(frames[0], 2);
     seam_push_frame(frames[1], 2);
 
@@ -14678,7 +14678,8 @@ static void test_process_set_duplicate_pid_measured_once(void) {
     dup_frame[0].ppid = (pid_t)1;
     dup_frame[0].cpu_time = 150.0;
     dup_frame[0].start_time = 10.0;
-    dup_frame[1] = dup_frame[0]; /* same PID reported twice */
+    /* Same PID reported twice. */
+    memcpy(&dup_frame[1], &dup_frame[0], sizeof(dup_frame[0]));
 
     memset(&final_frame[0], 0, sizeof(final_frame[0]));
     final_frame[0].pid = (pid_t)SEAM_TARGET_PID;
