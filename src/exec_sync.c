@@ -95,8 +95,11 @@ static int wait_for_sync_data(int sync_read_fd) {
             return -1;
         }
         /* Let a live child finish its setup before honoring a stalled quit. */
-        if (is_quit_flag_set() && ++idle_polls >= EXEC_SYNC_QUIT_GRACE_POLLS) {
-            return 1;
+        if (is_quit_flag_set()) {
+            if (idle_polls >= EXEC_SYNC_QUIT_GRACE_POLLS - 1) {
+                return 1;
+            }
+            ++idle_polls;
         }
     }
 }
