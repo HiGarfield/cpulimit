@@ -68,9 +68,9 @@ int is_script_inaccessible_interpreter(const char *path) {
         return 0;
     }
     /* Read to EOF or a full buffer; never judge a truncated path. */
-    while ((size_t)n < SHEBANG_BUFFER_SIZE - 1) {
+    while (n < (ssize_t)(SHEBANG_BUFFER_SIZE - 1)) {
         ssize_t got;
-        got = read(fd, buf + n, SHEBANG_BUFFER_SIZE - 1 - (size_t)n);
+        got = read(fd, buf + n, (size_t)(SHEBANG_BUFFER_SIZE - 1 - n));
         if (got > 0) {
             n += got;
             continue;
