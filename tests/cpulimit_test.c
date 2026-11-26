@@ -9330,24 +9330,30 @@ static void test_limiter_command_mode_skips_bad_shebang_path_entry(void) {
  *       dropping the S_ISREG check makes this assert see 126 instead of 9.
  */
 static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
+    enum { DIR_SIZE = 48, PATH_SIZE = 48 * 3 + 3, ENTRY_SIZE = 48 + 32 };
+
     char *dir_a, *dir_b, *dir_c, *path_value, *entry;
     struct fork_owned_heap owned;
-    char name[] = "pathdir_cpulimit_xyz";
+    char *name;
     struct cpulimit_cfg cfg;
-    char *args[2];
-    size_t dir_size = 48, path_size = 48 * 3 + 3, entry_size = 48 + 32;
+    char **args;
     int len, exit_code, rc, loop_exit_code;
 
-    dir_a = (char *)malloc(dir_size);
-    dir_b = (char *)malloc(dir_size);
-    dir_c = (char *)malloc(dir_size);
-    path_value = (char *)malloc(path_size);
-    entry = (char *)malloc(entry_size);
+    dir_a = (char *)malloc(DIR_SIZE);
+    dir_b = (char *)malloc(DIR_SIZE);
+    dir_c = (char *)malloc(DIR_SIZE);
+    path_value = (char *)malloc(PATH_SIZE);
+    entry = (char *)malloc(ENTRY_SIZE);
+    name = (char *)malloc(sizeof("pathdir_cpulimit_xyz"));
+    args = (char **)malloc(2 * sizeof(*args));
     assert(dir_a != NULL);
     assert(dir_b != NULL);
     assert(dir_c != NULL);
     assert(path_value != NULL);
     assert(entry != NULL);
+    assert(name != NULL);
+    assert(args != NULL);
+    strcpy(name, "pathdir_cpulimit_xyz");
 
     owned.blocks = (void **)malloc(5 * sizeof(*owned.blocks));
     assert(owned.blocks != NULL);
@@ -9358,15 +9364,15 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     owned.blocks[3] = path_value;
     owned.blocks[4] = entry;
 
-    make_test_dir(dir_a, dir_size, "pdr_a");
-    make_test_dir(dir_b, dir_size, "pdr_b");
-    make_test_dir(dir_c, dir_size, "pdr_c");
+    make_test_dir(dir_a, DIR_SIZE, "pdr_a");
+    make_test_dir(dir_b, DIR_SIZE, "pdr_b");
+    make_test_dir(dir_c, DIR_SIZE, "pdr_c");
     /* First: an executable script whose interpreter is gone -> skipped_bad. */
     write_test_script(dir_a, name, "#!/nonexistent_interpreter_cpulimit_xyz\n",
                       0755);
     /* Second: a directory the old probe mistook for a usable candidate. */
-    len = snprintf(entry, entry_size, "%s/%s", dir_b, name);
-    assert(len > 0 && (size_t)len < entry_size);
+    len = snprintf(entry, ENTRY_SIZE, "%s/%s", dir_b, name);
+    assert(len > 0 && (size_t)len < ENTRY_SIZE);
     rc = mkdir(entry, 0755);
     assert(rc == 0);
     /* Third: the executable execvp() really should reach. */
@@ -9381,8 +9387,8 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     cfg.cpu_limit = 0.5;
     cfg.lazy_mode = 1;
 
-    len = snprintf(path_value, path_size, "%s:%s:%s", dir_a, dir_b, dir_c);
-    assert(len > 0 && (size_t)len < path_size);
+    len = snprintf(path_value, PATH_SIZE, "%s:%s:%s", dir_a, dir_b, dir_c);
+    assert(len > 0 && (size_t)len < PATH_SIZE);
     exit_code = run_command_mode_with_path(&cfg, path_value, NULL, &owned);
     assert(exit_code == 9);
 
@@ -9412,6 +9418,8 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     assert(rmdir(dir_a) == 0);
     assert(rmdir(dir_b) == 0);
     assert(rmdir(dir_c) == 0);
+    free(args);
+    free(name);
     free(entry);
     free(path_value);
     free(dir_c);
