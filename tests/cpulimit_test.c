@@ -9437,19 +9437,28 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
  *       whose filename contains that byte and prevents the script running.
  */
 static void test_limiter_command_mode_shebang_carriage_return(void) {
-    char dir[40], interp_path[64], shebang[80];
+    enum { DIR_SIZE = 40, INTERP_SIZE = 64, SHEBANG_SIZE = 80 };
+
+    char *dir, *interp_path, *shebang;
     char name[] = "pathcr_cpulimit_xyz";
     struct cpulimit_cfg cfg;
     char *args[2];
     int len, ret, exit_code;
 
-    make_test_dir(dir, sizeof(dir), "sh_cr");
-    len = snprintf(interp_path, sizeof(interp_path), "%s/sh\r", dir);
-    assert(len > 0 && (size_t)len < sizeof(interp_path));
+    dir = (char *)malloc(DIR_SIZE);
+    interp_path = (char *)malloc(INTERP_SIZE);
+    shebang = (char *)malloc(SHEBANG_SIZE);
+    assert(dir != NULL);
+    assert(interp_path != NULL);
+    assert(shebang != NULL);
+
+    make_test_dir(dir, DIR_SIZE, "sh_cr");
+    len = snprintf(interp_path, INTERP_SIZE, "%s/sh\r", dir);
+    assert(len > 0 && (size_t)len < INTERP_SIZE);
     ret = symlink("/bin/sh", interp_path);
     assert(ret == 0);
-    len = snprintf(shebang, sizeof(shebang), "#!%s\nexit 17\n", interp_path);
-    assert(len > 0 && (size_t)len < sizeof(shebang));
+    len = snprintf(shebang, SHEBANG_SIZE, "#!%s\nexit 17\n", interp_path);
+    assert(len > 0 && (size_t)len < SHEBANG_SIZE);
     write_test_script(dir, name, shebang, 0755);
 
     args[0] = name;
@@ -9469,6 +9478,9 @@ static void test_limiter_command_mode_shebang_carriage_return(void) {
     assert(ret == 0);
     ret = rmdir(dir);
     assert(ret == 0);
+    free(shebang);
+    free(interp_path);
+    free(dir);
 }
 #endif
 
