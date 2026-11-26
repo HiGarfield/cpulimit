@@ -9418,7 +9418,7 @@ static void test_limiter_command_mode_skips_non_regular_path_entry(void) {
     assert(rmdir(dir_a) == 0);
     assert(rmdir(dir_b) == 0);
     assert(rmdir(dir_c) == 0);
-    free(args);
+    free((void *)args);
     free(name);
     free(entry);
     free(path_value);
